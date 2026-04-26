@@ -589,7 +589,7 @@ def test_settings_panel_collapsed_on_load(page: Page):
     """Settings body #settings-body is hidden when the page first loads."""
     setup_routes(page)
     page.goto(f"{BASE_URL}/clip-cutter/")
-    assert page.locator("#settings-body").is_hidden()
+    expect(page.locator("#settings-body")).to_be_hidden()
 
 
 def test_settings_panel_toggle(page: Page):
@@ -597,9 +597,9 @@ def test_settings_panel_toggle(page: Page):
     setup_routes(page)
     page.goto(f"{BASE_URL}/clip-cutter/")
     page.click("#settings-toggle")
-    assert page.locator("#settings-body").is_visible()
+    expect(page.locator("#settings-body")).to_be_visible()
     page.click("#settings-toggle")
-    assert page.locator("#settings-body").is_hidden()
+    expect(page.locator("#settings-body")).to_be_hidden()
 
 
 def test_settings_clip_tab(page: Page):
@@ -608,8 +608,8 @@ def test_settings_clip_tab(page: Page):
     page.goto(f"{BASE_URL}/clip-cutter/")
     page.click("#settings-toggle")
     page.click(".tab-btn[data-tab='clip']")
-    assert page.locator("#tab-clip").is_visible()
-    assert page.locator("#tab-sensor").is_hidden()
+    expect(page.locator("#tab-clip")).to_be_visible()
+    expect(page.locator("#tab-sensor")).to_be_hidden()
 
 
 def test_settings_reset(page: Page):
@@ -620,8 +620,8 @@ def test_settings_reset(page: Page):
     page.fill("#trigger-value", "99")
     page.fill("#sensor-margin", "50")
     page.click("#settings-reset")
-    assert page.input_value("#trigger-value") == "14"
-    assert page.input_value("#sensor-margin") == "25"
+    expect(page.locator("#trigger-value")).to_have_value("14")
+    expect(page.locator("#sensor-margin")).to_have_value("25")
 
 
 def test_threshold_slider_label(page: Page):
@@ -632,7 +632,7 @@ def test_threshold_slider_label(page: Page):
     page.click(".tab-btn[data-tab='clip']")
     page.fill("#scan-threshold", "0.85")
     page.dispatch_event("#scan-threshold", "input")
-    assert page.text_content("#threshold-label") == "0.85"
+    expect(page.locator("#threshold-label")).to_have_text("0.85")
 
 
 def test_scan_post_contains_params(page: Page):
@@ -645,7 +645,7 @@ def test_scan_post_contains_params(page: Page):
         _json(route, {"job_id": "mock-job-abc"})
 
     setup_routes(page, template_frames=_MOCK_FRAMES)
-    # Override the scan route to capture the body
+    # Playwright matches routes LIFO — this handler fires before the one in setup_routes.
     page.route("**/clip-cutter/scan", on_scan)
     page.goto(f"{BASE_URL}/clip-cutter/")
 
@@ -666,6 +666,7 @@ def test_source_badge_sensor_clip(page: Page):
     """Injecting a detection with source='sensor+clip' renders the correct badge."""
     setup_routes(page)
     page.goto(f"{BASE_URL}/clip-cutter/")
+    page.wait_for_function("typeof renderDetections === 'function'")
     page.evaluate("""
         renderDetections([{
             video_path: "/fake/video.avi",
@@ -677,14 +678,15 @@ def test_source_badge_sensor_clip(page: Page):
         }]);
     """)
     badge = page.locator(".source-badge.source-sensor-clip")
-    assert badge.is_visible()
-    assert badge.text_content() == "✓ sensor+CLIP"
+    expect(badge).to_be_visible()
+    expect(badge).to_have_text("✓ sensor+CLIP")
 
 
 def test_no_source_badge_when_absent(page: Page):
     """Injecting a detection with no source field renders no source badge."""
     setup_routes(page)
     page.goto(f"{BASE_URL}/clip-cutter/")
+    page.wait_for_function("typeof renderDetections === 'function'")
     page.evaluate("""
         renderDetections([{
             video_path: "/fake/video.avi",
@@ -694,4 +696,4 @@ def test_no_source_badge_when_absent(page: Page):
             status: "pending"
         }]);
     """)
-    assert page.locator(".source-badge").count() == 0
+    expect(page.locator(".source-badge")).to_have_count(0)
