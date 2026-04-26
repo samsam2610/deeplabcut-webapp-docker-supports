@@ -241,7 +241,17 @@ def start_scan():
     if mean_embedding is None:
         return jsonify({"error": "template is empty — run /template/init first"}), 422
 
-    params = body.get("params", {})
+    # Fix 1: Guard params against non-dict JSON values
+    raw_params = body.get("params")
+    params = raw_params if isinstance(raw_params, dict) else {}
+
+    # Fix 2: Validate numeric param types before spawning thread
+    _int_params = ("stride", "min_spacing", "fine_window", "trigger_value", "sensor_margin")
+    for key in _int_params:
+        if key in params and not isinstance(params[key], int):
+            return jsonify({"error": f"params.{key} must be an integer"}), 400
+    if "threshold" in params and not isinstance(params["threshold"], (int, float)):
+        return jsonify({"error": "params.threshold must be a number"}), 400
 
     job_id = str(uuid.uuid4())
     with _jobs_lock:
