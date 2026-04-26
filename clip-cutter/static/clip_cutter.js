@@ -393,6 +393,7 @@ function renderDetections(dets) {
     }
     list.appendChild(card);
   });
+  applyFilter();
 }
 
 function buildResultCard(d, idx) {

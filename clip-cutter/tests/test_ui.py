@@ -697,3 +697,85 @@ def test_no_source_badge_when_absent(page: Page):
         }]);
     """)
     expect(page.locator(".source-badge")).to_have_count(0)
+
+
+# ── Source filter tests ───────────────────────────────────────────────────────
+
+_FILTER_DETECTIONS = [
+    {"frame_number": 100, "similarity": 0.90, "source": "sensor+clip",
+     "video_path": "/user-data/vid1.avi", "known_match": None, "status": "pending"},
+    {"frame_number": 200, "similarity": 0.80, "source": "clip_only",
+     "video_path": "/user-data/vid1.avi", "known_match": None, "status": "pending"},
+    {"frame_number": 300, "similarity": 0.75, "source": "sensor_only",
+     "video_path": "/user-data/vid1.avi", "known_match": None, "status": "pending"},
+]
+
+
+def _inject_filter_detections(page, dets):
+    page.wait_for_function("typeof renderDetections === 'function'")
+    page.evaluate(f"renderDetections({json.dumps(dets)})")
+
+
+def test_filter_bar_visible(page: Page):
+    setup_routes(page)
+    page.goto(f"{BASE_URL}/clip-cutter/")
+    expect(page.locator("#source-filter")).to_be_visible()
+
+
+def test_filter_default_active_is_sensor_clip(page: Page):
+    setup_routes(page)
+    page.goto(f"{BASE_URL}/clip-cutter/")
+    active = page.locator(".filter-btn.active")
+    expect(active).to_have_attribute("data-filter", "sensor+clip")
+
+
+def test_filter_default_hides_clip_only_cards(page: Page):
+    setup_routes(page)
+    page.goto(f"{BASE_URL}/clip-cutter/")
+    _inject_filter_detections(page, _FILTER_DETECTIONS)
+    expect(page.locator(".result-card[data-source='sensor+clip']")).to_be_visible()
+    expect(page.locator(".result-card[data-source='clip_only']")).to_be_hidden()
+
+
+def test_filter_all_shows_every_card(page: Page):
+    setup_routes(page)
+    page.goto(f"{BASE_URL}/clip-cutter/")
+    _inject_filter_detections(page, _FILTER_DETECTIONS)
+    page.click(".filter-btn[data-filter='all']")
+    expect(page.locator(".result-card[data-source='sensor+clip']")).to_be_visible()
+    expect(page.locator(".result-card[data-source='clip_only']")).to_be_visible()
+    expect(page.locator(".result-card[data-source='sensor_only']")).to_be_visible()
+
+
+def test_filter_clip_only_shows_only_clip_cards(page: Page):
+    setup_routes(page)
+    page.goto(f"{BASE_URL}/clip-cutter/")
+    _inject_filter_detections(page, _FILTER_DETECTIONS)
+    page.click(".filter-btn[data-filter='clip_only']")
+    expect(page.locator(".result-card[data-source='sensor+clip']")).to_be_hidden()
+    expect(page.locator(".result-card[data-source='clip_only']")).to_be_visible()
+    expect(page.locator(".result-card[data-source='sensor_only']")).to_be_hidden()
+
+
+def test_filter_sensor_only_cards_visible_only_in_all(page: Page):
+    setup_routes(page)
+    page.goto(f"{BASE_URL}/clip-cutter/")
+    _inject_filter_detections(page, _FILTER_DETECTIONS)
+    # Default (sensor+clip filter): sensor_only hidden
+    expect(page.locator(".result-card[data-source='sensor_only']")).to_be_hidden()
+    # clip_only filter: sensor_only still hidden
+    page.click(".filter-btn[data-filter='clip_only']")
+    expect(page.locator(".result-card[data-source='sensor_only']")).to_be_hidden()
+    # All: sensor_only visible
+    page.click(".filter-btn[data-filter='all']")
+    expect(page.locator(".result-card[data-source='sensor_only']")).to_be_visible()
+
+
+def test_filter_active_button_updates_on_click(page: Page):
+    setup_routes(page)
+    page.goto(f"{BASE_URL}/clip-cutter/")
+    page.click(".filter-btn[data-filter='all']")
+    expect(page.locator(".filter-btn[data-filter='all']")).to_have_class(re.compile(r"\bactive\b"))
+    expect(page.locator(".filter-btn[data-filter='sensor\\+clip']")).not_to_have_class(
+        re.compile(r"\bactive\b")
+    )
