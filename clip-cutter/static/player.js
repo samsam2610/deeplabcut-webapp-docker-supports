@@ -1,0 +1,136 @@
+const PLAYER_FPS = 15;
+
+let _playerVideoPath = null;
+let _playerFrameCount = 0;
+let _playerCurrentFrame = 0;
+let _playerClipStart = 0;
+let _playerClipEnd = 0;
+let _playerKeyFrame = 0;
+let _playerLooping = true;
+let _playerPlaying = false;
+let _playerBusy = false;
+let _playerTimeoutId = null;
+
+async function loadClip(videoPath, keyFrame1Based) {
+  const resp = await fetch(
+    `/clip-cutter/video-info?video=${encodeURIComponent(videoPath)}`
+  );
+  if (!resp.ok) { setStatus("Cannot load video info"); return; }
+  const info = await resp.json();
+
+  _playerVideoPath = videoPath;
+  _playerFrameCount = info.frame_count;
+  const kf0 = keyFrame1Based - 1;
+  _playerKeyFrame = kf0;
+  _playerClipStart = Math.max(0, kf0 - 200);
+  _playerClipEnd = Math.min(info.frame_count - 1, kf0 + 599);
+
+  _playerStop();
+  document.getElementById("player-placeholder").style.display = "none";
+  document.getElementById("player-container").style.display = "flex";
+
+  await _playerLoadFrame(_playerClipStart);
+}
+
+async function _playerLoadFrame(n) {
+  if (_playerBusy || _playerVideoPath === null) return;
+  _playerBusy = true;
+  n = Math.max(0, Math.min(n, _playerFrameCount - 1));
+  _playerCurrentFrame = n;
+
+  try {
+    const url = `/clip-cutter/frame?video=${encodeURIComponent(_playerVideoPath)}&n=${n}`;
+    const resp = await fetch(url);
+    if (!resp.ok) return;
+    const blob = await resp.blob();
+    const blobUrl = URL.createObjectURL(blob);
+    const img = document.getElementById("player-frame");
+    await new Promise((resolve, reject) => {
+      img.onload = resolve;
+      img.onerror = reject;
+      const prev = img.src;
+      img.src = blobUrl;
+      if (prev && prev.startsWith("blob:")) URL.revokeObjectURL(prev);
+    });
+    _playerUpdateDisplay();
+    new Image().src = `/clip-cutter/frame?video=${encodeURIComponent(_playerVideoPath)}&n=${n + 1}`;
+  } finally {
+    _playerBusy = false;
+  }
+}
+
+async function _playerLoop() {
+  if (!_playerPlaying) return;
+
+  let next = _playerCurrentFrame + 1;
+  if (next > _playerClipEnd) {
+    if (_playerLooping) {
+      next = _playerClipStart;
+    } else {
+      _playerStop();
+      return;
+    }
+  }
+
+  const t0 = performance.now();
+  await _playerLoadFrame(next);
+  if (!_playerPlaying) return;
+
+  const elapsed = performance.now() - t0;
+  const delay = Math.max(0, Math.round(1000 / PLAYER_FPS) - elapsed);
+  _playerTimeoutId = setTimeout(_playerLoop, delay);
+}
+
+function _playerStop() {
+  if (_playerTimeoutId !== null) { clearTimeout(_playerTimeoutId); _playerTimeoutId = null; }
+  _playerPlaying = false;
+  const btn = document.getElementById("player-play");
+  if (btn) btn.textContent = "▶";
+}
+
+function _playerUpdateDisplay() {
+  document.getElementById("player-frame-num").textContent = `fr ${_playerCurrentFrame}`;
+  const seek = document.getElementById("player-seek");
+  const pct = _playerFrameCount > 1 ? _playerCurrentFrame / (_playerFrameCount - 1) : 0;
+  seek.value = Math.round(pct * 1000);
+}
+
+document.addEventListener("DOMContentLoaded", () => {
+  document.getElementById("player-play").addEventListener("click", () => {
+    if (_playerVideoPath === null) return;
+    if (_playerPlaying) {
+      _playerStop();
+    } else {
+      _playerPlaying = true;
+      document.getElementById("player-play").textContent = "⏸";
+      _playerLoop();
+    }
+  });
+
+  document.getElementById("player-prev").addEventListener("click", () => {
+    _playerStop();
+    _playerLoadFrame(_playerCurrentFrame - 1);
+  });
+
+  document.getElementById("player-next").addEventListener("click", () => {
+    _playerStop();
+    _playerLoadFrame(_playerCurrentFrame + 1);
+  });
+
+  document.getElementById("player-keyframe").addEventListener("click", () => {
+    _playerStop();
+    _playerLoadFrame(_playerKeyFrame);
+  });
+
+  document.getElementById("player-loop").addEventListener("click", () => {
+    _playerLooping = !_playerLooping;
+    document.getElementById("player-loop").classList.toggle("active", _playerLooping);
+  });
+
+  document.getElementById("player-seek").addEventListener("input", (e) => {
+    if (_playerFrameCount === 0) return;
+    _playerStop();
+    const n = Math.round((e.target.value / 1000) * (_playerFrameCount - 1));
+    _playerLoadFrame(n);
+  });
+});

@@ -519,3 +519,67 @@ def test_rescan_overwrites_saved_results(page: Page):
         card = page.locator(".result-card").nth(i)
         expect(card).not_to_have_class(re.compile(r"\bkept\b"))
         expect(card).not_to_have_class(re.compile(r"\brejected\b"))
+
+
+def test_player_placeholder_visible_before_card_click(page: Page):
+    """Player placeholder is shown before any detection card is clicked."""
+    setup_routes_with_persistence(page, template_frames=_MOCK_FRAMES)
+    page.goto(f"{BASE_URL}/clip-cutter/")
+    page.locator(".video-row:not(.done)").first.click()
+    page.locator("#scan-btn").click()
+    expect(page.locator(".result-card")).to_have_count(2, timeout=8_000)
+
+    expect(page.locator("#player-placeholder")).to_be_visible()
+    expect(page.locator("#player-container")).to_be_hidden()
+
+
+def test_clicking_card_shows_player(page: Page):
+    """Clicking a detection card hides the placeholder and shows the player."""
+    setup_routes_with_persistence(page, template_frames=_MOCK_FRAMES)
+    page.goto(f"{BASE_URL}/clip-cutter/")
+    page.locator(".video-row:not(.done)").first.click()
+    page.locator("#scan-btn").click()
+    expect(page.locator(".result-card")).to_have_count(2, timeout=8_000)
+
+    page.locator(".result-card").first.click()
+
+    expect(page.locator("#player-container")).to_be_visible(timeout=5_000)
+    expect(page.locator("#player-placeholder")).to_be_hidden()
+
+
+def test_player_next_frame_advances_counter(page: Page):
+    """Clicking next-frame button increments the frame counter."""
+    setup_routes_with_persistence(page, template_frames=_MOCK_FRAMES)
+    page.goto(f"{BASE_URL}/clip-cutter/")
+    page.locator(".video-row:not(.done)").first.click()
+    page.locator("#scan-btn").click()
+    expect(page.locator(".result-card")).to_have_count(2, timeout=8_000)
+
+    page.locator(".result-card").first.click()
+    expect(page.locator("#player-container")).to_be_visible(timeout=5_000)
+
+    frame_text_before = page.locator("#player-frame-num").inner_text()
+    page.locator("#player-next").click()
+    page.wait_for_timeout(800)
+    frame_text_after = page.locator("#player-frame-num").inner_text()
+    assert frame_text_before != frame_text_after
+
+
+def test_player_keyframe_button_jumps_to_keyframe(page: Page):
+    """Key frame button seeks to the detection's frame_number (0-based display)."""
+    setup_routes_with_persistence(page, template_frames=_MOCK_FRAMES)
+    page.goto(f"{BASE_URL}/clip-cutter/")
+    page.locator(".video-row:not(.done)").first.click()
+    page.locator("#scan-btn").click()
+    expect(page.locator(".result-card")).to_have_count(2, timeout=8_000)
+
+    page.locator(".result-card").first.click()
+    expect(page.locator("#player-container")).to_be_visible(timeout=5_000)
+
+    page.locator("#player-prev").click()
+    page.wait_for_timeout(400)
+    page.locator("#player-keyframe").click()
+    page.wait_for_timeout(400)
+
+    # first detection: frame_number=20968, 0-based=20967
+    expect(page.locator("#player-frame-num")).to_have_text("fr 20967")
