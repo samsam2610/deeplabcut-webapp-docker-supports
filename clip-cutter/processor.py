@@ -226,7 +226,6 @@ def get_similarity_curve(
     """
     cap = cv2.VideoCapture(str(video_path))
     total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-    cap.release()
 
     all_positions = np.arange(0, total_frames, stride)
     similarities = np.zeros(len(all_positions), dtype=np.float32)
@@ -234,12 +233,10 @@ def get_similarity_curve(
     for batch_start in range(0, len(all_positions), batch_size):
         batch_pos = all_positions[batch_start : batch_start + batch_size]
         frames = []
-        cap = cv2.VideoCapture(str(video_path))
         for pos in batch_pos:
             cap.set(cv2.CAP_PROP_POS_FRAMES, int(pos))
             ret, frame = cap.read()
             frames.append(frame if ret else np.zeros((64, 64, 3), dtype=np.uint8))
-        cap.release()
 
         embs = embed_frames_batch(frames)
         sims = embs @ template_emb  # cosine similarity (both unit vectors)
@@ -248,6 +245,7 @@ def get_similarity_curve(
         if progress_cb:
             progress_cb(batch_start + len(batch_pos), len(all_positions))
 
+    cap.release()
     return all_positions, similarities
 
 
@@ -256,21 +254,19 @@ def fine_scan(
     template_emb: np.ndarray,
     coarse_cv2_pos: int,
     window: int = 50,
-) -> int:
+) -> tuple[int, float]:
     """
     Scan ±window frames around coarse_cv2_pos at stride 1.
-    Returns the cv2_pos of the best-matching frame.
+    Returns (cv2_pos, similarity) of the best-matching frame.
     """
     cap = cv2.VideoCapture(str(video_path))
     total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-    cap.release()
 
     start = max(0, coarse_cv2_pos - window)
     end = min(total - 1, coarse_cv2_pos + window)
     frames = []
     positions = list(range(start, end + 1))
 
-    cap = cv2.VideoCapture(str(video_path))
     for pos in positions:
         cap.set(cv2.CAP_PROP_POS_FRAMES, pos)
         ret, frame = cap.read()
@@ -280,7 +276,7 @@ def fine_scan(
     embs = embed_frames_batch(frames)
     sims = embs @ template_emb
     best_local = int(np.argmax(sims))
-    return positions[best_local]
+    return positions[best_local], float(sims[best_local])
 
 
 def scan_video(
@@ -291,6 +287,7 @@ def scan_video(
     min_spacing: int = 900,
     fine_window: int = 50,
     batch_size: int = 64,
+    smooth_sigma: float = 3.0,
     progress_cb=None,
 ) -> list[dict]:
     """
@@ -301,18 +298,17 @@ def scan_video(
         video_path, template_emb, stride=stride,
         batch_size=batch_size, progress_cb=progress_cb
     )
-    smoothed = smooth_curve(raw_sims, sigma=3.0)
+    smoothed = smooth_curve(raw_sims, sigma=smooth_sigma)
     coarse_peaks = find_peaks_in_curve(smoothed, frame_indices, threshold, min_spacing)
 
     results = []
     for coarse_pos in coarse_peaks:
-        exact_pos = fine_scan(video_path, template_emb, coarse_pos, window=fine_window)
-        sim = float(raw_sims[np.searchsorted(frame_indices, coarse_pos)])
+        exact_pos, fine_sim = fine_scan(video_path, template_emb, coarse_pos, window=fine_window)
         results.append(
             {
                 "cv2_pos": exact_pos,
                 "frame_number": exact_pos + 1,  # 1-based
-                "similarity": round(sim, 4),
+                "similarity": round(fine_sim, 4),
             }
         )
     return results

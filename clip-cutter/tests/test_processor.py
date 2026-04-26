@@ -161,3 +161,32 @@ def test_get_known_key_frames_ignores_dlc_files(tmp_path):
     (tmp_path / "MAP2_0_20768_21567_success.avi").touch()
     known = processor.get_known_key_frames(tmp_path)
     assert len(known) == 1
+
+
+def test_get_similarity_curve_shape(mock_model, tiny_video):
+    import numpy as np
+    rng = np.random.default_rng(0)
+    template_emb = rng.random(512).astype(np.float32)
+    template_emb /= np.linalg.norm(template_emb)
+    frame_indices, sims = processor.get_similarity_curve(tiny_video, template_emb, stride=5)
+    assert len(frame_indices) == len(sims)
+    assert frame_indices[0] == 0
+    assert sims.dtype == np.float32
+
+
+def test_scan_video_returns_list(mock_model, tiny_video):
+    import numpy as np
+    rng = np.random.default_rng(0)
+    template_emb = rng.random(512).astype(np.float32)
+    template_emb /= np.linalg.norm(template_emb)
+    # Use very low threshold so something is detected from random embeddings
+    results = processor.scan_video(
+        tiny_video, template_emb,
+        stride=5, threshold=0.0, min_spacing=5, fine_window=2,
+    )
+    assert isinstance(results, list)
+    for r in results:
+        assert "cv2_pos" in r
+        assert "frame_number" in r
+        assert r["frame_number"] == r["cv2_pos"] + 1
+        assert "similarity" in r
