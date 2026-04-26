@@ -1,5 +1,7 @@
 import json
 import pytest
+import cv2
+import numpy as np
 from pathlib import Path
 from app import create_app
 import config
@@ -60,10 +62,6 @@ def test_get_detections_missing_video_param(client):
 def test_put_detections_missing_body_fields(client):
     resp = client.put("/clip-cutter/detections", json={"video_path": "/v.avi"})
     assert resp.status_code == 400
-
-
-import cv2
-import numpy as np
 
 
 @pytest.fixture

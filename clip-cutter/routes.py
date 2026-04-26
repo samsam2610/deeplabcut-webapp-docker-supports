@@ -312,7 +312,7 @@ def get_frame():
     except ValueError:
         return jsonify({"error": "n must be an integer"}), 400
 
-    etag = f"cc-frame-{video_path}-{n}"
+    etag = f'"cc-frame-{video_path}-{n}"'
     if request.headers.get("If-None-Match") == etag:
         return Response(status=304)
 

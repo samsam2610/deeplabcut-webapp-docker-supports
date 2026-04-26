@@ -34,7 +34,10 @@ def get_frame_jpeg(video_path: str, frame_number: int, quality: int = 80) -> byt
         if vpath not in _vcap_cache:
             if len(_vcap_cache) >= _VCAP_MAX:
                 _, evicted = _vcap_cache.popitem(last=False)
-                evicted["vcap"].release()
+                with evicted["lock"]:
+                    if evicted["vcap"] is not None:
+                        evicted["vcap"].release()
+                        evicted["vcap"] = None
             _vcap_cache[vpath] = {
                 "vcap": None,
                 "pos": -1,
