@@ -481,6 +481,7 @@ def scan_video(
     smooth_sigma: float = 3.0,
     progress_cb=None,
     phase_cb=None,
+    dino_template_emb: "np.ndarray | None" = None,
 ) -> list[dict]:
     """
     Full scan pipeline. Returns list of dicts:
@@ -503,7 +504,10 @@ def scan_video(
         phase_cb("fine", 0, max(len(coarse_peaks), 1))
     results = []
     for i, coarse_pos in enumerate(coarse_peaks):
-        exact_pos, fine_sim = fine_scan(video_path, template_emb, coarse_pos, window=fine_window)
+        exact_pos, fine_sim = fine_scan(
+            video_path, template_emb, coarse_pos,
+            window=fine_window, dino_template_emb=dino_template_emb
+        )
         results.append(
             {
                 "cv2_pos": exact_pos,
@@ -530,6 +534,7 @@ def scan_video_sensor_guided(
     smooth_sigma: float = 3.0,
     progress_cb=None,
     phase_cb=None,
+    dino_template_emb: "np.ndarray | None" = None,
 ) -> list[dict]:
     """
     Sensor-guided scan pipeline. Returns list of dicts:
@@ -610,7 +615,10 @@ def scan_video_sensor_guided(
 
     results = []
     for i, (coarse_pos, src) in enumerate(dedup):
-        exact_pos, fine_sim = fine_scan(video_path, template_emb, coarse_pos, window=fine_window)
+        exact_pos, fine_sim = fine_scan(
+            video_path, template_emb, coarse_pos,
+            window=fine_window, dino_template_emb=dino_template_emb
+        )
         if src == "sensor":
             source_tag = "sensor+clip" if fine_sim >= threshold else "sensor_only"
         else:

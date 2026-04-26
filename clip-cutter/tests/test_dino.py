@@ -147,3 +147,44 @@ def test_compute_dino_mean_from_embeddings_shape():
     result = processor._compute_dino_mean_from_embeddings(embs)
     assert result.shape == (1024,)
     np.testing.assert_allclose(np.linalg.norm(result), 1.0, atol=1e-5)
+
+
+def test_scan_video_sensor_guided_forwards_dino_emb(tmp_path, monkeypatch):
+    """Verify dino_template_emb is forwarded to fine_scan."""
+    import csv as _csv, cv2 as _cv2
+
+    avi_path = tmp_path / "test.avi"
+    writer = _cv2.VideoWriter(
+        str(avi_path), _cv2.VideoWriter_fourcc(*"XVID"), 30.0, (64, 64)
+    )
+    rng = np.random.default_rng(55)
+    for _ in range(300):
+        writer.write(rng.integers(0, 255, (64, 64, 3), dtype=np.uint8))
+    writer.release()
+
+    csv_path = tmp_path / "test.csv"
+    with open(csv_path, "w", newline="") as f:
+        w = _csv.writer(f)
+        w.writerow(["frame_number", "frame_line_status"])
+        for i in range(1, 301):
+            w.writerow([i, 14 if 100 <= i <= 110 else 0])
+
+    clip_emb = np.ones(512, dtype=np.float32) / (512 ** 0.5)
+    dino_emb = np.ones(1024, dtype=np.float32) / (1024 ** 0.5)
+
+    received_dino = []
+    original_fine_scan = processor.fine_scan
+
+    def mock_fine_scan(*args, **kwargs):
+        received_dino.append(kwargs.get("dino_template_emb"))
+        return original_fine_scan(*args, **kwargs)
+
+    monkeypatch.setattr(processor, "fine_scan", mock_fine_scan)
+
+    processor.scan_video_sensor_guided(
+        str(avi_path), str(csv_path), clip_emb,
+        dino_template_emb=dino_emb,
+        fine_window=5,
+    )
+    assert len(received_dino) > 0, "fine_scan was never called"
+    assert all(d is not None for d in received_dino), "dino_template_emb not forwarded"
