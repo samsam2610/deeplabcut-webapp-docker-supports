@@ -22,6 +22,12 @@ TEMPLATE_STATE_PATH = Path(
         str(_DATA_ROOT / "Reaching-Task-Data/clip-cutter/template_state.json"),
     )
 )
+DETECTIONS_DIR = Path(
+    os.environ.get(
+        "CLIP_CUTTER_DETECTIONS_DIR",
+        str(_DATA_ROOT / "Reaching-Task-Data/clip-cutter/detections"),
+    )
+)
 
 # --- Template ---
 TRAINING_CROP = (401, 268, 581, 632)   # (x, y, w, h) in original 1376×900 frame

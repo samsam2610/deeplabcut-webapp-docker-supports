@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import base64
+import datetime
 import json
+import os
 from pathlib import Path
 
 import cv2
@@ -400,6 +402,40 @@ def build_clip_csv(
     clip_df = df[mask].copy().reset_index(drop=True)
     clip_df["clip_frame"] = range(1, len(clip_df) + 1)
     return clip_df
+
+
+def save_detections(
+    video_path: str,
+    detections: list[dict],
+    template_frame_count: int,
+    detections_dir: Path,
+) -> None:
+    """Save detection results atomically. Write to .tmp then os.replace."""
+    detections_dir = Path(detections_dir)
+    detections_dir.mkdir(parents=True, exist_ok=True)
+    stem = Path(video_path).stem
+    out = detections_dir / f"{stem}.json"
+    tmp = out.with_suffix(".json.tmp")
+    payload = {
+        "video_path": str(video_path),
+        "scan_timestamp": datetime.datetime.now().isoformat(timespec="seconds"),
+        "template_frame_count": template_frame_count,
+        "detections": detections,
+    }
+    tmp.write_text(json.dumps(payload, indent=2))
+    os.replace(tmp, out)
+
+
+def load_detections(video_path: str, detections_dir: Path) -> dict | None:
+    """Return saved detection dict or None if no file exists."""
+    stem = Path(video_path).stem
+    path = Path(detections_dir) / f"{stem}.json"
+    if not path.exists():
+        return None
+    try:
+        return json.loads(path.read_text())
+    except Exception:
+        return None
 
 
 def update_parent_csv_note(

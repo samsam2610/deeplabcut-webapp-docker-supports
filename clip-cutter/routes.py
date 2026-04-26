@@ -268,3 +268,31 @@ def extract():
     result = processor.extract_clip(video_path, parent_csv, int(key_frame), output_dir)
     processor.update_parent_csv_note(parent_csv, int(key_frame), "start_reaching")
     return jsonify(result)
+
+
+# ── Detection persistence ──────────────────────────────────────────────────────
+
+@bp.route("/detections")
+def get_detections():
+    video_path = request.args.get("video", "").strip()
+    if not video_path:
+        return jsonify({"error": "video required"}), 400
+    data = processor.load_detections(video_path, config.DETECTIONS_DIR)
+    if data is None:
+        return jsonify({"error": "not found"}), 404
+    return jsonify(data)
+
+
+@bp.route("/detections", methods=["PUT"])
+def put_detections():
+    body = request.get_json(force=True)
+    video_path = body.get("video_path")
+    detections = body.get("detections")
+    if not video_path or detections is None:
+        return jsonify({"error": "video_path and detections required"}), 400
+    with _state_lock:
+        template_frame_count = len(_state["frames"])
+    processor.save_detections(
+        video_path, detections, template_frame_count, config.DETECTIONS_DIR
+    )
+    return jsonify({"ok": True})
