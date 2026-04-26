@@ -15,7 +15,7 @@ import processor
 bp = Blueprint(
     "clip_cutter", __name__, url_prefix="/clip-cutter",
     template_folder="templates",
-    static_folder="static", static_url_path="/clip-cutter/static",
+    static_folder="static", static_url_path="/static",
 )
 
 _scan_jobs: dict[str, dict] = {}
@@ -84,16 +84,48 @@ def remove_from_template(idx: int):
     return jsonify({"count": count})
 
 
+_init_status: dict = {"running": False, "error": None}
+_init_lock = threading.Lock()
+
+
+def _run_init():
+    global _state
+    with _init_lock:
+        _init_status["running"] = True
+        _init_status["error"] = None
+    try:
+        config.TEMPLATE_STATE_PATH.parent.mkdir(parents=True, exist_ok=True)
+        new_state = processor.init_template_from_clips_dir(
+            config.TRAINING_CLIPS_DIR, config.TEMPLATE_STATE_PATH, crop=config.TRAINING_CROP
+        )
+        with _state_lock:
+            _state = new_state
+    except Exception as exc:
+        with _init_lock:
+            _init_status["error"] = str(exc)
+    finally:
+        with _init_lock:
+            _init_status["running"] = False
+
+
 @bp.route("/template/init", methods=["POST"])
 def init_template():
-    global _state
-    new_state = processor.init_template_from_clips_dir(
-        config.TRAINING_CLIPS_DIR, config.TEMPLATE_STATE_PATH, crop=config.TRAINING_CROP
-    )
+    with _init_lock:
+        if _init_status["running"]:
+            return jsonify({"status": "running"}), 202
+    thread = threading.Thread(target=_run_init, daemon=True)
+    thread.start()
+    return jsonify({"status": "started"}), 202
+
+
+@bp.route("/template/init/status")
+def init_template_status():
     with _state_lock:
-        _state = new_state
         count = len(_state["frames"])
-    return jsonify({"count": count})
+    with _init_lock:
+        running = _init_status["running"]
+        error = _init_status["error"]
+    return jsonify({"running": running, "count": count, "error": error})
 
 
 # ── Video list ─────────────────────────────────────────────────────────────────

@@ -41,11 +41,43 @@ function renderTemplate(data) {
 }
 
 async function initTemplate() {
-  setStatus("Building template from training clips…");
-  const resp = await fetch("/clip-cutter/template/init", { method: "POST" });
-  const data = await resp.json();
-  await loadTemplate();
-  setStatus(`Template initialised: ${data.count} frames`);
+  setStatus("Starting template build…");
+  try {
+    const resp = await fetch("/clip-cutter/template/init", { method: "POST" });
+    if (!resp.ok) {
+      const err = await resp.json().catch(() => ({ error: resp.statusText }));
+      setStatus("Init error: " + err.error);
+      return;
+    }
+    setStatus("Building template from training clips — this may take a minute…");
+    pollInitStatus();
+  } catch (err) {
+    setStatus("Network error: " + err.message);
+  }
+}
+
+function pollInitStatus() {
+  const iv = setInterval(async () => {
+    try {
+      const resp = await fetch("/clip-cutter/template/init/status");
+      const data = await resp.json();
+      if (data.error) {
+        clearInterval(iv);
+        setStatus("Init error: " + data.error);
+        return;
+      }
+      if (!data.running) {
+        clearInterval(iv);
+        await loadTemplate();
+        setStatus(`Template initialised: ${data.count} frame${data.count !== 1 ? "s" : ""}`);
+      } else {
+        setStatus(`Building template… ${data.count} frame${data.count !== 1 ? "s" : ""} embedded so far`);
+      }
+    } catch (err) {
+      clearInterval(iv);
+      setStatus("Network error while polling: " + err.message);
+    }
+  }, 2000);
 }
 
 async function removeTemplateFrame(idx) {
