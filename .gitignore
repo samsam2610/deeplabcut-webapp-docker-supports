@@ -1,0 +1,10 @@
+.superpowers/
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+.pytest_cache/
+.coverage
+*.egg
+dist/
+build/
