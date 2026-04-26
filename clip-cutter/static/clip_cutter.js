@@ -137,11 +137,16 @@ async function selectVideo(path, rowEl) {
 
 async function saveDetections() {
   if (!selectedVideoPath || detections.length === 0) return;
-  await fetch("/clip-cutter/detections", {
-    method: "PUT",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ video_path: selectedVideoPath, detections }),
-  });
+  try {
+    const resp = await fetch("/clip-cutter/detections", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ video_path: selectedVideoPath, detections }),
+    });
+    if (!resp.ok) console.warn("saveDetections: server returned", resp.status);
+  } catch (e) {
+    console.warn("saveDetections failed:", e);
+  }
 }
 
 async function loadSavedDetections(videoPath) {
@@ -150,6 +155,7 @@ async function loadSavedDetections(videoPath) {
       `/clip-cutter/detections?video=${encodeURIComponent(videoPath)}`
     );
     if (!resp.ok) return false;
+    if (videoPath !== selectedVideoPath) return false;
     const data = await resp.json();
     detections.length = 0;
     renderDetections(data.detections);

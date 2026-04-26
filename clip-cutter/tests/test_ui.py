@@ -488,9 +488,13 @@ def test_reject_persists_via_put_detections(page: Page):
 
     cards = page.locator(".result-card")
     expect(cards).to_have_count(2, timeout=8_000)
-    cards.nth(1).locator("button", has_text="Reject").click()
+    with page.expect_request(
+        lambda r: r.method == "PUT"
+        and "/clip-cutter/detections" in r.url
+        and "rejected" in (r.post_data or "")
+    ):
+        cards.nth(1).locator("button", has_text="Reject").click()
 
-    page.wait_for_timeout(500)
     assert any(
         any(d.get("status") == "rejected" for d in call.get("detections", []))
         for call in put_calls
@@ -512,4 +516,6 @@ def test_rescan_overwrites_saved_results(page: Page):
     expect(page.locator(".result-card")).to_have_count(2, timeout=8_000)
     # After rescan neither card should be kept/rejected
     for i in range(2):
-        expect(page.locator(".result-card").nth(i)).not_to_have_class(re.compile(r"\bkept\b"))
+        card = page.locator(".result-card").nth(i)
+        expect(card).not_to_have_class(re.compile(r"\bkept\b"))
+        expect(card).not_to_have_class(re.compile(r"\brejected\b"))
