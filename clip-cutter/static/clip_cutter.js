@@ -4,6 +4,12 @@ let currentJobId = null;
 let eventSource = null;
 const detections = [];
 
+function esc(s) {
+  const d = document.createElement("div");
+  d.textContent = String(s);
+  return d.innerHTML;
+}
+
 // ── Boot ─────────────────────────────────────────────────────────────────────
 
 document.addEventListener("DOMContentLoaded", () => {
@@ -78,7 +84,7 @@ function renderVideos(videos) {
     const row = document.createElement("div");
     row.className = "video-row" + (v.done ? " done" : "");
     row.innerHTML = `
-      <span class="video-name" title="${v.path}">${v.name}</span>
+      <span class="video-name" title="${esc(v.path)}">${esc(v.name)}</span>
       <span class="badge ${v.done ? "badge-done" : "badge-pending"}">${v.done ? "done" : "ready"}</span>`;
     if (!v.done) {
       row.addEventListener("click", () => selectVideo(v.path, row));
@@ -103,20 +109,25 @@ async function startScan() {
   document.getElementById("results-count").textContent = "";
   detections.length = 0;
 
-  const resp = await fetch("/clip-cutter/scan", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ video_path: selectedVideoPath }),
-  });
-  if (!resp.ok) {
-    const err = await resp.json();
-    setStatus("Error: " + err.error);
+  try {
+    const resp = await fetch("/clip-cutter/scan", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ video_path: selectedVideoPath }),
+    });
+    if (!resp.ok) {
+      const err = await resp.json();
+      setStatus("Error: " + err.error);
+      document.getElementById("scan-btn").disabled = false;
+      return;
+    }
+    const { job_id } = await resp.json();
+    currentJobId = job_id;
+    listenToScan(job_id);
+  } catch (err) {
+    setStatus("Network error: " + err.message);
     document.getElementById("scan-btn").disabled = false;
-    return;
   }
-  const { job_id } = await resp.json();
-  currentJobId = job_id;
-  listenToScan(job_id);
 }
 
 function listenToScan(jobId) {
@@ -179,22 +190,38 @@ function buildResultCard(d, idx) {
   const card = document.createElement("div");
   card.className = "result-card" + (isKnown ? "" : " new");
   card.id = `card-${idx}`;
+
+  // Build inner structure with safe static skeleton
   card.innerHTML = `
     <div class="result-meta">
-      <div class="result-name">${clipName}.avi</div>
+      <div class="result-name"></div>
       <div class="result-info">
-        Key frame ${d.frame_number.toLocaleString()} &middot;
-        <span class="match-pill ${isKnown ? "match-known" : "match-new"}">
-          ${isKnown ? "✓ matches " + d.known_match : "new detection"}
-        </span>
+        Key frame <span class="kf-num"></span> &middot;
+        <span class="match-pill ${isKnown ? "match-known" : "match-new"}"></span>
       </div>
       <div class="result-actions">
-        <button class="btn-sm btn-green" onclick="keepDetection(${idx})">&#10003; Keep</button>
-        <button class="btn-sm btn-red" onclick="rejectDetection(${idx})">&#10007; Reject</button>
-        <button class="btn-sm btn-blue" onclick="addToTemplate('${d.video_path}', ${d.frame_number})">+ Add to template</button>
+        <button class="btn-sm btn-green keep-btn">&#10003; Keep</button>
+        <button class="btn-sm btn-red reject-btn">&#10007; Reject</button>
+        <button class="btn-sm btn-blue add-btn">+ Add to template</button>
       </div>
     </div>
-    <span class="sim-pill">${d.similarity.toFixed(2)}</span>`;
+    <span class="sim-pill"></span>`;
+
+  // Populate text content safely
+  card.querySelector(".result-name").textContent = clipName + ".avi";
+  card.querySelector(".kf-num").textContent = d.frame_number.toLocaleString();
+  card.querySelector(".match-pill").textContent = isKnown
+    ? "✓ matches " + d.known_match
+    : "new detection";
+  card.querySelector(".sim-pill").textContent = d.similarity.toFixed(2);
+
+  // Attach event listeners (no onclick attributes with embedded data)
+  card.querySelector(".keep-btn").addEventListener("click", () => keepDetection(idx));
+  card.querySelector(".reject-btn").addEventListener("click", () => rejectDetection(idx));
+  card.querySelector(".add-btn").addEventListener("click", () =>
+    addToTemplate(d.video_path, d.frame_number)
+  );
+
   return card;
 }
 
