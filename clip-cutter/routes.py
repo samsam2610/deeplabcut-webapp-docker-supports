@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import threading
 import time
 import uuid
@@ -244,7 +245,6 @@ def start_scan():
     if mean_embedding is None:
         return jsonify({"error": "template is empty — run /template/init first"}), 422
     if dino_mean_embedding is None:
-        import logging
         logging.getLogger(__name__).warning(
             "dino_mean_embedding is None — fine scan will use CLIP fallback. "
             "Re-run /template/init to enable DINOv2 fine scan."
