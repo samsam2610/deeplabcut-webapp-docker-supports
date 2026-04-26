@@ -95,3 +95,55 @@ def test_fine_scan_falls_back_to_clip_when_no_dino_emb(tmp_path):
         window=10, dino_template_emb=None
     )
     assert 0 <= pos <= 59
+
+
+def test_template_state_roundtrip_preserves_dino_embedding(tmp_path):
+    state_path = tmp_path / "state.json"
+    rng = np.random.default_rng(1)
+    dino_emb = rng.random(1024).astype(np.float32)
+    dino_emb /= np.linalg.norm(dino_emb)
+    clip_emb = rng.random(512).astype(np.float32)
+    clip_emb /= np.linalg.norm(clip_emb)
+    dino_frame_emb = rng.random(1024).astype(np.float32)
+    dino_frame_emb /= np.linalg.norm(dino_frame_emb)
+
+    state = {
+        "frames": [{
+            "video_path": "/fake/v.avi",
+            "frame_number": 100,
+            "embedding": clip_emb,
+            "dino_embedding": dino_frame_emb,
+            "thumbnail": "abc",
+        }],
+        "mean_embedding": clip_emb,
+        "dino_mean_embedding": dino_emb,
+    }
+    processor.save_template_state(state, state_path)
+    loaded = processor.load_template_state(state_path)
+
+    assert loaded["dino_mean_embedding"] is not None
+    np.testing.assert_allclose(loaded["dino_mean_embedding"], dino_emb, atol=1e-5)
+    np.testing.assert_allclose(
+        loaded["frames"][0]["dino_embedding"], dino_frame_emb, atol=1e-5
+    )
+
+
+def test_load_template_state_old_json_returns_none_dino(tmp_path):
+    import json as _json
+    state_path = tmp_path / "old_state.json"
+    old_state = {"frames": [], "mean_embedding": None}
+    state_path.write_text(_json.dumps(old_state))
+    loaded = processor.load_template_state(state_path)
+    assert loaded.get("dino_mean_embedding") is None
+
+
+def test_load_template_state_missing_file_returns_none_dino():
+    loaded = processor.load_template_state("/nonexistent/path.json")
+    assert loaded.get("dino_mean_embedding") is None
+
+
+def test_compute_dino_mean_from_embeddings_shape():
+    embs = np.random.default_rng(77).random((5, 1024)).astype(np.float32)
+    result = processor._compute_dino_mean_from_embeddings(embs)
+    assert result.shape == (1024,)
+    np.testing.assert_allclose(np.linalg.norm(result), 1.0, atol=1e-5)

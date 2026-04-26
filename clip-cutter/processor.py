@@ -142,17 +142,30 @@ def compute_mean_embedding(embeddings: np.ndarray) -> np.ndarray:
     return mean / norm
 
 
+def _compute_dino_mean_from_embeddings(embs: np.ndarray) -> np.ndarray:
+    """L2-normalised mean of a (N, 1024) DINOv2 embedding matrix."""
+    mean = embs.mean(axis=0).astype(np.float32)
+    norm = np.linalg.norm(mean)
+    return mean / norm if norm > 0 else mean
+
+
 def load_template_state(path: Path | str) -> dict:
     """Load template state from JSON. Returns empty state if file absent."""
     path = Path(path)
     if not path.exists():
-        return {"frames": [], "mean_embedding": None}
+        return {"frames": [], "mean_embedding": None, "dino_mean_embedding": None}
     with open(path) as f:
         raw = json.load(f)
-    for frame in raw["frames"]:
+    for frame in raw.get("frames", []):
         frame["embedding"] = np.array(frame["embedding"], dtype=np.float32)
+        if frame.get("dino_embedding") is not None:
+            frame["dino_embedding"] = np.array(frame["dino_embedding"], dtype=np.float32)
     if raw.get("mean_embedding") is not None:
         raw["mean_embedding"] = np.array(raw["mean_embedding"], dtype=np.float32)
+    if raw.get("dino_mean_embedding") is not None:
+        raw["dino_mean_embedding"] = np.array(raw["dino_mean_embedding"], dtype=np.float32)
+    else:
+        raw["dino_mean_embedding"] = None
     return raw
 
 
@@ -161,13 +174,21 @@ def save_template_state(state: dict, path: Path | str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     serializable = {
         "frames": [
-            {**f, "embedding": f["embedding"].tolist()}
+            {
+                **{k: v for k, v in f.items() if k not in ("embedding", "dino_embedding")},
+                "embedding": f["embedding"].tolist(),
+                **({"dino_embedding": f["dino_embedding"].tolist()}
+                   if f.get("dino_embedding") is not None else {}),
+            }
             for f in state["frames"]
         ],
         "mean_embedding": (
             state["mean_embedding"].tolist()
-            if state["mean_embedding"] is not None
-            else None
+            if state.get("mean_embedding") is not None else None
+        ),
+        "dino_mean_embedding": (
+            state["dino_mean_embedding"].tolist()
+            if state.get("dino_mean_embedding") is not None else None
         ),
     }
     with open(path, "w") as f:
@@ -181,26 +202,27 @@ def add_frame_to_template(
     state_path: Path | str,
     crop: tuple | None = None,
 ) -> dict:
-    """
-    Extract frame at frame_number (1-based), embed it, add to state, persist.
-    crop applies only during embedding (training frames use TRAINING_CROP;
-    frames from new videos use no crop).
-    """
     frame = read_frame(video_path, frame_number - 1)
     if frame is None:
         raise ValueError(f"Frame {frame_number} not found in {video_path}")
     emb = embed_frame(frame, crop=crop)
+    dino_emb = embed_frames_dino_batch([frame])[0]
     thumb = frame_to_thumbnail(frame)
-    state["frames"].append(
-        {
-            "video_path": str(video_path),
-            "frame_number": frame_number,
-            "embedding": emb,
-            "thumbnail": thumb,
-        }
-    )
+    state["frames"].append({
+        "video_path": str(video_path),
+        "frame_number": frame_number,
+        "embedding": emb,
+        "dino_embedding": dino_emb,
+        "thumbnail": thumb,
+    })
     all_embs = np.stack([f["embedding"] for f in state["frames"]])
     state["mean_embedding"] = compute_mean_embedding(all_embs)
+    dino_frames = [f["dino_embedding"] for f in state["frames"] if f.get("dino_embedding") is not None]
+    if len(dino_frames) == len(state["frames"]):
+        all_dino = np.stack(dino_frames)
+        state["dino_mean_embedding"] = _compute_dino_mean_from_embeddings(all_dino)
+    else:
+        state["dino_mean_embedding"] = None
     save_template_state(state, state_path)
     return state
 
@@ -212,8 +234,15 @@ def remove_frame_from_template(
     if state["frames"]:
         all_embs = np.stack([f["embedding"] for f in state["frames"]])
         state["mean_embedding"] = compute_mean_embedding(all_embs)
+        dino_frames = [f["dino_embedding"] for f in state["frames"] if f.get("dino_embedding") is not None]
+        if len(dino_frames) == len(state["frames"]):
+            all_dino = np.stack(dino_frames)
+            state["dino_mean_embedding"] = _compute_dino_mean_from_embeddings(all_dino)
+        else:
+            state["dino_mean_embedding"] = None
     else:
         state["mean_embedding"] = None
+        state["dino_mean_embedding"] = None
     save_template_state(state, state_path)
     return state
 
@@ -225,30 +254,35 @@ def init_template_from_clips_dir(
 ) -> dict:
     """Build a fresh template state from all .avi clips in clips_dir."""
     clips_dir = Path(clips_dir)
-    # Only base clips (success/failure suffix, not DLC result files)
     clip_files = sorted(
         p for p in clips_dir.glob("*.avi")
         if p.stem.endswith("_success") or p.stem.endswith("_failure")
     )
-    state = {"frames": [], "mean_embedding": None}
+    state: dict = {"frames": [], "mean_embedding": None, "dino_mean_embedding": None}
+    raw_frames = []
     for clip_path in clip_files:
-        # Frame 200 of clip = 0-based index 199
         frame = read_frame(clip_path, 199)
         if frame is None:
             continue
-        emb = embed_frame(frame, crop=crop)
-        thumb = frame_to_thumbnail(frame)
-        state["frames"].append(
-            {
+        raw_frames.append((clip_path, frame))
+
+    if raw_frames:
+        all_bgr = [f for _, f in raw_frames]
+        clip_embs = [embed_frame(f, crop=crop) for f in all_bgr]
+        dino_embs = embed_frames_dino_batch(all_bgr)
+        for (clip_path, frame), clip_emb, dino_emb in zip(raw_frames, clip_embs, dino_embs):
+            thumb = frame_to_thumbnail(frame)
+            state["frames"].append({
                 "video_path": str(clip_path),
                 "frame_number": 200,
-                "embedding": emb,
+                "embedding": clip_emb,
+                "dino_embedding": dino_emb,
                 "thumbnail": thumb,
-            }
-        )
-    if state["frames"]:
+            })
         all_embs = np.stack([f["embedding"] for f in state["frames"]])
         state["mean_embedding"] = compute_mean_embedding(all_embs)
+        all_dino = np.stack([f["dino_embedding"] for f in state["frames"]])
+        state["dino_mean_embedding"] = _compute_dino_mean_from_embeddings(all_dino)
     save_template_state(state, state_path)
     return state
 
