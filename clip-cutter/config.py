@@ -34,10 +34,14 @@ TRAINING_CROP = (401, 268, 581, 632)   # (x, y, w, h) in original 1376×900 fram
 
 # --- Scanning ---
 SCAN_STRIDE = 10           # extract every Nth frame for coarse pass
-SCAN_BATCH_SIZE = 64       # CLIP batch size
+SCAN_BATCH_SIZE = 256      # CLIP batch size (RTX 5090 handles 256 easily)
 SIMILARITY_THRESHOLD = 0.70
 MIN_PEAK_SPACING = 900     # minimum frames between two detections (original frame units)
 FINE_SCAN_WINDOW = 50      # ± frames around coarse peak for fine pass
+
+# --- Sensor-guided scan ---
+SENSOR_TRIGGER_VALUE = 14  # frame_line_status value indicating sensor trigger
+SENSOR_MARGIN = 25         # frames to dilate each side of trigger burst
 
 # --- Clip extraction ---
 CLIP_PRE_FRAMES = 200      # frames before key frame
