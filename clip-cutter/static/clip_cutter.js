@@ -18,12 +18,13 @@ document.addEventListener("DOMContentLoaded", () => {
 
   // Settings toggle
   const settingsToggle = document.getElementById("settings-toggle");
-  const scanSettings = document.getElementById("scan-settings");
-  if (settingsToggle && scanSettings) {
+  const settingsBody = document.getElementById("settings-body");
+  if (settingsToggle && settingsBody) {
     settingsToggle.setAttribute("aria-expanded", "false");
+    settingsBody.style.display = "none";
     settingsToggle.addEventListener("click", () => {
       const open = settingsToggle.getAttribute("aria-expanded") === "true";
-      scanSettings.style.display = open ? "none" : "block";
+      settingsBody.style.display = open ? "none" : "block";
       settingsToggle.setAttribute("aria-expanded", String(!open));
     });
   }

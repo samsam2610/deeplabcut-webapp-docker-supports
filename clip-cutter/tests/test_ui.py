@@ -581,3 +581,117 @@ def test_player_keyframe_button_jumps_to_keyframe(page: Page):
     page.locator("#player-keyframe").click()
     # first detection: frame_number=20968, 0-based=20967
     expect(page.locator("#player-frame-num")).to_have_text("fr 20967", timeout=3_000)
+
+
+# ── Task 7/8: Settings panel, source badge, scan POST params ──────────────────
+
+def test_settings_panel_collapsed_on_load(page: Page):
+    """Settings body #settings-body is hidden when the page first loads."""
+    setup_routes(page)
+    page.goto(f"{BASE_URL}/clip-cutter/")
+    assert page.locator("#settings-body").is_hidden()
+
+
+def test_settings_panel_toggle(page: Page):
+    """Clicking #settings-toggle once opens the settings body; clicking again closes it."""
+    setup_routes(page)
+    page.goto(f"{BASE_URL}/clip-cutter/")
+    page.click("#settings-toggle")
+    assert page.locator("#settings-body").is_visible()
+    page.click("#settings-toggle")
+    assert page.locator("#settings-body").is_hidden()
+
+
+def test_settings_clip_tab(page: Page):
+    """Clicking the CLIP tab shows #tab-clip and hides #tab-sensor."""
+    setup_routes(page)
+    page.goto(f"{BASE_URL}/clip-cutter/")
+    page.click("#settings-toggle")
+    page.click(".tab-btn[data-tab='clip']")
+    assert page.locator("#tab-clip").is_visible()
+    assert page.locator("#tab-sensor").is_hidden()
+
+
+def test_settings_reset(page: Page):
+    """After changing inputs, clicking Reset restores defaults."""
+    setup_routes(page)
+    page.goto(f"{BASE_URL}/clip-cutter/")
+    page.click("#settings-toggle")
+    page.fill("#trigger-value", "99")
+    page.fill("#sensor-margin", "50")
+    page.click("#settings-reset")
+    assert page.input_value("#trigger-value") == "14"
+    assert page.input_value("#sensor-margin") == "25"
+
+
+def test_threshold_slider_label(page: Page):
+    """Moving the threshold slider updates the #threshold-label text."""
+    setup_routes(page)
+    page.goto(f"{BASE_URL}/clip-cutter/")
+    page.click("#settings-toggle")
+    page.click(".tab-btn[data-tab='clip']")
+    page.fill("#scan-threshold", "0.85")
+    page.dispatch_event("#scan-threshold", "input")
+    assert page.text_content("#threshold-label") == "0.85"
+
+
+def test_scan_post_contains_params(page: Page):
+    """Intercepting the scan POST verifies the params object with all 6 keys."""
+    captured = {}
+
+    def on_scan(route: Route):
+        body = route.request.post_data
+        captured["body"] = json.loads(body) if body else {}
+        _json(route, {"job_id": "mock-job-abc"})
+
+    setup_routes(page, template_frames=_MOCK_FRAMES)
+    # Override the scan route to capture the body
+    page.route("**/clip-cutter/scan", on_scan)
+    page.goto(f"{BASE_URL}/clip-cutter/")
+
+    page.locator(".video-row:not(.done)").first.click()
+    page.locator("#scan-btn").click()
+
+    # Wait for scan to be called (stream will complete)
+    expect(page.locator("#results-count")).to_have_text("2 found", timeout=8_000)
+
+    assert "params" in captured["body"], f"params key missing from POST body: {captured['body']}"
+    params = captured["body"]["params"]
+    expected_keys = {"trigger_value", "sensor_margin", "stride", "threshold", "min_spacing", "fine_window"}
+    missing = expected_keys - set(params.keys())
+    assert not missing, f"params missing keys: {missing}"
+
+
+def test_source_badge_sensor_clip(page: Page):
+    """Injecting a detection with source='sensor+clip' renders the correct badge."""
+    setup_routes(page)
+    page.goto(f"{BASE_URL}/clip-cutter/")
+    page.evaluate("""
+        renderDetections([{
+            video_path: "/fake/video.avi",
+            frame_number: 1234,
+            similarity: 0.87,
+            source: "sensor+clip",
+            known_match: null,
+            status: "pending"
+        }]);
+    """)
+    badge = page.locator(".source-badge.source-sensor-clip")
+    assert badge.is_visible()
+    assert badge.text_content() == "✓ sensor+CLIP"
+
+
+def test_no_source_badge_when_absent(page: Page):
+    """Injecting a detection with no source field renders no source badge."""
+    setup_routes(page)
+    page.goto(f"{BASE_URL}/clip-cutter/")
+    page.evaluate("""
+        renderDetections([{
+            video_path: "/fake/video.avi",
+            frame_number: 5678,
+            similarity: 0.75,
+            known_match: null,
+            status: "pending"
+        }]);
+    """)
+    assert page.locator(".source-badge").count() == 0
