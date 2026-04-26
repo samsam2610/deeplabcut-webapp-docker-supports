@@ -495,7 +495,12 @@ def scan_video_sensor_guided(
         if dedup and abs(pos - dedup[-1][0]) < half:
             prev_pos, prev_src = dedup[-1]
             if src == "sensor" and prev_src != "sensor":
+                # Sensor displaces a CLIP candidate
                 dedup[-1] = (pos, src)
+            elif src == "sensor" and prev_src == "sensor":
+                # Two close sensor events — keep both (both are authoritative)
+                dedup.append((pos, src))
+            # clip near anything: skip (already covered)
         else:
             dedup.append((pos, src))
 

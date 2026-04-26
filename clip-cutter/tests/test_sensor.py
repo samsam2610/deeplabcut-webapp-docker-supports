@@ -290,3 +290,41 @@ def test_scan_video_sensor_guided_dedup_sensor_wins(tmp_path, monkeypatch):
     assert len(results) == 1
     assert results[0]["source"] == "sensor+clip"
     assert results[0]["cv2_pos"] == 14  # sensor pos wins
+
+
+def test_scan_video_sensor_guided_two_close_sensors_both_kept(tmp_path, monkeypatch):
+    """Two sensor triggers within min_spacing//2 are BOTH kept (sensor is authoritative)."""
+    avi = tmp_path / "v.avi"
+    out = cv2.VideoWriter(str(avi), cv2.VideoWriter_fourcc(*"MJPG"), 30.0, (64, 64))
+    for _ in range(30):
+        out.write(np.zeros((64, 64, 3), dtype=np.uint8))
+    out.release()
+
+    # Two sensor triggers: frames 5 and 10 (cv2_pos 4 and 9), within min_spacing//2=10
+    data = {
+        "frame_number": list(range(1, 31)),
+        "frame_line_status": [14 if i in (5, 10) else 0 for i in range(1, 31)],
+    }
+    csv = tmp_path / "v.csv"
+    pd.DataFrame(data).to_csv(csv, index=False)
+
+    monkeypatch.setattr(
+        processor, "get_similarity_curve",
+        lambda *a, **kw: (np.array([], dtype=np.int64), np.array([], dtype=np.float32)),
+    )
+    monkeypatch.setattr(processor, "fine_scan", lambda v, t, pos, window=50: (pos, 0.85))
+
+    template = np.ones(512, dtype=np.float32)
+    template /= np.linalg.norm(template)
+
+    results = processor.scan_video_sensor_guided(
+        avi, csv, template,
+        trigger_value=14, sensor_margin=0, threshold=0.70, min_spacing=20
+    )
+    # Both sensor events should be kept
+    assert len(results) == 2
+    cv2_positions = {r["cv2_pos"] for r in results}
+    assert 4 in cv2_positions   # frame 5 → cv2_pos 4
+    assert 9 in cv2_positions   # frame 10 → cv2_pos 9
+    for r in results:
+        assert r["source"] == "sensor+clip"
