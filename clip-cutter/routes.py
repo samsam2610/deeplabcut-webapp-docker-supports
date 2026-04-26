@@ -159,7 +159,14 @@ def list_videos():
 
 # ── Scan ─────────────────────────────────────────────────────────────────────
 
-def _run_scan(job_id: str, video_path: str, template_emb):
+def _run_scan(job_id: str, video_path: str, template_emb, params: dict):
+    stride        = params.get("stride", config.SCAN_STRIDE)
+    threshold     = params.get("threshold", config.SIMILARITY_THRESHOLD)
+    min_spacing   = params.get("min_spacing", config.MIN_PEAK_SPACING)
+    fine_window   = params.get("fine_window", config.FINE_SCAN_WINDOW)
+    trigger_value = params.get("trigger_value", config.SENSOR_TRIGGER_VALUE)
+    sensor_margin = params.get("sensor_margin", config.SENSOR_MARGIN)
+
     def progress_cb(current, total):
         with _jobs_lock:
             _scan_jobs[job_id]["current"] = current
@@ -172,17 +179,32 @@ def _run_scan(job_id: str, video_path: str, template_emb):
             _scan_jobs[job_id]["total"] = total
 
     try:
-        detections = processor.scan_video(
-            video_path,
-            template_emb,
-            stride=config.SCAN_STRIDE,
-            threshold=config.SIMILARITY_THRESHOLD,
-            min_spacing=config.MIN_PEAK_SPACING,
-            fine_window=config.FINE_SCAN_WINDOW,
-            batch_size=config.SCAN_BATCH_SIZE,
-            progress_cb=progress_cb,
-            phase_cb=phase_cb,
-        )
+        csv_path = Path(video_path).with_suffix(".csv")
+        if csv_path.exists():
+            detections = processor.scan_video_sensor_guided(
+                video_path, csv_path, template_emb,
+                trigger_value=trigger_value,
+                sensor_margin=sensor_margin,
+                stride=stride,
+                threshold=threshold,
+                min_spacing=min_spacing,
+                fine_window=fine_window,
+                batch_size=config.SCAN_BATCH_SIZE,
+                progress_cb=progress_cb,
+                phase_cb=phase_cb,
+            )
+        else:
+            detections = processor.scan_video(
+                video_path, template_emb,
+                stride=stride,
+                threshold=threshold,
+                min_spacing=min_spacing,
+                fine_window=fine_window,
+                batch_size=config.SCAN_BATCH_SIZE,
+                progress_cb=progress_cb,
+                phase_cb=phase_cb,
+            )
+
         known = processor.get_known_key_frames(config.TRAINING_CLIPS_DIR)
         for d in detections:
             kf = d["frame_number"]
@@ -219,6 +241,8 @@ def start_scan():
     if mean_embedding is None:
         return jsonify({"error": "template is empty — run /template/init first"}), 422
 
+    params = body.get("params", {})
+
     job_id = str(uuid.uuid4())
     with _jobs_lock:
         _scan_jobs[job_id] = {
@@ -228,7 +252,7 @@ def start_scan():
 
     template_emb = mean_embedding.copy()
     thread = threading.Thread(
-        target=_run_scan, args=(job_id, video_path, template_emb), daemon=True
+        target=_run_scan, args=(job_id, video_path, template_emb, params), daemon=True
     )
     thread.start()
     return jsonify({"job_id": job_id})
