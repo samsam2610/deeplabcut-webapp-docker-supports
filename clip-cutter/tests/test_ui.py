@@ -560,9 +560,7 @@ def test_player_next_frame_advances_counter(page: Page):
 
     frame_text_before = page.locator("#player-frame-num").inner_text()
     page.locator("#player-next").click()
-    page.wait_for_timeout(800)
-    frame_text_after = page.locator("#player-frame-num").inner_text()
-    assert frame_text_before != frame_text_after
+    expect(page.locator("#player-frame-num")).not_to_have_text(frame_text_before, timeout=3_000)
 
 
 def test_player_keyframe_button_jumps_to_keyframe(page: Page):
@@ -576,10 +574,10 @@ def test_player_keyframe_button_jumps_to_keyframe(page: Page):
     page.locator(".result-card").first.click()
     expect(page.locator("#player-container")).to_be_visible(timeout=5_000)
 
+    frame_at_start = page.locator("#player-frame-num").inner_text()
     page.locator("#player-prev").click()
-    page.wait_for_timeout(400)
-    page.locator("#player-keyframe").click()
-    page.wait_for_timeout(400)
+    expect(page.locator("#player-frame-num")).not_to_have_text(frame_at_start, timeout=3_000)
 
+    page.locator("#player-keyframe").click()
     # first detection: frame_number=20968, 0-based=20967
-    expect(page.locator("#player-frame-num")).to_have_text("fr 20967")
+    expect(page.locator("#player-frame-num")).to_have_text("fr 20967", timeout=3_000)

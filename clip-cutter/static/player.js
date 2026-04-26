@@ -33,27 +33,32 @@ async function loadClip(videoPath, keyFrame1Based) {
 }
 
 async function _playerLoadFrame(n) {
-  if (_playerBusy || _playerVideoPath === null) return;
+  if (_playerBusy || _playerVideoPath === null || _playerFrameCount === 0) return;
   _playerBusy = true;
   n = Math.max(0, Math.min(n, _playerFrameCount - 1));
+  const prevFrame = _playerCurrentFrame;
   _playerCurrentFrame = n;
 
   try {
     const url = `/clip-cutter/frame?video=${encodeURIComponent(_playerVideoPath)}&n=${n}`;
     const resp = await fetch(url);
-    if (!resp.ok) return;
+    if (!resp.ok) { _playerCurrentFrame = prevFrame; return; }
     const blob = await resp.blob();
     const blobUrl = URL.createObjectURL(blob);
     const img = document.getElementById("player-frame");
+    const prev = img.src;
     await new Promise((resolve, reject) => {
-      img.onload = resolve;
+      img.onload = () => {
+        if (prev && prev.startsWith("blob:")) URL.revokeObjectURL(prev);
+        resolve();
+      };
       img.onerror = reject;
-      const prev = img.src;
       img.src = blobUrl;
-      if (prev && prev.startsWith("blob:")) URL.revokeObjectURL(prev);
     });
     _playerUpdateDisplay();
-    new Image().src = `/clip-cutter/frame?video=${encodeURIComponent(_playerVideoPath)}&n=${n + 1}`;
+    if (n < _playerClipEnd) {
+      new Image().src = `/clip-cutter/frame?video=${encodeURIComponent(_playerVideoPath)}&n=${n + 1}`;
+    }
   } finally {
     _playerBusy = false;
   }
@@ -61,6 +66,11 @@ async function _playerLoadFrame(n) {
 
 async function _playerLoop() {
   if (!_playerPlaying) return;
+
+  if (_playerBusy) {
+    _playerTimeoutId = setTimeout(_playerLoop, Math.round(1000 / PLAYER_FPS));
+    return;
+  }
 
   let next = _playerCurrentFrame + 1;
   if (next > _playerClipEnd) {
