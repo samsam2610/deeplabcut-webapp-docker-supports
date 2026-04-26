@@ -2,7 +2,6 @@ import pytest
 import numpy as np
 import cv2
 import pandas as pd
-from pathlib import Path
 
 
 @pytest.fixture
