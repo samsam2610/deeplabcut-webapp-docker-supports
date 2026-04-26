@@ -113,3 +113,180 @@ def test_get_similarity_curve_positions_kwarg_matches_stride(small_avi):
 
     np.testing.assert_array_equal(idx_s, idx_p)
     np.testing.assert_allclose(sim_s, sim_p, atol=1e-5)
+
+
+def test_scan_video_sensor_guided_excludes_covered_frames(tmp_path, monkeypatch):
+    """Gap CLIP scan skips frames covered by sensor bursts."""
+    # 30-frame AVI
+    avi = tmp_path / "v.avi"
+    out = cv2.VideoWriter(str(avi), cv2.VideoWriter_fourcc(*"MJPG"), 30.0, (64, 64))
+    for _ in range(30):
+        out.write(np.zeros((64, 64, 3), dtype=np.uint8))
+    out.release()
+
+    # Triggered: frames 11-20; margin=2 → covered: frames 9-22
+    data = {
+        "frame_number": list(range(1, 31)),
+        "frame_line_status": [14 if 11 <= i <= 20 else 0 for i in range(1, 31)],
+    }
+    csv = tmp_path / "v.csv"
+    pd.DataFrame(data).to_csv(csv, index=False)
+
+    captured = {}
+
+    def mock_gsc(vp, temb, stride=10, batch_size=256, progress_cb=None, positions=None):
+        captured["positions"] = list(positions) if positions is not None else None
+        return np.array([], dtype=np.int64), np.array([], dtype=np.float32)
+
+    monkeypatch.setattr(processor, "get_similarity_curve", mock_gsc)
+    monkeypatch.setattr(processor, "fine_scan", lambda v, t, pos, window=50: (pos, 0.85))
+
+    template = np.ones(512, dtype=np.float32)
+    template /= np.linalg.norm(template)
+
+    processor.scan_video_sensor_guided(
+        avi, csv, template, trigger_value=14, sensor_margin=2, stride=5, threshold=0.70
+    )
+
+    # stride=5, total=30 → positions 0,5,10,15,20,25
+    # covered (1-based): 9..22 → via margin=2 on frames 11-20
+    # gap positions (pos+1 not in covered_set):
+    #   pos=0 → fr1: ok; pos=5 → fr6: ok; pos=10 → fr11: covered;
+    #   pos=15 → fr16: covered; pos=20 → fr21: covered; pos=25 → fr26: ok
+    assert captured["positions"] is not None
+    assert set(captured["positions"]) == {0, 5, 25}
+
+
+def test_scan_video_sensor_guided_sensor_source_tag(tmp_path, monkeypatch):
+    """Sensor candidate with fine_sim >= threshold gets source='sensor+clip'."""
+    avi = tmp_path / "v.avi"
+    out = cv2.VideoWriter(str(avi), cv2.VideoWriter_fourcc(*"MJPG"), 30.0, (64, 64))
+    for _ in range(30):
+        out.write(np.zeros((64, 64, 3), dtype=np.uint8))
+    out.release()
+
+    data = {
+        "frame_number": list(range(1, 31)),
+        "frame_line_status": [14 if i == 15 else 0 for i in range(1, 31)],
+    }
+    csv = tmp_path / "v.csv"
+    pd.DataFrame(data).to_csv(csv, index=False)
+
+    monkeypatch.setattr(
+        processor, "get_similarity_curve",
+        lambda *a, **kw: (np.array([], dtype=np.int64), np.array([], dtype=np.float32)),
+    )
+    monkeypatch.setattr(processor, "fine_scan", lambda v, t, pos, window=50: (pos, 0.85))
+
+    template = np.ones(512, dtype=np.float32)
+    template /= np.linalg.norm(template)
+
+    results = processor.scan_video_sensor_guided(
+        avi, csv, template, trigger_value=14, sensor_margin=0, threshold=0.70
+    )
+    assert len(results) == 1
+    assert results[0]["source"] == "sensor+clip"
+    assert results[0]["frame_number"] == results[0]["cv2_pos"] + 1
+
+
+def test_scan_video_sensor_guided_low_sim_sensor_only(tmp_path, monkeypatch):
+    """Sensor candidate with fine_sim < threshold gets source='sensor_only'."""
+    avi = tmp_path / "v.avi"
+    out = cv2.VideoWriter(str(avi), cv2.VideoWriter_fourcc(*"MJPG"), 30.0, (64, 64))
+    for _ in range(30):
+        out.write(np.zeros((64, 64, 3), dtype=np.uint8))
+    out.release()
+
+    data = {
+        "frame_number": list(range(1, 31)),
+        "frame_line_status": [14 if i == 15 else 0 for i in range(1, 31)],
+    }
+    csv = tmp_path / "v.csv"
+    pd.DataFrame(data).to_csv(csv, index=False)
+
+    monkeypatch.setattr(
+        processor, "get_similarity_curve",
+        lambda *a, **kw: (np.array([], dtype=np.int64), np.array([], dtype=np.float32)),
+    )
+    monkeypatch.setattr(processor, "fine_scan", lambda v, t, pos, window=50: (pos, 0.50))
+
+    template = np.ones(512, dtype=np.float32)
+    template /= np.linalg.norm(template)
+
+    results = processor.scan_video_sensor_guided(
+        avi, csv, template, trigger_value=14, sensor_margin=0, threshold=0.70
+    )
+    assert len(results) == 1
+    assert results[0]["source"] == "sensor_only"
+
+
+def test_scan_video_sensor_guided_clip_only_source(tmp_path, monkeypatch):
+    """CLIP gap peak with no nearby sensor gets source='clip_only'."""
+    avi = tmp_path / "v.avi"
+    out = cv2.VideoWriter(str(avi), cv2.VideoWriter_fourcc(*"MJPG"), 30.0, (64, 64))
+    for _ in range(30):
+        out.write(np.zeros((64, 64, 3), dtype=np.uint8))
+    out.release()
+
+    # No triggers at all
+    data = {
+        "frame_number": list(range(1, 31)),
+        "frame_line_status": [0] * 30,
+    }
+    csv = tmp_path / "v.csv"
+    pd.DataFrame(data).to_csv(csv, index=False)
+
+    # One CLIP gap peak at position 10
+    monkeypatch.setattr(
+        processor, "get_similarity_curve",
+        lambda *a, **kw: (np.array([10], dtype=np.int64), np.array([0.80], dtype=np.float32)),
+    )
+    monkeypatch.setattr(processor, "smooth_curve", lambda arr, sigma=3.0: arr)
+    monkeypatch.setattr(processor, "find_peaks_in_curve", lambda s, fi, th, ms: [10])
+    monkeypatch.setattr(processor, "fine_scan", lambda v, t, pos, window=50: (pos, 0.80))
+
+    template = np.ones(512, dtype=np.float32)
+    template /= np.linalg.norm(template)
+
+    results = processor.scan_video_sensor_guided(
+        avi, csv, template, trigger_value=14, sensor_margin=0, threshold=0.70
+    )
+    assert len(results) == 1
+    assert results[0]["source"] == "clip_only"
+
+
+def test_scan_video_sensor_guided_dedup_sensor_wins(tmp_path, monkeypatch):
+    """When sensor and CLIP peak are within min_spacing//2, sensor candidate wins."""
+    avi = tmp_path / "v.avi"
+    out = cv2.VideoWriter(str(avi), cv2.VideoWriter_fourcc(*"MJPG"), 30.0, (64, 64))
+    for _ in range(30):
+        out.write(np.zeros((64, 64, 3), dtype=np.uint8))
+    out.release()
+
+    # Sensor at frame 15 (cv2_pos=14); CLIP peak at cv2_pos=16 — within min_spacing//2=10
+    data = {
+        "frame_number": list(range(1, 31)),
+        "frame_line_status": [14 if i == 15 else 0 for i in range(1, 31)],
+    }
+    csv = tmp_path / "v.csv"
+    pd.DataFrame(data).to_csv(csv, index=False)
+
+    monkeypatch.setattr(
+        processor, "get_similarity_curve",
+        lambda *a, **kw: (np.array([16], dtype=np.int64), np.array([0.80], dtype=np.float32)),
+    )
+    monkeypatch.setattr(processor, "smooth_curve", lambda arr, sigma=3.0: arr)
+    monkeypatch.setattr(processor, "find_peaks_in_curve", lambda s, fi, th, ms: [16])
+    monkeypatch.setattr(processor, "fine_scan", lambda v, t, pos, window=50: (pos, 0.85))
+
+    template = np.ones(512, dtype=np.float32)
+    template /= np.linalg.norm(template)
+
+    results = processor.scan_video_sensor_guided(
+        avi, csv, template,
+        trigger_value=14, sensor_margin=0, threshold=0.70, min_spacing=20
+    )
+    # Should be 1 result (deduped), sourced from sensor
+    assert len(results) == 1
+    assert results[0]["source"] == "sensor+clip"
+    assert results[0]["cv2_pos"] == 14  # sensor pos wins

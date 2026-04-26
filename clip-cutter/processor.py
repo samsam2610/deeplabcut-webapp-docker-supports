@@ -416,6 +416,114 @@ def scan_video(
     return results
 
 
+def scan_video_sensor_guided(
+    video_path: Path | str,
+    csv_path: Path | str,
+    template_emb: np.ndarray,
+    trigger_value: int = 14,
+    sensor_margin: int = 25,
+    stride: int = 10,
+    threshold: float = 0.70,
+    min_spacing: int = 900,
+    fine_window: int = 50,
+    batch_size: int = 256,
+    smooth_sigma: float = 3.0,
+    progress_cb=None,
+    phase_cb=None,
+) -> list[dict]:
+    """
+    Sensor-guided scan pipeline. Returns list of dicts:
+      {cv2_pos, frame_number (1-based), similarity, source}
+
+    source values:
+      "sensor+clip" — sensor trigger, fine scan similarity >= threshold
+      "sensor_only" — sensor trigger, fine scan similarity < threshold
+      "clip_only"   — CLIP gap peak, no nearby sensor trigger
+    """
+    # Phase 0: sensor parse
+    if phase_cb:
+        phase_cb("sensor_parse", 0, 1)
+    sensor_frames, covered_set = find_sensor_triggers(csv_path, trigger_value, sensor_margin)
+    if phase_cb:
+        phase_cb("sensor_parse", 1, 1)
+
+    # Phase 1: gap CLIP scan — only frames NOT covered by sensor bursts
+    if phase_cb:
+        phase_cb("coarse", 0, 1)
+
+    cap = cv2.VideoCapture(str(video_path))
+    total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+    cap.release()
+
+    all_positions = np.arange(0, total_frames, stride, dtype=np.int64)
+    # covered_set holds 1-based frame numbers; 0-based pos → 1-based = pos+1
+    gap_positions = np.array(
+        [p for p in all_positions if (int(p) + 1) not in covered_set], dtype=np.int64
+    )
+
+    if len(gap_positions) > 0:
+        gap_indices, gap_sims = get_similarity_curve(
+            video_path, template_emb,
+            stride=stride, batch_size=batch_size,
+            progress_cb=progress_cb, positions=gap_positions,
+        )
+    else:
+        gap_indices = np.array([], dtype=np.int64)
+        gap_sims = np.array([], dtype=np.float32)
+
+    # Phase 2: peak detection on gap curve
+    if phase_cb:
+        phase_cb("peak_detection", 0, 1)
+
+    clip_peaks: list[int] = []
+    if len(gap_sims) > 0:
+        smoothed = smooth_curve(gap_sims, sigma=smooth_sigma)
+        clip_peaks = find_peaks_in_curve(smoothed, gap_indices, threshold, min_spacing)
+
+    # Merge sensor rising edges (1-based → 0-based) with CLIP peaks
+    candidates: list[tuple[int, str]] = []
+    for sf in sensor_frames:
+        candidates.append((sf - 1, "sensor"))
+    for cp in clip_peaks:
+        candidates.append((cp, "clip"))
+    candidates.sort(key=lambda x: x[0])
+
+    # Deduplicate: within min_spacing//2 frames, sensor candidate wins
+    dedup: list[tuple[int, str]] = []
+    half = min_spacing // 2
+    for pos, src in candidates:
+        if dedup and abs(pos - dedup[-1][0]) < half:
+            prev_pos, prev_src = dedup[-1]
+            if src == "sensor" and prev_src != "sensor":
+                dedup[-1] = (pos, src)
+        else:
+            dedup.append((pos, src))
+
+    # Phase 3: fine scan
+    if phase_cb:
+        phase_cb("fine", 0, max(len(dedup), 1))
+
+    results = []
+    for i, (coarse_pos, src) in enumerate(dedup):
+        exact_pos, fine_sim = fine_scan(video_path, template_emb, coarse_pos, window=fine_window)
+        if src == "sensor":
+            source_tag = "sensor+clip" if fine_sim >= threshold else "sensor_only"
+        else:
+            source_tag = "clip_only"
+        results.append(
+            {
+                "cv2_pos": exact_pos,
+                "frame_number": exact_pos + 1,
+                "similarity": round(fine_sim, 4),
+                "source": source_tag,
+            }
+        )
+        if phase_cb:
+            phase_cb("fine", i + 1, len(dedup))
+
+    return results
+
+
 def get_known_key_frames(clips_dir: Path | str) -> dict[int, str]:
     """
     Parse existing clip filenames to extract known key frames.
