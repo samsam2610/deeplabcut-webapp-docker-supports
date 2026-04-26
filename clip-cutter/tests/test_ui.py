@@ -11,6 +11,7 @@ Run:
     BASE_URL=http://192.168.1.x:5002 pytest tests/test_ui.py -v
 """
 
+import base64
 import json
 import os
 import re
@@ -364,3 +365,151 @@ def test_rescan_clears_previous_results(page: Page):
     # Scan button re-enabled after first completes; run again
     page.locator("#scan-btn").click()
     expect(page.locator(".result-card")).to_have_count(2, timeout=8_000)
+
+
+# ── Persistence mock data ──────────────────────────────────────────────────────
+
+_MOCK_SAVED_DETECTIONS = {
+    "video_path": "/user-data/vid1.avi",
+    "scan_timestamp": "2026-04-26T12:00:00",
+    "template_frame_count": 19,
+    "detections": [
+        {
+            "cv2_pos": 20967,
+            "frame_number": 20968,
+            "similarity": 0.8734,
+            "known_match": "MAP2_0_20768_21567_success",
+            "status": "kept",
+        },
+        {
+            "cv2_pos": 51399,
+            "frame_number": 51400,
+            "similarity": 0.7412,
+            "known_match": None,
+            "status": "rejected",
+        },
+    ],
+}
+
+
+def setup_routes_with_persistence(
+    page: Page,
+    *,
+    template_frames=None,
+    saved_detections=None,
+    put_detections_calls=None,
+) -> None:
+    """Like setup_routes but also mocks /detections, /video-info, /frame."""
+    setup_routes(page, template_frames=template_frames)
+
+    def on_detections(route: Route):
+        if route.request.method == "PUT":
+            if put_detections_calls is not None:
+                put_detections_calls.append(json.loads(route.request.post_data))
+            _json(route, {"ok": True})
+        else:
+            if saved_detections is None:
+                _json(route, {"error": "not found"}, status=404)
+            else:
+                _json(route, saved_detections)
+
+    def on_video_info(route: Route):
+        _json(route, {"frame_count": 26492, "fps": 30.0})
+
+    def on_frame(route: Route):
+        route.fulfill(
+            status=200,
+            content_type="image/jpeg",
+            body=base64.b64decode(_JPEG_B64),
+        )
+
+    page.route("**/clip-cutter/detections*", on_detections)
+    page.route("**/clip-cutter/video-info*", on_video_info)
+    page.route("**/clip-cutter/frame*", on_frame)
+
+
+def test_saved_detections_load_on_video_select(page: Page):
+    """Selecting a video with saved results auto-populates cards without scanning."""
+    setup_routes_with_persistence(
+        page,
+        template_frames=_MOCK_FRAMES,
+        saved_detections=_MOCK_SAVED_DETECTIONS,
+    )
+    page.goto(f"{BASE_URL}/clip-cutter/")
+
+    page.locator(".video-row:not(.done)").first.click()
+
+    cards = page.locator(".result-card")
+    expect(cards).to_have_count(2, timeout=5_000)
+    expect(page.locator("#results-count")).to_have_text("2 found")
+
+
+def test_saved_statuses_restored_on_load(page: Page):
+    """Cards restored from saved JSON show kept/rejected classes."""
+    setup_routes_with_persistence(
+        page,
+        template_frames=_MOCK_FRAMES,
+        saved_detections=_MOCK_SAVED_DETECTIONS,
+    )
+    page.goto(f"{BASE_URL}/clip-cutter/")
+    page.locator(".video-row:not(.done)").first.click()
+
+    cards = page.locator(".result-card")
+    expect(cards).to_have_count(2, timeout=5_000)
+    expect(cards.nth(0)).to_have_class(re.compile(r"\bkept\b"))
+    expect(cards.nth(1)).to_have_class(re.compile(r"\brejected\b"))
+
+
+def test_scan_button_still_enabled_with_saved_results(page: Page):
+    """Scan button is enabled even when saved results are loaded."""
+    setup_routes_with_persistence(
+        page,
+        template_frames=_MOCK_FRAMES,
+        saved_detections=_MOCK_SAVED_DETECTIONS,
+    )
+    page.goto(f"{BASE_URL}/clip-cutter/")
+    page.locator(".video-row:not(.done)").first.click()
+    expect(page.locator(".result-card")).to_have_count(2, timeout=5_000)
+    expect(page.locator("#scan-btn")).to_be_enabled()
+
+
+def test_reject_persists_via_put_detections(page: Page):
+    """Clicking Reject calls PUT /detections with status rejected."""
+    put_calls = []
+    setup_routes_with_persistence(
+        page,
+        template_frames=_MOCK_FRAMES,
+        saved_detections=None,
+        put_detections_calls=put_calls,
+    )
+    page.goto(f"{BASE_URL}/clip-cutter/")
+    page.locator(".video-row:not(.done)").first.click()
+    page.locator("#scan-btn").click()
+
+    cards = page.locator(".result-card")
+    expect(cards).to_have_count(2, timeout=8_000)
+    cards.nth(1).locator("button", has_text="Reject").click()
+
+    page.wait_for_timeout(500)
+    assert any(
+        any(d.get("status") == "rejected" for d in call.get("detections", []))
+        for call in put_calls
+    )
+
+
+def test_rescan_overwrites_saved_results(page: Page):
+    """Re-scanning clears previous cards and shows fresh detections."""
+    setup_routes_with_persistence(
+        page,
+        template_frames=_MOCK_FRAMES,
+        saved_detections=_MOCK_SAVED_DETECTIONS,
+    )
+    page.goto(f"{BASE_URL}/clip-cutter/")
+    page.locator(".video-row:not(.done)").first.click()
+    expect(page.locator(".result-card")).to_have_count(2, timeout=5_000)
+
+    page.locator("#scan-btn").click()
+    expect(page.locator(".result-card")).to_have_count(2, timeout=8_000)
+    # After rescan neither card should be kept/rejected
+    for i in range(2):
+        expect(page.locator(".result-card").nth(i)).not_to_have_class(re.compile(r"\bkept\b"))

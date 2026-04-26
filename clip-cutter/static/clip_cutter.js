@@ -125,11 +125,38 @@ function renderVideos(videos) {
   });
 }
 
-function selectVideo(path, rowEl) {
+async function selectVideo(path, rowEl) {
   document.querySelectorAll(".video-row").forEach((r) => r.classList.remove("selected"));
   rowEl.classList.add("selected");
   selectedVideoPath = path;
   document.getElementById("scan-btn").disabled = false;
+  await loadSavedDetections(path);
+}
+
+// ── Persistence ───────────────────────────────────────────────────────────────
+
+async function saveDetections() {
+  if (!selectedVideoPath || detections.length === 0) return;
+  await fetch("/clip-cutter/detections", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ video_path: selectedVideoPath, detections }),
+  });
+}
+
+async function loadSavedDetections(videoPath) {
+  try {
+    const resp = await fetch(
+      `/clip-cutter/detections?video=${encodeURIComponent(videoPath)}`
+    );
+    if (!resp.ok) return false;
+    const data = await resp.json();
+    detections.length = 0;
+    renderDetections(data.detections);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 // ── Scan ──────────────────────────────────────────────────────────────────────
@@ -171,7 +198,7 @@ function listenToScan(jobId) {
   if (eventSource) eventSource.close();
   eventSource = new EventSource(`/clip-cutter/scan/stream?job_id=${jobId}`);
 
-  eventSource.onmessage = (e) => {
+  eventSource.onmessage = async (e) => {
     const job = JSON.parse(e.data);
     updateProgress(job);
     if (job.status === "done") {
@@ -183,6 +210,7 @@ function listenToScan(jobId) {
       document.querySelectorAll(".pipeline-connector").forEach((el) => el.classList.add("done"));
       progressSection.style.display = "none";
       renderDetections(job.detections);
+      await saveDetections();
       document.getElementById("scan-btn").disabled = false;
       setStatus(`Scan complete — ${job.detections.length} detection${job.detections.length !== 1 ? "s" : ""}`);
     } else if (job.status === "error") {
@@ -254,10 +282,17 @@ function renderDetections(dets) {
   count.textContent = `${dets.length} found`;
 
   dets.forEach((d) => {
-    d.video_path = selectedVideoPath;
-    d.status = "pending";
+    if (!d.video_path) d.video_path = selectedVideoPath;
+    if (!d.status) d.status = "pending";
     detections.push(d);
     const card = buildResultCard(d, detections.length - 1);
+    if (d.status === "kept") {
+      card.classList.add("kept");
+      card.querySelectorAll("button").forEach((b) => (b.disabled = true));
+    } else if (d.status === "rejected") {
+      card.classList.add("rejected");
+      card.querySelectorAll("button").forEach((b) => (b.disabled = true));
+    }
     list.appendChild(card);
   });
 }
@@ -303,6 +338,13 @@ function buildResultCard(d, idx) {
     addToTemplate(d.video_path, d.frame_number)
   );
 
+  card.addEventListener("click", (e) => {
+    if (e.target.closest("button")) return;
+    document.querySelectorAll(".result-card").forEach((c) => c.classList.remove("active-preview"));
+    card.classList.add("active-preview");
+    if (typeof loadClip === "function") loadClip(d.video_path, d.frame_number);
+  });
+
   return card;
 }
 
@@ -319,17 +361,19 @@ async function keepDetection(idx) {
     card.classList.add("kept");
     card.querySelectorAll("button").forEach((b) => (b.disabled = true));
     setStatus(`Clip extracted for frame ${d.frame_number}`);
+    await saveDetections();
   } else {
     const err = await resp.json();
     setStatus("Error: " + err.error);
   }
 }
 
-function rejectDetection(idx) {
+async function rejectDetection(idx) {
   detections[idx].status = "rejected";
   const card = document.getElementById(`card-${idx}`);
   card.classList.add("rejected");
   card.querySelectorAll("button").forEach((b) => (b.disabled = true));
+  await saveDetections();
 }
 
 // ── Utilities ─────────────────────────────────────────────────────────────────
