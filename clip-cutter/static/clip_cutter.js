@@ -20,8 +20,9 @@ document.addEventListener("DOMContentLoaded", () => {
   const settingsToggle = document.getElementById("settings-toggle");
   const scanSettings = document.getElementById("scan-settings");
   if (settingsToggle && scanSettings) {
+    settingsToggle.setAttribute("aria-expanded", "false");
     settingsToggle.addEventListener("click", () => {
-      const open = scanSettings.style.display !== "none";
+      const open = settingsToggle.getAttribute("aria-expanded") === "true";
       scanSettings.style.display = open ? "none" : "block";
       settingsToggle.setAttribute("aria-expanded", String(!open));
     });
@@ -49,8 +50,7 @@ document.addEventListener("DOMContentLoaded", () => {
       document.getElementById("scan-threshold").value = "0.70";
       document.getElementById("min-spacing").value = "900";
       document.getElementById("fine-window").value = "50";
-      const lbl = document.getElementById("threshold-label");
-      if (lbl) lbl.textContent = "0.70";
+      document.getElementById("scan-threshold").dispatchEvent(new Event("input"));
     });
   }
 
@@ -330,7 +330,7 @@ function updateProgress(job) {
     document.getElementById("progress-text").textContent = "Parsing sensor data…";
   } else {
     document.getElementById("progress-text").textContent =
-      `Coarse scan — frame ${job.current.toLocaleString()} / ${job.total.toLocaleString()}`;
+      `Coarse scan — frame ${(job.current ?? 0).toLocaleString()} / ${(job.total ?? 0).toLocaleString()}`;
   }
 }
 
