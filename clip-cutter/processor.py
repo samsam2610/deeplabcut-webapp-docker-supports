@@ -12,6 +12,8 @@ from PIL import Image
 from scipy.ndimage import binary_dilation, gaussian_filter1d
 from scipy.signal import find_peaks
 
+import config
+
 # Lazy-loaded CLIP model singleton
 _model = None
 
@@ -22,6 +24,63 @@ def _get_model():
         from sentence_transformers import SentenceTransformer
         _model = SentenceTransformer("clip-ViT-B-32")
     return _model
+
+
+# Lazy-loaded DINOv2 model singleton
+_dino_model = None
+_dino_transform = None
+
+
+def _get_dino_model():
+    global _dino_model, _dino_transform
+    if _dino_model is None:
+        import torch
+        import torchvision.transforms as T
+        _dino_model = torch.hub.load(
+            "facebookresearch/dinov2", config.DINO_MODEL_NAME, pretrained=True
+        )
+        _dino_model.eval()
+        device = "cuda" if torch.cuda.is_available() else "cpu"
+        _dino_model = _dino_model.to(device)
+        _dino_transform = T.Compose([
+            T.Resize(224, interpolation=T.InterpolationMode.BICUBIC),
+            T.CenterCrop(224),
+            T.ToTensor(),
+            T.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
+        ])
+    return _dino_model, _dino_transform
+
+
+def embed_frames_dino_batch(frames: list, batch_size: int = 64) -> np.ndarray:
+    """Embed BGR numpy frames with DINOv2. Returns L2-normalised (N, 1024) float32."""
+    import torch
+    model, transform = _get_dino_model()
+    device = next(model.parameters()).device
+    all_embs: list = []
+    for i in range(0, len(frames), batch_size):
+        batch = frames[i:i + batch_size]
+        tensors = torch.stack([
+            transform(Image.fromarray(cv2.cvtColor(f, cv2.COLOR_BGR2RGB)))
+            for f in batch
+        ]).to(device)
+        with torch.no_grad():
+            feats = model(tensors)          # CLS token, shape (B, 1024)
+        feats = feats.cpu().float().numpy()
+        norms = np.linalg.norm(feats, axis=1, keepdims=True).clip(min=1e-8)
+        all_embs.append(feats / norms)
+    return np.concatenate(all_embs, axis=0)
+
+
+def compute_dino_mean_embedding(frames: list) -> "np.ndarray | None":
+    """L2-normalised mean DINOv2 embedding. Returns None when frames is empty."""
+    if not frames:
+        return None
+    embs = embed_frames_dino_batch(frames)
+    mean = embs.mean(axis=0).astype(np.float32)
+    norm = np.linalg.norm(mean)
+    if norm == 0.0:
+        return None
+    return mean / norm
 
 
 def read_frame(video_path: Path | str, cv2_pos: int) -> np.ndarray | None:
