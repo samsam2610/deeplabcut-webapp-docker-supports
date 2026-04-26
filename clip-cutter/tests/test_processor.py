@@ -228,3 +228,23 @@ def test_update_parent_csv_preserves_row_count(tiny_csv):
     original_count = len(pd.read_csv(tiny_csv))
     processor.update_parent_csv_note(tiny_csv, frame_number=5, note="start_reaching")
     assert len(pd.read_csv(tiny_csv)) == original_count
+
+
+def test_update_parent_csv_note_raises_on_missing_frame(tiny_csv):
+    with pytest.raises(ValueError, match="frame_number 9999 not found"):
+        processor.update_parent_csv_note(tiny_csv, frame_number=9999, note="oops")
+
+
+def test_extract_clip_end_to_end(tiny_video, tiny_csv, tmp_path, monkeypatch):
+    import config
+    monkeypatch.setattr(config, "CLIP_PRE_FRAMES", 5)
+    monkeypatch.setattr(config, "CLIP_POST_FRAMES", 10)
+    result = processor.extract_clip(tiny_video, tiny_csv, key_frame_number=20, output_dir=tmp_path)
+    assert Path(result["avi_path"]).exists()
+    assert Path(result["csv_path"]).exists()
+    assert result["start_frame_number"] == 15  # 20 - 5
+    assert result["end_frame_number"] == 29    # 20 + 10 - 1
+    import pandas as pd
+    clip_df = pd.read_csv(result["csv_path"])
+    assert clip_df["clip_frame"].iloc[0] == 1
+    assert len(clip_df) == 15  # frames 15..29 inclusive

@@ -396,11 +396,15 @@ def update_parent_csv_note(
     """
     Write `note` into the note column of the row matching frame_number.
     All other rows and columns are unchanged. No rows are added or removed.
+    Raises ValueError if frame_number is not found.
     """
     import pandas as pd
     df = pd.read_csv(parent_csv_path)
-    df["note"] = df["note"].fillna("").astype(str)
-    df.loc[df["frame_number"] == frame_number, "note"] = note
+    matched = df["frame_number"] == frame_number
+    if not matched.any():
+        raise ValueError(f"frame_number {frame_number} not found in {parent_csv_path}")
+    df["note"] = df["note"].fillna("")
+    df.loc[matched, "note"] = note
     df.to_csv(parent_csv_path, index=False)
 
 
@@ -415,6 +419,7 @@ def extract_clip(
     Writes: {output_dir}/{stem}_{start}_{end}.avi and matching .csv
     Returns dict with output paths and start/end frame numbers.
     key_frame_number is 1-based (matches CSV frame_number).
+    start/end are clamped to [1, total_frames].
     """
     from config import CLIP_PRE_FRAMES, CLIP_POST_FRAMES
 
@@ -422,8 +427,12 @@ def extract_clip(
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    start_fn = key_frame_number - CLIP_PRE_FRAMES       # 1-based, inclusive
-    end_fn = key_frame_number + CLIP_POST_FRAMES - 1     # 1-based, inclusive
+    cap = cv2.VideoCapture(str(video_path))
+    total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+    cap.release()
+
+    start_fn = max(1, key_frame_number - CLIP_PRE_FRAMES)           # 1-based, clamped
+    end_fn = min(total_frames, key_frame_number + CLIP_POST_FRAMES - 1)  # 1-based, clamped
 
     stem = video_path.stem
     clip_stem = f"{stem}_{start_fn}_{end_fn}"
