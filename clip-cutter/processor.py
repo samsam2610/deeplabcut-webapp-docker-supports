@@ -288,7 +288,7 @@ def get_similarity_curve(
     if positions is None:
         all_positions = np.arange(0, total_frames, stride, dtype=np.int64)
     else:
-        all_positions = np.asarray(positions, dtype=np.int64)
+        all_positions = np.sort(np.asarray(positions, dtype=np.int64))
 
     similarities = np.zeros(len(all_positions), dtype=np.float32)
 
@@ -303,15 +303,17 @@ def get_similarity_curve(
         vcap.set(cv2.CAP_PROP_POS_FRAMES, int(batch_positions[0]))
         cur = int(batch_positions[0])
         frames = []
-        for target in batch_positions:
-            target = int(target)
-            while cur < target:
-                vcap.grab()
+        try:
+            for target in batch_positions:
+                target = int(target)
+                while cur < target:
+                    vcap.grab()
+                    cur += 1
+                ret, frame = vcap.read()
                 cur += 1
-            ret, frame = vcap.read()
-            cur += 1
-            frames.append(frame if ret else np.zeros((64, 64, 3), dtype=np.uint8))
-        vcap.release()
+                frames.append(frame if ret else np.zeros((64, 64, 3), dtype=np.uint8))
+        finally:
+            vcap.release()
         return frames
 
     processed = 0
