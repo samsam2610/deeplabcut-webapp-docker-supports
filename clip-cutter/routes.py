@@ -191,6 +191,13 @@ def _run_scan(job_id: str, video_path: str, template_emb):
                 None,
             )
             d["known_match"] = match
+            d["status"] = "pending"
+
+        with _state_lock:
+            template_frame_count = len(_state["frames"])
+        processor.save_detections(
+            video_path, detections, template_frame_count, config.DETECTIONS_DIR
+        )
 
         with _jobs_lock:
             _scan_jobs[job_id]["status"] = "done"
