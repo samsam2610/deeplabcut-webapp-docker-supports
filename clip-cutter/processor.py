@@ -214,9 +214,17 @@ def find_sensor_triggers(
     """
     import pandas as pd
 
-    df = pd.read_csv(csv_path, usecols=["frame_number", "frame_line_status"])
+    try:
+        df = pd.read_csv(csv_path, usecols=["frame_number", "frame_line_status"])
+    except ValueError as exc:
+        raise ValueError(
+            f"CSV at {csv_path} is missing required columns (frame_number, frame_line_status): {exc}"
+        ) from exc
     frames = df["frame_number"].to_numpy(dtype=np.int64)
     status = df["frame_line_status"].to_numpy(dtype=np.int64)
+
+    if len(frames) == 0:
+        return [], set()
 
     triggered = (status == trigger_value)
     structure = np.ones(2 * sensor_margin + 1, dtype=bool)

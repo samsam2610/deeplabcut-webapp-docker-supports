@@ -71,3 +71,12 @@ def test_find_sensor_triggers_custom_trigger_value(tmp_path):
     # triggered: 8-12 (indices 7-11). dilated ±2: indices 5-13 → frames 6-14
     assert len(rising) == 1
     assert rising[0] == 6
+
+
+def test_find_sensor_triggers_empty_csv_rows(tmp_path):
+    """CSV with no data rows returns empty results without crashing."""
+    csv = tmp_path / "empty.csv"
+    pd.DataFrame({"frame_number": [], "frame_line_status": []}).to_csv(csv, index=False)
+    rising, covered = processor.find_sensor_triggers(csv, trigger_value=14, sensor_margin=5)
+    assert rising == []
+    assert covered == set()
