@@ -97,6 +97,7 @@ def load_template_state(path: Path | str) -> dict:
 
 def save_template_state(state: dict, path: Path | str) -> None:
     path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
     serializable = {
         "frames": [
             {**f, "embedding": f["embedding"].tolist()}

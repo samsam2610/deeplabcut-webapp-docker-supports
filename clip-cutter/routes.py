@@ -136,8 +136,11 @@ def _video_is_done(avi_path: Path) -> bool:
         return True
     csv_path = avi_path.with_suffix(".csv")
     if csv_path.exists():
-        df = pd.read_csv(csv_path, usecols=["note"])
-        return df["note"].eq("start_reaching").any()
+        try:
+            df = pd.read_csv(csv_path, usecols=["note"], on_bad_lines="skip")
+            return bool(df["note"].eq("start_reaching").any())
+        except Exception:
+            return False
     return False
 
 
