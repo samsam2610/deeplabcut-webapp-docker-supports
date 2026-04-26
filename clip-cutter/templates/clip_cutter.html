@@ -68,7 +68,7 @@ header h1 { font-size: 15px; font-weight: 600; }
 #progress-fill { height: 100%; width: 0; background: linear-gradient(90deg, #1f6feb, #7ec8e3); border-radius: 2px; transition: width 0.3s; }
 
 /* Results + Player split */
-.content-split { display: flex; flex: 1; overflow: hidden; }
+.content-split { display: flex; flex: 1; overflow: hidden; min-height: 0; }
 
 /* Results pane (left 40%) */
 .results-pane { width: 40%; border-right: 1px solid #30363d; display: flex; flex-direction: column; overflow: hidden; }
@@ -103,7 +103,6 @@ header h1 { font-size: 15px; font-weight: 600; }
 .player-btn { font-size: 11px; padding: 3px 10px; border-radius: 4px; cursor: pointer; border: 1px solid #30363d; background: transparent; color: #cdd9e5; }
 .player-btn:hover { background: #30363d; }
 .player-btn.active { border-color: #388bfd; color: #388bfd; }
-#player-loop.active { border-color: #388bfd; color: #388bfd; }
 </style>
 </head>
 <body>
