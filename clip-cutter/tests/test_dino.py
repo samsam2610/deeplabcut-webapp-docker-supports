@@ -55,3 +55,43 @@ def test_compute_dino_mean_embedding_normalised():
 def test_compute_dino_mean_embedding_empty_returns_none():
     result = processor.compute_dino_mean_embedding([])
     assert result is None
+
+
+def _make_synthetic_avi(path, n_frames=90, w=64, h=64, fps=30.0):
+    import cv2 as _cv2
+    writer = _cv2.VideoWriter(
+        str(path), _cv2.VideoWriter_fourcc(*"XVID"), fps, (w, h)
+    )
+    rng = np.random.default_rng(7)
+    for _ in range(n_frames):
+        writer.write(rng.integers(0, 255, (h, w, 3), dtype=np.uint8))
+    writer.release()
+
+
+def test_fine_scan_uses_dino_when_emb_provided(tmp_path):
+    avi = tmp_path / "test.avi"
+    _make_synthetic_avi(avi, n_frames=90)
+
+    rng = np.random.default_rng(99)
+    dino_emb = rng.random(1024).astype(np.float32)
+    dino_emb /= np.linalg.norm(dino_emb)
+
+    pos, sim = processor.fine_scan(
+        str(avi), template_emb=None, coarse_cv2_pos=45,
+        window=20, dino_template_emb=dino_emb
+    )
+    assert 0 <= pos <= 89, f"position {pos} out of range"
+    assert -1.0 <= sim <= 1.0, f"similarity {sim} out of [-1, 1]"
+
+
+def test_fine_scan_falls_back_to_clip_when_no_dino_emb(tmp_path):
+    avi = tmp_path / "test2.avi"
+    _make_synthetic_avi(avi, n_frames=60)
+
+    clip_emb = np.zeros(512, dtype=np.float32)
+    clip_emb[0] = 1.0
+    pos, sim = processor.fine_scan(
+        str(avi), template_emb=clip_emb, coarse_cv2_pos=30,
+        window=10, dino_template_emb=None
+    )
+    assert 0 <= pos <= 59

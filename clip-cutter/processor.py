@@ -401,12 +401,14 @@ def get_similarity_curve(
 
 def fine_scan(
     video_path: Path | str,
-    template_emb: np.ndarray,
+    template_emb: "np.ndarray | None",
     coarse_cv2_pos: int,
     window: int = 50,
+    dino_template_emb: "np.ndarray | None" = None,
 ) -> tuple[int, float]:
     """
     Scan ±window frames around coarse_cv2_pos at stride 1.
+    Uses DINOv2 embeddings if dino_template_emb is provided, else CLIP.
     Returns (cv2_pos, similarity) of the best-matching frame.
     """
     cap = cv2.VideoCapture(str(video_path))
@@ -423,8 +425,13 @@ def fine_scan(
         frames.append(frame if ret else np.zeros((64, 64, 3), dtype=np.uint8))
     cap.release()
 
-    embs = embed_frames_batch(frames)
-    sims = embs @ template_emb
+    if dino_template_emb is not None:
+        embs = embed_frames_dino_batch(frames)
+        sims = embs @ dino_template_emb
+    else:
+        embs = embed_frames_batch(frames)
+        sims = embs @ template_emb
+
     best_local = int(np.argmax(sims))
     return positions[best_local], float(sims[best_local])
 
