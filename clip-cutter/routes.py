@@ -285,7 +285,7 @@ def get_detections():
 
 @bp.route("/detections", methods=["PUT"])
 def put_detections():
-    body = request.get_json(force=True)
+    body = request.get_json(force=True, silent=True) or {}
     video_path = body.get("video_path")
     detections = body.get("detections")
     if not video_path or detections is None:
