@@ -9,7 +9,7 @@ from pathlib import Path
 import cv2
 import numpy as np
 from PIL import Image
-from scipy.ndimage import gaussian_filter1d
+from scipy.ndimage import binary_dilation, gaussian_filter1d
 from scipy.signal import find_peaks
 
 # Lazy-loaded CLIP model singleton
@@ -196,6 +196,41 @@ def init_template_from_clips_dir(
 
 def smooth_curve(values: np.ndarray, sigma: float = 3.0) -> np.ndarray:
     return gaussian_filter1d(values.astype(np.float64), sigma=sigma).astype(np.float32)
+
+
+def find_sensor_triggers(
+    csv_path: Path | str,
+    trigger_value: int = 14,
+    sensor_margin: int = 25,
+) -> tuple[list[int], set[int]]:
+    """
+    Parse frame_line_status column to find sensor rising edges.
+
+    Returns:
+        rising_edge_frame_numbers: 1-based frame numbers at each rising edge
+          of the dilated trigger burst — one per reaching event.
+        covered_frame_set: all 1-based frame numbers inside any dilated burst,
+          used to exclude them from the gap CLIP scan.
+    """
+    import pandas as pd
+
+    df = pd.read_csv(csv_path, usecols=["frame_number", "frame_line_status"])
+    frames = df["frame_number"].to_numpy(dtype=np.int64)
+    status = df["frame_line_status"].to_numpy(dtype=np.int64)
+
+    triggered = (status == trigger_value)
+    structure = np.ones(2 * sensor_margin + 1, dtype=bool)
+    dilated = binary_dilation(triggered, structure=structure)
+
+    # Rising edges: False→True transitions (first element is a rising edge if True)
+    rising_mask = np.zeros(len(dilated), dtype=bool)
+    rising_mask[0] = dilated[0]
+    rising_mask[1:] = dilated[1:] & ~dilated[:-1]
+
+    rising_frame_numbers = [int(frames[i]) for i in np.where(rising_mask)[0]]
+    covered_frame_set = {int(frames[i]) for i in np.where(dilated)[0]}
+
+    return rising_frame_numbers, covered_frame_set
 
 
 def find_peaks_in_curve(
