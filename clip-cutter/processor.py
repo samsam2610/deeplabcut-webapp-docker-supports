@@ -73,7 +73,10 @@ def frame_to_thumbnail(frame_bgr: np.ndarray, max_width: int = 120) -> str:
 def compute_mean_embedding(embeddings: np.ndarray) -> np.ndarray:
     """L2-normalised mean of a (N, D) embedding matrix."""
     mean = embeddings.mean(axis=0).astype(np.float32)
-    return mean / np.linalg.norm(mean)
+    norm = np.linalg.norm(mean)
+    if norm == 0.0:
+        raise ValueError("Cannot normalise a zero embedding vector")
+    return mean / norm
 
 
 def load_template_state(path: Path | str) -> dict:
@@ -161,7 +164,7 @@ def init_template_from_clips_dir(
     # Only base clips (success/failure suffix, not DLC result files)
     clip_files = sorted(
         p for p in clips_dir.glob("*.avi")
-        if "_success" in p.stem or "_failure" in p.stem
+        if p.stem.endswith("_success") or p.stem.endswith("_failure")
     )
     state = {"frames": [], "mean_embedding": None}
     for clip_path in clip_files:
