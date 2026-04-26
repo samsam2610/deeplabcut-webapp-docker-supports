@@ -67,23 +67,43 @@ header h1 { font-size: 15px; font-weight: 600; }
 #progress-bar { height: 4px; background: #30363d; border-radius: 2px; }
 #progress-fill { height: 100%; width: 0; background: linear-gradient(90deg, #1f6feb, #7ec8e3); border-radius: 2px; transition: width 0.3s; }
 
-/* Results */
-.results-section { flex: 1; overflow-y: auto; padding: 10px 14px; }
-#results-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
+/* Results + Player split */
+.content-split { display: flex; flex: 1; overflow: hidden; }
+
+/* Results pane (left 40%) */
+.results-pane { width: 40%; border-right: 1px solid #30363d; display: flex; flex-direction: column; overflow: hidden; }
+.results-pane-header { padding: 8px 12px 4px; flex-shrink: 0; display: flex; align-items: center; justify-content: space-between; }
 #results-count { font-size: 11px; color: #2ea043; }
-#results-list { display: flex; flex-direction: column; gap: 6px; }
-.result-card { display: flex; align-items: center; gap: 10px; padding: 8px 10px; background: #1c2128; border-radius: 5px; border: 1px solid #30363d; }
+#results-list { flex: 1; overflow-y: auto; padding: 6px 10px; display: flex; flex-direction: column; gap: 6px; }
+.result-card { display: flex; align-items: center; gap: 10px; padding: 8px 10px; background: #1c2128; border-radius: 5px; border: 1px solid #30363d; cursor: pointer; }
+.result-card:hover { border-color: #388bfd44; }
+.result-card.active-preview { border-color: #388bfd; background: #1a2535; }
 .result-card.new { border-color: #388bfd55; }
 .result-card.kept { opacity: 0.4; }
 .result-card.rejected { opacity: 0.4; }
-.result-meta { flex: 1; }
-.result-name { font-family: monospace; font-size: 11px; color: #cdd9e5; margin-bottom: 2px; }
+.result-meta { flex: 1; min-width: 0; }
+.result-name { font-family: monospace; font-size: 11px; color: #cdd9e5; margin-bottom: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .result-info { font-size: 10px; color: #768390; margin-bottom: 5px; }
-.result-actions { display: flex; gap: 5px; }
+.result-actions { display: flex; gap: 5px; flex-wrap: wrap; }
 .sim-pill { font-size: 10px; padding: 2px 7px; border-radius: 10px; background: #1a3a1a; color: #2ea043; flex-shrink: 0; }
 .match-pill { font-size: 9px; padding: 1px 5px; border-radius: 3px; }
 .match-known { background: #1a3a1a; color: #2ea043; }
 .match-new { background: #1a2535; color: #388bfd; }
+
+/* Player pane (right 60%) */
+.player-pane { flex: 1; display: flex; flex-direction: column; background: #0d1117; overflow: hidden; }
+#player-placeholder { flex: 1; display: flex; align-items: center; justify-content: center; font-size: 11px; color: #768390; }
+#player-container { flex: 1; display: flex; flex-direction: column; padding: 8px; gap: 6px; }
+#player-frame-wrap { flex: 1; background: #1c2128; border-radius: 4px; border: 1px solid #30363d; overflow: hidden; display: flex; align-items: center; justify-content: center; min-height: 0; }
+#player-frame { max-width: 100%; max-height: 100%; display: block; }
+#player-controls { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
+#player-seek { flex: 1; accent-color: #1f6feb; cursor: pointer; }
+#player-frame-num { font-size: 10px; color: #768390; white-space: nowrap; font-family: monospace; }
+#player-actions { display: flex; gap: 6px; flex-shrink: 0; }
+.player-btn { font-size: 11px; padding: 3px 10px; border-radius: 4px; cursor: pointer; border: 1px solid #30363d; background: transparent; color: #cdd9e5; }
+.player-btn:hover { background: #30363d; }
+.player-btn.active { border-color: #388bfd; color: #388bfd; }
+#player-loop.active { border-color: #388bfd; color: #388bfd; }
 </style>
 </head>
 <body>
@@ -138,13 +158,37 @@ header h1 { font-size: 15px; font-weight: 600; }
       <div id="progress-bar"><div id="progress-fill"></div></div>
     </div>
 
-    <!-- Results -->
-    <div class="results-section">
-      <div id="results-header">
-        <span class="section-label">Detections</span>
-        <span id="results-count"></span>
+    <!-- Results + Player split -->
+    <div class="content-split">
+      <!-- Results list -->
+      <div class="results-pane">
+        <div class="results-pane-header">
+          <span class="section-label">Detections</span>
+          <span id="results-count"></span>
+        </div>
+        <div id="results-list"></div>
       </div>
-      <div id="results-list"></div>
+
+      <!-- Player -->
+      <div class="player-pane">
+        <div id="player-placeholder">Click a detection to preview</div>
+        <div id="player-container" style="display:none;">
+          <div id="player-frame-wrap">
+            <img id="player-frame" alt="video frame">
+          </div>
+          <div id="player-controls">
+            <button class="player-btn" id="player-prev">&#9198;</button>
+            <button class="player-btn" id="player-play">&#9654;</button>
+            <button class="player-btn" id="player-next">&#9197;</button>
+            <input type="range" id="player-seek" min="0" max="1000" value="0">
+            <span id="player-frame-num">fr 0</span>
+          </div>
+          <div id="player-actions">
+            <button class="player-btn" id="player-keyframe">&#8982; Key frame</button>
+            <button class="player-btn active" id="player-loop">&#8617; Loop</button>
+          </div>
+        </div>
+      </div>
     </div>
   </div>
 </div>
