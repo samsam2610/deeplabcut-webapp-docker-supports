@@ -3,11 +3,23 @@ let selectedVideoPath = null;
 let currentJobId = null;
 let eventSource = null;
 const detections = [];
+let currentFilter = "sensor+clip";
 
 function esc(s) {
   const d = document.createElement("div");
   d.textContent = String(s);
   return d.innerHTML;
+}
+
+function applyFilter() {
+  document.querySelectorAll(".result-card").forEach((card) => {
+    const src = card.dataset.source || "";
+    const visible =
+      currentFilter === "all" ||
+      (currentFilter === "sensor+clip" && src === "sensor+clip") ||
+      (currentFilter === "clip_only" && src === "clip_only");
+    card.style.display = visible ? "" : "none";
+  });
 }
 
 // ── Boot ─────────────────────────────────────────────────────────────────────
@@ -63,6 +75,16 @@ document.addEventListener("DOMContentLoaded", () => {
       thresholdLabel.textContent = parseFloat(thresholdInput.value).toFixed(2);
     });
   }
+
+  // Source filter buttons
+  document.querySelectorAll(".filter-btn").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      currentFilter = btn.dataset.filter;
+      document.querySelectorAll(".filter-btn").forEach((b) => b.classList.remove("active"));
+      btn.classList.add("active");
+      applyFilter();
+    });
+  });
 });
 
 // ── Template bank ─────────────────────────────────────────────────────────────
@@ -210,6 +232,7 @@ async function loadSavedDetections(videoPath) {
     const data = await resp.json();
     detections.length = 0;
     renderDetections(data.detections);
+    applyFilter();
     return true;
   } catch {
     return false;
@@ -277,6 +300,11 @@ function listenToScan(jobId) {
       document.querySelectorAll(".pipeline-connector").forEach((el) => el.classList.add("done"));
       progressSection.style.display = "none";
       renderDetections(job.detections);
+      currentFilter = "sensor+clip";
+      document.querySelectorAll(".filter-btn").forEach((b) => {
+        b.classList.toggle("active", b.dataset.filter === "sensor+clip");
+      });
+      applyFilter();
       await saveDetections();
       document.getElementById("scan-btn").disabled = false;
       setStatus(`Scan complete — ${job.detections.length} detection${job.detections.length !== 1 ? "s" : ""}`);
@@ -376,6 +404,7 @@ function buildResultCard(d, idx) {
   const card = document.createElement("div");
   card.className = "result-card" + (isKnown ? "" : " new");
   card.id = `card-${idx}`;
+  card.dataset.source = d.source || "";
 
   // Build inner structure with safe static skeleton
   card.innerHTML = `
