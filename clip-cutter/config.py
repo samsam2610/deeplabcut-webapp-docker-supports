@@ -35,6 +35,10 @@ TRAINING_CROP = (401, 268, 581, 632)   # (x, y, w, h) in original 1376×900 fram
 # --- Scanning ---
 SCAN_STRIDE = 10           # extract every Nth frame for coarse pass
 SCAN_BATCH_SIZE = 256      # CLIP batch size (RTX 5090 handles 256 easily)
+
+# ── DINOv2 fine scan ──────────────────────────────────────────────────────────
+DINO_MODEL_NAME = "dinov2_vitl14"   # swap to dinov2_vitb14 for faster/smaller
+
 SIMILARITY_THRESHOLD = 0.70
 MIN_PEAK_SPACING = 900     # minimum frames between two detections (original frame units)
 FINE_SCAN_WINDOW = 50      # ± frames around coarse peak for fine pass
