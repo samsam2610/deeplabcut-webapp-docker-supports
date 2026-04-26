@@ -401,7 +401,7 @@ function buildResultCard(d, idx) {
   card.querySelector(".sim-pill").textContent = d.similarity.toFixed(2);
 
   // Source badge
-  if (d.source) {
+  if (d.source && d.source !== "pending") {
     const badge = document.createElement("span");
     badge.className = "source-badge";
     if (d.source === "sensor+clip") {
