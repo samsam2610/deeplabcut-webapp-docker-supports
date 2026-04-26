@@ -15,6 +15,53 @@ function esc(s) {
 document.addEventListener("DOMContentLoaded", () => {
   loadTemplate();
   loadVideos();
+
+  // Settings toggle
+  const settingsToggle = document.getElementById("settings-toggle");
+  const scanSettings = document.getElementById("scan-settings");
+  if (settingsToggle && scanSettings) {
+    settingsToggle.addEventListener("click", () => {
+      const open = scanSettings.style.display !== "none";
+      scanSettings.style.display = open ? "none" : "block";
+      settingsToggle.setAttribute("aria-expanded", String(!open));
+    });
+  }
+
+  // Tab switching
+  document.querySelectorAll(".tab-btn").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      document.querySelectorAll(".tab-btn").forEach((b) => b.classList.remove("active"));
+      btn.classList.add("active");
+      const tab = btn.dataset.tab;
+      document.querySelectorAll(".tab-panel").forEach((p) => {
+        p.style.display = p.id === `tab-${tab}` ? "block" : "none";
+      });
+    });
+  });
+
+  // Reset defaults
+  const resetBtn = document.getElementById("settings-reset");
+  if (resetBtn) {
+    resetBtn.addEventListener("click", () => {
+      document.getElementById("trigger-value").value = "14";
+      document.getElementById("sensor-margin").value = "25";
+      document.getElementById("scan-stride").value = "10";
+      document.getElementById("scan-threshold").value = "0.70";
+      document.getElementById("min-spacing").value = "900";
+      document.getElementById("fine-window").value = "50";
+      const lbl = document.getElementById("threshold-label");
+      if (lbl) lbl.textContent = "0.70";
+    });
+  }
+
+  // Threshold slider live label
+  const thresholdInput = document.getElementById("scan-threshold");
+  const thresholdLabel = document.getElementById("threshold-label");
+  if (thresholdInput && thresholdLabel) {
+    thresholdInput.addEventListener("input", () => {
+      thresholdLabel.textContent = parseFloat(thresholdInput.value).toFixed(2);
+    });
+  }
 });
 
 // ── Template bank ─────────────────────────────────────────────────────────────
@@ -181,7 +228,17 @@ async function startScan() {
     const resp = await fetch("/clip-cutter/scan", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ video_path: selectedVideoPath }),
+      body: JSON.stringify({
+        video_path: selectedVideoPath,
+        params: {
+          trigger_value: parseInt(document.getElementById("trigger-value").value, 10),
+          sensor_margin: parseInt(document.getElementById("sensor-margin").value, 10),
+          stride: parseInt(document.getElementById("scan-stride").value, 10),
+          threshold: parseFloat(document.getElementById("scan-threshold").value),
+          min_spacing: parseInt(document.getElementById("min-spacing").value, 10),
+          fine_window: parseInt(document.getElementById("fine-window").value, 10),
+        },
+      }),
     });
     if (!resp.ok) {
       const err = await resp.json();
@@ -231,9 +288,10 @@ function listenToScan(jobId) {
   };
 }
 
-const PIPELINE_PHASES = ["coarse", "peak_detection", "fine"];
+const PIPELINE_PHASES = ["sensor_parse", "coarse", "peak_detection", "fine"];
 
 const PHASE_LABELS = {
+  sensor_parse: "Sensor parse",
   coarse: "Coarse scan",
   peak_detection: "Peak detection",
   fine: "Fine scan",
@@ -268,6 +326,8 @@ function updateProgress(job) {
       ? `Fine scan — ${job.current} / ${job.total} candidate${job.total !== 1 ? "s" : ""}`
       : "Fine scan…";
     document.getElementById("progress-text").textContent = label;
+  } else if (phase === "sensor_parse") {
+    document.getElementById("progress-text").textContent = "Parsing sensor data…";
   } else {
     document.getElementById("progress-text").textContent =
       `Coarse scan — frame ${job.current.toLocaleString()} / ${job.total.toLocaleString()}`;
@@ -339,6 +399,23 @@ function buildResultCard(d, idx) {
     ? "✓ matches " + d.known_match
     : "new detection";
   card.querySelector(".sim-pill").textContent = d.similarity.toFixed(2);
+
+  // Source badge
+  if (d.source) {
+    const badge = document.createElement("span");
+    badge.className = "source-badge";
+    if (d.source === "sensor+clip") {
+      badge.classList.add("source-sensor-clip");
+      badge.textContent = "✓ sensor+CLIP";
+    } else if (d.source === "sensor_only") {
+      badge.classList.add("source-sensor-only");
+      badge.textContent = "sensor only";
+    } else if (d.source === "clip_only") {
+      badge.classList.add("source-clip-only");
+      badge.textContent = "CLIP only";
+    }
+    card.querySelector(".result-meta").appendChild(badge);
+  }
 
   // Attach event listeners (no onclick attributes with embedded data)
   card.querySelector(".keep-btn").addEventListener("click", () => keepDetection(idx));
