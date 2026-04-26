@@ -1,9 +1,27 @@
+import os
 from pathlib import Path
 
-# --- Paths ---
-VIDEO_DIR = Path("/home/sam/synology/Parra-Lab-Data/Reaching-Task-Data/RatBox Videos/MAP-2")
-TRAINING_CLIPS_DIR = VIDEO_DIR / "MAP2_20250515_103618_0"
-TEMPLATE_STATE_PATH = Path(__file__).parent / "template_state.json"
+# --- Paths (override via environment variables for Docker) ---
+_DATA_ROOT = Path(os.environ.get("CLIP_CUTTER_DATA_ROOT", "/user-data/Parra-Data/Cloud"))
+
+VIDEO_DIR = Path(
+    os.environ.get(
+        "CLIP_CUTTER_VIDEO_DIR",
+        str(_DATA_ROOT / "Reaching-Task-Data/RatBox Videos/MAP-2"),
+    )
+)
+TRAINING_CLIPS_DIR = Path(
+    os.environ.get(
+        "CLIP_CUTTER_TRAINING_CLIPS_DIR",
+        str(VIDEO_DIR / "MAP2_20250515_103618_0"),
+    )
+)
+TEMPLATE_STATE_PATH = Path(
+    os.environ.get(
+        "CLIP_CUTTER_TEMPLATE_STATE_PATH",
+        str(_DATA_ROOT / "Reaching-Task-Data/clip-cutter/template_state.json"),
+    )
+)
 
 # --- Template ---
 TRAINING_CROP = (401, 268, 581, 632)   # (x, y, w, h) in original 1376×900 frame

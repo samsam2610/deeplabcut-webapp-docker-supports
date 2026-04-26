@@ -1,0 +1,8 @@
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+tests/
+template_state.json
+*.egg-info/
+.git/

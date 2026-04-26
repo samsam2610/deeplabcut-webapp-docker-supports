@@ -1,0 +1,34 @@
+services:
+  clip-cutter:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: clip-cutter:latest
+    ports:
+      - "5002:5002"
+    volumes:
+      # Same data mounts as deeplabcut-webapp-docker
+      - /home/sam/data-disk/Parra-Data:/user-data/Parra-Data/Disk
+      - /home/sam/synology/Parra-Lab-Data:/user-data/Parra-Data/Cloud
+      - /home/sam/data-mount-dir:/user-data/Martin-Data/USB
+      - /home/sam/Parra-Lab-Data-NAS:/user-data/NAS-Data-Share
+      # Live-reload source files without rebuild
+      - ./processor.py:/app/processor.py
+      - ./routes.py:/app/routes.py
+      - ./config.py:/app/config.py
+      - ./templates:/app/templates
+      - ./static:/app/static
+    environment:
+      # Data root — the Cloud mount has the MAP-2 video directory
+      - CLIP_CUTTER_DATA_ROOT=/user-data/Parra-Data/Cloud
+      - CLIP_CUTTER_PORT=5002
+      # Set FLASK_DEBUG=1 to enable hot-reload (dev only)
+      - FLASK_DEBUG=0
+    restart: unless-stopped
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
