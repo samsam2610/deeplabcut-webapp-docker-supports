@@ -130,6 +130,9 @@ async function selectVideo(path, rowEl) {
   rowEl.classList.add("selected");
   selectedVideoPath = path;
   document.getElementById("scan-btn").disabled = false;
+  detections.length = 0;
+  document.getElementById("results-list").innerHTML = "";
+  document.getElementById("results-count").textContent = "";
   await loadSavedDetections(path);
 }
 
