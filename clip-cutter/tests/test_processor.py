@@ -190,3 +190,41 @@ def test_scan_video_returns_list(mock_model, tiny_video):
         assert "frame_number" in r
         assert r["frame_number"] == r["cv2_pos"] + 1
         assert "similarity" in r
+
+
+def test_extract_clip_video_creates_file(tiny_video, tmp_path):
+    out = tmp_path / "clip.avi"
+    processor.extract_clip_video(tiny_video, cv2_start=5, cv2_end=14, output_path=out)
+    assert out.exists()
+    import cv2 as _cv2
+    cap = _cv2.VideoCapture(str(out))
+    count = int(cap.get(_cv2.CAP_PROP_FRAME_COUNT))
+    cap.release()
+    assert count == 10  # frames 5..14 inclusive
+
+
+def test_build_clip_csv_row_count(tiny_csv):
+    df = processor.build_clip_csv(tiny_csv, start_frame_number=5, end_frame_number=14)
+    assert len(df) == 10
+    assert list(df.columns) == [
+        "timestamp", "frame_number", "frame_line_status", "note", "clip_frame"
+    ]
+    assert df["clip_frame"].tolist() == list(range(1, 11))
+    assert df["frame_number"].iloc[0] == 5
+
+
+def test_update_parent_csv_note_writes_correctly(tiny_csv):
+    import pandas as pd
+    processor.update_parent_csv_note(tiny_csv, frame_number=10, note="start_reaching")
+    df = pd.read_csv(tiny_csv, keep_default_na=False)
+    row = df[df["frame_number"] == 10]
+    assert row["note"].values[0] == "start_reaching"
+    # All other rows untouched
+    assert (df[df["frame_number"] != 10]["note"] == "").all()
+
+
+def test_update_parent_csv_preserves_row_count(tiny_csv):
+    import pandas as pd
+    original_count = len(pd.read_csv(tiny_csv))
+    processor.update_parent_csv_note(tiny_csv, frame_number=5, note="start_reaching")
+    assert len(pd.read_csv(tiny_csv)) == original_count

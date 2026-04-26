@@ -340,3 +340,104 @@ def get_known_key_frames(clips_dir: Path | str) -> dict[int, str]:
                         pass
                 break
     return known
+
+
+def extract_clip_video(
+    video_path: Path | str,
+    cv2_start: int,
+    cv2_end: int,
+    output_path: Path | str,
+) -> None:
+    """
+    Write frames [cv2_start, cv2_end] inclusive from video_path to output_path.
+    Codec: MJPEG (matches source). cv2_start and cv2_end are 0-based.
+    """
+    cap = cv2.VideoCapture(str(video_path))
+    fps = cap.get(cv2.CAP_PROP_FPS)
+    w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+    h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+    cap.set(cv2.CAP_PROP_POS_FRAMES, cv2_start)
+
+    out = cv2.VideoWriter(
+        str(output_path), cv2.VideoWriter_fourcc(*"MJPG"), fps, (w, h)
+    )
+    for _ in range(cv2_end - cv2_start + 1):
+        ret, frame = cap.read()
+        if not ret:
+            break
+        out.write(frame)
+    cap.release()
+    out.release()
+
+
+def build_clip_csv(
+    parent_csv_path: Path | str,
+    start_frame_number: int,
+    end_frame_number: int,
+) -> "pd.DataFrame":
+    """
+    Slice rows from parent CSV where frame_number is in [start, end] inclusive.
+    Appends a 1-based clip_frame column.
+    frame_number values are 1-based as stored in the CSV.
+    """
+    import pandas as pd
+    df = pd.read_csv(parent_csv_path)
+    mask = (df["frame_number"] >= start_frame_number) & (
+        df["frame_number"] <= end_frame_number
+    )
+    clip_df = df[mask].copy().reset_index(drop=True)
+    clip_df["clip_frame"] = range(1, len(clip_df) + 1)
+    return clip_df
+
+
+def update_parent_csv_note(
+    parent_csv_path: Path | str, frame_number: int, note: str
+) -> None:
+    """
+    Write `note` into the note column of the row matching frame_number.
+    All other rows and columns are unchanged. No rows are added or removed.
+    """
+    import pandas as pd
+    df = pd.read_csv(parent_csv_path)
+    df["note"] = df["note"].fillna("").astype(str)
+    df.loc[df["frame_number"] == frame_number, "note"] = note
+    df.to_csv(parent_csv_path, index=False)
+
+
+def extract_clip(
+    video_path: Path | str,
+    parent_csv_path: Path | str,
+    key_frame_number: int,
+    output_dir: Path | str,
+) -> dict:
+    """
+    Extract the 800-frame clip for a confirmed detection.
+    Writes: {output_dir}/{stem}_{start}_{end}.avi and matching .csv
+    Returns dict with output paths and start/end frame numbers.
+    key_frame_number is 1-based (matches CSV frame_number).
+    """
+    from config import CLIP_PRE_FRAMES, CLIP_POST_FRAMES
+
+    video_path = Path(video_path)
+    output_dir = Path(output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    start_fn = key_frame_number - CLIP_PRE_FRAMES       # 1-based, inclusive
+    end_fn = key_frame_number + CLIP_POST_FRAMES - 1     # 1-based, inclusive
+
+    stem = video_path.stem
+    clip_stem = f"{stem}_{start_fn}_{end_fn}"
+    avi_path = output_dir / f"{clip_stem}.avi"
+    csv_path = output_dir / f"{clip_stem}.csv"
+
+    extract_clip_video(video_path, cv2_start=start_fn - 1, cv2_end=end_fn - 1, output_path=avi_path)
+
+    clip_df = build_clip_csv(parent_csv_path, start_fn, end_fn)
+    clip_df.to_csv(csv_path, index=False)
+
+    return {
+        "avi_path": str(avi_path),
+        "csv_path": str(csv_path),
+        "start_frame_number": start_fn,
+        "end_frame_number": end_fn,
+    }
