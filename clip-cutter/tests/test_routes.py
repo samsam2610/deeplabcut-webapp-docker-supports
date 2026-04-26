@@ -71,3 +71,15 @@ def test_extract_route_missing_params(client):
         content_type="application/json",
     )
     assert resp.status_code == 400
+
+
+def test_extract_missing_csv_returns_422(client, tmp_path, monkeypatch):
+    import config
+    (tmp_path / "fake.avi").touch()  # no .csv alongside it
+    monkeypatch.setattr(config, "VIDEO_DIR", tmp_path)
+    resp = client.post(
+        "/clip-cutter/extract",
+        json={"video_path": str(tmp_path / "fake.avi"), "key_frame": 200},
+        content_type="application/json",
+    )
+    assert resp.status_code == 422

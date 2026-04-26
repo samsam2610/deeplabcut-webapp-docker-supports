@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+import json
 import threading
+import time
 import uuid
 from pathlib import Path
 
+import pandas as pd
 from flask import Blueprint, Response, jsonify, render_template, request, stream_with_context
 
 import config
@@ -19,11 +22,14 @@ _scan_jobs: dict[str, dict] = {}
 _jobs_lock = threading.Lock()
 
 _state: dict = {"frames": [], "mean_embedding": None}
+_state_lock = threading.Lock()
 
 
 def load_state() -> None:
     global _state
-    _state = processor.load_template_state(config.TEMPLATE_STATE_PATH)
+    new_state = processor.load_template_state(config.TEMPLATE_STATE_PATH)
+    with _state_lock:
+        _state = new_state
 
 
 # ── UI ──────────────────────────────────────────────────────────────────────
@@ -37,12 +43,14 @@ def index():
 
 @bp.route("/template")
 def get_template():
-    frames_out = [
-        {"thumbnail": f["thumbnail"], "video_path": f["video_path"],
-         "frame_number": f["frame_number"]}
-        for f in _state["frames"]
-    ]
-    return jsonify({"count": len(frames_out), "frames": frames_out})
+    with _state_lock:
+        frames_out = [
+            {"thumbnail": f["thumbnail"], "video_path": f["video_path"],
+             "frame_number": f["frame_number"]}
+            for f in _state["frames"]
+        ]
+        count = len(frames_out)
+    return jsonify({"count": count, "frames": frames_out})
 
 
 @bp.route("/template/add", methods=["POST"])
@@ -53,32 +61,39 @@ def add_to_template():
     frame_number = body.get("frame_number")
     if not video_path or frame_number is None:
         return jsonify({"error": "video_path and frame_number required"}), 400
-    try:
-        _state = processor.add_frame_to_template(
-            _state, video_path, int(frame_number),
-            config.TEMPLATE_STATE_PATH, crop=None
-        )
-    except ValueError as e:
-        return jsonify({"error": str(e)}), 422
-    return jsonify({"count": len(_state["frames"])})
+    with _state_lock:
+        try:
+            _state = processor.add_frame_to_template(
+                _state, video_path, int(frame_number),
+                config.TEMPLATE_STATE_PATH, crop=None
+            )
+        except ValueError as e:
+            return jsonify({"error": str(e)}), 422
+        count = len(_state["frames"])
+    return jsonify({"count": count})
 
 
 @bp.route("/template/<int:idx>", methods=["DELETE"])
 def remove_from_template(idx: int):
     global _state
-    if idx >= len(_state["frames"]):
-        return jsonify({"error": "index out of range"}), 404
-    _state = processor.remove_frame_from_template(_state, idx, config.TEMPLATE_STATE_PATH)
-    return jsonify({"count": len(_state["frames"])})
+    with _state_lock:
+        if idx >= len(_state["frames"]):
+            return jsonify({"error": "index out of range"}), 404
+        _state = processor.remove_frame_from_template(_state, idx, config.TEMPLATE_STATE_PATH)
+        count = len(_state["frames"])
+    return jsonify({"count": count})
 
 
 @bp.route("/template/init", methods=["POST"])
 def init_template():
     global _state
-    _state = processor.init_template_from_clips_dir(
+    new_state = processor.init_template_from_clips_dir(
         config.TRAINING_CLIPS_DIR, config.TEMPLATE_STATE_PATH, crop=config.TRAINING_CROP
     )
-    return jsonify({"count": len(_state["frames"])})
+    with _state_lock:
+        _state = new_state
+        count = len(_state["frames"])
+    return jsonify({"count": count})
 
 
 # ── Video list ─────────────────────────────────────────────────────────────────
@@ -89,7 +104,6 @@ def _video_is_done(avi_path: Path) -> bool:
         return True
     csv_path = avi_path.with_suffix(".csv")
     if csv_path.exists():
-        import pandas as pd
         df = pd.read_csv(csv_path, usecols=["note"])
         return df["note"].eq("start_reaching").any()
     return False
@@ -153,7 +167,9 @@ def start_scan():
     video_path = body.get("video_path")
     if not video_path:
         return jsonify({"error": "video_path required"}), 400
-    if _state["mean_embedding"] is None:
+    with _state_lock:
+        mean_embedding = _state["mean_embedding"]
+    if mean_embedding is None:
         return jsonify({"error": "template is empty — run /template/init first"}), 422
 
     job_id = str(uuid.uuid4())
@@ -163,7 +179,7 @@ def start_scan():
             "current": 0, "total": 1, "detections": [], "error": None,
         }
 
-    template_emb = _state["mean_embedding"].copy()
+    template_emb = mean_embedding.copy()
     thread = threading.Thread(
         target=_run_scan, args=(job_id, video_path, template_emb), daemon=True
     )
@@ -178,7 +194,6 @@ def scan_stream():
         return jsonify({"error": "unknown job_id"}), 404
 
     def generate():
-        import time, json
         while True:
             with _jobs_lock:
                 job = dict(_scan_jobs[job_id])
@@ -207,6 +222,9 @@ def extract():
     video_path = Path(video_path)
     parent_csv = video_path.with_suffix(".csv")
     output_dir = video_path.parent / (video_path.stem + config.TEST_CLIPS_SUFFIX)
+
+    if not parent_csv.exists():
+        return jsonify({"error": f"parent CSV not found: {parent_csv}"}), 422
 
     result = processor.extract_clip(video_path, parent_csv, int(key_frame), output_dir)
     processor.update_parent_csv_note(parent_csv, int(key_frame), "start_reaching")
