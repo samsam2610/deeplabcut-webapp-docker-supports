@@ -22,7 +22,7 @@ bp = Blueprint(
 _scan_jobs: dict[str, dict] = {}
 _jobs_lock = threading.Lock()
 
-_state: dict = {"frames": [], "mean_embedding": None}
+_state: dict = {"frames": [], "mean_embedding": None, "dino_mean_embedding": None}
 _state_lock = threading.Lock()
 
 
@@ -159,7 +159,7 @@ def list_videos():
 
 # ── Scan ─────────────────────────────────────────────────────────────────────
 
-def _run_scan(job_id: str, video_path: str, template_emb, params: dict):
+def _run_scan(job_id: str, video_path: str, template_emb, dino_template_emb, params: dict):
     stride        = params.get("stride", config.SCAN_STRIDE)
     threshold     = params.get("threshold", config.SIMILARITY_THRESHOLD)
     min_spacing   = params.get("min_spacing", config.MIN_PEAK_SPACING)
@@ -192,6 +192,7 @@ def _run_scan(job_id: str, video_path: str, template_emb, params: dict):
                 batch_size=config.SCAN_BATCH_SIZE,
                 progress_cb=progress_cb,
                 phase_cb=phase_cb,
+                dino_template_emb=dino_template_emb,
             )
         else:
             detections = processor.scan_video(
@@ -203,6 +204,7 @@ def _run_scan(job_id: str, video_path: str, template_emb, params: dict):
                 batch_size=config.SCAN_BATCH_SIZE,
                 progress_cb=progress_cb,
                 phase_cb=phase_cb,
+                dino_template_emb=dino_template_emb,
             )
 
         known = processor.get_known_key_frames(config.TRAINING_CLIPS_DIR)
@@ -238,8 +240,15 @@ def start_scan():
         return jsonify({"error": "video_path required"}), 400
     with _state_lock:
         mean_embedding = _state["mean_embedding"]
+        dino_mean_embedding = _state.get("dino_mean_embedding")
     if mean_embedding is None:
         return jsonify({"error": "template is empty — run /template/init first"}), 422
+    if dino_mean_embedding is None:
+        import logging
+        logging.getLogger(__name__).warning(
+            "dino_mean_embedding is None — fine scan will use CLIP fallback. "
+            "Re-run /template/init to enable DINOv2 fine scan."
+        )
 
     # Fix 1: Guard params against non-dict JSON values
     raw_params = body.get("params")
@@ -261,8 +270,11 @@ def start_scan():
         }
 
     template_emb = mean_embedding.copy()
+    dino_emb_copy = dino_mean_embedding.copy() if dino_mean_embedding is not None else None
     thread = threading.Thread(
-        target=_run_scan, args=(job_id, video_path, template_emb, params), daemon=True
+        target=_run_scan,
+        args=(job_id, video_path, template_emb, dino_emb_copy, params),
+        daemon=True,
     )
     thread.start()
     return jsonify({"job_id": job_id})
