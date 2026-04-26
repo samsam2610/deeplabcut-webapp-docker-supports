@@ -11,6 +11,7 @@ from flask import Blueprint, Response, jsonify, render_template, request, stream
 
 import config
 import processor
+import viewer
 
 bp = Blueprint(
     "clip_cutter", __name__, url_prefix="/clip-cutter",
@@ -296,3 +297,45 @@ def put_detections():
         video_path, detections, template_frame_count, config.DETECTIONS_DIR
     )
     return jsonify({"ok": True})
+
+
+# ── Frame serving ──────────────────────────────────────────────────────────────
+
+@bp.route("/frame")
+def get_frame():
+    video_path = request.args.get("video", "").strip()
+    n = request.args.get("n", "").strip()
+    if not video_path or not n:
+        return jsonify({"error": "video and n required"}), 400
+    try:
+        n = int(n)
+    except ValueError:
+        return jsonify({"error": "n must be an integer"}), 400
+
+    etag = f"cc-frame-{video_path}-{n}"
+    if request.headers.get("If-None-Match") == etag:
+        return Response(status=304)
+
+    try:
+        data = viewer.get_frame_jpeg(video_path, n)
+    except FileNotFoundError as e:
+        return jsonify({"error": str(e)}), 404
+    except (ValueError, RuntimeError) as e:
+        return jsonify({"error": str(e)}), 400
+
+    resp = Response(data, mimetype="image/jpeg")
+    resp.headers["ETag"] = etag
+    resp.headers["Cache-Control"] = "private, max-age=3600"
+    return resp
+
+
+@bp.route("/video-info")
+def get_video_info():
+    video_path = request.args.get("video", "").strip()
+    if not video_path:
+        return jsonify({"error": "video required"}), 400
+    try:
+        info = viewer.get_video_info(video_path)
+    except FileNotFoundError as e:
+        return jsonify({"error": str(e)}), 404
+    return jsonify(info)

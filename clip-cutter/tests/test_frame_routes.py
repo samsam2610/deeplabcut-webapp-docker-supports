@@ -60,3 +60,70 @@ def test_get_detections_missing_video_param(client):
 def test_put_detections_missing_body_fields(client):
     resp = client.put("/clip-cutter/detections", json={"video_path": "/v.avi"})
     assert resp.status_code == 400
+
+
+import cv2
+import numpy as np
+
+
+@pytest.fixture
+def synthetic_avi(tmp_path):
+    """30-frame 64×64 MJPEG AVI with varying blue channel so frames differ."""
+    path = tmp_path / "test.avi"
+    out = cv2.VideoWriter(
+        str(path),
+        cv2.VideoWriter_fourcc(*"MJPG"),
+        30.0,
+        (64, 64),
+    )
+    for i in range(30):
+        frame = np.zeros((64, 64, 3), dtype=np.uint8)
+        frame[:, :, 0] = i * 8
+        out.write(frame)
+    out.release()
+    return path
+
+
+def test_frame_returns_jpeg(client, synthetic_avi):
+    resp = client.get(f"/clip-cutter/frame?video={synthetic_avi}&n=0")
+    assert resp.status_code == 200
+    assert resp.content_type == "image/jpeg"
+    assert len(resp.data) > 100
+
+
+def test_frame_404_for_missing_file(client):
+    resp = client.get("/clip-cutter/frame?video=/nonexistent.avi&n=0")
+    assert resp.status_code == 404
+
+
+def test_frame_304_on_etag_match(client, synthetic_avi):
+    resp1 = client.get(f"/clip-cutter/frame?video={synthetic_avi}&n=0")
+    etag = resp1.headers.get("ETag")
+    assert etag is not None
+    resp2 = client.get(
+        f"/clip-cutter/frame?video={synthetic_avi}&n=0",
+        headers={"If-None-Match": etag},
+    )
+    assert resp2.status_code == 304
+
+
+def test_frame_missing_params(client):
+    assert client.get("/clip-cutter/frame?video=/v.avi").status_code == 400
+    assert client.get("/clip-cutter/frame?n=0").status_code == 400
+
+
+def test_video_info_returns_frame_count_and_fps(client, synthetic_avi):
+    resp = client.get(f"/clip-cutter/video-info?video={synthetic_avi}")
+    assert resp.status_code == 200
+    data = resp.get_json()
+    assert data["frame_count"] == 30
+    assert abs(data["fps"] - 30.0) < 1.0
+
+
+def test_video_info_404_for_missing_file(client):
+    resp = client.get("/clip-cutter/video-info?video=/nonexistent.avi")
+    assert resp.status_code == 404
+
+
+def test_video_info_missing_param(client):
+    assert client.get("/clip-cutter/video-info").status_code == 400
