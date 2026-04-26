@@ -290,20 +290,29 @@ def scan_video(
     batch_size: int = 64,
     smooth_sigma: float = 3.0,
     progress_cb=None,
+    phase_cb=None,
 ) -> list[dict]:
     """
     Full scan pipeline. Returns list of dicts:
       {cv2_pos, frame_number (1-based), similarity}
+    phase_cb(phase, current, total) is called at each pipeline phase transition.
     """
+    if phase_cb:
+        phase_cb("coarse", 0, 1)
     frame_indices, raw_sims = get_similarity_curve(
         video_path, template_emb, stride=stride,
         batch_size=batch_size, progress_cb=progress_cb
     )
+
+    if phase_cb:
+        phase_cb("peak_detection", 0, 1)
     smoothed = smooth_curve(raw_sims, sigma=smooth_sigma)
     coarse_peaks = find_peaks_in_curve(smoothed, frame_indices, threshold, min_spacing)
 
+    if phase_cb:
+        phase_cb("fine", 0, max(len(coarse_peaks), 1))
     results = []
-    for coarse_pos in coarse_peaks:
+    for i, coarse_pos in enumerate(coarse_peaks):
         exact_pos, fine_sim = fine_scan(video_path, template_emb, coarse_pos, window=fine_window)
         results.append(
             {
@@ -312,6 +321,8 @@ def scan_video(
                 "similarity": round(fine_sim, 4),
             }
         )
+        if phase_cb:
+            phase_cb("fine", i + 1, len(coarse_peaks))
     return results
 
 

@@ -282,6 +282,21 @@ def test_scan_flow_shows_detections(page: Page):
     expect(second).to_have_class(re.compile(r"\bnew\b"))
 
 
+def test_pipeline_strip_all_done_after_scan(page: Page):
+    """After scan completes all pipeline steps are marked done."""
+    setup_routes(page, template_frames=_MOCK_FRAMES)
+    page.goto(f"{BASE_URL}/clip-cutter/")
+
+    page.locator(".video-row:not(.done)").first.click()
+    page.locator("#scan-btn").click()
+
+    expect(page.locator("#results-count")).to_have_text("2 found", timeout=8_000)
+
+    for phase in ("coarse", "peak_detection", "fine"):
+        step = page.locator(f'.pipeline-step[data-phase="{phase}"]')
+        expect(step).to_have_class(re.compile(r"\bdone\b"))
+
+
 def test_keep_detection_grays_out_card(page: Page):
     """Clicking Keep calls /extract and marks the card as kept."""
     setup_routes(page, template_frames=_MOCK_FRAMES)

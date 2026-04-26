@@ -50,6 +50,19 @@ header h1 { font-size: 15px; font-weight: 600; }
 
 /* Progress */
 #progress-section { padding: 8px 14px; border-bottom: 1px solid #30363d; background: #161b22; display: none; flex-shrink: 0; }
+
+/* Pipeline steps */
+#pipeline-steps { display: flex; align-items: center; gap: 0; margin-bottom: 8px; }
+.pipeline-step { display: flex; align-items: center; gap: 5px; font-size: 10px; color: #768390; }
+.pipeline-step .step-dot { width: 8px; height: 8px; border-radius: 50%; background: #30363d; flex-shrink: 0; transition: background 0.2s; }
+.pipeline-step.done .step-dot { background: #2ea043; }
+.pipeline-step.active .step-dot { background: #1f6feb; box-shadow: 0 0 0 3px #1f6feb33; animation: pulse 1.2s ease-in-out infinite; }
+.pipeline-step.done .step-label { color: #2ea043; }
+.pipeline-step.active .step-label { color: #cdd9e5; }
+.pipeline-connector { flex: 1; height: 1px; background: #30363d; min-width: 12px; margin: 0 4px; transition: background 0.2s; }
+.pipeline-connector.done { background: #2ea043; }
+@keyframes pulse { 0%, 100% { box-shadow: 0 0 0 3px #1f6feb33; } 50% { box-shadow: 0 0 0 5px #1f6feb22; } }
+
 #progress-label { font-size: 10px; color: #768390; margin-bottom: 4px; display: flex; justify-content: space-between; }
 #progress-bar { height: 4px; background: #30363d; border-radius: 2px; }
 #progress-fill { height: 100%; width: 0; background: linear-gradient(90deg, #1f6feb, #7ec8e3); border-radius: 2px; transition: width 0.3s; }
@@ -102,6 +115,22 @@ header h1 { font-size: 15px; font-weight: 600; }
 
     <!-- Progress -->
     <div id="progress-section">
+      <div id="pipeline-steps">
+        <div class="pipeline-step" data-phase="coarse">
+          <div class="step-dot"></div>
+          <span class="step-label">Coarse scan</span>
+        </div>
+        <div class="pipeline-connector" data-after="coarse"></div>
+        <div class="pipeline-step" data-phase="peak_detection">
+          <div class="step-dot"></div>
+          <span class="step-label">Peak detection</span>
+        </div>
+        <div class="pipeline-connector" data-after="peak_detection"></div>
+        <div class="pipeline-step" data-phase="fine">
+          <div class="step-dot"></div>
+          <span class="step-label">Fine scan</span>
+        </div>
+      </div>
       <div id="progress-label">
         <span id="progress-text">Scanning&#8230;</span>
         <span id="progress-pct">0%</span>

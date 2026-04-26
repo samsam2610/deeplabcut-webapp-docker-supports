@@ -165,6 +165,7 @@ async function startScan() {
 function listenToScan(jobId) {
   const progressSection = document.getElementById("progress-section");
   progressSection.style.display = "block";
+  resetPipelineStrip();
   setStatus("Scanning…");
 
   if (eventSource) eventSource.close();
@@ -175,6 +176,11 @@ function listenToScan(jobId) {
     updateProgress(job);
     if (job.status === "done") {
       eventSource.close();
+      PIPELINE_PHASES.forEach((p) => {
+        const stepEl = document.querySelector(`.pipeline-step[data-phase="${p}"]`);
+        if (stepEl) { stepEl.classList.remove("active"); stepEl.classList.add("done"); }
+      });
+      document.querySelectorAll(".pipeline-connector").forEach((el) => el.classList.add("done"));
       progressSection.style.display = "none";
       renderDetections(job.detections);
       document.getElementById("scan-btn").disabled = false;
@@ -188,12 +194,55 @@ function listenToScan(jobId) {
   };
 }
 
+const PIPELINE_PHASES = ["coarse", "peak_detection", "fine"];
+
+const PHASE_LABELS = {
+  coarse: "Coarse scan",
+  peak_detection: "Peak detection",
+  fine: "Fine scan",
+};
+
 function updateProgress(job) {
   const pct = job.total > 0 ? Math.round((job.current / job.total) * 100) : 0;
   document.getElementById("progress-fill").style.width = pct + "%";
   document.getElementById("progress-pct").textContent = pct + "%";
-  document.getElementById("progress-text").textContent =
-    `${job.phase} pass — frame ${job.current.toLocaleString()} / ${job.total.toLocaleString()}`;
+
+  const phase = job.phase || "coarse";
+  const phaseIdx = PIPELINE_PHASES.indexOf(phase);
+
+  PIPELINE_PHASES.forEach((p, i) => {
+    const stepEl = document.querySelector(`.pipeline-step[data-phase="${p}"]`);
+    if (!stepEl) return;
+    stepEl.classList.remove("active", "done");
+    if (i < phaseIdx) stepEl.classList.add("done");
+    else if (i === phaseIdx) stepEl.classList.add("active");
+  });
+
+  document.querySelectorAll(".pipeline-connector[data-after]").forEach((el) => {
+    const afterPhase = el.dataset.after;
+    const afterIdx = PIPELINE_PHASES.indexOf(afterPhase);
+    el.classList.toggle("done", afterIdx < phaseIdx);
+  });
+
+  if (phase === "peak_detection") {
+    document.getElementById("progress-text").textContent = "Detecting peaks…";
+  } else if (phase === "fine") {
+    const label = job.total > 0
+      ? `Fine scan — ${job.current} / ${job.total} candidate${job.total !== 1 ? "s" : ""}`
+      : "Fine scan…";
+    document.getElementById("progress-text").textContent = label;
+  } else {
+    document.getElementById("progress-text").textContent =
+      `Coarse scan — frame ${job.current.toLocaleString()} / ${job.total.toLocaleString()}`;
+  }
+}
+
+function resetPipelineStrip() {
+  PIPELINE_PHASES.forEach((p) => {
+    const stepEl = document.querySelector(`.pipeline-step[data-phase="${p}"]`);
+    if (stepEl) stepEl.classList.remove("active", "done");
+  });
+  document.querySelectorAll(".pipeline-connector").forEach((el) => el.classList.remove("done"));
 }
 
 // ── Results ───────────────────────────────────────────────────────────────────

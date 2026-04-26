@@ -164,8 +164,11 @@ def _run_scan(job_id: str, video_path: str, template_emb):
             _scan_jobs[job_id]["current"] = current
             _scan_jobs[job_id]["total"] = total
 
-    with _jobs_lock:
-        _scan_jobs[job_id]["phase"] = "coarse"
+    def phase_cb(phase, current, total):
+        with _jobs_lock:
+            _scan_jobs[job_id]["phase"] = phase
+            _scan_jobs[job_id]["current"] = current
+            _scan_jobs[job_id]["total"] = total
 
     try:
         detections = processor.scan_video(
@@ -177,6 +180,7 @@ def _run_scan(job_id: str, video_path: str, template_emb):
             fine_window=config.FINE_SCAN_WINDOW,
             batch_size=config.SCAN_BATCH_SIZE,
             progress_cb=progress_cb,
+            phase_cb=phase_cb,
         )
         known = processor.get_known_key_frames(config.TRAINING_CLIPS_DIR)
         for d in detections:

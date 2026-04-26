@@ -13,6 +13,7 @@ services:
       - /home/sam/data-mount-dir:/user-data/Martin-Data/USB
       - /home/sam/Parra-Lab-Data-NAS:/user-data/NAS-Data-Share
       # Live-reload source files without rebuild
+      - ./app.py:/app/app.py
       - ./processor.py:/app/processor.py
       - ./routes.py:/app/routes.py
       - ./config.py:/app/config.py
