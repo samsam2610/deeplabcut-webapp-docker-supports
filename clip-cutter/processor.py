@@ -4,6 +4,7 @@ import base64
 import datetime
 import json
 import os
+import threading
 from pathlib import Path
 
 import cv2
@@ -29,25 +30,30 @@ def _get_model():
 # Lazy-loaded DINOv2 model singleton
 _dino_model = None
 _dino_transform = None
+_dino_model_lock = threading.Lock()
 
 
 def _get_dino_model():
     global _dino_model, _dino_transform
     if _dino_model is None:
-        import torch
-        import torchvision.transforms as T
-        _dino_model = torch.hub.load(
-            "facebookresearch/dinov2", config.DINO_MODEL_NAME, pretrained=True
-        )
-        _dino_model.eval()
-        device = "cuda" if torch.cuda.is_available() else "cpu"
-        _dino_model = _dino_model.to(device)
-        _dino_transform = T.Compose([
-            T.Resize(224, interpolation=T.InterpolationMode.BICUBIC),
-            T.CenterCrop(224),
-            T.ToTensor(),
-            T.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
-        ])
+        with _dino_model_lock:
+            if _dino_model is None:  # double-checked locking
+                import torch
+                import torchvision.transforms as T
+                model = torch.hub.load(
+                    "facebookresearch/dinov2", config.DINO_MODEL_NAME, pretrained=True
+                )
+                model.eval()
+                device = "cuda" if torch.cuda.is_available() else "cpu"
+                model = model.to(device)
+                # Assign transform before model so the outer None check stays correct
+                _dino_transform = T.Compose([
+                    T.Resize(224, interpolation=T.InterpolationMode.BICUBIC),
+                    T.CenterCrop(224),
+                    T.ToTensor(),
+                    T.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
+                ])
+                _dino_model = model
     return _dino_model, _dino_transform
 
 

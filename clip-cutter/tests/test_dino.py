@@ -188,3 +188,36 @@ def test_scan_video_sensor_guided_forwards_dino_emb(tmp_path, monkeypatch):
     )
     assert len(received_dino) > 0, "fine_scan was never called"
     assert all(d is not None for d in received_dino), "dino_template_emb not forwarded"
+
+
+def test_scan_video_forwards_dino_emb(tmp_path, monkeypatch):
+    """Verify dino_template_emb is forwarded to fine_scan by scan_video."""
+    import cv2 as _cv2
+
+    avi_path = tmp_path / "sv.avi"
+    writer = _cv2.VideoWriter(
+        str(avi_path), _cv2.VideoWriter_fourcc(*"XVID"), 30.0, (64, 64)
+    )
+    rng = np.random.default_rng(88)
+    for _ in range(150):
+        writer.write(rng.integers(0, 255, (64, 64, 3), dtype=np.uint8))
+    writer.release()
+
+    clip_emb = np.ones(512, dtype=np.float32) / (512 ** 0.5)
+    dino_emb = np.ones(1024, dtype=np.float32) / (1024 ** 0.5)
+
+    received_dino = []
+    original_fine_scan = processor.fine_scan
+
+    def mock_fine_scan(*args, **kwargs):
+        received_dino.append(kwargs.get("dino_template_emb"))
+        return original_fine_scan(*args, **kwargs)
+
+    monkeypatch.setattr(processor, "fine_scan", mock_fine_scan)
+
+    processor.scan_video(
+        str(avi_path), clip_emb, dino_template_emb=dino_emb,
+        stride=5, threshold=-1.0, min_spacing=10,
+    )
+    assert len(received_dino) > 0, "fine_scan was never called"
+    assert all(d is not None for d in received_dino), "dino_template_emb not forwarded"
