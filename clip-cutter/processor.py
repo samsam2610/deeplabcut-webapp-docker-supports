@@ -7,6 +7,8 @@ from pathlib import Path
 import cv2
 import numpy as np
 from PIL import Image
+from scipy.ndimage import gaussian_filter1d
+from scipy.signal import find_peaks
 
 # Lazy-loaded CLIP model singleton
 _model = None
@@ -187,3 +189,158 @@ def init_template_from_clips_dir(
         state["mean_embedding"] = compute_mean_embedding(all_embs)
     save_template_state(state, state_path)
     return state
+
+
+def smooth_curve(values: np.ndarray, sigma: float = 3.0) -> np.ndarray:
+    return gaussian_filter1d(values.astype(np.float64), sigma=sigma).astype(np.float32)
+
+
+def find_peaks_in_curve(
+    smoothed: np.ndarray,
+    frame_indices: np.ndarray,
+    threshold: float,
+    min_spacing: int,
+) -> list[int]:
+    """
+    Return list of original frame indices (0-based cv2_pos) at detected peaks.
+    min_spacing is in original frame units; converted to curve-index units by
+    dividing by the stride implied by frame_indices.
+    """
+    stride = int(frame_indices[1] - frame_indices[0]) if len(frame_indices) > 1 else 1
+    min_distance_idx = max(1, min_spacing // stride)
+    peak_idxs, _ = find_peaks(smoothed, height=threshold, distance=min_distance_idx)
+    return [int(frame_indices[i]) for i in peak_idxs]
+
+
+def get_similarity_curve(
+    video_path: Path | str,
+    template_emb: np.ndarray,
+    stride: int = 10,
+    batch_size: int = 64,
+    progress_cb=None,
+) -> tuple[np.ndarray, np.ndarray]:
+    """
+    Coarse scan: extract every `stride`th frame, embed, compute cosine similarity.
+    Returns (frame_indices, similarities) as 1D numpy arrays (0-based cv2_pos).
+    progress_cb(current, total) is called after each batch if provided.
+    """
+    cap = cv2.VideoCapture(str(video_path))
+    total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+    cap.release()
+
+    all_positions = np.arange(0, total_frames, stride)
+    similarities = np.zeros(len(all_positions), dtype=np.float32)
+
+    for batch_start in range(0, len(all_positions), batch_size):
+        batch_pos = all_positions[batch_start : batch_start + batch_size]
+        frames = []
+        cap = cv2.VideoCapture(str(video_path))
+        for pos in batch_pos:
+            cap.set(cv2.CAP_PROP_POS_FRAMES, int(pos))
+            ret, frame = cap.read()
+            frames.append(frame if ret else np.zeros((64, 64, 3), dtype=np.uint8))
+        cap.release()
+
+        embs = embed_frames_batch(frames)
+        sims = embs @ template_emb  # cosine similarity (both unit vectors)
+        similarities[batch_start : batch_start + len(batch_pos)] = sims
+
+        if progress_cb:
+            progress_cb(batch_start + len(batch_pos), len(all_positions))
+
+    return all_positions, similarities
+
+
+def fine_scan(
+    video_path: Path | str,
+    template_emb: np.ndarray,
+    coarse_cv2_pos: int,
+    window: int = 50,
+) -> int:
+    """
+    Scan ±window frames around coarse_cv2_pos at stride 1.
+    Returns the cv2_pos of the best-matching frame.
+    """
+    cap = cv2.VideoCapture(str(video_path))
+    total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+    cap.release()
+
+    start = max(0, coarse_cv2_pos - window)
+    end = min(total - 1, coarse_cv2_pos + window)
+    frames = []
+    positions = list(range(start, end + 1))
+
+    cap = cv2.VideoCapture(str(video_path))
+    for pos in positions:
+        cap.set(cv2.CAP_PROP_POS_FRAMES, pos)
+        ret, frame = cap.read()
+        frames.append(frame if ret else np.zeros((64, 64, 3), dtype=np.uint8))
+    cap.release()
+
+    embs = embed_frames_batch(frames)
+    sims = embs @ template_emb
+    best_local = int(np.argmax(sims))
+    return positions[best_local]
+
+
+def scan_video(
+    video_path: Path | str,
+    template_emb: np.ndarray,
+    stride: int = 10,
+    threshold: float = 0.70,
+    min_spacing: int = 900,
+    fine_window: int = 50,
+    batch_size: int = 64,
+    progress_cb=None,
+) -> list[dict]:
+    """
+    Full scan pipeline. Returns list of dicts:
+      {cv2_pos, frame_number (1-based), similarity}
+    """
+    frame_indices, raw_sims = get_similarity_curve(
+        video_path, template_emb, stride=stride,
+        batch_size=batch_size, progress_cb=progress_cb
+    )
+    smoothed = smooth_curve(raw_sims, sigma=3.0)
+    coarse_peaks = find_peaks_in_curve(smoothed, frame_indices, threshold, min_spacing)
+
+    results = []
+    for coarse_pos in coarse_peaks:
+        exact_pos = fine_scan(video_path, template_emb, coarse_pos, window=fine_window)
+        sim = float(raw_sims[np.searchsorted(frame_indices, coarse_pos)])
+        results.append(
+            {
+                "cv2_pos": exact_pos,
+                "frame_number": exact_pos + 1,  # 1-based
+                "similarity": round(sim, 4),
+            }
+        )
+    return results
+
+
+def get_known_key_frames(clips_dir: Path | str) -> dict[int, str]:
+    """
+    Parse existing clip filenames to extract known key frames.
+    Returns {key_frame_number (1-based): clip_stem}.
+    Ignores DLC result files (those with 'DLC' anywhere in stem).
+    Clip naming: {prefix}_{start}_{end}_{success|failure}.avi
+    key_frame = start + 200 (1-based frame numbers).
+    """
+    clips_dir = Path(clips_dir)
+    known = {}
+    for p in clips_dir.glob("*.avi"):
+        stem = p.stem
+        if "DLC" in stem:
+            continue
+        for label in ("_success", "_failure"):
+            if stem.endswith(label):
+                core = stem[: -len(label)]
+                parts = core.rsplit("_", 2)
+                if len(parts) >= 3:
+                    try:
+                        start = int(parts[-2])
+                        known[start + 200] = stem
+                    except ValueError:
+                        pass
+                break
+    return known

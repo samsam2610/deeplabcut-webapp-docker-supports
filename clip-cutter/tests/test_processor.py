@@ -107,3 +107,57 @@ def test_frame_to_thumbnail_is_base64_string(tiny_video):
     # valid base64 JPEG
     data = base64.b64decode(thumb)
     assert data[:2] == b"\xff\xd8"  # JPEG magic bytes
+
+
+def test_smooth_curve_reduces_noise():
+    values = np.array([0.0, 0.5, 1.0, 0.5, 0.0, 0.0, 0.0, 0.5, 1.0, 0.5, 0.0],
+                      dtype=np.float32)
+    smoothed = processor.smooth_curve(values, sigma=1.0)
+    assert smoothed.shape == values.shape
+    # Peak should still be near index 2 and 8
+    assert smoothed[2] == smoothed.max() or smoothed[8] == smoothed.max()
+
+
+def test_find_peaks_basic():
+    # Two clear peaks at indices 10 and 50, above threshold 0.7
+    values = np.zeros(100, dtype=np.float32)
+    values[10] = 0.9
+    values[50] = 0.8
+    frame_indices = np.arange(0, 1000, 10)  # coarse: every 10th frame
+    peaks = processor.find_peaks_in_curve(
+        values, frame_indices, threshold=0.7, min_spacing=200
+    )
+    assert len(peaks) == 2
+    assert 100 in peaks   # frame_indices[10] = 100
+    assert 500 in peaks   # frame_indices[50] = 500
+
+
+def test_find_peaks_respects_min_spacing():
+    values = np.zeros(100, dtype=np.float32)
+    values[10] = 0.9
+    values[12] = 0.85   # too close to index 10
+    frame_indices = np.arange(0, 1000, 10)
+    peaks = processor.find_peaks_in_curve(
+        values, frame_indices, threshold=0.7, min_spacing=200
+    )
+    assert len(peaks) == 1
+
+
+def test_get_known_key_frames_parses_clip_names(tmp_path):
+    # Create fake clip filenames
+    for name in [
+        "MAP2_0_20768_21567_success.avi",
+        "MAP2_0_22148_22947_failure.avi",
+    ]:
+        (tmp_path / name).touch()
+    known = processor.get_known_key_frames(tmp_path)
+    # key_frame = start + 200
+    assert 20968 in known
+    assert 22348 in known
+
+
+def test_get_known_key_frames_ignores_dlc_files(tmp_path):
+    (tmp_path / "MAP2_0_20768_21567_successDLC_something.avi").touch()
+    (tmp_path / "MAP2_0_20768_21567_success.avi").touch()
+    known = processor.get_known_key_frames(tmp_path)
+    assert len(known) == 1
