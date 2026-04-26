@@ -264,34 +264,77 @@ def get_similarity_curve(
     stride: int = 10,
     batch_size: int = 64,
     progress_cb=None,
+    positions: np.ndarray | None = None,
 ) -> tuple[np.ndarray, np.ndarray]:
     """
-    Coarse scan: extract every `stride`th frame, embed, compute cosine similarity.
+    Coarse scan: embed sampled frames, compute cosine similarity against template.
+
+    If positions is provided, uses those 0-based frame numbers exactly.
+    Otherwise samples every stride-th frame from the video.
+
     Returns (frame_indices, similarities) as 1D numpy arrays (0-based cv2_pos).
+    Uses sequential reads (cap.grab() to skip) + a prefetch thread to overlap
+    disk I/O with GPU embedding.
     progress_cb(current, total) is called after each batch if provided.
     """
-    cap = cv2.VideoCapture(str(video_path))
-    total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+    from concurrent.futures import ThreadPoolExecutor
 
-    all_positions = np.arange(0, total_frames, stride)
+    video_path_str = str(video_path)
+
+    cap = cv2.VideoCapture(video_path_str)
+    total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+    cap.release()
+
+    if positions is None:
+        all_positions = np.arange(0, total_frames, stride, dtype=np.int64)
+    else:
+        all_positions = np.asarray(positions, dtype=np.int64)
+
     similarities = np.zeros(len(all_positions), dtype=np.float32)
 
-    for batch_start in range(0, len(all_positions), batch_size):
-        batch_pos = all_positions[batch_start : batch_start + batch_size]
+    if len(all_positions) == 0:
+        return all_positions, similarities
+
+    def read_batch(batch_positions):
+        """Open a fresh VideoCapture and read the batch using sequential reads."""
+        if len(batch_positions) == 0:
+            return []
+        vcap = cv2.VideoCapture(video_path_str)
+        vcap.set(cv2.CAP_PROP_POS_FRAMES, int(batch_positions[0]))
+        cur = int(batch_positions[0])
         frames = []
-        for pos in batch_pos:
-            cap.set(cv2.CAP_PROP_POS_FRAMES, int(pos))
-            ret, frame = cap.read()
+        for target in batch_positions:
+            target = int(target)
+            while cur < target:
+                vcap.grab()
+                cur += 1
+            ret, frame = vcap.read()
+            cur += 1
             frames.append(frame if ret else np.zeros((64, 64, 3), dtype=np.uint8))
+        vcap.release()
+        return frames
 
-        embs = embed_frames_batch(frames)
-        sims = embs @ template_emb  # cosine similarity (both unit vectors)
-        similarities[batch_start : batch_start + len(batch_pos)] = sims
+    processed = 0
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        future = pool.submit(read_batch, all_positions[:batch_size])
 
-        if progress_cb:
-            progress_cb(batch_start + len(batch_pos), len(all_positions))
+        for batch_start in range(0, len(all_positions), batch_size):
+            batch_pos = all_positions[batch_start : batch_start + batch_size]
+            frames = future.result()
 
-    cap.release()
+            next_start = batch_start + batch_size
+            future = pool.submit(
+                read_batch, all_positions[next_start : next_start + batch_size]
+            )
+
+            embs = embed_frames_batch(frames)
+            sims = embs @ template_emb
+            n = len(batch_pos)
+            similarities[batch_start : batch_start + n] = sims[:n]
+            processed += n
+            if progress_cb:
+                progress_cb(processed, len(all_positions))
+
     return all_positions, similarities
 
 

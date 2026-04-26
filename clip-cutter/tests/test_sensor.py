@@ -1,4 +1,5 @@
 """Backend tests for sensor-trigger parsing."""
+import cv2
 import numpy as np
 import pandas as pd
 import pytest
@@ -80,3 +81,35 @@ def test_find_sensor_triggers_empty_csv_rows(tmp_path):
     rising, covered = processor.find_sensor_triggers(csv, trigger_value=14, sensor_margin=5)
     assert rising == []
     assert covered == set()
+
+
+@pytest.fixture
+def small_avi(tmp_path):
+    """20-frame 64×64 AVI with distinct blue channel per frame."""
+    path = tmp_path / "small.avi"
+    out = cv2.VideoWriter(str(path), cv2.VideoWriter_fourcc(*"MJPG"), 30.0, (64, 64))
+    for i in range(20):
+        frame = np.zeros((64, 64, 3), dtype=np.uint8)
+        frame[:, :, 0] = i * 12
+        out.write(frame)
+    out.release()
+    return path
+
+
+def test_get_similarity_curve_positions_kwarg_matches_stride(small_avi):
+    """positions kwarg returns same indices/sims as stride-based scan."""
+    import numpy as np
+    template = np.ones(512, dtype=np.float32)
+    template /= np.linalg.norm(template)
+
+    # stride-based (original behaviour)
+    idx_s, sim_s = processor.get_similarity_curve(small_avi, template, stride=5, batch_size=4)
+
+    # explicit positions (should be identical)
+    explicit = np.arange(0, 20, 5)
+    idx_p, sim_p = processor.get_similarity_curve(
+        small_avi, template, stride=5, batch_size=4, positions=explicit
+    )
+
+    np.testing.assert_array_equal(idx_s, idx_p)
+    np.testing.assert_allclose(sim_s, sim_p, atol=1e-5)
