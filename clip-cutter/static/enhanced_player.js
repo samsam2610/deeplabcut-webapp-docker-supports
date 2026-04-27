@@ -28,6 +28,13 @@ async function openPlayer({ mode, videoPath, keyFrame1Based = null, detectionIdx
   _videoPath = videoPath;
   _detectionIdx = detectionIdx;
   _csvRows = [];
+  _stepSize = 10;
+  _playN = 1;
+  _looping = true;
+  const stepEl = document.getElementById("ep-step");
+  const playNEl = document.getElementById("ep-playn");
+  if (stepEl) stepEl.value = 10;
+  if (playNEl) playNEl.value = 1;
 
   let info;
   try {
@@ -58,7 +65,9 @@ async function openPlayer({ mode, videoPath, keyFrame1Based = null, detectionIdx
     try {
       const r = await fetch(`/clip-cutter/csv?path=${encodeURIComponent(csvPath)}`);
       if (r.ok) _csvRows = (await r.json()).rows;
-    } catch {}
+    } catch (e) {
+      console.warn("[enhanced_player] CSV load failed:", e);
+    }
   }
 
   await _epLoadFrame(_clipStart);
@@ -79,11 +88,16 @@ async function _epLoadFrame(n) {
     const blobUrl = URL.createObjectURL(blob);
     const img = document.getElementById("ep-frame");
     const prevSrc = img.src;
-    await new Promise((resolve, reject) => {
-      img.onload = () => { if (prevSrc.startsWith("blob:")) URL.revokeObjectURL(prevSrc); resolve(); };
-      img.onerror = reject;
-      img.src = blobUrl;
-    });
+    try {
+      await new Promise((resolve, reject) => {
+        img.onload = () => { if (prevSrc.startsWith("blob:")) URL.revokeObjectURL(prevSrc); resolve(); };
+        img.onerror = () => reject(new Error(`Frame load failed: ${blobUrl}`));
+        img.src = blobUrl;
+      });
+    } catch (err) {
+      console.warn("[enhanced_player] frame load error:", err.message);
+      return;
+    }
     _epUpdateDisplay();
     if (n < _clipEnd) {
       new Image().src = `/clip-cutter/frame?video=${encodeURIComponent(_videoPath)}&n=${n + 1}`;
@@ -131,7 +145,7 @@ function _epUpdateDisplay() {
   _epUpdateSeekHighlight();
   _epUpdateCsvStrip();
 
-  if (!document.getElementById("ep-lock-start").checked) {
+  if (!_playing && !document.getElementById("ep-lock-start").checked) {
     document.getElementById("ep-start").value = cur1;
     _epUpdateEnd();
   }
@@ -178,8 +192,8 @@ function _epUpdateModeUI() {
   const addTemplateBtn = document.getElementById("ep-add-template");
   const seekEl = document.getElementById("ep-seek");
 
-  seekEl.min = _clipStart;
-  seekEl.max = _clipEnd;
+  seekEl.min = 0;
+  seekEl.max = _frameCount - 1;
 
   if (_mode === "clip") {
     lockBadge.style.display = "";
@@ -243,8 +257,8 @@ function _epApplyNewKF(kf1) {
     "🔒 " + (_clipStart + 1) + "–" + (_clipEnd + 1);
 
   const seekEl = document.getElementById("ep-seek");
-  seekEl.min = _clipStart;
-  seekEl.max = _clipEnd;
+  seekEl.min = 0;
+  seekEl.max = _frameCount - 1;
   seekEl.value = Math.max(_clipStart, Math.min(_currentFrame, _clipEnd));
 
   const start = Math.max(1, kf1 - 200);
@@ -254,7 +268,7 @@ function _epApplyNewKF(kf1) {
   const nameEl = document.getElementById("card-clipname-" + _detectionIdx);
   if (nameEl) {
     const d = detections[_detectionIdx];
-    const videoName = d.video_path.split("/").pop().replace(".avi", "");
+    const videoName = d.video_path.split("/").pop().replace(/\.avi$/i, "");
     nameEl.textContent = videoName + "_" + (kf1 - 200) + "_" + (kf1 + 599) + ".avi";
   }
 
