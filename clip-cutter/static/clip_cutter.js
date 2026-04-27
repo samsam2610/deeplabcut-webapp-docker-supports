@@ -605,7 +605,7 @@ function buildResultCard(d, idx) {
   // Build inner structure with safe static skeleton
   card.innerHTML = `
     <div class="result-meta">
-      <div class="result-name"></div>
+      <div class="result-name" id="card-clipname-${idx}"></div>
       <div class="result-info">
         Key frame <span class="kf-num"></span> &middot;
         <span class="match-pill ${isKnown ? "match-known" : "match-new"}"></span>
@@ -654,7 +654,7 @@ function buildResultCard(d, idx) {
     if (e.target.closest("button")) return;
     document.querySelectorAll(".result-card").forEach((c) => c.classList.remove("active-preview"));
     card.classList.add("active-preview");
-    if (typeof loadClip === "function") loadClip(d.video_path, d.frame_number);
+    if (typeof loadClip === "function") loadClip(d.video_path, d.frame_number, idx);
   });
 
   return card;
