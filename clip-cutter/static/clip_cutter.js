@@ -169,6 +169,7 @@ function renderTemplate(data) {
   const footer = document.getElementById("template-footer");
   const initBtn = document.getElementById("sidebar-init-btn");
   const sidebarActions = document.getElementById("sidebar-actions");
+  const frameCount = document.getElementById("sidebar-frame-count");
 
   if (!_selectedVideoStem) {
     emptyState.style.display = "";
@@ -177,6 +178,7 @@ function renderTemplate(data) {
     footer.style.display = "none";
     initBtn.style.display = "none";
     sidebarActions.style.display = "none";
+    frameCount.textContent = "";
     return;
   }
 
@@ -189,6 +191,7 @@ function renderTemplate(data) {
     grid.style.display = "none";
     footer.style.display = "none";
     sidebarActions.style.display = "none";
+    frameCount.textContent = "";
     return;
   }
 
@@ -196,6 +199,7 @@ function renderTemplate(data) {
   grid.style.display = "flex";
   footer.style.display = "";
   sidebarActions.style.display = "flex";
+  frameCount.textContent = `${data.count} fr`;
 
   grid.innerHTML = "";
   data.frames.forEach((f, idx) => {
