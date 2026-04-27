@@ -19,8 +19,11 @@ let _playing = false;
 let _looping = true;
 let _busy = false;
 let _timerId = null;
+const _videoInfoCache = {};
 
 // ── Public API ──────────────────────────────────────────────────────────────────
+
+function _epBuildTagBars() { /* stub — replaced in Task 3 */ }
 
 async function openPlayer({ mode, videoPath, keyFrame1Based = null, detectionIdx = null, csvPath = null }) {
   _stop();
@@ -36,13 +39,24 @@ async function openPlayer({ mode, videoPath, keyFrame1Based = null, detectionIdx
   if (stepEl) stepEl.value = 10;
   if (playNEl) playNEl.value = 1;
 
-  let info;
-  try {
-    const resp = await fetch(`/clip-cutter/video-info?video=${encodeURIComponent(videoPath)}`);
-    if (!resp.ok) { setStatus("Cannot load video info"); return; }
-    info = await resp.json();
-  } catch (e) { setStatus("Network error: " + e.message); return; }
-  _frameCount = info.frame_count;
+  // Show panel immediately so user sees it open without waiting for network
+  document.getElementById("player-panel").style.display = "";
+
+  // Fetch frame count — use cache to skip round-trip on repeated opens
+  let frameCount;
+  if (_videoInfoCache[videoPath]) {
+    frameCount = _videoInfoCache[videoPath];
+  } else {
+    let info;
+    try {
+      const resp = await fetch(`/clip-cutter/video-info?video=${encodeURIComponent(videoPath)}`);
+      if (!resp.ok) { setStatus("Cannot load video info"); return; }
+      info = await resp.json();
+    } catch (e) { setStatus("Network error: " + e.message); return; }
+    frameCount = info.frame_count;
+    _videoInfoCache[videoPath] = frameCount;
+  }
+  _frameCount = frameCount;
 
   if (mode === "clip" && keyFrame1Based !== null) {
     const kf0 = keyFrame1Based - 1;
@@ -56,8 +70,6 @@ async function openPlayer({ mode, videoPath, keyFrame1Based = null, detectionIdx
   }
   _currentFrame = _clipStart;
 
-  document.getElementById("player-panel").style.display = "";
-
   _epUpdateModeUI();
   _epInitExtractPanel(videoPath, keyFrame1Based);
 
@@ -69,6 +81,8 @@ async function openPlayer({ mode, videoPath, keyFrame1Based = null, detectionIdx
       console.warn("[enhanced_player] CSV load failed:", e);
     }
   }
+
+  _epBuildTagBars();
 
   await _epLoadFrame(_clipStart);
 }
