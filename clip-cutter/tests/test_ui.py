@@ -41,12 +41,6 @@ _MOCK_FRAMES = [
     for i in range(19)
 ]
 
-_MOCK_VIDEOS = [
-    {"name": "MAP2_20250515_103618_0.avi", "path": "/user-data/vid1.avi", "done": False},
-    {"name": "MAP2_20250516_110432_0.avi", "path": "/user-data/vid2.avi", "done": True},
-    {"name": "MAP2_20250517_112331_0.avi", "path": "/user-data/vid3.avi", "done": False},
-]
-
 _MOCK_FS_ROOT = {
     "path": "/user-data",
     "parent": "/",
