@@ -1,12 +1,11 @@
 from flask import Flask
-from routes import bp, load_state
+from routes import bp
 
 
 def create_app() -> Flask:
     app = Flask(__name__)
     app.config["TEMPLATES_AUTO_RELOAD"] = True
     app.register_blueprint(bp)
-    load_state()
     return app
 
 

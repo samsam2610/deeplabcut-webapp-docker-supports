@@ -7,7 +7,6 @@ import time
 import uuid
 from pathlib import Path
 
-import pandas as pd
 from flask import Blueprint, Response, jsonify, render_template, request, stream_with_context
 
 import config
@@ -43,10 +42,7 @@ def _template_path() -> "Path | None":
 
 
 def load_state() -> None:
-    global _state
-    new_state = processor.load_template_state(config.TEMPLATE_STATE_PATH)
-    with _state_lock:
-        _state = new_state
+    pass  # template state now loaded per-video via /select-video
 
 
 # ── UI ──────────────────────────────────────────────────────────────────────
@@ -182,33 +178,7 @@ def init_template_status():
     return jsonify({"running": running, "count": count, "error": error})
 
 
-# ── Video list ─────────────────────────────────────────────────────────────────
-
-def _video_is_done(avi_path: Path) -> bool:
-    test_clips_dir = avi_path.parent / (avi_path.stem + config.TEST_CLIPS_SUFFIX)
-    if test_clips_dir.exists():
-        return True
-    csv_path = avi_path.with_suffix(".csv")
-    if csv_path.exists():
-        try:
-            df = pd.read_csv(csv_path, usecols=["note"], on_bad_lines="skip")
-            return bool(df["note"].eq("start_reaching").any())
-        except Exception:
-            return False
-    return False
-
-
-@bp.route("/videos")
-def list_videos():
-    videos = []
-    for p in sorted(config.VIDEO_DIR.glob("*.avi")):
-        videos.append({
-            "name": p.name,
-            "path": str(p),
-            "done": _video_is_done(p),
-        })
-    return jsonify({"videos": videos})
-
+# ── Filesystem browser ──────────────────────────────────────────────────────────
 
 @bp.route("/fs/ls")
 def fs_ls():
@@ -321,7 +291,11 @@ def _run_scan(job_id: str, video_path: str, template_emb, dino_template_emb, par
                 dino_template_emb=dino_template_emb,
             )
 
-        known = processor.get_known_key_frames(config.TRAINING_CLIPS_DIR)
+        with _state_lock:
+            _stem = _state.get("video_stem")
+            _parent = _state.get("video_parent")
+        clips_dir = Path(_parent) / _stem if (_stem and _parent) else config.TRAINING_CLIPS_DIR
+        known = processor.get_known_key_frames(clips_dir)
         for d in detections:
             kf = d["frame_number"]
             match = next(

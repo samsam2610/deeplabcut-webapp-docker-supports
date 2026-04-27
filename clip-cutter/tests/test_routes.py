@@ -53,15 +53,9 @@ def test_template_delete_out_of_range(client):
     assert resp.status_code == 422  # no video selected
 
 
-def test_videos_returns_list(client, monkeypatch, tmp_path):
-    import config
-    (tmp_path / "vid1.avi").touch()
-    (tmp_path / "vid2.avi").touch()
-    monkeypatch.setattr(config, "VIDEO_DIR", tmp_path)
+def test_videos_route_removed(client):
     resp = client.get("/clip-cutter/videos")
-    assert resp.status_code == 200
-    data = json.loads(resp.data)
-    assert len(data["videos"]) == 2
+    assert resp.status_code == 404
 
 
 def test_extract_route_missing_params(client):
