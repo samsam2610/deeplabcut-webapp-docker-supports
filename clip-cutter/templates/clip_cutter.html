@@ -143,7 +143,7 @@ header h1 { font-size: 15px; font-weight: 600; }
 #player-controls { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
 #player-seek { flex: 1; accent-color: #1f6feb; cursor: pointer; }
 #player-frame-num { font-size: 10px; color: #768390; white-space: nowrap; font-family: monospace; }
-#player-actions { display: flex; gap: 6px; flex-shrink: 0; }
+#player-actions { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
 .player-btn { font-size: 11px; padding: 3px 10px; border-radius: 4px; cursor: pointer; border: 1px solid #30363d; background: transparent; color: #cdd9e5; }
 .player-btn:hover { background: #30363d; }
 .player-btn.active { border-color: #388bfd; color: #388bfd; }
@@ -320,7 +320,7 @@ header h1 { font-size: 15px; font-weight: 600; }
             <input type="range" id="player-seek" min="0" max="1000" value="0">
             <span id="player-frame-num">fr 0</span>
           </div>
-          <div id="player-actions" style="display:flex;align-items:center;gap:6px;">
+          <div id="player-actions">
             <button class="player-btn" id="player-keyframe">&#8982; Key frame</button>
             <button class="player-btn active" id="player-loop">&#8617; Loop</button>
             <button class="player-btn" id="player-clip-start">&#9654; From clip start</button>
