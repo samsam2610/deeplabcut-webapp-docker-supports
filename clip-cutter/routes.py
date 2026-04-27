@@ -132,16 +132,21 @@ _init_status: dict = {"running": False, "error": None}
 _init_lock = threading.Lock()
 
 
-def _run_init():
+def _run_init(video_stem: str, video_parent: str):
     global _state
     with _init_lock:
         _init_status["running"] = True
         _init_status["error"] = None
     try:
-        config.TEMPLATE_STATE_PATH.parent.mkdir(parents=True, exist_ok=True)
+        clips_dir = Path(video_parent) / video_stem
+        template_dir = clips_dir / "template"
+        template_dir.mkdir(parents=True, exist_ok=True)
+        state_path = template_dir / "template_state.json"
         new_state = processor.init_template_from_clips_dir(
-            config.TRAINING_CLIPS_DIR, config.TEMPLATE_STATE_PATH, crop=config.TRAINING_CROP
+            clips_dir, state_path, crop=config.TRAINING_CROP
         )
+        new_state["video_stem"] = video_stem
+        new_state["video_parent"] = video_parent
         with _state_lock:
             _state = new_state
     except Exception as exc:
@@ -154,10 +159,15 @@ def _run_init():
 
 @bp.route("/template/init", methods=["POST"])
 def init_template():
+    with _state_lock:
+        stem = _state.get("video_stem")
+        parent = _state.get("video_parent")
+    if not stem or not parent:
+        return jsonify({"error": "no video selected"}), 422
     with _init_lock:
         if _init_status["running"]:
             return jsonify({"status": "running"}), 202
-    thread = threading.Thread(target=_run_init, daemon=True)
+    thread = threading.Thread(target=_run_init, args=(stem, parent), daemon=True)
     thread.start()
     return jsonify({"status": "started"}), 202
 

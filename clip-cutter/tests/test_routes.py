@@ -247,3 +247,55 @@ def test_template_clear_when_dir_never_existed(client, tmp_path):
     assert resp.status_code == 200
     data = json.loads(resp.data)
     assert data["ok"] is True
+
+
+def test_init_creates_template_folder_even_with_no_clips(client, tmp_path):
+    stem = "session"
+    _select(client, tmp_path, stem)
+    # No clips in the video folder — init should still succeed
+    resp = client.post("/clip-cutter/template/init")
+    assert resp.status_code == 202
+    # Poll until done
+    import time
+    for _ in range(20):
+        time.sleep(0.2)
+        status_resp = client.get("/clip-cutter/template/init/status")
+        data = json.loads(status_resp.data)
+        if not data["running"]:
+            break
+    assert not data["running"]
+    assert data["error"] is None
+    template_dir = tmp_path / stem / "template"
+    assert template_dir.exists()
+
+
+def test_init_no_video_selected_returns_422(client):
+    resp = client.post("/clip-cutter/template/init")
+    assert resp.status_code == 422
+
+
+def test_init_reads_clips_from_video_folder(client, tmp_path):
+    import cv2, numpy as np, time
+    stem = "session"
+    _select(client, tmp_path, stem)
+    # Create a minimal _success AVI in the video-named folder
+    vid_dir = tmp_path / stem
+    vid_dir.mkdir(exist_ok=True)
+    avi_path = vid_dir / "clip_success.avi"
+    writer = cv2.VideoWriter(
+        str(avi_path), cv2.VideoWriter_fourcc(*"XVID"), 30.0, (64, 64)
+    )
+    rng = np.random.default_rng(1)
+    for _ in range(210):  # need at least 200 frames
+        writer.write(rng.integers(0, 255, (64, 64, 3), dtype=np.uint8))
+    writer.release()
+
+    resp = client.post("/clip-cutter/template/init")
+    assert resp.status_code == 202
+    for _ in range(30):
+        time.sleep(0.3)
+        data = json.loads(client.get("/clip-cutter/template/init/status").data)
+        if not data["running"]:
+            break
+    assert data["count"] == 1
+    assert (tmp_path / stem / "template" / "template_state.json").exists()
