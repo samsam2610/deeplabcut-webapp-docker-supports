@@ -107,6 +107,7 @@ def test_fs_ls_dirs_first(client, tmp_path, monkeypatch):
     (tmp_path / "aaa.avi").touch()
     (tmp_path / "zzz_dir").mkdir()
     resp = client.get(f"/clip-cutter/fs/ls?path={tmp_path}")
+    assert resp.status_code == 200
     data = json.loads(resp.data)
     types = [e["type"] for e in data["entries"]]
     # dir before file even though "aaa" < "zzz"

@@ -171,12 +171,12 @@ def fs_ls():
             if entry.name.startswith("."):
                 continue
             if entry.is_dir():
-                has_avi = any(True for _ in entry.glob("*.avi"))
+                has_avi = any(entry.glob("*.avi"))
                 dirs.append({"name": entry.name, "type": "dir", "has_avi": has_avi})
             elif entry.is_file() and entry.suffix.lower() == ".avi":
                 stem = entry.stem
                 video_dir = p / stem
-                done = video_dir.is_dir() and any(True for _ in video_dir.glob("*.avi"))
+                done = video_dir.is_dir() and any(video_dir.glob("*.avi"))
                 files.append({"name": entry.name, "type": "file", "done": done})
     except PermissionError:
         return jsonify({"error": "permission denied"}), 403
