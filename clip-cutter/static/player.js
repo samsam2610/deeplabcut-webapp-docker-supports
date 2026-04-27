@@ -26,6 +26,15 @@ async function loadClip(videoPath, keyFrame1Based, detectionIdx = null) {
   _playerDetectionIdx = detectionIdx;
   document.getElementById("player-kf-num").textContent = keyFrame1Based;
   document.getElementById("player-overlap-warning").style.display = "none";
+
+  const _setKfBtn = document.getElementById("player-set-kf");
+  const _isFinished = detectionIdx !== null &&
+    typeof detections !== "undefined" &&
+    detections[detectionIdx] &&
+    (detections[detectionIdx].status === "kept" || detections[detectionIdx].status === "rejected");
+  _setKfBtn.disabled = _isFinished;
+  _setKfBtn.title = _isFinished ? "Cannot change keyframe of a kept/rejected detection" : "";
+
   _playerClipStart = Math.max(0, kf0 - 200);
   _playerClipEnd = Math.min(info.frame_count - 1, kf0 + 599);
 
