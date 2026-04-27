@@ -44,6 +44,8 @@ async function openPlayer({ mode, videoPath, keyFrame1Based = null, detectionIdx
   if (stepEl) stepEl.value = 10;
   if (playNEl) playNEl.value = 1;
 
+  _kfCanvasVisible = false;
+
   // Show panel immediately so user sees it open without waiting for network
   document.getElementById("player-panel").style.display = "";
   document.getElementById("ep-frame").src = "";
