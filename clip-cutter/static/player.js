@@ -10,8 +10,10 @@ let _playerLooping = true;
 let _playerPlaying = false;
 let _playerBusy = false;
 let _playerTimeoutId = null;
+let _playerDetectionIdx = null;
+let _pendingKF = null;
 
-async function loadClip(videoPath, keyFrame1Based) {
+async function loadClip(videoPath, keyFrame1Based, detectionIdx = null) {
   const resp = await fetch(
     `/clip-cutter/video-info?video=${encodeURIComponent(videoPath)}`
   );
@@ -22,6 +24,10 @@ async function loadClip(videoPath, keyFrame1Based) {
   _playerFrameCount = info.frame_count;
   const kf0 = keyFrame1Based - 1;
   _playerKeyFrame = kf0;
+  _playerDetectionIdx = detectionIdx;
+  document.getElementById("player-kf-num").textContent = keyFrame1Based;
+  document.getElementById("player-overlap-warning").style.display = "none";
+  _pendingKF = null;
   _playerClipStart = Math.max(0, kf0 - 200);
   _playerClipEnd = Math.min(info.frame_count - 1, kf0 + 599);
 
@@ -30,6 +36,25 @@ async function loadClip(videoPath, keyFrame1Based) {
   document.getElementById("player-container").style.display = "flex";
 
   await _playerLoadFrame(_playerClipStart);
+}
+
+function applyNewKF(kf1) {
+  if (_playerDetectionIdx === null) return;
+  detections[_playerDetectionIdx].frame_number = kf1;
+  const kf0 = kf1 - 1;
+  _playerKeyFrame = kf0;
+  _playerClipStart = Math.max(0, kf0 - 200);
+  _playerClipEnd = Math.min(_playerFrameCount - 1, kf0 + 599);
+  _pendingKF = null;
+  document.getElementById("player-kf-num").textContent = kf1;
+  document.getElementById("player-overlap-warning").style.display = "none";
+  const nameEl = document.getElementById(`card-clipname-${_playerDetectionIdx}`);
+  if (nameEl) {
+    const d = detections[_playerDetectionIdx];
+    const videoName = d.video_path.split("/").pop().replace(".avi", "");
+    nameEl.textContent = `${videoName}_${kf1 - 200}_${kf1 + 599}.avi`;
+  }
+  if (typeof saveDetections === "function") saveDetections();
 }
 
 async function _playerLoadFrame(n) {
@@ -142,5 +167,70 @@ document.addEventListener("DOMContentLoaded", () => {
     _playerStop();
     const n = Math.round((e.target.value / 1000) * (_playerFrameCount - 1));
     _playerLoadFrame(n);
+  });
+
+  document.getElementById("player-set-kf").addEventListener("click", async () => {
+    if (_playerVideoPath === null || _playerDetectionIdx === null) return;
+    const kf1 = _playerCurrentFrame + 1;
+    _pendingKF = kf1;
+    let data;
+    try {
+      const resp = await fetch("/clip-cutter/check-keyframe-overlap", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ video_path: _playerVideoPath, key_frame: kf1 }),
+      });
+      if (!resp.ok) { setStatus("Overlap check failed"); return; }
+      data = await resp.json();
+    } catch (e) {
+      setStatus("Network error: " + e.message);
+      return;
+    }
+    if (!data.overlaps) {
+      applyNewKF(kf1);
+      return;
+    }
+    const conflict = data.conflicts[0];
+    const warning = document.getElementById("player-overlap-warning");
+    warning.innerHTML = "";
+    const title = document.createElement("div");
+    title.className = "ow-title";
+    title.textContent = "⚠ Overlap detected";
+    const body = document.createElement("div");
+    body.className = "ow-body";
+    const code = document.createElement("code");
+    code.textContent = conflict.name;
+    body.appendChild(document.createTextNode("New range overlaps "));
+    body.appendChild(code);
+    body.appendChild(document.createTextNode(` by ${conflict.overlap_frames} frames.`));
+    const actions = document.createElement("div");
+    actions.className = "ow-actions";
+    const cancelBtn = document.createElement("button");
+    cancelBtn.className = "player-btn";
+    cancelBtn.textContent = "Cancel";
+    cancelBtn.addEventListener("click", () => {
+      _pendingKF = null;
+      warning.style.display = "none";
+    });
+    const keepBtn = document.createElement("button");
+    keepBtn.className = "player-btn player-btn-red";
+    keepBtn.textContent = "Keep anyway";
+    keepBtn.addEventListener("click", () => applyNewKF(_pendingKF));
+    actions.appendChild(cancelBtn);
+    actions.appendChild(keepBtn);
+    warning.appendChild(title);
+    warning.appendChild(body);
+    warning.appendChild(actions);
+    warning.style.display = "";
+  });
+
+  document.getElementById("player-clip-start").addEventListener("click", () => {
+    if (_playerVideoPath === null) return;
+    _playerStop();
+    _playerLoadFrame(_playerClipStart).then(() => {
+      _playerPlaying = true;
+      document.getElementById("player-play").textContent = "⏸";
+      _playerLoop();
+    });
   });
 });
