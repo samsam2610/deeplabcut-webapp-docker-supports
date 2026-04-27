@@ -147,6 +147,13 @@ header h1 { font-size: 15px; font-weight: 600; }
 .player-btn { font-size: 11px; padding: 3px 10px; border-radius: 4px; cursor: pointer; border: 1px solid #30363d; background: transparent; color: #cdd9e5; }
 .player-btn:hover { background: #30363d; }
 .player-btn.active { border-color: #388bfd; color: #388bfd; }
+.player-btn-blue { border-color: #388bfd; color: #388bfd; }
+.player-btn-red { border-color: #da3633; color: #f85149; }
+#player-overlap-warning { background: #161b22; border: 1px solid #da3633; border-radius: 6px; padding: 10px 12px; margin-top: 4px; flex-shrink: 0; }
+#player-overlap-warning .ow-title { color: #f85149; font-size: 11px; font-weight: 600; margin-bottom: 4px; }
+#player-overlap-warning .ow-body { font-size: 10px; color: #8b949e; margin-bottom: 8px; }
+#player-overlap-warning .ow-body code { color: #e6edf3; background: #21262d; padding: 1px 4px; border-radius: 3px; }
+#player-overlap-warning .ow-actions { display: flex; gap: 6px; }
 </style>
 </head>
 <body>
@@ -313,10 +320,15 @@ header h1 { font-size: 15px; font-weight: 600; }
             <input type="range" id="player-seek" min="0" max="1000" value="0">
             <span id="player-frame-num">fr 0</span>
           </div>
-          <div id="player-actions">
+          <div id="player-actions" style="display:flex;align-items:center;gap:6px;">
             <button class="player-btn" id="player-keyframe">&#8982; Key frame</button>
             <button class="player-btn active" id="player-loop">&#8617; Loop</button>
+            <button class="player-btn" id="player-clip-start">&#9654; From clip start</button>
+            <div style="flex:1"></div>
+            <span style="font-size:10px;color:#768390;font-family:monospace;white-space:nowrap;">KF: <span id="player-kf-num">&#8212;</span></span>
+            <button class="player-btn player-btn-blue" id="player-set-kf">&#128204; Set KF here</button>
           </div>
+          <div id="player-overlap-warning" style="display:none;"></div>
         </div>
       </div>
     </div>
