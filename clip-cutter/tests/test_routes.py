@@ -34,6 +34,29 @@ def client(tmp_path, monkeypatch):
         yield c
 
 
+@pytest.fixture(autouse=True)
+def reset_routes_state():
+    """Reset global _state and _init_status between tests."""
+    import routes
+    routes._state = {
+        "frames": [],
+        "mean_embedding": None,
+        "dino_mean_embedding": None,
+        "video_stem": None,
+        "video_parent": None,
+    }
+    routes._init_status = {"running": False, "error": None}
+    yield
+    routes._state = {
+        "frames": [],
+        "mean_embedding": None,
+        "dino_mean_embedding": None,
+        "video_stem": None,
+        "video_parent": None,
+    }
+    routes._init_status = {"running": False, "error": None}
+
+
 def test_index_returns_200(client):
     resp = client.get("/clip-cutter/")
     assert resp.status_code == 200
