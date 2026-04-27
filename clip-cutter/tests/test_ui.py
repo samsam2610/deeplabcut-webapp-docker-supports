@@ -554,19 +554,18 @@ def test_rescan_overwrites_saved_results(page: Page):
 
 
 def test_player_placeholder_visible_before_card_click(page: Page):
-    """Player placeholder is shown before any detection card is clicked."""
+    """Player panel is hidden before any detection card is clicked."""
     setup_routes_with_persistence(page, template_frames=_MOCK_FRAMES)
     page.goto(f"{BASE_URL}/clip-cutter/")
     page.locator(".browser-row:has(.badge-pending)").first.click()
     page.locator("#scan-btn").click()
     expect(page.locator(".result-card")).to_have_count(2, timeout=8_000)
 
-    expect(page.locator("#player-placeholder")).to_be_visible()
-    expect(page.locator("#player-container")).to_be_hidden()
+    expect(page.locator("#player-panel")).to_be_hidden()
 
 
 def test_clicking_card_shows_player(page: Page):
-    """Clicking a detection card hides the placeholder and shows the player."""
+    """Clicking a detection card shows the player panel."""
     setup_routes_with_persistence(page, template_frames=_MOCK_FRAMES)
     page.goto(f"{BASE_URL}/clip-cutter/")
     page.locator(".browser-row:has(.badge-pending)").first.click()
@@ -576,8 +575,7 @@ def test_clicking_card_shows_player(page: Page):
     # Click the card body (non-button part) to trigger the player
     page.locator(".result-card").first.locator(".result-name").click()
 
-    expect(page.locator("#player-container")).to_be_visible(timeout=5_000)
-    expect(page.locator("#player-placeholder")).to_be_hidden()
+    expect(page.locator("#player-panel")).to_be_visible(timeout=5_000)
 
 
 def test_player_next_frame_advances_counter(page: Page):
@@ -589,15 +587,15 @@ def test_player_next_frame_advances_counter(page: Page):
     expect(page.locator(".result-card")).to_have_count(2, timeout=8_000)
 
     page.locator(".result-card").first.locator(".result-name").click()
-    expect(page.locator("#player-container")).to_be_visible(timeout=5_000)
+    expect(page.locator("#player-panel")).to_be_visible(timeout=5_000)
 
-    frame_text_before = page.locator("#player-frame-num").inner_text()
-    page.locator("#player-next").click()
-    expect(page.locator("#player-frame-num")).not_to_have_text(frame_text_before, timeout=3_000)
+    frame_text_before = page.locator("#ep-frame-num").inner_text()
+    page.locator("#ep-fwd1").click()
+    expect(page.locator("#ep-frame-num")).not_to_have_text(frame_text_before, timeout=3_000)
 
 
 def test_player_keyframe_button_jumps_to_keyframe(page: Page):
-    """Key frame button seeks to the detection's frame_number (0-based display)."""
+    """Key frame button seeks to the detection's keyframe (0-based)."""
     setup_routes_with_persistence(page, template_frames=_MOCK_FRAMES)
     page.goto(f"{BASE_URL}/clip-cutter/")
     page.locator(".browser-row:has(.badge-pending)").first.click()
@@ -605,15 +603,15 @@ def test_player_keyframe_button_jumps_to_keyframe(page: Page):
     expect(page.locator(".result-card")).to_have_count(2, timeout=8_000)
 
     page.locator(".result-card").first.locator(".result-name").click()
-    expect(page.locator("#player-container")).to_be_visible(timeout=5_000)
+    expect(page.locator("#player-panel")).to_be_visible(timeout=5_000)
 
-    frame_at_start = page.locator("#player-frame-num").inner_text()
-    page.locator("#player-prev").click()
-    expect(page.locator("#player-frame-num")).not_to_have_text(frame_at_start, timeout=3_000)
+    frame_at_start = page.locator("#ep-frame-num").inner_text()
+    page.locator("#ep-back1").click()
+    expect(page.locator("#ep-frame-num")).not_to_have_text(frame_at_start, timeout=3_000)
 
-    page.locator("#player-keyframe").click()
-    # first detection: frame_number=20968, 0-based=20967
-    expect(page.locator("#player-frame-num")).to_have_text("fr 20967", timeout=3_000)
+    page.locator("#ep-goto-kf").click()
+    # first detection: frame_number=20968 → keyFrame1Based=20968 → display=20968 (1-based)
+    expect(page.locator("#ep-frame-num")).to_have_text("20968", timeout=3_000)
 
 
 # ── Task 7/8: Settings panel, source badge, scan POST params ──────────────────

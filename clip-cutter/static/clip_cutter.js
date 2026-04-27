@@ -672,9 +672,12 @@ async function keepDetection(idx) {
 }
 
 async function rejectDetection(idx) {
-  detections.splice(idx, 1);
+  detections[idx].status = "rejected";
   const card = document.getElementById(`card-${idx}`);
-  if (card) card.remove();
+  if (card) {
+    card.classList.add("rejected");
+    card.querySelectorAll("button").forEach(b => (b.disabled = true));
+  }
   await saveDetections();
 }
 
