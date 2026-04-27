@@ -223,7 +223,7 @@ function pollInitStatus() {
         clearInterval(iv);
         await loadTemplate();
         setStatus(`Template initialised: ${data.count} frame${data.count !== 1 ? "s" : ""} — browse to add more`);
-        openPlayer({
+        if (selectedVideoPath) openPlayer({
           mode: "template",
           videoPath: selectedVideoPath,
           csvPath: selectedVideoPath.replace(/\.avi$/i, ".csv"),
