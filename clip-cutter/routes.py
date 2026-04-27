@@ -462,6 +462,8 @@ def get_csv():
 
     if not csv_path.exists():
         return jsonify({"error": "file not found"}), 404
+    if not csv_path.is_file():
+        return jsonify({"error": "path is not a file"}), 400
 
     rows = []
     try:

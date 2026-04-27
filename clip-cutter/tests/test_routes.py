@@ -392,3 +392,8 @@ def test_csv_path_outside_data_root_returns_403(client, tmp_path, monkeypatch):
     monkeypatch.setattr(config, "_DATA_ROOT", tmp_path / "subdir")
     resp = client.get(f"/clip-cutter/csv?path={tmp_path / 'video.csv'}")
     assert resp.status_code == 403
+
+
+def test_csv_blank_path_returns_400(client):
+    resp = client.get("/clip-cutter/csv")
+    assert resp.status_code == 400
