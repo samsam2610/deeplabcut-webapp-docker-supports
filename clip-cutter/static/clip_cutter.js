@@ -695,8 +695,10 @@ function setStatus(msg) {
   handle.addEventListener("mousedown", e => {
     startX = e.clientX;
     startW = sidebar.offsetWidth;
+    document.body.style.userSelect = "none";
     document.addEventListener("mousemove", onMove);
     document.addEventListener("mouseup",   onUp);
+    window.addEventListener("blur",        onUp);
     e.preventDefault();
   });
 
@@ -706,7 +708,9 @@ function setStatus(msg) {
   }
 
   function onUp() {
+    document.body.style.userSelect = "";
     document.removeEventListener("mousemove", onMove);
     document.removeEventListener("mouseup",   onUp);
+    window.removeEventListener("blur",        onUp);
   }
 })();
