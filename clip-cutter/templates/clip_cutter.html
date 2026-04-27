@@ -29,6 +29,34 @@ header h1 { font-size: 15px; font-weight: 600; }
 .thumb-label { position: absolute; bottom: 0; left: 0; right: 0; background: rgba(0,0,0,0.65); font-size: 7px; color: #ccc; text-align: center; padding: 1px; }
 #template-footer { padding: 6px 10px; border-top: 1px solid #30363d; font-size: 10px; color: #768390; flex-shrink: 0; }
 
+/* Folder browser */
+.browser-toolbar { display: flex; align-items: center; gap: 6px; margin-bottom: 6px; }
+#browser-breadcrumb { flex: 1; font-size: 10px; color: #768390; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bc-segment { cursor: pointer; color: #58a6ff; }
+.bc-segment:hover { text-decoration: underline; }
+.bc-sep { color: #30363d; }
+.bc-current { color: #e6edf3; cursor: default; }
+#browser-list { display: flex; flex-direction: column; gap: 2px; max-height: 160px; overflow-y: auto; }
+.browser-row { display: flex; align-items: center; gap: 6px; padding: 4px 6px; border-radius: 4px; cursor: pointer; border: 1px solid transparent; }
+.browser-row:hover { background: #1c2128; border-color: #30363d; }
+.browser-row.selected { background: #1a2535; border-color: #388bfd; }
+.browser-icon { font-size: 11px; flex-shrink: 0; }
+.browser-name { font-family: monospace; font-size: 11px; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* Minimal template player */
+.template-player-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; }
+#tp-frame-wrap { background: #1c2128; border: 1px solid #30363d; border-radius: 4px; overflow: hidden; max-height: 200px; display: flex; align-items: center; justify-content: center; margin-bottom: 6px; }
+#tp-controls { display: flex; align-items: center; gap: 6px; }
+
+/* Clear confirmation modal */
+#clear-confirm-modal { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.7); z-index: 100; align-items: center; justify-content: center; }
+#clear-confirm-modal.open { display: flex; }
+.modal-box { background: #161b22; border: 1px solid #30363d; border-radius: 8px; padding: 20px; max-width: 340px; width: 100%; }
+.modal-box h3 { font-size: 13px; margin-bottom: 8px; }
+.modal-box p { font-size: 11px; color: #768390; margin-bottom: 12px; }
+.modal-box input { width: 100%; padding: 4px 8px; background: #0d1117; border: 1px solid #30363d; border-radius: 4px; color: #cdd9e5; font-size: 12px; margin-bottom: 12px; }
+.modal-actions { display: flex; gap: 8px; justify-content: flex-end; }
+
 /* MAIN */
 .main { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
 
@@ -139,18 +167,30 @@ header h1 { font-size: 15px; font-weight: 600; }
   <div class="sidebar">
     <div class="sidebar-header">
       <span class="sidebar-title">Template Bank</span>
-      <button class="btn-sm btn-green" onclick="initTemplate()">&#8635; Init</button>
+      <button class="btn-sm btn-green" id="sidebar-init-btn" style="display:none;" title="Init template from this video">&#8635; Init</button>
     </div>
-    <div id="template-grid"></div>
-    <div id="template-footer">0 frames loaded</div>
+    <div id="sidebar-empty-state" style="padding:12px 10px;font-size:10px;color:#768390;">Select a video to load its template</div>
+    <div id="sidebar-no-template" style="display:none;padding:12px 10px;">
+      <div id="sidebar-no-template-msg" style="font-size:10px;color:#768390;margin-bottom:6px;"></div>
+      <button class="btn-sm" id="sidebar-browse-btn">&#9654; Browse frames</button>
+    </div>
+    <div id="template-grid" style="display:none;padding:8px;flex-wrap:wrap;gap:5px;overflow-y:auto;flex:1;"></div>
+    <div id="template-footer" style="display:none;padding:6px 10px;border-top:1px solid #30363d;font-size:10px;color:#768390;flex-shrink:0;">0 frames loaded</div>
+    <div id="sidebar-actions" style="display:none;padding:6px 10px;border-top:1px solid #30363d;gap:6px;flex-shrink:0;">
+      <button class="btn-sm" id="sidebar-browse-btn2">&#9654; Browse frames</button>
+      <button class="btn-sm btn-red" id="sidebar-clear-btn">&#10005; Clear</button>
+    </div>
   </div>
 
   <!-- Main panel -->
   <div class="main">
-    <!-- Video list -->
-    <div class="section">
-      <div class="section-label">Select video to scan</div>
-      <div id="video-list"></div>
+    <!-- Folder browser -->
+    <div class="section" id="browser-section">
+      <div class="browser-toolbar">
+        <button id="browser-up" class="btn-sm" title="Parent folder">&#8593; Up</button>
+        <div id="browser-breadcrumb"></div>
+      </div>
+      <div id="browser-list"></div>
       <div id="scan-settings">
         <button class="settings-toggle-btn" id="settings-toggle">&#9881; Scan settings &#9660;</button>
         <div id="settings-body" style="display:none;">
@@ -196,6 +236,27 @@ header h1 { font-size: 15px; font-weight: 600; }
         </div>
       </div>
       <button id="scan-btn" disabled onclick="startScan()">&#9654; Scan selected video</button>
+    </div>
+
+    <!-- Minimal template player (hidden until init or Browse frames clicked) -->
+    <div id="template-player-panel" style="display:none;" class="section">
+      <div class="template-player-header">
+        <span id="tp-title" style="font-size:11px;color:#768390;">Browsing frames</span>
+        <button class="btn-sm" id="tp-close">&#10005; Close</button>
+      </div>
+      <div id="tp-frame-wrap">
+        <img id="tp-frame" alt="frame" style="max-width:100%;display:block;">
+      </div>
+      <div id="tp-controls">
+        <button class="player-btn" id="tp-prev">&#9198;</button>
+        <button class="player-btn" id="tp-play">&#9654;</button>
+        <button class="player-btn" id="tp-next">&#9197;</button>
+        <input type="range" id="tp-seek" min="0" max="1000" value="0" style="flex:1;accent-color:#1f6feb;">
+        <span id="tp-frame-num" style="font-size:10px;color:#768390;font-family:monospace;white-space:nowrap;">fr 0 / 0</span>
+      </div>
+      <div id="tp-actions" style="margin-top:6px;">
+        <button class="btn-sm btn-blue" id="tp-add-btn">+ Add this frame to template</button>
+      </div>
     </div>
 
     <!-- Progress -->
@@ -264,6 +325,19 @@ header h1 { font-size: 15px; font-weight: 600; }
           </div>
         </div>
       </div>
+    </div>
+  </div>
+</div>
+
+<!-- Clear template confirmation modal -->
+<div id="clear-confirm-modal">
+  <div class="modal-box">
+    <h3>Clear template?</h3>
+    <p>This deletes <code>template_state.json</code> and all frame thumbnails. Type <strong>delete</strong> to confirm.</p>
+    <input type="text" id="clear-confirm-input" placeholder="type delete">
+    <div class="modal-actions">
+      <button class="btn-sm" id="clear-cancel-btn">Cancel</button>
+      <button class="btn-sm btn-red" id="clear-confirm-btn" disabled>Clear template</button>
     </div>
   </div>
 </div>
