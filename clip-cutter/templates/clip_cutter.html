@@ -297,6 +297,8 @@ header h1 { font-size: 15px; font-weight: 600; }
 .ep-btn-red { border-color: #da3633 !important; color: #f85149 !important; }
 .ep-btn-red:hover { background: #da363322 !important; }
 #ep-extract-panel .player-btn { width: 100%; font-size: 8px; padding: 3px 5px; }
+/* ── KF canvas overlay ──────────────────────────────────────────────────────── */
+#ep-kf-canvas { width:100%; display:block; border-radius:2px; background:#161b22; }
 /* ── Tag timeline bars ──────────────────────────────────────────────────────── */
 .ep-bar-header { display:flex; align-items:center; gap:4px; margin-top:4px; margin-bottom:2px; }
 .ep-chips-row { display:flex; flex-wrap:wrap; gap:3px; margin-top:2px; margin-bottom:2px; }
@@ -457,6 +459,9 @@ header h1 { font-size: 15px; font-weight: 600; }
       </div>
     </div>
 
+    <!-- Keyframe overlay canvas (hidden by default) -->
+    <canvas id="ep-kf-canvas" height="8" style="display:none;"></canvas>
+
     <!-- Seek bar -->
     <div id="ep-seek-row">
       <div id="ep-seek-track">
@@ -471,6 +476,9 @@ header h1 { font-size: 15px; font-weight: 600; }
     <div id="ep-controls">
       <button class="player-btn" id="ep-first" title="Jump to start">&#9198;</button>
       <button class="player-btn" id="ep-goto-kf" title="Jump to keyframe" style="display:none;">&#8982; KF</button>
+      <button class="player-btn" id="ep-kf-prev" title="Previous keyframe">&#9664; KF</button>
+      <button class="player-btn" id="ep-kf-toggle" title="Toggle keyframe overlay">&#8982; KFs</button>
+      <button class="player-btn" id="ep-kf-next" title="Next keyframe">KF &#9654;</button>
       <button class="player-btn" id="ep-back" title="Back by step size">&#9664;&#9664;</button>
       <button class="player-btn" id="ep-back1" title="Back 1 frame">&#8249;</button>
       <button class="player-btn" id="ep-play" title="Play / Pause">&#9654;</button>

@@ -26,6 +26,7 @@ let _epStatusColorMap = {};
 let _epNoteColorMap   = {};
 let _epActiveStatus   = new Set();
 let _epActiveNote     = new Set();
+let _kfCanvasVisible = false;
 
 // ── Public API ──────────────────────────────────────────────────────────────────
 
@@ -90,6 +91,14 @@ async function openPlayer({ mode, videoPath, keyFrame1Based = null, detectionIdx
   _epBuildTagBars();
 
   await _epLoadFrame(_clipStart);
+
+  document.getElementById("ep-kf-toggle").classList.toggle("active", _kfCanvasVisible);
+  if (_kfCanvasVisible) {
+    document.getElementById("ep-kf-canvas").style.display = "block";
+    _epDrawKfCanvas();
+  } else {
+    document.getElementById("ep-kf-canvas").style.display = "none";
+  }
 }
 
 // ── Frame loading ──────────────────────────────────────────────────────────────
@@ -319,6 +328,40 @@ function _epBuildTagBars() {
   requestAnimationFrame(() => _epRedrawAllCanvases());
 }
 
+// ── Keyframe canvas overlay ────────────────────────────────────────────────────
+
+function _epAllKfFrames() {
+  if (typeof detections === "undefined") return [];
+  return detections
+    .filter(d => d.video_path === _videoPath && d.frame_number != null)
+    .map(d => d.frame_number - 1)
+    .sort((a, b) => a - b);
+}
+
+function _epDrawKfCanvas() {
+  const canvas = document.getElementById("ep-kf-canvas");
+  if (!canvas || !_kfCanvasVisible || !_frameCount) return;
+  const W = Math.round(canvas.getBoundingClientRect().width) || canvas.clientWidth || 600;
+  canvas.width = W;
+  const H = canvas.height || 8;
+  const ctx = canvas.getContext("2d");
+  ctx.clearRect(0, 0, W, H);
+  const total = Math.max(_frameCount - 1, 1);
+  if (typeof detections === "undefined") return;
+  detections.forEach((d, i) => {
+    if (d.video_path !== _videoPath || d.frame_number == null) return;
+    const kf0 = d.frame_number - 1;
+    const x = Math.round((kf0 / total) * W);
+    if (i === _detectionIdx) {
+      ctx.fillStyle = "#56d4db"; // current clip: cyan, 2px wide
+      ctx.fillRect(x, 0, 2, H);
+    } else {
+      ctx.fillStyle = "#f0c040"; // other clips: yellow, 1px wide
+      ctx.fillRect(x, 0, 1, H);
+    }
+  });
+}
+
 // ── Mode-specific UI ───────────────────────────────────────────────────────────
 
 function _epUpdateModeUI() {
@@ -414,6 +457,7 @@ function _epApplyNewKF(kf1) {
   _epUpdateSeekHighlight();
   if (typeof saveDetections === "function") saveDetections();
   document.getElementById("ep-warning").style.display = "none";
+  _epDrawKfCanvas();
 }
 
 // ── Event wiring ───────────────────────────────────────────────────────────────
@@ -446,6 +490,28 @@ document.addEventListener("DOMContentLoaded", () => {
   // ⌖ KF — jump to current clip's keyframe (clip mode only)
   document.getElementById("ep-goto-kf").addEventListener("click", () => {
     _stop(); _epLoadFrame(_keyFrame);
+  });
+
+  // KF canvas toggle
+  document.getElementById("ep-kf-toggle").addEventListener("click", () => {
+    _kfCanvasVisible = !_kfCanvasVisible;
+    const canvas = document.getElementById("ep-kf-canvas");
+    canvas.style.display = _kfCanvasVisible ? "block" : "none";
+    document.getElementById("ep-kf-toggle").classList.toggle("active", _kfCanvasVisible);
+    if (_kfCanvasVisible) _epDrawKfCanvas();
+  });
+
+  // KF prev/next navigation
+  document.getElementById("ep-kf-prev").addEventListener("click", () => {
+    const frames = _epAllKfFrames();
+    const prev = [...frames].reverse().find(f => f < _currentFrame);
+    if (prev !== undefined) { _stop(); _epLoadFrame(prev); }
+  });
+
+  document.getElementById("ep-kf-next").addEventListener("click", () => {
+    const frames = _epAllKfFrames();
+    const next = frames.find(f => f > _currentFrame);
+    if (next !== undefined) { _stop(); _epLoadFrame(next); }
   });
 
   // ⏭ jump to clip end
