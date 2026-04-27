@@ -149,3 +149,51 @@ def test_fs_ls_default_path_is_data_root(client, tmp_path, monkeypatch):
 def test_fs_ls_nonexistent_path_returns_400(client):
     resp = client.get("/clip-cutter/fs/ls?path=/nonexistent/path/xyz")
     assert resp.status_code == 400
+
+
+def test_select_video_sets_state(client, tmp_path):
+    (tmp_path / "session.avi").touch()
+    resp = client.post(
+        "/clip-cutter/select-video",
+        json={"video_path": str(tmp_path / "session.avi")},
+        content_type="application/json",
+    )
+    assert resp.status_code == 200
+    data = json.loads(resp.data)
+    assert "count" in data
+    assert "has_template" in data
+
+
+def test_select_video_missing_path_returns_400(client):
+    resp = client.post(
+        "/clip-cutter/select-video",
+        json={},
+        content_type="application/json",
+    )
+    assert resp.status_code == 400
+
+
+def test_select_video_loads_template_if_exists(client, tmp_path, monkeypatch):
+    import processor, numpy as np
+    stem = "session"
+    parent = str(tmp_path)
+    template_dir = tmp_path / stem / "template"
+    template_dir.mkdir(parents=True)
+    # Write a minimal template_state.json
+    fake_emb = np.ones(512, dtype=np.float32) / (512 ** 0.5)
+    state = {
+        "frames": [{"video_path": "/v.avi", "frame_number": 200,
+                    "embedding": fake_emb, "thumbnail": "abc"}],
+        "mean_embedding": fake_emb,
+        "dino_mean_embedding": None,
+    }
+    processor.save_template_state(state, template_dir / "template_state.json")
+
+    resp = client.post(
+        "/clip-cutter/select-video",
+        json={"video_path": str(tmp_path / f"{stem}.avi")},
+        content_type="application/json",
+    )
+    data = json.loads(resp.data)
+    assert data["count"] == 1
+    assert data["has_template"] is True

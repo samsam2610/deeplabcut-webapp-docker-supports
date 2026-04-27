@@ -23,8 +23,23 @@ bp = Blueprint(
 _scan_jobs: dict[str, dict] = {}
 _jobs_lock = threading.Lock()
 
-_state: dict = {"frames": [], "mean_embedding": None, "dino_mean_embedding": None}
+_state: dict = {
+    "frames": [],
+    "mean_embedding": None,
+    "dino_mean_embedding": None,
+    "video_stem": None,
+    "video_parent": None,
+}
 _state_lock = threading.Lock()
+
+
+def _template_path() -> "Path | None":
+    with _state_lock:
+        stem = _state.get("video_stem")
+        parent = _state.get("video_parent")
+    if not stem or not parent:
+        return None
+    return Path(parent) / stem / "template" / "template_state.json"
 
 
 def load_state() -> None:
@@ -183,6 +198,40 @@ def fs_ls():
 
     parent = str(p.parent) if p.parent != p else None
     return jsonify({"path": str(p), "parent": parent, "entries": dirs + files})
+
+
+@bp.route("/select-video", methods=["POST"])
+def select_video():
+    global _state
+    body = request.get_json(force=True)
+    video_path_str = (body.get("video_path") or "").strip()
+    if not video_path_str:
+        return jsonify({"error": "video_path required"}), 400
+    p = Path(video_path_str)
+    stem = p.stem
+    parent = str(p.parent)
+    with _state_lock:
+        _state["video_stem"] = stem
+        _state["video_parent"] = parent
+
+    tpath = _template_path()
+    if tpath and tpath.exists():
+        new_state = processor.load_template_state(tpath)
+        new_state["video_stem"] = stem
+        new_state["video_parent"] = parent
+        with _state_lock:
+            _state.update(new_state)
+        has_template = True
+    else:
+        with _state_lock:
+            _state["frames"] = []
+            _state["mean_embedding"] = None
+            _state["dino_mean_embedding"] = None
+        has_template = False
+
+    with _state_lock:
+        count = len(_state["frames"])
+    return jsonify({"count": count, "has_template": has_template})
 
 
 # ── Scan ─────────────────────────────────────────────────────────────────────
