@@ -11,7 +11,6 @@ let _playerPlaying = false;
 let _playerBusy = false;
 let _playerTimeoutId = null;
 let _playerDetectionIdx = null;
-let _pendingKF = null;
 
 async function loadClip(videoPath, keyFrame1Based, detectionIdx = null) {
   const resp = await fetch(
@@ -27,7 +26,6 @@ async function loadClip(videoPath, keyFrame1Based, detectionIdx = null) {
   _playerDetectionIdx = detectionIdx;
   document.getElementById("player-kf-num").textContent = keyFrame1Based;
   document.getElementById("player-overlap-warning").style.display = "none";
-  _pendingKF = null;
   _playerClipStart = Math.max(0, kf0 - 200);
   _playerClipEnd = Math.min(info.frame_count - 1, kf0 + 599);
 
@@ -45,13 +43,13 @@ function applyNewKF(kf1) {
   _playerKeyFrame = kf0;
   _playerClipStart = Math.max(0, kf0 - 200);
   _playerClipEnd = Math.min(_playerFrameCount - 1, kf0 + 599);
-  _pendingKF = null;
   document.getElementById("player-kf-num").textContent = kf1;
   document.getElementById("player-overlap-warning").style.display = "none";
   const nameEl = document.getElementById(`card-clipname-${_playerDetectionIdx}`);
   if (nameEl) {
     const d = detections[_playerDetectionIdx];
     const videoName = d.video_path.split("/").pop().replace(".avi", "");
+    // mirrors buildResultCard formula in clip_cutter.js (pre=200, post=600, end=kf1+599)
     nameEl.textContent = `${videoName}_${kf1 - 200}_${kf1 + 599}.avi`;
   }
   if (typeof saveDetections === "function") saveDetections();
@@ -172,7 +170,6 @@ document.addEventListener("DOMContentLoaded", () => {
   document.getElementById("player-set-kf").addEventListener("click", async () => {
     if (_playerVideoPath === null || _playerDetectionIdx === null) return;
     const kf1 = _playerCurrentFrame + 1;
-    _pendingKF = kf1;
     let data;
     try {
       const resp = await fetch("/clip-cutter/check-keyframe-overlap", {
@@ -209,19 +206,18 @@ document.addEventListener("DOMContentLoaded", () => {
     cancelBtn.className = "player-btn";
     cancelBtn.textContent = "Cancel";
     cancelBtn.addEventListener("click", () => {
-      _pendingKF = null;
       warning.style.display = "none";
     });
     const keepBtn = document.createElement("button");
     keepBtn.className = "player-btn player-btn-red";
     keepBtn.textContent = "Keep anyway";
-    keepBtn.addEventListener("click", () => applyNewKF(_pendingKF));
+    keepBtn.addEventListener("click", () => applyNewKF(kf1));
     actions.appendChild(cancelBtn);
     actions.appendChild(keepBtn);
     warning.appendChild(title);
     warning.appendChild(body);
     warning.appendChild(actions);
-    warning.style.display = "";
+    warning.style.display = "block";
   });
 
   document.getElementById("player-clip-start").addEventListener("click", () => {
