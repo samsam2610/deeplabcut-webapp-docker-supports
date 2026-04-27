@@ -47,18 +47,39 @@ _MOCK_VIDEOS = [
     {"name": "MAP2_20250517_112331_0.avi", "path": "/user-data/vid3.avi", "done": False},
 ]
 
+_MOCK_FS_ROOT = {
+    "path": "/user-data",
+    "parent": "/",
+    "entries": [
+        {"name": "vid1.avi", "type": "file", "done": False},
+        {"name": "vid2.avi", "type": "file", "done": True},
+        {"name": "vid3.avi", "type": "file", "done": False},
+        {"name": "subdir", "type": "dir", "has_avi": True},
+    ],
+}
+
+_MOCK_FS_SUBDIR = {
+    "path": "/user-data/subdir",
+    "parent": "/user-data",
+    "entries": [
+        {"name": "vid3.avi", "type": "file", "done": False},
+    ],
+}
+
 _MOCK_DETECTIONS = [
     {
         "cv2_pos": 20967,
         "frame_number": 20968,
         "similarity": 0.8734,
         "known_match": "MAP2_0_20768_21567_success",
+        "source": "sensor+clip",
     },
     {
         "cv2_pos": 51399,
         "frame_number": 51400,
         "similarity": 0.7412,
         "known_match": None,
+        "source": "sensor+clip",
     },
 ]
 
@@ -82,7 +103,7 @@ def setup_routes(page: Page, *, template_frames=None, init_count=19) -> None:
     poll = {"calls": 0}
 
     def on_template_get(route: Route):
-        _json(route, {"count": len(state["frames"]), "frames": state["frames"]})
+        _json(route, {"count": len(state["frames"]), "frames": state["frames"], "has_template": len(state["frames"]) > 0})
 
     def on_template_add(route: Route):
         state["frames"].append(_MOCK_FRAMES[0])
@@ -104,8 +125,14 @@ def setup_routes(page: Page, *, template_frames=None, init_count=19) -> None:
             state["frames"] = list(_MOCK_FRAMES[:init_count])
             _json(route, {"running": False, "count": init_count, "error": None})
 
-    def on_videos(route: Route):
-        _json(route, {"videos": _MOCK_VIDEOS})
+    def on_fs_ls(route: Route):
+        _json(route, _MOCK_FS_ROOT)
+
+    def on_select_video(route: Route):
+        _json(route, {"count": 0, "has_template": False})
+
+    def on_template_clear(route: Route):
+        _json(route, {"ok": True})
 
     def on_scan_start(route: Route):
         _json(route, {"job_id": "mock-job-abc"})
@@ -138,8 +165,10 @@ def setup_routes(page: Page, *, template_frames=None, init_count=19) -> None:
     page.route("**/clip-cutter/template/init", on_template_init)
     page.route("**/clip-cutter/template/add", on_template_add)
     page.route(re.compile(r".*/clip-cutter/template/\d+"), on_template_delete)
+    page.route("**/clip-cutter/template/clear", on_template_clear)
     page.route("**/clip-cutter/template", on_template_get)
-    page.route("**/clip-cutter/videos", on_videos)
+    page.route("**/clip-cutter/fs/ls**", on_fs_ls)
+    page.route("**/clip-cutter/select-video", on_select_video)
     page.route("**/clip-cutter/scan/stream*", on_scan_stream)
     page.route("**/clip-cutter/scan", on_scan_start)
     page.route("**/clip-cutter/extract", on_extract)
@@ -148,33 +177,32 @@ def setup_routes(page: Page, *, template_frames=None, init_count=19) -> None:
 # ── Tests ─────────────────────────────────────────────────────────────────────
 
 def test_page_loads_correct_structure(page: Page):
-    """Initial page renders title, sidebar, video list, disabled scan button."""
+    """Initial page renders title, sidebar, browser list, disabled scan button."""
     setup_routes(page)
     page.goto(f"{BASE_URL}/clip-cutter/")
 
     expect(page).to_have_title("Clip Cutter")
     expect(page.locator("h1")).to_have_text("Clip Cutter")
     expect(page.locator(".sidebar-title")).to_have_text("Template Bank")
-    expect(page.locator("#template-footer")).to_have_text("0 frames loaded")
+    expect(page.locator("#sidebar-empty-state")).to_be_visible()
     expect(page.locator("#scan-btn")).to_be_disabled()
     expect(page.locator("#status-msg")).to_have_text("Ready")
 
 
 def test_video_list_populates_on_load(page: Page):
-    """Video list renders all videos with correct badges."""
+    """Folder browser renders all entries with correct badges."""
     setup_routes(page)
     page.goto(f"{BASE_URL}/clip-cutter/")
 
-    rows = page.locator(".video-row")
-    expect(rows).to_have_count(3)
+    rows = page.locator(".browser-row")
+    expect(rows).to_have_count(4)
 
     first = rows.nth(0)
-    expect(first.locator(".video-name")).to_contain_text("MAP2_20250515")
+    expect(first.locator(".browser-name")).to_contain_text("vid1.avi")
     expect(first.locator(".badge-pending")).to_be_visible()
 
     second = rows.nth(1)
     expect(second.locator(".badge-done")).to_be_visible()
-    expect(second).to_have_class(re.compile(r"done"))
 
 
 def test_done_video_row_cannot_be_selected(page: Page):
@@ -182,7 +210,7 @@ def test_done_video_row_cannot_be_selected(page: Page):
     setup_routes(page)
     page.goto(f"{BASE_URL}/clip-cutter/")
 
-    page.locator(".video-row.done").click()
+    page.locator(".browser-row:has(.badge-done)").click()
     expect(page.locator("#scan-btn")).to_be_disabled()
 
 
@@ -191,7 +219,7 @@ def test_selecting_video_enables_scan_button(page: Page):
     setup_routes(page)
     page.goto(f"{BASE_URL}/clip-cutter/")
 
-    first_ready = page.locator(".video-row:not(.done)").first
+    first_ready = page.locator(".browser-row:has(.badge-pending)").first
     first_ready.click()
 
     expect(first_ready).to_have_class(re.compile(r"selected"))
@@ -203,11 +231,11 @@ def test_only_one_video_selected_at_a_time(page: Page):
     setup_routes(page)
     page.goto(f"{BASE_URL}/clip-cutter/")
 
-    ready = page.locator(".video-row:not(.done)")
+    ready = page.locator(".browser-row:has(.badge-pending)")
     ready.nth(0).click()
     ready.nth(1).click()
 
-    expect(page.locator(".video-row.selected")).to_have_count(1)
+    expect(page.locator(".browser-row.selected")).to_have_count(1)
     expect(page.locator("#scan-btn")).to_be_enabled()
 
 
@@ -216,12 +244,14 @@ def test_template_init_flow(page: Page):
     Clicking Init POSTs to /template/init, polls /status, shows progress
     messages, and fills the sidebar with thumbnails when done.
     """
-    setup_routes(page)
+    setup_routes_with_persistence(page)
     page.goto(f"{BASE_URL}/clip-cutter/")
 
-    expect(page.locator("#template-footer")).to_have_text("0 frames loaded")
+    # Select a video first to activate the Init button
+    page.locator(".browser-row:has(.badge-pending)").first.click()
+    expect(page.locator("#sidebar-init-btn")).to_be_visible()
 
-    page.locator("button", has_text="Init").click()
+    page.locator("#sidebar-init-btn").click()
     expect(page.locator("#status-msg")).to_contain_text("Building template")
 
     # Wait for polling to complete (up to 12 s; poll interval is 2 s)
@@ -236,6 +266,9 @@ def test_template_frame_removal(page: Page):
     """Clicking a thumbnail prompts for confirmation then removes the frame."""
     setup_routes(page, template_frames=_MOCK_FRAMES[:3])
     page.goto(f"{BASE_URL}/clip-cutter/")
+
+    # Select a video to load its template into the sidebar
+    page.locator(".browser-row:has(.badge-pending)").first.click()
 
     expect(page.locator(".thumb")).to_have_count(3)
     expect(page.locator("#template-footer")).to_have_text("3 frames loaded")
@@ -252,6 +285,9 @@ def test_template_frame_removal_cancelled(page: Page):
     setup_routes(page, template_frames=_MOCK_FRAMES[:3])
     page.goto(f"{BASE_URL}/clip-cutter/")
 
+    # Select a video to load its template into the sidebar
+    page.locator(".browser-row:has(.badge-pending)").first.click()
+
     page.once("dialog", lambda d: d.dismiss())
     page.locator(".thumb").first.click()
 
@@ -266,7 +302,7 @@ def test_scan_flow_shows_detections(page: Page):
     setup_routes(page, template_frames=_MOCK_FRAMES)
     page.goto(f"{BASE_URL}/clip-cutter/")
 
-    page.locator(".video-row:not(.done)").first.click()
+    page.locator(".browser-row:has(.badge-pending)").first.click()
     page.locator("#scan-btn").click()
 
     expect(page.locator("#results-count")).to_have_text("2 found", timeout=8_000)
@@ -288,7 +324,7 @@ def test_pipeline_strip_all_done_after_scan(page: Page):
     setup_routes(page, template_frames=_MOCK_FRAMES)
     page.goto(f"{BASE_URL}/clip-cutter/")
 
-    page.locator(".video-row:not(.done)").first.click()
+    page.locator(".browser-row:has(.badge-pending)").first.click()
     page.locator("#scan-btn").click()
 
     expect(page.locator("#results-count")).to_have_text("2 found", timeout=8_000)
@@ -303,7 +339,7 @@ def test_keep_detection_grays_out_card(page: Page):
     setup_routes(page, template_frames=_MOCK_FRAMES)
     page.goto(f"{BASE_URL}/clip-cutter/")
 
-    page.locator(".video-row:not(.done)").first.click()
+    page.locator(".browser-row:has(.badge-pending)").first.click()
     page.locator("#scan-btn").click()
 
     cards = page.locator(".result-card")
@@ -322,7 +358,7 @@ def test_reject_detection_grays_out_card(page: Page):
     setup_routes(page, template_frames=_MOCK_FRAMES)
     page.goto(f"{BASE_URL}/clip-cutter/")
 
-    page.locator(".video-row:not(.done)").first.click()
+    page.locator(".browser-row:has(.badge-pending)").first.click()
     page.locator("#scan-btn").click()
 
     cards = page.locator(".result-card")
@@ -340,9 +376,9 @@ def test_add_detection_to_template(page: Page):
     setup_routes(page, template_frames=_MOCK_FRAMES[:5])
     page.goto(f"{BASE_URL}/clip-cutter/")
 
+    page.locator(".browser-row:has(.badge-pending)").first.click()
     expect(page.locator("#template-footer")).to_have_text("5 frames loaded")
 
-    page.locator(".video-row:not(.done)").first.click()
     page.locator("#scan-btn").click()
 
     cards = page.locator(".result-card")
@@ -358,7 +394,7 @@ def test_rescan_clears_previous_results(page: Page):
     setup_routes(page, template_frames=_MOCK_FRAMES)
     page.goto(f"{BASE_URL}/clip-cutter/")
 
-    page.locator(".video-row:not(.done)").first.click()
+    page.locator(".browser-row:has(.badge-pending)").first.click()
     page.locator("#scan-btn").click()
     expect(page.locator(".result-card")).to_have_count(2, timeout=8_000)
 
@@ -380,6 +416,7 @@ _MOCK_SAVED_DETECTIONS = {
             "similarity": 0.8734,
             "known_match": "MAP2_0_20768_21567_success",
             "status": "kept",
+            "source": "sensor+clip",
         },
         {
             "cv2_pos": 51399,
@@ -387,6 +424,7 @@ _MOCK_SAVED_DETECTIONS = {
             "similarity": 0.7412,
             "known_match": None,
             "status": "rejected",
+            "source": "sensor+clip",
         },
     ],
 }
@@ -437,7 +475,7 @@ def test_saved_detections_load_on_video_select(page: Page):
     )
     page.goto(f"{BASE_URL}/clip-cutter/")
 
-    page.locator(".video-row:not(.done)").first.click()
+    page.locator(".browser-row:has(.badge-pending)").first.click()
 
     cards = page.locator(".result-card")
     expect(cards).to_have_count(2, timeout=5_000)
@@ -452,7 +490,7 @@ def test_saved_statuses_restored_on_load(page: Page):
         saved_detections=_MOCK_SAVED_DETECTIONS,
     )
     page.goto(f"{BASE_URL}/clip-cutter/")
-    page.locator(".video-row:not(.done)").first.click()
+    page.locator(".browser-row:has(.badge-pending)").first.click()
 
     cards = page.locator(".result-card")
     expect(cards).to_have_count(2, timeout=5_000)
@@ -468,7 +506,7 @@ def test_scan_button_still_enabled_with_saved_results(page: Page):
         saved_detections=_MOCK_SAVED_DETECTIONS,
     )
     page.goto(f"{BASE_URL}/clip-cutter/")
-    page.locator(".video-row:not(.done)").first.click()
+    page.locator(".browser-row:has(.badge-pending)").first.click()
     expect(page.locator(".result-card")).to_have_count(2, timeout=5_000)
     expect(page.locator("#scan-btn")).to_be_enabled()
 
@@ -483,7 +521,7 @@ def test_reject_persists_via_put_detections(page: Page):
         put_detections_calls=put_calls,
     )
     page.goto(f"{BASE_URL}/clip-cutter/")
-    page.locator(".video-row:not(.done)").first.click()
+    page.locator(".browser-row:has(.badge-pending)").first.click()
     page.locator("#scan-btn").click()
 
     cards = page.locator(".result-card")
@@ -509,7 +547,7 @@ def test_rescan_overwrites_saved_results(page: Page):
         saved_detections=_MOCK_SAVED_DETECTIONS,
     )
     page.goto(f"{BASE_URL}/clip-cutter/")
-    page.locator(".video-row:not(.done)").first.click()
+    page.locator(".browser-row:has(.badge-pending)").first.click()
     expect(page.locator(".result-card")).to_have_count(2, timeout=5_000)
 
     page.locator("#scan-btn").click()
@@ -525,7 +563,7 @@ def test_player_placeholder_visible_before_card_click(page: Page):
     """Player placeholder is shown before any detection card is clicked."""
     setup_routes_with_persistence(page, template_frames=_MOCK_FRAMES)
     page.goto(f"{BASE_URL}/clip-cutter/")
-    page.locator(".video-row:not(.done)").first.click()
+    page.locator(".browser-row:has(.badge-pending)").first.click()
     page.locator("#scan-btn").click()
     expect(page.locator(".result-card")).to_have_count(2, timeout=8_000)
 
@@ -537,11 +575,12 @@ def test_clicking_card_shows_player(page: Page):
     """Clicking a detection card hides the placeholder and shows the player."""
     setup_routes_with_persistence(page, template_frames=_MOCK_FRAMES)
     page.goto(f"{BASE_URL}/clip-cutter/")
-    page.locator(".video-row:not(.done)").first.click()
+    page.locator(".browser-row:has(.badge-pending)").first.click()
     page.locator("#scan-btn").click()
     expect(page.locator(".result-card")).to_have_count(2, timeout=8_000)
 
-    page.locator(".result-card").first.click()
+    # Click the card body (non-button part) to trigger the player
+    page.locator(".result-card").first.locator(".result-name").click()
 
     expect(page.locator("#player-container")).to_be_visible(timeout=5_000)
     expect(page.locator("#player-placeholder")).to_be_hidden()
@@ -551,11 +590,11 @@ def test_player_next_frame_advances_counter(page: Page):
     """Clicking next-frame button increments the frame counter."""
     setup_routes_with_persistence(page, template_frames=_MOCK_FRAMES)
     page.goto(f"{BASE_URL}/clip-cutter/")
-    page.locator(".video-row:not(.done)").first.click()
+    page.locator(".browser-row:has(.badge-pending)").first.click()
     page.locator("#scan-btn").click()
     expect(page.locator(".result-card")).to_have_count(2, timeout=8_000)
 
-    page.locator(".result-card").first.click()
+    page.locator(".result-card").first.locator(".result-name").click()
     expect(page.locator("#player-container")).to_be_visible(timeout=5_000)
 
     frame_text_before = page.locator("#player-frame-num").inner_text()
@@ -567,11 +606,11 @@ def test_player_keyframe_button_jumps_to_keyframe(page: Page):
     """Key frame button seeks to the detection's frame_number (0-based display)."""
     setup_routes_with_persistence(page, template_frames=_MOCK_FRAMES)
     page.goto(f"{BASE_URL}/clip-cutter/")
-    page.locator(".video-row:not(.done)").first.click()
+    page.locator(".browser-row:has(.badge-pending)").first.click()
     page.locator("#scan-btn").click()
     expect(page.locator(".result-card")).to_have_count(2, timeout=8_000)
 
-    page.locator(".result-card").first.click()
+    page.locator(".result-card").first.locator(".result-name").click()
     expect(page.locator("#player-container")).to_be_visible(timeout=5_000)
 
     frame_at_start = page.locator("#player-frame-num").inner_text()
@@ -649,7 +688,7 @@ def test_scan_post_contains_params(page: Page):
     page.route("**/clip-cutter/scan", on_scan)
     page.goto(f"{BASE_URL}/clip-cutter/")
 
-    page.locator(".video-row:not(.done)").first.click()
+    page.locator(".browser-row:has(.badge-pending)").first.click()
     page.locator("#scan-btn").click()
 
     # Wait for scan to be called (stream will complete)
@@ -779,3 +818,94 @@ def test_filter_active_button_updates_on_click(page: Page):
     expect(page.locator(".filter-btn[data-filter='sensor\\+clip']")).not_to_have_class(
         re.compile(r"\bactive\b")
     )
+
+
+# ── Folder browser tests ──────────────────────────────────────────────────────
+
+def test_browser_shows_avi_entries(page: Page):
+    setup_routes(page)
+    page.goto(f"{BASE_URL}/clip-cutter/")
+    expect(page.locator("#browser-list")).to_be_visible()
+    expect(page.locator(".browser-row")).to_have_count(4)
+
+
+def test_browser_shows_done_badge_for_done_video(page: Page):
+    setup_routes(page)
+    page.goto(f"{BASE_URL}/clip-cutter/")
+    done_row = page.locator(".browser-row").filter(has_text="vid2.avi")
+    expect(done_row.locator(".badge-done")).to_be_visible()
+
+
+def test_browser_clicking_dir_navigates_into_it(page: Page):
+    import json as _json_lib
+    call_count = {"n": 0}
+
+    def handle_ls(route):
+        call_count["n"] += 1
+        body = _MOCK_FS_ROOT if call_count["n"] == 1 else _MOCK_FS_SUBDIR
+        route.fulfill(
+            status=200,
+            content_type="application/json",
+            body=_json_lib.dumps(body),
+        )
+
+    # setup_routes first, then override fs/ls with our handler (LIFO: last registered fires first)
+    setup_routes(page)
+    page.route("**/clip-cutter/fs/ls**", handle_ls)
+    page.goto(f"{BASE_URL}/clip-cutter/")
+    page.click(".browser-row:has-text('subdir')")
+    expect(page.locator("#browser-list")).to_contain_text("vid3.avi")
+
+
+def test_browser_selecting_video_shows_sidebar_no_template(page: Page):
+    setup_routes(page)
+    page.goto(f"{BASE_URL}/clip-cutter/")
+    page.click(".browser-row:has-text('vid1.avi')")
+    expect(page.locator("#sidebar-no-template")).to_be_visible()
+    expect(page.locator("#sidebar-init-btn")).to_be_visible()
+
+
+def test_sidebar_empty_state_shown_on_load(page: Page):
+    setup_routes(page)
+    page.goto(f"{BASE_URL}/clip-cutter/")
+    expect(page.locator("#sidebar-empty-state")).to_be_visible()
+    expect(page.locator("#sidebar-init-btn")).to_be_hidden()
+
+
+def test_clear_modal_requires_delete_word(page: Page):
+    # setup_routes first, then override select-video (LIFO: last registered fires first)
+    setup_routes(page, template_frames=_MOCK_FRAMES[:2])
+    page.route(
+        "**/clip-cutter/select-video",
+        lambda route: route.fulfill(
+            status=200,
+            content_type="application/json",
+            body='{"count": 2, "has_template": true}',
+        ),
+    )
+    page.goto(f"{BASE_URL}/clip-cutter/")
+    page.click(".browser-row:has-text('vid1.avi')")
+    expect(page.locator("#sidebar-actions")).to_be_visible()
+    page.click("#sidebar-clear-btn")
+    expect(page.locator("#clear-confirm-modal")).to_have_class(re.compile(r"\bopen\b"))
+    expect(page.locator("#clear-confirm-btn")).to_be_disabled()
+    page.fill("#clear-confirm-input", "delete")
+    expect(page.locator("#clear-confirm-btn")).to_be_enabled()
+
+
+def test_clear_modal_cancel_closes_modal(page: Page):
+    # setup_routes first, then override select-video (LIFO: last registered fires first)
+    setup_routes(page, template_frames=_MOCK_FRAMES[:2])
+    page.route(
+        "**/clip-cutter/select-video",
+        lambda route: route.fulfill(
+            status=200,
+            content_type="application/json",
+            body='{"count": 2, "has_template": true}',
+        ),
+    )
+    page.goto(f"{BASE_URL}/clip-cutter/")
+    page.click(".browser-row:has-text('vid1.avi')")
+    page.click("#sidebar-clear-btn")
+    page.click("#clear-cancel-btn")
+    expect(page.locator("#clear-confirm-modal")).not_to_have_class(re.compile(r"\bopen\b"))
