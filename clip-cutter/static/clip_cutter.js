@@ -126,6 +126,50 @@ document.addEventListener("DOMContentLoaded", () => {
       setStatus("Clear failed");
     }
   });
+
+  // Template player controls
+  document.getElementById("tp-close").addEventListener("click", closeTemplatePlayer);
+
+  document.getElementById("tp-prev").addEventListener("click", () => {
+    _tp.playing = false; _tpUpdateDisplay();
+    _tpLoadFrame(_tp.currentFrame - 1);
+  });
+
+  document.getElementById("tp-next").addEventListener("click", () => {
+    _tp.playing = false; _tpUpdateDisplay();
+    _tpLoadFrame(_tp.currentFrame + 1);
+  });
+
+  document.getElementById("tp-play").addEventListener("click", () => {
+    _tp.playing = !_tp.playing;
+    _tpUpdateDisplay();
+    if (_tp.playing) _tpLoop();
+    else if (_tp.timerId) { clearTimeout(_tp.timerId); _tp.timerId = null; }
+  });
+
+  document.getElementById("tp-seek").addEventListener("input", (e) => {
+    if (_tp.frameCount === 0) return;
+    _tp.playing = false; _tpUpdateDisplay();
+    const n = Math.round((e.target.value / 1000) * (_tp.frameCount - 1));
+    _tpLoadFrame(n);
+  });
+
+  document.getElementById("tp-add-btn").addEventListener("click", async () => {
+    if (!selectedVideoPath || _tp.frameCount === 0) return;
+    const frameNumber = _tp.currentFrame + 1; // convert 0-based to 1-based
+    const resp = await fetch("/clip-cutter/template/add", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ video_path: selectedVideoPath, frame_number: frameNumber }),
+    });
+    if (resp.ok) {
+      await loadTemplate();
+      setStatus(`Frame ${frameNumber} added to template`);
+    } else {
+      const err = await resp.json().catch(() => ({ error: "unknown" }));
+      setStatus("Error: " + err.error);
+    }
+  });
 });
 
 // ── Template bank ─────────────────────────────────────────────────────────────
@@ -638,6 +682,83 @@ async function rejectDetection(idx) {
   card.classList.add("rejected");
   card.querySelectorAll("button").forEach((b) => (b.disabled = true));
   await saveDetections();
+}
+
+// ── Minimal template player ──────────────────────────────────────────────────
+
+let _tp = {
+  videoPath: null,
+  frameCount: 0,
+  currentFrame: 0,
+  playing: false,
+  busy: false,
+  timerId: null,
+};
+
+async function openTemplatePlayer() {
+  if (!selectedVideoPath) { setStatus("No video selected"); return; }
+  document.getElementById("template-player-panel").style.display = "";
+  document.getElementById("tp-title").textContent = `Browsing: ${_selectedVideoStem}`;
+  _tp.videoPath = selectedVideoPath;
+  _tp.currentFrame = 0;
+  _tp.playing = false;
+  if (_tp.timerId) { clearTimeout(_tp.timerId); _tp.timerId = null; }
+
+  try {
+    const resp = await fetch(`/clip-cutter/video-info?video=${encodeURIComponent(selectedVideoPath)}`);
+    if (!resp.ok) { setStatus("Cannot load video info"); return; }
+    const info = await resp.json();
+    _tp.frameCount = info.frame_count;
+    await _tpLoadFrame(0);
+  } catch (e) {
+    setStatus("Error opening player: " + e.message);
+  }
+}
+
+function closeTemplatePlayer() {
+  if (_tp.timerId) { clearTimeout(_tp.timerId); _tp.timerId = null; }
+  _tp.playing = false;
+  document.getElementById("template-player-panel").style.display = "none";
+}
+
+async function _tpLoadFrame(n) {
+  if (_tp.busy || !_tp.videoPath) return;
+  _tp.busy = true;
+  n = Math.max(0, Math.min(n, _tp.frameCount - 1));
+  _tp.currentFrame = n;
+  try {
+    const url = `/clip-cutter/frame?video=${encodeURIComponent(_tp.videoPath)}&n=${n}`;
+    const resp = await fetch(url);
+    if (!resp.ok) return;
+    const blob = await resp.blob();
+    const blobUrl = URL.createObjectURL(blob);
+    const img = document.getElementById("tp-frame");
+    const prev = img.src;
+    await new Promise((resolve, reject) => {
+      img.onload = () => { if (prev && prev.startsWith("blob:")) URL.revokeObjectURL(prev); resolve(); };
+      img.onerror = reject;
+      img.src = blobUrl;
+    });
+    _tpUpdateDisplay();
+  } finally {
+    _tp.busy = false;
+  }
+}
+
+function _tpUpdateDisplay() {
+  document.getElementById("tp-frame-num").textContent = `fr ${_tp.currentFrame} / ${_tp.frameCount}`;
+  const pct = _tp.frameCount > 1 ? _tp.currentFrame / (_tp.frameCount - 1) : 0;
+  document.getElementById("tp-seek").value = Math.round(pct * 1000);
+  document.getElementById("tp-play").textContent = _tp.playing ? "⏸" : "▶";
+}
+
+async function _tpLoop() {
+  if (!_tp.playing) return;
+  if (!_tp.busy) {
+    const next = _tp.currentFrame + 1 >= _tp.frameCount ? 0 : _tp.currentFrame + 1;
+    await _tpLoadFrame(next);
+  }
+  if (_tp.playing) _tp.timerId = setTimeout(_tpLoop, Math.round(1000 / 15));
 }
 
 // ── Utilities ─────────────────────────────────────────────────────────────────
