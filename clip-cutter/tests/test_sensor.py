@@ -139,7 +139,7 @@ def test_scan_video_sensor_guided_excludes_covered_frames(tmp_path, monkeypatch)
         return np.array([], dtype=np.int64), np.array([], dtype=np.float32)
 
     monkeypatch.setattr(processor, "get_similarity_curve", mock_gsc)
-    monkeypatch.setattr(processor, "fine_scan", lambda v, t, pos, window=50: (pos, 0.85))
+    monkeypatch.setattr(processor, "fine_scan", lambda v, t, pos, window=50, dino_template_emb=None: (pos, 0.85))
 
     template = np.ones(512, dtype=np.float32)
     template /= np.linalg.norm(template)
@@ -176,7 +176,7 @@ def test_scan_video_sensor_guided_sensor_source_tag(tmp_path, monkeypatch):
         processor, "get_similarity_curve",
         lambda *a, **kw: (np.array([], dtype=np.int64), np.array([], dtype=np.float32)),
     )
-    monkeypatch.setattr(processor, "fine_scan", lambda v, t, pos, window=50: (pos, 0.85))
+    monkeypatch.setattr(processor, "fine_scan", lambda v, t, pos, window=50, dino_template_emb=None: (pos, 0.85))
 
     template = np.ones(512, dtype=np.float32)
     template /= np.linalg.norm(template)
@@ -208,7 +208,7 @@ def test_scan_video_sensor_guided_low_sim_sensor_only(tmp_path, monkeypatch):
         processor, "get_similarity_curve",
         lambda *a, **kw: (np.array([], dtype=np.int64), np.array([], dtype=np.float32)),
     )
-    monkeypatch.setattr(processor, "fine_scan", lambda v, t, pos, window=50: (pos, 0.50))
+    monkeypatch.setattr(processor, "fine_scan", lambda v, t, pos, window=50, dino_template_emb=None: (pos, 0.50))
 
     template = np.ones(512, dtype=np.float32)
     template /= np.linalg.norm(template)
@@ -243,7 +243,7 @@ def test_scan_video_sensor_guided_clip_only_source(tmp_path, monkeypatch):
     )
     monkeypatch.setattr(processor, "smooth_curve", lambda arr, sigma=3.0: arr)
     monkeypatch.setattr(processor, "find_peaks_in_curve", lambda s, fi, th, ms: [10])
-    monkeypatch.setattr(processor, "fine_scan", lambda v, t, pos, window=50: (pos, 0.80))
+    monkeypatch.setattr(processor, "fine_scan", lambda v, t, pos, window=50, dino_template_emb=None: (pos, 0.80))
 
     template = np.ones(512, dtype=np.float32)
     template /= np.linalg.norm(template)
@@ -277,7 +277,7 @@ def test_scan_video_sensor_guided_dedup_sensor_wins(tmp_path, monkeypatch):
     )
     monkeypatch.setattr(processor, "smooth_curve", lambda arr, sigma=3.0: arr)
     monkeypatch.setattr(processor, "find_peaks_in_curve", lambda s, fi, th, ms: [16])
-    monkeypatch.setattr(processor, "fine_scan", lambda v, t, pos, window=50: (pos, 0.85))
+    monkeypatch.setattr(processor, "fine_scan", lambda v, t, pos, window=50, dino_template_emb=None: (pos, 0.85))
 
     template = np.ones(512, dtype=np.float32)
     template /= np.linalg.norm(template)
@@ -312,7 +312,7 @@ def test_scan_video_sensor_guided_two_close_sensors_both_kept(tmp_path, monkeypa
         processor, "get_similarity_curve",
         lambda *a, **kw: (np.array([], dtype=np.int64), np.array([], dtype=np.float32)),
     )
-    monkeypatch.setattr(processor, "fine_scan", lambda v, t, pos, window=50: (pos, 0.85))
+    monkeypatch.setattr(processor, "fine_scan", lambda v, t, pos, window=50, dino_template_emb=None: (pos, 0.85))
 
     template = np.ones(512, dtype=np.float32)
     template /= np.linalg.norm(template)

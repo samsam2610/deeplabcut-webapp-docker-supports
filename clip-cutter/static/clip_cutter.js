@@ -382,11 +382,15 @@ async function selectVideo(videoPath, stem, parent) {
   _selectedVideoStem = stem;
   _selectedVideoParent = parent;
 
-  await fetch("/clip-cutter/select-video", {
+  const selectResp = await fetch("/clip-cutter/select-video", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ video_path: videoPath }),
   });
+  if (!selectResp.ok) {
+    setStatus("Failed to select video");
+    return;
+  }
 
   document.getElementById("scan-btn").disabled = false;
   detections.length = 0;
