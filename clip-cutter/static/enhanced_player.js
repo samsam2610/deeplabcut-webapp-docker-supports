@@ -370,6 +370,8 @@ document.addEventListener("DOMContentLoaded", () => {
     jump.select();
   });
 
+  let _jumpCancelled = false;
+
   const _commitJump = () => {
     const jump = document.getElementById("ep-frame-jump");
     let n1 = parseInt(jump.value, 10);
@@ -381,6 +383,7 @@ document.addEventListener("DOMContentLoaded", () => {
   };
 
   const _cancelJump = () => {
+    _jumpCancelled = true;
     document.getElementById("ep-frame-jump").style.display = "none";
     document.getElementById("ep-frame-counter").style.display = "";
   };
@@ -389,7 +392,10 @@ document.addEventListener("DOMContentLoaded", () => {
     if (e.key === "Enter") { e.preventDefault(); _commitJump(); }
     else if (e.key === "Escape") { e.preventDefault(); _cancelJump(); }
   });
-  document.getElementById("ep-frame-jump").addEventListener("blur", _cancelJump);
+  document.getElementById("ep-frame-jump").addEventListener("blur", () => {
+    if (!_jumpCancelled) _commitJump();
+    _jumpCancelled = false;
+  });
 
   // Keyboard navigation (when player panel is open and no text input is focused)
   document.addEventListener("keydown", (e) => {
@@ -397,6 +403,7 @@ document.addEventListener("DOMContentLoaded", () => {
     if (document.getElementById("ep-frame-jump").style.display !== "none") return;
     const tag = (e.target || {}).tagName || "";
     if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
+    if (e.target && e.target.isContentEditable) return;
 
     if (e.key === "ArrowLeft" && !e.ctrlKey) {
       e.preventDefault(); _stop(); _epLoadFrame(_currentFrame - 1);
