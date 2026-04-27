@@ -413,11 +413,16 @@ def extract():
 
 @bp.route("/check-keyframe-overlap", methods=["POST"])
 def check_keyframe_overlap():
-    body = request.get_json(force=True) or {}
+    body = request.get_json(force=True, silent=True) or {}
     video_path = (body.get("video_path") or "").strip()
     key_frame = body.get("key_frame")
     if not video_path or key_frame is None:
-        return jsonify({"error": "video_path and key_frame required"}), 422
+        return jsonify({"error": "video_path and key_frame required"}), 400
+
+    try:
+        key_frame = int(key_frame)
+    except (TypeError, ValueError):
+        return jsonify({"error": "key_frame must be an integer"}), 400
 
     video_path = Path(video_path)
     clips_dir = video_path.parent / video_path.stem

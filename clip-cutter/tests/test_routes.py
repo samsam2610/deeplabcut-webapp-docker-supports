@@ -321,7 +321,7 @@ def test_init_reads_clips_from_video_folder(client, tmp_path):
 def test_check_keyframe_overlap_missing_video_path(client):
     resp = client.post("/clip-cutter/check-keyframe-overlap",
                        json={"key_frame": 500})
-    assert resp.status_code == 422
+    assert resp.status_code == 400
 
 
 def test_check_keyframe_overlap_no_clips_dir(client, tmp_path):
