@@ -360,3 +360,35 @@ def test_check_keyframe_overlap_with_conflict(client, tmp_path):
     assert len(data["conflicts"]) == 1
     assert data["conflicts"][0]["name"] == "test_video_300_899_success.avi"
     assert data["conflicts"][0]["overlap_frames"] == 700
+
+
+def test_csv_returns_rows(client, tmp_path, monkeypatch):
+    import config
+    monkeypatch.setattr(config, "_DATA_ROOT", tmp_path)
+    csv_file = tmp_path / "video.csv"
+    csv_file.write_text(
+        "timestamp,frame_number,frame_line_status,note\n"
+        "0.0,1,14,start_reaching\n"
+        "0.067,2,0,\n"
+    )
+    resp = client.get(f"/clip-cutter/csv?path={csv_file}")
+    assert resp.status_code == 200
+    data = resp.get_json()
+    assert len(data["rows"]) == 2
+    assert data["rows"][0] == {"frame_number": 1, "frame_line_status": "14", "note": "start_reaching"}
+    assert data["rows"][1] == {"frame_number": 2, "frame_line_status": "0", "note": ""}
+
+
+def test_csv_missing_file_returns_404(client, tmp_path, monkeypatch):
+    import config
+    monkeypatch.setattr(config, "_DATA_ROOT", tmp_path)
+    resp = client.get(f"/clip-cutter/csv?path={tmp_path / 'nonexistent.csv'}")
+    assert resp.status_code == 404
+
+
+def test_csv_path_outside_data_root_returns_403(client, tmp_path, monkeypatch):
+    import config
+    # data root is a subdir; request is to the parent — outside root
+    monkeypatch.setattr(config, "_DATA_ROOT", tmp_path / "subdir")
+    resp = client.get(f"/clip-cutter/csv?path={tmp_path / 'video.csv'}")
+    assert resp.status_code == 403

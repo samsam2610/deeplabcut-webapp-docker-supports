@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import csv
 import json
 import logging
 import threading
@@ -445,6 +446,37 @@ def check_keyframe_overlap():
     if conflicts:
         return jsonify({"overlaps": True, "conflicts": conflicts})
     return jsonify({"overlaps": False})
+
+
+@bp.route("/csv")
+def get_csv():
+    path_str = request.args.get("path", "").strip()
+    if not path_str:
+        return jsonify({"error": "path required"}), 400
+
+    try:
+        csv_path = Path(path_str).resolve()
+        csv_path.relative_to(config._DATA_ROOT.resolve())
+    except ValueError:
+        return jsonify({"error": "path outside data root"}), 403
+
+    if not csv_path.exists():
+        return jsonify({"error": "file not found"}), 404
+
+    rows = []
+    try:
+        with open(csv_path, newline="") as f:
+            reader = csv.DictReader(f)
+            for row in reader:
+                rows.append({
+                    "frame_number": int(row["frame_number"]),
+                    "frame_line_status": str(row.get("frame_line_status", "") or ""),
+                    "note": str(row.get("note", "") or ""),
+                })
+    except Exception as e:
+        return jsonify({"error": f"CSV parse error: {e}"}), 500
+
+    return jsonify({"rows": rows})
 
 
 # ── Detection persistence ──────────────────────────────────────────────────────
