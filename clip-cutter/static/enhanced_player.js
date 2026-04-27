@@ -99,6 +99,8 @@ async function _epLoadFrame(n) {
       return;
     }
     _epUpdateDisplay();
+    const _ac = document.getElementById("ep-add-confirm");
+    if (_ac) _ac.style.display = "none";
     if (n < _clipEnd) {
       new Image().src = `/clip-cutter/frame?video=${encodeURIComponent(_videoPath)}&n=${n + 1}`;
     }
@@ -190,6 +192,7 @@ function _epUpdateModeUI() {
   const setKfBtn = document.getElementById("ep-set-kf");
   const rejectBtn = document.getElementById("ep-reject");
   const addTemplateBtn = document.getElementById("ep-add-template");
+  const gotoKfBtn = document.getElementById("ep-goto-kf");
   const seekEl = document.getElementById("ep-seek");
 
   seekEl.min = 0;
@@ -201,6 +204,7 @@ function _epUpdateModeUI() {
     setKfBtn.style.display = "";
     rejectBtn.style.display = "";
     addTemplateBtn.style.display = "none";
+    gotoKfBtn.style.display = "";
     document.getElementById("ep-lock-start").checked = true;
 
     const isFinished = _detectionIdx !== null &&
@@ -215,6 +219,7 @@ function _epUpdateModeUI() {
     setKfBtn.style.display = "none";
     rejectBtn.style.display = "none";
     addTemplateBtn.style.display = "";
+    gotoKfBtn.style.display = "none";
     document.getElementById("ep-lock-start").checked = false;
   }
 
@@ -304,6 +309,11 @@ document.addEventListener("DOMContentLoaded", () => {
     _stop(); _epLoadFrame(_clipStart);
   });
 
+  // ⌖ KF — jump to current clip's keyframe (clip mode only)
+  document.getElementById("ep-goto-kf").addEventListener("click", () => {
+    _stop(); _epLoadFrame(_keyFrame);
+  });
+
   // ⏭ jump to clip end
   document.getElementById("ep-last").addEventListener("click", () => {
     _stop(); _epLoadFrame(_clipEnd);
@@ -314,9 +324,19 @@ document.addEventListener("DOMContentLoaded", () => {
     _stop(); _epLoadFrame(_currentFrame - _stepSize);
   });
 
-  // ▷ single frame forward
-  document.getElementById("ep-fwd").addEventListener("click", () => {
+  // ‹ back 1 frame
+  document.getElementById("ep-back1").addEventListener("click", () => {
+    _stop(); _epLoadFrame(_currentFrame - 1);
+  });
+
+  // › forward 1 frame
+  document.getElementById("ep-fwd1").addEventListener("click", () => {
     _stop(); _epLoadFrame(_currentFrame + 1);
+  });
+
+  // ▶▶ forward by step size
+  document.getElementById("ep-fwd").addEventListener("click", () => {
+    _stop(); _epLoadFrame(_currentFrame + _stepSize);
   });
 
   // Step size input
@@ -449,9 +469,22 @@ document.addEventListener("DOMContentLoaded", () => {
     if (next) { _stop(); _epLoadFrame(next.frame_number - 1); }
   });
 
-  // Add to template (template mode only)
-  document.getElementById("ep-add-template").addEventListener("click", async () => {
+  // Add to template (template mode only) — two-step confirm
+  const _addConfirmEl  = document.getElementById("ep-add-confirm");
+  const _addConfirmMsg = document.getElementById("ep-add-confirm-msg");
+
+  const _hideAddConfirm = () => { _addConfirmEl.style.display = "none"; };
+
+  document.getElementById("ep-add-template").addEventListener("click", () => {
     if (!_videoPath) return;
+    _addConfirmMsg.textContent = "Add frame " + (_currentFrame + 1) + " to template?";
+    _addConfirmEl.style.display = "";
+  });
+
+  document.getElementById("ep-add-confirm-cancel").addEventListener("click", _hideAddConfirm);
+
+  document.getElementById("ep-add-confirm-yes").addEventListener("click", async () => {
+    _hideAddConfirm();
     const frameNumber = _currentFrame + 1;
     try {
       const resp = await fetch("/clip-cutter/template/add", {
@@ -567,5 +600,30 @@ document.addEventListener("DOMContentLoaded", () => {
     _stop();
     document.getElementById("player-panel").style.display = "none";
   });
+
+  // Drag handle — resize panel height by dragging the top border
+  (function () {
+    const handle = document.getElementById("ep-drag-handle");
+    const panel  = document.getElementById("player-panel");
+    let startY = 0, startH = 0;
+
+    handle.addEventListener("mousedown", (e) => {
+      startY = e.clientY;
+      startH = panel.offsetHeight;
+      document.addEventListener("mousemove", onMove);
+      document.addEventListener("mouseup",   onUp);
+      e.preventDefault();
+    });
+
+    function onMove(e) {
+      const delta = startY - e.clientY;   // drag up → taller
+      panel.style.height = Math.max(180, startH + delta) + "px";
+    }
+
+    function onUp() {
+      document.removeEventListener("mousemove", onMove);
+      document.removeEventListener("mouseup",   onUp);
+    }
+  })();
 
 }); // end DOMContentLoaded
