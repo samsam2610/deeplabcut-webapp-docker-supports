@@ -297,6 +297,15 @@ header h1 { font-size: 15px; font-weight: 600; }
 .ep-btn-red { border-color: #da3633 !important; color: #f85149 !important; }
 .ep-btn-red:hover { background: #da363322 !important; }
 #ep-extract-panel .player-btn { width: 100%; font-size: 8px; padding: 3px 5px; }
+/* ── Tag timeline bars ──────────────────────────────────────────────────────── */
+.ep-bar-header { display:flex; align-items:center; gap:4px; margin-top:4px; margin-bottom:2px; }
+.ep-chips-row { display:flex; flex-wrap:wrap; gap:3px; margin-top:2px; margin-bottom:2px; }
+.ep-tag-chip {
+  font-size:8px; padding:1px 5px; border-radius:3px; cursor:pointer;
+  border:1px solid var(--chip-color,#555); color:var(--chip-color,#888);
+  background:transparent; user-select:none;
+}
+.ep-tag-chip.active { background: color-mix(in srgb, var(--chip-color,#555) 20%, transparent); }
 </style>
 </head>
 <body>
@@ -486,6 +495,28 @@ header h1 { font-size: 15px; font-weight: 600; }
       <div style="flex:1;"></div>
       <button class="player-btn" id="ep-prev-tag">&#9664;</button>
       <button class="player-btn" id="ep-next-tag">&#9654;</button>
+    </div>
+
+    <!-- Status timeline bar -->
+    <div id="ep-status-bar-wrap" style="display:none;">
+      <div class="ep-bar-header">
+        <span class="ep-strip-label">Status</span>
+        <button class="player-btn" id="ep-status-prev" style="padding:1px 5px;font-size:9px;">&#9664;</button>
+        <button class="player-btn" id="ep-status-next" style="padding:1px 5px;font-size:9px;">&#9654;</button>
+      </div>
+      <canvas id="ep-status-canvas" height="10" style="width:100%;display:block;cursor:pointer;border-radius:2px;background:#161b22;"></canvas>
+      <div id="ep-status-chips" class="ep-chips-row"></div>
+    </div>
+
+    <!-- Note timeline bar -->
+    <div id="ep-note-bar-wrap" style="display:none;">
+      <div class="ep-bar-header">
+        <span class="ep-strip-label">Note</span>
+        <button class="player-btn" id="ep-note-prev" style="padding:1px 5px;font-size:9px;">&#9664;</button>
+        <button class="player-btn" id="ep-note-next" style="padding:1px 5px;font-size:9px;">&#9654;</button>
+      </div>
+      <canvas id="ep-note-canvas" height="10" style="width:100%;display:block;cursor:pointer;border-radius:2px;background:#161b22;"></canvas>
+      <div id="ep-note-chips" class="ep-chips-row"></div>
     </div>
   </div>
 

@@ -21,9 +21,13 @@ let _busy = false;
 let _timerId = null;
 const _videoInfoCache = {};
 
-// ── Public API ──────────────────────────────────────────────────────────────────
+const _EP_TAG_COLORS = ["#58a6ff","#3fb950","#f0c040","#f85149","#d2a8ff","#ffa657","#79c0ff","#56d364"];
+let _epStatusColorMap = {};
+let _epNoteColorMap   = {};
+let _epActiveStatus   = new Set();
+let _epActiveNote     = new Set();
 
-function _epBuildTagBars() { /* stub — replaced in Task 3 */ }
+// ── Public API ──────────────────────────────────────────────────────────────────
 
 async function openPlayer({ mode, videoPath, keyFrame1Based = null, detectionIdx = null, csvPath = null }) {
   _stop();
@@ -166,6 +170,7 @@ function _epUpdateDisplay() {
     document.getElementById("ep-start").value = cur1;
     _epUpdateEnd();
   }
+  _epRedrawAllCanvases();
 }
 
 function _epUpdateSeekHighlight() {
@@ -198,6 +203,119 @@ function _epUpdateEnd() {
   const start = parseInt(document.getElementById("ep-start").value, 10) || 1;
   const frames = parseInt(document.getElementById("ep-frames").value, 10) || 800;
   document.getElementById("ep-end").value = start + frames - 1;
+}
+
+// ── Tag timeline canvases ──────────────────────────────────────────────────────
+
+function _epDrawTagCanvas(canvas, rows, field, activeSet, colorMap) {
+  const total = Math.max(_frameCount, 1);
+  const W = Math.round(canvas.getBoundingClientRect().width) || canvas.clientWidth || 600;
+  canvas.width = W;
+  const H = canvas.height || 10;
+  const ctx = canvas.getContext("2d");
+  const minW = Math.max(1, Math.round(W / total));
+  ctx.clearRect(0, 0, W, H);
+  if (!activeSet || activeSet.size === 0) return;
+  rows.forEach(row => {
+    const val = row[field];
+    if (!val || (field === "frame_line_status" && val === "0")) return;
+    if (!activeSet.has(val)) return;
+    ctx.fillStyle = colorMap[val] || "#888";
+    const x = Math.round(((row.frame_number - 1) / Math.max(total - 1, 1)) * W);
+    ctx.fillRect(x, 0, minW, H);
+  });
+}
+
+function _epDrawCanvasCursor(canvas) {
+  if (!canvas || !_frameCount) return;
+  const W = canvas.width;
+  if (!W) return;
+  const ctx = canvas.getContext("2d");
+  const x = Math.round((_currentFrame / Math.max(_frameCount - 1, 1)) * W);
+  ctx.save();
+  ctx.globalAlpha = 0.8;
+  ctx.fillStyle = "#fff";
+  ctx.fillRect(x, 0, 1, canvas.height);
+  ctx.restore();
+}
+
+function _epRedrawStatusCanvas() {
+  const canvas = document.getElementById("ep-status-canvas");
+  if (!canvas || document.getElementById("ep-status-bar-wrap").style.display === "none") return;
+  _epDrawTagCanvas(canvas, _csvRows, "frame_line_status", _epActiveStatus, _epStatusColorMap);
+  _epDrawCanvasCursor(canvas);
+}
+
+function _epRedrawNoteCanvas() {
+  const canvas = document.getElementById("ep-note-canvas");
+  if (!canvas || document.getElementById("ep-note-bar-wrap").style.display === "none") return;
+  _epDrawTagCanvas(canvas, _csvRows, "note", _epActiveNote, _epNoteColorMap);
+  _epDrawCanvasCursor(canvas);
+}
+
+function _epRedrawAllCanvases() {
+  _epRedrawStatusCanvas();
+  _epRedrawNoteCanvas();
+}
+
+function _epRenderStatusChips() {
+  const container = document.getElementById("ep-status-chips");
+  if (!container) return;
+  container.innerHTML = "";
+  Object.keys(_epStatusColorMap).forEach(val => {
+    const chip = document.createElement("span");
+    chip.className = "ep-tag-chip" + (_epActiveStatus.has(val) ? " active" : "");
+    chip.textContent = val;
+    chip.style.setProperty("--chip-color", _epStatusColorMap[val]);
+    chip.addEventListener("click", () => {
+      if (_epActiveStatus.has(val)) _epActiveStatus.delete(val);
+      else _epActiveStatus.add(val);
+      _epRenderStatusChips();
+      _epRedrawStatusCanvas();
+    });
+    container.appendChild(chip);
+  });
+}
+
+function _epRenderNoteChips() {
+  const container = document.getElementById("ep-note-chips");
+  if (!container) return;
+  container.innerHTML = "";
+  Object.keys(_epNoteColorMap).forEach(val => {
+    const chip = document.createElement("span");
+    chip.className = "ep-tag-chip" + (_epActiveNote.has(val) ? " active" : "");
+    chip.textContent = val;
+    chip.style.setProperty("--chip-color", _epNoteColorMap[val]);
+    chip.addEventListener("click", () => {
+      if (_epActiveNote.has(val)) _epActiveNote.delete(val);
+      else _epActiveNote.add(val);
+      _epRenderNoteChips();
+      _epRedrawNoteCanvas();
+    });
+    container.appendChild(chip);
+  });
+}
+
+function _epBuildTagBars() {
+  const hasStatus = _csvRows.some(r => r.frame_line_status && r.frame_line_status !== "0");
+  const hasNote   = _csvRows.some(r => r.note);
+
+  document.getElementById("ep-status-bar-wrap").style.display = hasStatus ? "" : "none";
+  document.getElementById("ep-note-bar-wrap").style.display   = hasNote   ? "" : "none";
+
+  const statusVals = [...new Set(_csvRows.map(r => r.frame_line_status).filter(v => v && v !== "0"))];
+  _epStatusColorMap = {};
+  _epActiveStatus   = new Set(statusVals);
+  statusVals.forEach((v, i) => { _epStatusColorMap[v] = _EP_TAG_COLORS[i % _EP_TAG_COLORS.length]; });
+  _epRenderStatusChips();
+
+  const noteVals = [...new Set(_csvRows.map(r => r.note).filter(v => v))];
+  _epNoteColorMap = {};
+  _epActiveNote   = new Set(noteVals);
+  noteVals.forEach((v, i) => { _epNoteColorMap[v] = _EP_TAG_COLORS[i % _EP_TAG_COLORS.length]; });
+  _epRenderNoteChips();
+
+  _epRedrawAllCanvases();
 }
 
 // ── Mode-specific UI ───────────────────────────────────────────────────────────
@@ -481,6 +599,68 @@ document.addEventListener("DOMContentLoaded", () => {
     const tagVal = row && row.note ? row.note : null;
     if (!tagVal) return;
     const next = _csvRows.find(r => r.frame_number > cur1 && r.note === tagVal);
+    if (next) { _stop(); _epLoadFrame(next.frame_number - 1); }
+  });
+
+  // ── Status timeline canvas ────────────────────────────────────────────────
+
+  document.getElementById("ep-status-canvas").addEventListener("click", e => {
+    const canvas = e.currentTarget;
+    const rect = canvas.getBoundingClientRect();
+    const target = Math.round((e.clientX - rect.left) / rect.width * Math.max(_frameCount - 1, 0));
+    const annotated = _csvRows
+      .filter(r => { const v = r.frame_line_status; return v && v !== "0" && _epActiveStatus.has(v); })
+      .map(r => Number(r.frame_number) - 1);
+    if (!annotated.length) return;
+    const nearest = annotated.reduce((a, b) => Math.abs(b - target) < Math.abs(a - target) ? b : a);
+    _stop(); _epLoadFrame(nearest);
+  });
+
+  document.getElementById("ep-status-prev").addEventListener("click", () => {
+    const cur1 = _currentFrame + 1;
+    const prev = [..._csvRows]
+      .filter(r => { const v = r.frame_line_status; return v && v !== "0" && _epActiveStatus.has(v) && r.frame_number < cur1; })
+      .sort((a, b) => b.frame_number - a.frame_number)[0];
+    if (prev) { _stop(); _epLoadFrame(prev.frame_number - 1); }
+  });
+
+  document.getElementById("ep-status-next").addEventListener("click", () => {
+    const cur1 = _currentFrame + 1;
+    const next = _csvRows.find(r => {
+      const v = r.frame_line_status;
+      return v && v !== "0" && _epActiveStatus.has(v) && r.frame_number > cur1;
+    });
+    if (next) { _stop(); _epLoadFrame(next.frame_number - 1); }
+  });
+
+  // ── Note timeline canvas ──────────────────────────────────────────────────
+
+  document.getElementById("ep-note-canvas").addEventListener("click", e => {
+    const canvas = e.currentTarget;
+    const rect = canvas.getBoundingClientRect();
+    const target = Math.round((e.clientX - rect.left) / rect.width * Math.max(_frameCount - 1, 0));
+    const annotated = _csvRows
+      .filter(r => { const v = r.note; return v && _epActiveNote.has(v); })
+      .map(r => Number(r.frame_number) - 1);
+    if (!annotated.length) return;
+    const nearest = annotated.reduce((a, b) => Math.abs(b - target) < Math.abs(a - target) ? b : a);
+    _stop(); _epLoadFrame(nearest);
+  });
+
+  document.getElementById("ep-note-prev").addEventListener("click", () => {
+    const cur1 = _currentFrame + 1;
+    const prev = [..._csvRows]
+      .filter(r => { const v = r.note; return v && _epActiveNote.has(v) && r.frame_number < cur1; })
+      .sort((a, b) => b.frame_number - a.frame_number)[0];
+    if (prev) { _stop(); _epLoadFrame(prev.frame_number - 1); }
+  });
+
+  document.getElementById("ep-note-next").addEventListener("click", () => {
+    const cur1 = _currentFrame + 1;
+    const next = _csvRows.find(r => {
+      const v = r.note;
+      return v && _epActiveNote.has(v) && r.frame_number > cur1;
+    });
     if (next) { _stop(); _epLoadFrame(next.frame_number - 1); }
   });
 
