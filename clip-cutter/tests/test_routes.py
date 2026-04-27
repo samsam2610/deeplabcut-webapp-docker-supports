@@ -238,3 +238,12 @@ def test_template_clear_deletes_state_and_jpgs(client, tmp_path, monkeypatch):
 def test_template_clear_no_video_selected_returns_422(client):
     resp = client.post("/clip-cutter/template/clear")
     assert resp.status_code == 422
+
+
+def test_template_clear_when_dir_never_existed(client, tmp_path):
+    _select(client, tmp_path)
+    # No template dir created — just select a video and clear immediately
+    resp = client.post("/clip-cutter/template/clear")
+    assert resp.status_code == 200
+    data = json.loads(resp.data)
+    assert data["ok"] is True

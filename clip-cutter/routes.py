@@ -118,8 +118,9 @@ def clear_template():
     template_dir = tpath.parent
     if tpath.exists():
         tpath.unlink()
-    for jpg in template_dir.glob("*.jpg"):
-        jpg.unlink()
+    if template_dir.exists():
+        for jpg in template_dir.glob("*.jpg"):
+            jpg.unlink()
     with _state_lock:
         _state["frames"] = []
         _state["mean_embedding"] = None
