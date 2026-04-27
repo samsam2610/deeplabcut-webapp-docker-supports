@@ -43,11 +43,6 @@ header h1 { font-size: 15px; font-weight: 600; }
 .browser-icon { font-size: 11px; flex-shrink: 0; }
 .browser-name { font-family: monospace; font-size: 11px; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
-/* Minimal template player */
-.template-player-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; }
-#tp-frame-wrap { background: #1c2128; border: 1px solid #30363d; border-radius: 4px; overflow: hidden; max-height: 200px; display: flex; align-items: center; justify-content: center; margin-bottom: 6px; }
-#tp-controls { display: flex; align-items: center; gap: 6px; }
-
 /* Clear confirmation modal */
 #clear-confirm-modal { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.7); z-index: 100; align-items: center; justify-content: center; }
 #clear-confirm-modal.open { display: flex; }
@@ -106,8 +101,7 @@ header h1 { font-size: 15px; font-weight: 600; }
 /* Results + Player split */
 .content-split { display: flex; flex: 1; overflow: hidden; min-height: 0; }
 
-/* Results pane (left 40%) */
-.results-pane { width: 40%; border-right: 1px solid #30363d; display: flex; flex-direction: column; overflow: hidden; }
+.results-pane { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
 .results-pane-header { padding: 8px 12px 4px; flex-shrink: 0; display: flex; align-items: center; justify-content: space-between; }
 #results-count { font-size: 11px; color: #2ea043; }
 #source-filter { display: flex; gap: 6px; padding: 6px 10px 2px; }
@@ -134,26 +128,147 @@ header h1 { font-size: 15px; font-weight: 600; }
 .source-sensor-only { background: #2a2010; color: #d4a017; }
 .source-clip-only { background: #1a2535; color: #388bfd; }
 
-/* Player pane (right 60%) */
-.player-pane { flex: 1; display: flex; flex-direction: column; background: #0d1117; overflow: hidden; }
-#player-placeholder { flex: 1; display: flex; align-items: center; justify-content: center; font-size: 11px; color: #768390; }
-#player-container { flex: 1; display: flex; flex-direction: column; padding: 8px; gap: 6px; }
-#player-frame-wrap { flex: 1; background: #1c2128; border-radius: 4px; border: 1px solid #30363d; overflow: hidden; display: flex; align-items: center; justify-content: center; min-height: 0; }
-#player-frame { max-width: 100%; max-height: 100%; display: block; }
-#player-controls { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
-#player-seek { flex: 1; accent-color: #1f6feb; cursor: pointer; }
-#player-frame-num { font-size: 10px; color: #768390; white-space: nowrap; font-family: monospace; }
-#player-actions { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
 .player-btn { font-size: 11px; padding: 3px 10px; border-radius: 4px; cursor: pointer; border: 1px solid #30363d; background: transparent; color: #cdd9e5; }
 .player-btn:hover { background: #30363d; }
 .player-btn.active { border-color: #388bfd; color: #388bfd; }
 .player-btn-blue { border-color: #388bfd; color: #388bfd; }
 .player-btn-red { border-color: #da3633; color: #f85149; }
-#player-overlap-warning { background: #161b22; border: 1px solid #da3633; border-radius: 6px; padding: 10px 12px; margin-top: 4px; flex-shrink: 0; }
-#player-overlap-warning .ow-title { color: #f85149; font-size: 11px; font-weight: 600; margin-bottom: 4px; }
-#player-overlap-warning .ow-body { font-size: 10px; color: #8b949e; margin-bottom: 8px; }
-#player-overlap-warning .ow-body code { color: #e6edf3; background: #21262d; padding: 1px 4px; border-radius: 3px; }
-#player-overlap-warning .ow-actions { display: flex; gap: 6px; }
+
+/* ── Enhanced player bottom panel ─────────────────────────────────────────── */
+#player-panel {
+  position: fixed; bottom: 0; left: 0; right: 0;
+  height: 320px;
+  background: #0d1117;
+  border-top: 2px solid #30363d;
+  z-index: 50;
+  display: flex;
+  gap: 8px;
+  padding: 8px;
+  overflow: auto;
+  resize: vertical;
+}
+#ep-left {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  min-width: 0;
+}
+#ep-frame-wrap {
+  flex: 1;
+  background: #1c2128;
+  border: 1px solid #30363d;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  position: relative;
+  min-height: 0;
+}
+#ep-frame { max-width: 100%; max-height: 100%; display: block; transform-origin: center center; }
+#ep-lock-badge {
+  position: absolute; top: 4px; left: 6px;
+  background: #da363322; border: 1px solid #da3633; border-radius: 3px;
+  padding: 1px 5px; font-size: 8px; color: #f85149;
+  font-family: monospace;
+}
+#ep-zoom-controls {
+  position: absolute; top: 4px; right: 6px;
+  display: flex; align-items: center; gap: 4px;
+  font-size: 8px; color: #768390;
+}
+#ep-zoom-controls input { width: 50px; accent-color: #388bfd; }
+#ep-seek-row {
+  display: flex; align-items: center; gap: 6px; flex-shrink: 0;
+}
+#ep-seek-track {
+  flex: 1; position: relative; height: 16px;
+}
+#ep-seek-highlight {
+  position: absolute; top: 6px; height: 4px;
+  background: #1f6feb33; border-radius: 2px;
+  pointer-events: none;
+}
+#ep-seek {
+  position: absolute; top: 0; left: 0; right: 0; width: 100%;
+  margin: 0; accent-color: #1f6feb; cursor: pointer;
+}
+#ep-frame-counter {
+  font-size: 10px; color: #768390; white-space: nowrap;
+  font-family: monospace; cursor: default;
+}
+#ep-frame-num { color: #e6edf3; text-decoration: underline; }
+#ep-frame-jump {
+  width: 60px; background: #21262d; border: 1px solid #388bfd;
+  border-radius: 3px; color: #e6edf3; font-size: 10px; padding: 1px 3px;
+  font-family: monospace;
+}
+#ep-controls {
+  display: flex; align-items: center; gap: 4px; flex-shrink: 0;
+  flex-wrap: wrap;
+}
+#ep-controls span { font-size: 9px; color: #768390; }
+#ep-controls input[type="number"] {
+  width: 32px; background: #21262d; border: 1px solid #30363d;
+  border-radius: 3px; color: #e6edf3; font-size: 9px; padding: 1px 3px;
+}
+#ep-csv-strip {
+  display: flex; align-items: center; gap: 5px; flex-shrink: 0;
+  background: #161b22; border: 1px solid #30363d;
+  border-radius: 4px; padding: 3px 6px;
+}
+.ep-strip-label { font-size: 8px; color: #768390; }
+.ep-status-pill {
+  background: #1f6feb22; border: 1px solid #1f6feb;
+  border-radius: 3px; color: #58a6ff; padding: 1px 5px; font-size: 8px;
+}
+.ep-note-pill {
+  background: #2ea04322; border: 1px solid #2ea043;
+  border-radius: 3px; color: #3fb950; padding: 1px 5px; font-size: 8px;
+}
+/* Extract panel */
+#ep-extract-panel {
+  width: 160px; flex-shrink: 0;
+  background: #161b22; border: 1px solid #30363d; border-radius: 4px;
+  padding: 7px;
+  display: flex; flex-direction: column; gap: 5px;
+}
+.ep-panel-title {
+  font-size: 9px; font-weight: 600; color: #cdd9e5;
+  border-bottom: 1px solid #30363d; padding-bottom: 3px;
+}
+#ep-extract-fields {
+  display: grid; grid-template-columns: auto 1fr; gap: 3px 5px; align-items: center;
+  font-size: 8px;
+}
+#ep-extract-fields span { color: #768390; }
+#ep-extract-fields input[type="number"],
+#ep-extract-fields input[type="text"] {
+  background: #21262d; border: 1px solid #30363d; border-radius: 3px;
+  color: #e6edf3; font-size: 8px; padding: 1px 3px; width: 100%;
+}
+#ep-extract-fields input[readonly] { background: #0d1117; color: #768390; border-color: #21262d; }
+#ep-lock-row { display: flex; align-items: center; gap: 4px; font-size: 8px; color: #768390; }
+#ep-lock-row input { accent-color: #388bfd; }
+#ep-outdir {
+  font-size: 8px; color: #768390;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  border: 1px solid #21262d; border-radius: 3px; padding: 2px 4px;
+  background: #0d1117;
+}
+#ep-extract-panel .ep-spacer { flex: 1; }
+#ep-warning {
+  font-size: 8px; padding: 4px; background: #1a0a0a;
+  border: 1px solid #da3633; border-radius: 3px;
+}
+.ep-btn-green { border-color: #2ea043 !important; color: #3fb950 !important; }
+.ep-btn-green:hover { background: #2ea04322 !important; }
+.ep-btn-blue { border-color: #388bfd !important; color: #58a6ff !important; font-weight: 600; }
+.ep-btn-blue:hover { background: #388bfd22 !important; }
+.ep-btn-red { border-color: #da3633 !important; color: #f85149 !important; }
+.ep-btn-red:hover { background: #da363322 !important; }
+#ep-extract-panel .player-btn { width: 100%; font-size: 8px; padding: 3px 5px; }
 </style>
 </head>
 <body>
@@ -239,27 +354,6 @@ header h1 { font-size: 15px; font-weight: 600; }
       <button id="scan-btn" disabled onclick="startScan()">&#9654; Scan selected video</button>
     </div>
 
-    <!-- Minimal template player (hidden until init or Browse frames clicked) -->
-    <div id="template-player-panel" style="display:none;" class="section">
-      <div class="template-player-header">
-        <span id="tp-title" style="font-size:11px;color:#768390;">Browsing frames</span>
-        <button class="btn-sm" id="tp-close">&#10005; Close</button>
-      </div>
-      <div id="tp-frame-wrap">
-        <img id="tp-frame" alt="frame" style="max-width:100%;display:block;">
-      </div>
-      <div id="tp-controls">
-        <button class="player-btn" id="tp-prev">&#9198;</button>
-        <button class="player-btn" id="tp-play">&#9654;</button>
-        <button class="player-btn" id="tp-next">&#9197;</button>
-        <input type="range" id="tp-seek" min="0" max="1000" value="0" style="flex:1;accent-color:#1f6feb;">
-        <span id="tp-frame-num" style="font-size:10px;color:#768390;font-family:monospace;white-space:nowrap;">fr 0 / 0</span>
-      </div>
-      <div id="tp-actions" style="margin-top:6px;">
-        <button class="btn-sm btn-blue" id="tp-add-btn">+ Add this frame to template</button>
-      </div>
-    </div>
-
     <!-- Progress -->
     <div id="progress-section">
       <div id="pipeline-steps">
@@ -306,32 +400,92 @@ header h1 { font-size: 15px; font-weight: 600; }
         <div id="results-list"></div>
       </div>
 
-      <!-- Player -->
-      <div class="player-pane">
-        <div id="player-placeholder">Click a detection to preview</div>
-        <div id="player-container" style="display:none;">
-          <div id="player-frame-wrap">
-            <img id="player-frame" alt="video frame">
-          </div>
-          <div id="player-controls">
-            <button class="player-btn" id="player-prev">&#9198;</button>
-            <button class="player-btn" id="player-play">&#9654;</button>
-            <button class="player-btn" id="player-next">&#9197;</button>
-            <input type="range" id="player-seek" min="0" max="1000" value="0">
-            <span id="player-frame-num">fr 0</span>
-          </div>
-          <div id="player-actions">
-            <button class="player-btn" id="player-keyframe">&#8982; Key frame</button>
-            <button class="player-btn active" id="player-loop">&#8617; Loop</button>
-            <button class="player-btn" id="player-clip-start">&#9654; From clip start</button>
-            <div style="flex:1"></div>
-            <span style="font-size:10px;color:#768390;font-family:monospace;white-space:nowrap;">KF: <span id="player-kf-num">&#8212;</span></span>
-            <button class="player-btn player-btn-blue" id="player-set-kf">&#128204; Set KF here</button>
-          </div>
-          <div id="player-overlap-warning" style="display:none;"></div>
-        </div>
+    </div>
+  </div>
+</div>
+
+<!-- Enhanced player bottom panel -->
+<div id="player-panel" style="display:none;">
+  <!-- Left: frame + controls -->
+  <div id="ep-left">
+    <div id="ep-frame-wrap">
+      <img id="ep-frame" alt="frame">
+      <div id="ep-lock-badge" style="display:none;">&#128274; 0&#8211;0</div>
+      <div id="ep-zoom-controls">
+        &#128269;
+        <input type="range" id="ep-zoom" min="50" max="200" value="100">
+        <span id="ep-zoom-pct">100%</span>
       </div>
     </div>
+
+    <!-- Seek bar -->
+    <div id="ep-seek-row">
+      <div id="ep-seek-track">
+        <div id="ep-seek-highlight" style="display:none;"></div>
+        <input type="range" id="ep-seek" min="0" max="1000" value="0">
+      </div>
+      <span id="ep-frame-counter" title="double-click to jump">fr <span id="ep-frame-num">0</span> / <span id="ep-frame-total">0</span></span>
+      <input type="number" id="ep-frame-jump" style="display:none;" min="1">
+    </div>
+
+    <!-- Playback controls -->
+    <div id="ep-controls">
+      <button class="player-btn" id="ep-first">&#9198;</button>
+      <button class="player-btn" id="ep-back">&#9664;</button>
+      <button class="player-btn" id="ep-play">&#9654;</button>
+      <button class="player-btn" id="ep-fwd">&#9654;</button>
+      <button class="player-btn" id="ep-last">&#9197;</button>
+      <span>Step</span>
+      <input type="number" id="ep-step" min="1" value="10">
+      <span>N=</span>
+      <input type="number" id="ep-playn" min="1" value="1">
+      <button class="player-btn" id="ep-loop">&#8635;</button>
+      <div style="flex:1;"></div>
+      <button class="player-btn" id="ep-collapse">&#10005;</button>
+    </div>
+
+    <!-- Status / note strip -->
+    <div id="ep-csv-strip">
+      <span class="ep-strip-label">Status:</span>
+      <span id="ep-status-badge" class="ep-status-pill">&#8212;</span>
+      <span class="ep-strip-label" style="margin-left:4px;">Note:</span>
+      <span id="ep-note-badge" class="ep-note-pill">&#8212;</span>
+      <div style="flex:1;"></div>
+      <button class="player-btn" id="ep-prev-tag">&#9664;</button>
+      <button class="player-btn" id="ep-next-tag">&#9654;</button>
+    </div>
+  </div>
+
+  <!-- Right: extract panel -->
+  <div id="ep-extract-panel">
+    <div class="ep-panel-title">&#9986; Extract</div>
+
+    <div id="ep-extract-fields">
+      <span>Start</span>
+      <input type="number" id="ep-start" min="1" value="1">
+      <span>Frames</span>
+      <input type="number" id="ep-frames" min="1" value="800">
+      <span>End</span>
+      <input type="number" id="ep-end" readonly>
+      <span>Postfix</span>
+      <input type="text" id="ep-postfix" placeholder="opt.">
+    </div>
+
+    <div id="ep-lock-row">
+      <input type="checkbox" id="ep-lock-start">
+      <label for="ep-lock-start">Lock start</label>
+    </div>
+
+    <div id="ep-outdir">&#8230;/</div>
+
+    <div id="ep-warning" style="display:none;"></div>
+
+    <div class="ep-spacer"></div>
+
+    <button class="player-btn ep-btn-green" id="ep-add-template" style="display:none;">+ Add to template</button>
+    <button class="player-btn ep-btn-green" id="ep-set-kf" style="display:none;">&#128204; Set KF</button>
+    <button class="player-btn ep-btn-blue" id="ep-extract">&#9986; Extract</button>
+    <button class="player-btn ep-btn-red" id="ep-reject" style="display:none;">&#10005; Reject</button>
   </div>
 </div>
 
@@ -348,7 +502,7 @@ header h1 { font-size: 15px; font-weight: 600; }
   </div>
 </div>
 
-<script src="/clip-cutter/static/player.js"></script>
+<script src="/clip-cutter/static/enhanced_player.js"></script>
 <script src="/clip-cutter/static/clip_cutter.js"></script>
 </body>
 </html>
