@@ -411,6 +411,37 @@ def extract():
     return jsonify(result)
 
 
+@bp.route("/check-keyframe-overlap", methods=["POST"])
+def check_keyframe_overlap():
+    body = request.get_json(force=True) or {}
+    video_path = (body.get("video_path") or "").strip()
+    key_frame = body.get("key_frame")
+    if not video_path or key_frame is None:
+        return jsonify({"error": "video_path and key_frame required"}), 422
+
+    video_path = Path(video_path)
+    clips_dir = video_path.parent / video_path.stem
+
+    if not clips_dir.is_dir():
+        return jsonify({"overlaps": False})
+
+    known = processor.get_known_key_frames(clips_dir)
+
+    new_start = key_frame - 200
+    new_end = key_frame + 599
+    conflicts = []
+    for kf, stem in known.items():
+        ex_start = kf - 200
+        ex_end = kf + 599
+        if new_start <= ex_end and new_end >= ex_start:
+            overlap = min(new_end, ex_end) - max(new_start, ex_start) + 1
+            conflicts.append({"name": stem + ".avi", "overlap_frames": overlap})
+
+    if conflicts:
+        return jsonify({"overlaps": True, "conflicts": conflicts})
+    return jsonify({"overlaps": False})
+
+
 # ── Detection persistence ──────────────────────────────────────────────────────
 
 @bp.route("/detections")

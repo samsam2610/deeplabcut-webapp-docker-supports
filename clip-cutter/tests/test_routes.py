@@ -316,3 +316,47 @@ def test_init_reads_clips_from_video_folder(client, tmp_path):
             break
     assert data["count"] == 1
     assert (tmp_path / stem / "template" / "template_state.json").exists()
+
+
+def test_check_keyframe_overlap_missing_video_path(client):
+    resp = client.post("/clip-cutter/check-keyframe-overlap",
+                       json={"key_frame": 500})
+    assert resp.status_code == 422
+
+
+def test_check_keyframe_overlap_no_clips_dir(client, tmp_path):
+    video_path = str(tmp_path / "test_video.avi")
+    resp = client.post("/clip-cutter/check-keyframe-overlap",
+                       json={"video_path": video_path, "key_frame": 500})
+    assert resp.status_code == 200
+    assert resp.get_json()["overlaps"] is False
+
+
+def test_check_keyframe_overlap_no_overlap(client, tmp_path):
+    clips_dir = tmp_path / "test_video"
+    clips_dir.mkdir()
+    # clip: start=300 (0-based) → kf=500, range [300, 1099]
+    (clips_dir / "test_video_300_899_success.avi").touch()
+    video_path = str(tmp_path / "test_video.avi")
+    # new KF=2000, range [1800, 2599] — no overlap
+    resp = client.post("/clip-cutter/check-keyframe-overlap",
+                       json={"video_path": video_path, "key_frame": 2000})
+    assert resp.status_code == 200
+    assert resp.get_json()["overlaps"] is False
+
+
+def test_check_keyframe_overlap_with_conflict(client, tmp_path):
+    clips_dir = tmp_path / "test_video"
+    clips_dir.mkdir()
+    # clip: start=300 (0-based) → kf=500, range [300, 1099]
+    (clips_dir / "test_video_300_899_success.avi").touch()
+    video_path = str(tmp_path / "test_video.avi")
+    # new KF=600, range [400, 1199] — overlaps [300,1099] by min(1199,1099)-max(400,300)+1 = 700
+    resp = client.post("/clip-cutter/check-keyframe-overlap",
+                       json={"video_path": video_path, "key_frame": 600})
+    assert resp.status_code == 200
+    data = resp.get_json()
+    assert data["overlaps"] is True
+    assert len(data["conflicts"]) == 1
+    assert data["conflicts"][0]["name"] == "test_video_300_899_success.avi"
+    assert data["conflicts"][0]["overlap_frames"] == 700
