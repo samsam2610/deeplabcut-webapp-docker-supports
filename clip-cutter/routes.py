@@ -158,6 +158,33 @@ def list_videos():
     return jsonify({"videos": videos})
 
 
+@bp.route("/fs/ls")
+def fs_ls():
+    path_str = request.args.get("path", "").strip()
+    p = Path(path_str) if path_str else config._DATA_ROOT
+    if not p.is_dir():
+        return jsonify({"error": "not a directory"}), 400
+
+    dirs, files = [], []
+    try:
+        for entry in sorted(p.iterdir(), key=lambda e: e.name.lower()):
+            if entry.name.startswith("."):
+                continue
+            if entry.is_dir():
+                has_avi = any(True for _ in entry.glob("*.avi"))
+                dirs.append({"name": entry.name, "type": "dir", "has_avi": has_avi})
+            elif entry.is_file() and entry.suffix.lower() == ".avi":
+                stem = entry.stem
+                video_dir = p / stem
+                done = video_dir.is_dir() and any(True for _ in video_dir.glob("*.avi"))
+                files.append({"name": entry.name, "type": "file", "done": done})
+    except PermissionError:
+        return jsonify({"error": "permission denied"}), 403
+
+    parent = str(p.parent) if p.parent != p else None
+    return jsonify({"path": str(p), "parent": parent, "entries": dirs + files})
+
+
 # ── Scan ─────────────────────────────────────────────────────────────────────
 
 def _run_scan(job_id: str, video_path: str, template_emb, dino_template_emb, params: dict):

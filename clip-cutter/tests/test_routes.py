@@ -83,3 +83,68 @@ def test_extract_missing_csv_returns_422(client, tmp_path, monkeypatch):
         content_type="application/json",
     )
     assert resp.status_code == 422
+
+
+def test_fs_ls_lists_dirs_and_avis(client, tmp_path, monkeypatch):
+    import config
+    monkeypatch.setattr(config, "_DATA_ROOT", tmp_path)
+    (tmp_path / "subdir").mkdir()
+    (tmp_path / "video.avi").touch()
+    (tmp_path / "notes.txt").touch()  # should be excluded
+    resp = client.get(f"/clip-cutter/fs/ls?path={tmp_path}")
+    assert resp.status_code == 200
+    data = json.loads(resp.data)
+    assert data["path"] == str(tmp_path)
+    names = [e["name"] for e in data["entries"]]
+    assert "subdir" in names
+    assert "video.avi" in names
+    assert "notes.txt" not in names
+
+
+def test_fs_ls_dirs_first(client, tmp_path, monkeypatch):
+    import config
+    monkeypatch.setattr(config, "_DATA_ROOT", tmp_path)
+    (tmp_path / "aaa.avi").touch()
+    (tmp_path / "zzz_dir").mkdir()
+    resp = client.get(f"/clip-cutter/fs/ls?path={tmp_path}")
+    data = json.loads(resp.data)
+    types = [e["type"] for e in data["entries"]]
+    # dir before file even though "aaa" < "zzz"
+    assert types.index("dir") < types.index("file")
+
+
+def test_fs_ls_done_badge_when_video_folder_has_clips(client, tmp_path, monkeypatch):
+    import config
+    monkeypatch.setattr(config, "_DATA_ROOT", tmp_path)
+    (tmp_path / "myvid.avi").touch()
+    vid_dir = tmp_path / "myvid"
+    vid_dir.mkdir()
+    (vid_dir / "clip_success.avi").touch()
+    resp = client.get(f"/clip-cutter/fs/ls?path={tmp_path}")
+    data = json.loads(resp.data)
+    entry = next(e for e in data["entries"] if e["name"] == "myvid.avi")
+    assert entry["done"] is True
+
+
+def test_fs_ls_ready_badge_when_no_video_folder(client, tmp_path, monkeypatch):
+    import config
+    monkeypatch.setattr(config, "_DATA_ROOT", tmp_path)
+    (tmp_path / "myvid.avi").touch()
+    resp = client.get(f"/clip-cutter/fs/ls?path={tmp_path}")
+    data = json.loads(resp.data)
+    entry = next(e for e in data["entries"] if e["name"] == "myvid.avi")
+    assert entry["done"] is False
+
+
+def test_fs_ls_default_path_is_data_root(client, tmp_path, monkeypatch):
+    import config
+    monkeypatch.setattr(config, "_DATA_ROOT", tmp_path)
+    resp = client.get("/clip-cutter/fs/ls")
+    assert resp.status_code == 200
+    data = json.loads(resp.data)
+    assert data["path"] == str(tmp_path)
+
+
+def test_fs_ls_nonexistent_path_returns_400(client):
+    resp = client.get("/clip-cutter/fs/ls?path=/nonexistent/path/xyz")
+    assert resp.status_code == 400
