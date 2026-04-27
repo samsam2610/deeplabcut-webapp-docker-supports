@@ -50,7 +50,7 @@ def test_template_get_empty(client):
 
 def test_template_delete_out_of_range(client):
     resp = client.delete("/clip-cutter/template/0")
-    assert resp.status_code == 404
+    assert resp.status_code == 422  # no video selected
 
 
 def test_videos_returns_list(client, monkeypatch, tmp_path):
@@ -197,3 +197,44 @@ def test_select_video_loads_template_if_exists(client, tmp_path, monkeypatch):
     data = json.loads(resp.data)
     assert data["count"] == 1
     assert data["has_template"] is True
+
+
+def _select(client, tmp_path, stem="session"):
+    """Helper: select a video so template routes have a path."""
+    (tmp_path / f"{stem}.avi").touch()
+    client.post(
+        "/clip-cutter/select-video",
+        json={"video_path": str(tmp_path / f"{stem}.avi")},
+        content_type="application/json",
+    )
+
+
+def test_template_get_has_template_false_when_no_file(client, tmp_path):
+    _select(client, tmp_path)
+    resp = client.get("/clip-cutter/template")
+    data = json.loads(resp.data)
+    assert data["has_template"] is False
+
+
+def test_template_clear_deletes_state_and_jpgs(client, tmp_path, monkeypatch):
+    import processor, numpy as np
+    stem = "session"
+    _select(client, tmp_path, stem)
+    template_dir = tmp_path / stem / "template"
+    template_dir.mkdir(parents=True)
+    fake_emb = np.ones(512, dtype=np.float32)
+    state = {"frames": [], "mean_embedding": None, "dino_mean_embedding": None}
+    state_path = template_dir / "template_state.json"
+    processor.save_template_state(state, state_path)
+    (template_dir / "frame_0200.jpg").touch()
+
+    resp = client.post("/clip-cutter/template/clear")
+    assert resp.status_code == 200
+    assert not state_path.exists()
+    assert not (template_dir / "frame_0200.jpg").exists()
+    assert template_dir.exists()  # folder kept
+
+
+def test_template_clear_no_video_selected_returns_422(client):
+    resp = client.post("/clip-cutter/template/clear")
+    assert resp.status_code == 422

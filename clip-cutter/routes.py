@@ -60,6 +60,7 @@ def index():
 
 @bp.route("/template")
 def get_template():
+    tpath = _template_path()
     with _state_lock:
         frames_out = [
             {"thumbnail": f["thumbnail"], "video_path": f["video_path"],
@@ -67,22 +68,26 @@ def get_template():
             for f in _state["frames"]
         ]
         count = len(frames_out)
-    return jsonify({"count": count, "frames": frames_out})
+    has_template = tpath is not None and tpath.exists()
+    return jsonify({"count": count, "frames": frames_out, "has_template": has_template})
 
 
 @bp.route("/template/add", methods=["POST"])
 def add_to_template():
     global _state
+    tpath = _template_path()
+    if tpath is None:
+        return jsonify({"error": "no video selected"}), 422
     body = request.get_json(force=True)
     video_path = body.get("video_path")
     frame_number = body.get("frame_number")
     if not video_path or frame_number is None:
         return jsonify({"error": "video_path and frame_number required"}), 400
+    tpath.parent.mkdir(parents=True, exist_ok=True)
     with _state_lock:
         try:
             _state = processor.add_frame_to_template(
-                _state, video_path, int(frame_number),
-                config.TEMPLATE_STATE_PATH, crop=None
+                _state, video_path, int(frame_number), tpath, crop=None
             )
         except ValueError as e:
             return jsonify({"error": str(e)}), 422
@@ -93,12 +98,33 @@ def add_to_template():
 @bp.route("/template/<int:idx>", methods=["DELETE"])
 def remove_from_template(idx: int):
     global _state
+    tpath = _template_path()
+    if tpath is None:
+        return jsonify({"error": "no video selected"}), 422
     with _state_lock:
         if idx >= len(_state["frames"]):
             return jsonify({"error": "index out of range"}), 404
-        _state = processor.remove_frame_from_template(_state, idx, config.TEMPLATE_STATE_PATH)
+        _state = processor.remove_frame_from_template(_state, idx, tpath)
         count = len(_state["frames"])
     return jsonify({"count": count})
+
+
+@bp.route("/template/clear", methods=["POST"])
+def clear_template():
+    global _state
+    tpath = _template_path()
+    if tpath is None:
+        return jsonify({"error": "no video selected"}), 422
+    template_dir = tpath.parent
+    if tpath.exists():
+        tpath.unlink()
+    for jpg in template_dir.glob("*.jpg"):
+        jpg.unlink()
+    with _state_lock:
+        _state["frames"] = []
+        _state["mean_embedding"] = None
+        _state["dino_mean_embedding"] = None
+    return jsonify({"ok": True})
 
 
 _init_status: dict = {"running": False, "error": None}
