@@ -86,6 +86,46 @@ document.addEventListener("DOMContentLoaded", () => {
       applyFilter();
     });
   });
+
+  // Sidebar init button
+  document.getElementById("sidebar-init-btn").addEventListener("click", initTemplate);
+
+  // Browse frames buttons (no-template state and has-template state)
+  document.getElementById("sidebar-browse-btn").addEventListener("click", () => {
+    if (typeof openTemplatePlayer === "function") openTemplatePlayer();
+  });
+  document.getElementById("sidebar-browse-btn2").addEventListener("click", () => {
+    if (typeof openTemplatePlayer === "function") openTemplatePlayer();
+  });
+
+  // Clear button — open confirmation modal
+  document.getElementById("sidebar-clear-btn").addEventListener("click", () => {
+    document.getElementById("clear-confirm-input").value = "";
+    document.getElementById("clear-confirm-btn").disabled = true;
+    document.getElementById("clear-confirm-modal").classList.add("open");
+  });
+
+  // Clear modal — type "delete" to enable confirm button
+  document.getElementById("clear-confirm-input").addEventListener("input", (e) => {
+    document.getElementById("clear-confirm-btn").disabled = e.target.value !== "delete";
+  });
+
+  // Clear modal — cancel
+  document.getElementById("clear-cancel-btn").addEventListener("click", () => {
+    document.getElementById("clear-confirm-modal").classList.remove("open");
+  });
+
+  // Clear modal — confirm
+  document.getElementById("clear-confirm-btn").addEventListener("click", async () => {
+    document.getElementById("clear-confirm-modal").classList.remove("open");
+    const resp = await fetch("/clip-cutter/template/clear", { method: "POST" });
+    if (resp.ok) {
+      await loadTemplate();
+      setStatus("Template cleared");
+    } else {
+      setStatus("Clear failed");
+    }
+  });
 });
 
 // ── Template bank ─────────────────────────────────────────────────────────────
@@ -97,8 +137,41 @@ async function loadTemplate() {
 }
 
 function renderTemplate(data) {
+  const emptyState = document.getElementById("sidebar-empty-state");
+  const noTemplate = document.getElementById("sidebar-no-template");
+  const noTemplateMsg = document.getElementById("sidebar-no-template-msg");
   const grid = document.getElementById("template-grid");
   const footer = document.getElementById("template-footer");
+  const initBtn = document.getElementById("sidebar-init-btn");
+  const sidebarActions = document.getElementById("sidebar-actions");
+
+  if (!_selectedVideoStem) {
+    emptyState.style.display = "";
+    noTemplate.style.display = "none";
+    grid.style.display = "none";
+    footer.style.display = "none";
+    initBtn.style.display = "none";
+    sidebarActions.style.display = "none";
+    return;
+  }
+
+  emptyState.style.display = "none";
+  initBtn.style.display = "";
+
+  if (!data.has_template) {
+    noTemplate.style.display = "";
+    noTemplateMsg.textContent = `No template for ${_selectedVideoStem}`;
+    grid.style.display = "none";
+    footer.style.display = "none";
+    sidebarActions.style.display = "none";
+    return;
+  }
+
+  noTemplate.style.display = "none";
+  grid.style.display = "flex";
+  footer.style.display = "";
+  sidebarActions.style.display = "flex";
+
   grid.innerHTML = "";
   data.frames.forEach((f, idx) => {
     const div = document.createElement("div");
@@ -112,6 +185,10 @@ function renderTemplate(data) {
 }
 
 async function initTemplate() {
+  if (document.getElementById("template-grid").style.display !== "none") {
+    // Template already exists — confirm re-init
+    if (!confirm(`Re-initialise template for ${_selectedVideoStem}? This will replace the current template.`)) return;
+  }
   setStatus("Starting template build…");
   try {
     const resp = await fetch("/clip-cutter/template/init", { method: "POST" });
@@ -120,7 +197,7 @@ async function initTemplate() {
       setStatus("Init error: " + err.error);
       return;
     }
-    setStatus("Building template from training clips — this may take a minute…");
+    setStatus("Building template from clips — this may take a minute…");
     pollInitStatus();
   } catch (err) {
     setStatus("Network error: " + err.message);
@@ -140,9 +217,10 @@ function pollInitStatus() {
       if (!data.running) {
         clearInterval(iv);
         await loadTemplate();
-        setStatus(`Template initialised: ${data.count} frame${data.count !== 1 ? "s" : ""}`);
+        setStatus(`Template initialised: ${data.count} frame${data.count !== 1 ? "s" : ""} — browse to add more`);
+        openTemplatePlayer();
       } else {
-        setStatus(`Building template… ${data.count} frame${data.count !== 1 ? "s" : ""} embedded so far`);
+        setStatus(`Building template… ${data.count} frame${data.count !== 1 ? "s" : ""} embedded`);
       }
     } catch (err) {
       clearInterval(iv);
