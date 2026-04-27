@@ -12,7 +12,12 @@ header h1 { font-size: 15px; font-weight: 600; }
 .app { display: flex; flex: 1; overflow: hidden; }
 
 /* SIDEBAR */
-.sidebar { width: 210px; flex-shrink: 0; background: #161b22; border-right: 1px solid #30363d; display: flex; flex-direction: column; overflow: hidden; }
+.sidebar { width: 210px; flex-shrink: 0; background: #161b22; border-right: 1px solid #30363d; display: flex; flex-direction: column; overflow: hidden; position: relative; }
+#sidebar-resize-handle {
+  position: absolute; top: 0; right: 0; bottom: 0; width: 5px;
+  cursor: ew-resize; background: transparent; z-index: 10;
+}
+#sidebar-resize-handle:hover { background: #388bfd44; }
 
 /* ── Collapsible sidebar ────────────────────────────────────────────────────── */
 .sidebar.collapsed #template-grid,
@@ -348,6 +353,7 @@ header h1 { font-size: 15px; font-weight: 600; }
       <button class="btn-sm" id="sidebar-browse-btn2">&#9654; Browse frames</button>
       <button class="btn-sm btn-red" id="sidebar-clear-btn">&#10005; Clear</button>
     </div>
+    <div id="sidebar-resize-handle"></div>
   </div>
 
   <!-- Main panel -->

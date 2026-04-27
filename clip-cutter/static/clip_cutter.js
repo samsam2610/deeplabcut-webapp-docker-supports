@@ -683,3 +683,30 @@ async function rejectDetection(idx) {
 function setStatus(msg) {
   document.getElementById("status-msg").textContent = msg;
 }
+
+// ── Sidebar resize ─────────────────────────────────────────────────────────────
+
+(function () {
+  const handle  = document.getElementById("sidebar-resize-handle");
+  const sidebar = document.querySelector(".sidebar");
+  if (!handle || !sidebar) return;
+  let startX = 0, startW = 0;
+
+  handle.addEventListener("mousedown", e => {
+    startX = e.clientX;
+    startW = sidebar.offsetWidth;
+    document.addEventListener("mousemove", onMove);
+    document.addEventListener("mouseup",   onUp);
+    e.preventDefault();
+  });
+
+  function onMove(e) {
+    const w = Math.max(120, Math.min(400, startW + (e.clientX - startX)));
+    sidebar.style.width = w + "px";
+  }
+
+  function onUp() {
+    document.removeEventListener("mousemove", onMove);
+    document.removeEventListener("mouseup",   onUp);
+  }
+})();
