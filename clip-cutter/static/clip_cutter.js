@@ -26,7 +26,8 @@ function applyFilter() {
 
 document.addEventListener("DOMContentLoaded", () => {
   loadTemplate();
-  loadVideos();
+  const _savedPath = (() => { try { return localStorage.getItem("cc-browser-path"); } catch { return null; } })();
+  loadFolder(_savedPath || null);
 
   // Settings toggle
   const settingsToggle = document.getElementById("settings-toggle");
@@ -171,39 +172,107 @@ async function addToTemplate(videoPath, frameNumber) {
   }
 }
 
-// ── Video list ─────────────────────────────────────────────────────────────────
+// ── Folder browser ────────────────────────────────────────────────────────────
 
-async function loadVideos() {
-  const resp = await fetch("/clip-cutter/videos");
+let _browserCurrentPath = null;
+let _selectedVideoStem = null;
+let _selectedVideoParent = null;
+
+async function loadFolder(path) {
+  const url = path
+    ? `/clip-cutter/fs/ls?path=${encodeURIComponent(path)}`
+    : "/clip-cutter/fs/ls";
+  const resp = await fetch(url);
+  if (!resp.ok) { setStatus("Cannot open folder"); return; }
   const data = await resp.json();
-  renderVideos(data.videos);
+  _browserCurrentPath = data.path;
+  try { localStorage.setItem("cc-browser-path", data.path); } catch {}
+  renderBrowser(data);
 }
 
-function renderVideos(videos) {
-  const list = document.getElementById("video-list");
+function renderBrowser(data) {
+  // Breadcrumb
+  const bc = document.getElementById("browser-breadcrumb");
+  bc.innerHTML = "";
+  const parts = data.path.split("/").filter(Boolean);
+  parts.forEach((part, i) => {
+    if (i > 0) {
+      const sep = document.createElement("span");
+      sep.className = "bc-sep";
+      sep.textContent = " / ";
+      bc.appendChild(sep);
+    }
+    const seg = document.createElement("span");
+    const isLast = i === parts.length - 1;
+    seg.className = isLast ? "bc-current" : "bc-segment";
+    seg.textContent = part;
+    if (!isLast) {
+      const fullPath = "/" + parts.slice(0, i + 1).join("/");
+      seg.addEventListener("click", () => loadFolder(fullPath));
+    }
+    bc.appendChild(seg);
+  });
+
+  // Up button
+  const upBtn = document.getElementById("browser-up");
+  upBtn.disabled = !data.parent;
+  upBtn.onclick = () => { if (data.parent) loadFolder(data.parent); };
+
+  // Entries
+  const list = document.getElementById("browser-list");
   list.innerHTML = "";
-  videos.forEach((v) => {
+  data.entries.forEach((entry) => {
     const row = document.createElement("div");
-    row.className = "video-row" + (v.done ? " done" : "");
-    row.innerHTML = `
-      <span class="video-name" title="${esc(v.path)}">${esc(v.name)}</span>
-      <span class="badge ${v.done ? "badge-done" : "badge-pending"}">${v.done ? "done" : "ready"}</span>`;
-    if (!v.done) {
-      row.addEventListener("click", () => selectVideo(v.path, row));
+    row.className = "browser-row";
+    const icon = document.createElement("span");
+    icon.className = "browser-icon";
+    const name = document.createElement("span");
+    name.className = "browser-name";
+    name.textContent = entry.name;
+    row.appendChild(icon);
+    row.appendChild(name);
+
+    if (entry.type === "dir") {
+      icon.textContent = "📁";
+      row.addEventListener("click", () => loadFolder(data.path + "/" + entry.name));
+    } else {
+      icon.textContent = "▶";
+      const badge = document.createElement("span");
+      badge.className = `badge ${entry.done ? "badge-done" : "badge-pending"}`;
+      badge.textContent = entry.done ? "done" : "ready";
+      row.appendChild(badge);
+      row.addEventListener("click", () => {
+        document.querySelectorAll(".browser-row.selected").forEach((r) =>
+          r.classList.remove("selected")
+        );
+        row.classList.add("selected");
+        const videoPath = data.path + "/" + entry.name;
+        const stem = entry.name.replace(/\.avi$/i, "");
+        selectVideo(videoPath, stem, data.path);
+      });
     }
     list.appendChild(row);
   });
 }
 
-async function selectVideo(path, rowEl) {
-  document.querySelectorAll(".video-row").forEach((r) => r.classList.remove("selected"));
-  rowEl.classList.add("selected");
-  selectedVideoPath = path;
+async function selectVideo(videoPath, stem, parent) {
+  selectedVideoPath = videoPath;
+  _selectedVideoStem = stem;
+  _selectedVideoParent = parent;
+
+  await fetch("/clip-cutter/select-video", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ video_path: videoPath }),
+  });
+
   document.getElementById("scan-btn").disabled = false;
   detections.length = 0;
   document.getElementById("results-list").innerHTML = "";
   document.getElementById("results-count").textContent = "";
-  await loadSavedDetections(path);
+
+  await loadTemplate();
+  await loadSavedDetections(videoPath);
 }
 
 // ── Persistence ───────────────────────────────────────────────────────────────
