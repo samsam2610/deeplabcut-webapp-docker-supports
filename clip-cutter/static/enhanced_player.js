@@ -276,3 +276,289 @@ function _epApplyNewKF(kf1) {
   if (typeof saveDetections === "function") saveDetections();
   document.getElementById("ep-warning").style.display = "none";
 }
+
+// ── Event wiring ───────────────────────────────────────────────────────────────
+
+document.addEventListener("DOMContentLoaded", () => {
+
+  // Collapse
+  document.getElementById("ep-collapse").addEventListener("click", () => {
+    _stop();
+    document.getElementById("player-panel").style.display = "none";
+  });
+
+  // Play / pause
+  document.getElementById("ep-play").addEventListener("click", () => {
+    if (!_videoPath) return;
+    if (_playing) {
+      _stop();
+    } else {
+      _playing = true;
+      document.getElementById("ep-play").textContent = "⏸";
+      _epLoop();
+    }
+  });
+
+  // ⏮ jump to clip start
+  document.getElementById("ep-first").addEventListener("click", () => {
+    _stop(); _epLoadFrame(_clipStart);
+  });
+
+  // ⏭ jump to clip end
+  document.getElementById("ep-last").addEventListener("click", () => {
+    _stop(); _epLoadFrame(_clipEnd);
+  });
+
+  // ◀ back by step size
+  document.getElementById("ep-back").addEventListener("click", () => {
+    _stop(); _epLoadFrame(_currentFrame - _stepSize);
+  });
+
+  // ▷ single frame forward
+  document.getElementById("ep-fwd").addEventListener("click", () => {
+    _stop(); _epLoadFrame(_currentFrame + 1);
+  });
+
+  // Step size input
+  document.getElementById("ep-step").addEventListener("change", (e) => {
+    const v = parseInt(e.target.value, 10);
+    _stepSize = v > 0 ? v : 1;
+    e.target.value = _stepSize;
+  });
+
+  // Play-N input
+  document.getElementById("ep-playn").addEventListener("change", (e) => {
+    const v = parseInt(e.target.value, 10);
+    _playN = v > 0 ? v : 1;
+    e.target.value = _playN;
+  });
+
+  // Loop toggle
+  document.getElementById("ep-loop").addEventListener("click", () => {
+    _looping = !_looping;
+    document.getElementById("ep-loop").classList.toggle("active", _looping);
+  });
+
+  // Seek bar — in clip mode, clamp value to [_clipStart, _clipEnd]
+  document.getElementById("ep-seek").addEventListener("input", (e) => {
+    _stop();
+    let n = parseInt(e.target.value, 10);
+    if (_mode === "clip") {
+      n = Math.max(_clipStart, Math.min(n, _clipEnd));
+      e.target.value = n;
+    }
+    _epLoadFrame(n);
+  });
+
+  // Zoom slider
+  document.getElementById("ep-zoom").addEventListener("input", (e) => {
+    const pct = parseInt(e.target.value, 10);
+    document.getElementById("ep-zoom-pct").textContent = pct + "%";
+    const img = document.getElementById("ep-frame");
+    img.style.transform = "scale(" + (pct / 100) + ")";
+  });
+
+  // Frame counter — double-click to jump
+  document.getElementById("ep-frame-counter").addEventListener("dblclick", () => {
+    if (!_videoPath) return;
+    const jump = document.getElementById("ep-frame-jump");
+    jump.value = _currentFrame + 1;
+    jump.min = _clipStart + 1;
+    jump.max = _clipEnd + 1;
+    document.getElementById("ep-frame-counter").style.display = "none";
+    jump.style.display = "";
+    jump.select();
+  });
+
+  const _commitJump = () => {
+    const jump = document.getElementById("ep-frame-jump");
+    let n1 = parseInt(jump.value, 10);
+    n1 = Math.max(_clipStart + 1, Math.min(n1, _clipEnd + 1));
+    jump.style.display = "none";
+    document.getElementById("ep-frame-counter").style.display = "";
+    _stop();
+    _epLoadFrame(n1 - 1);
+  };
+
+  const _cancelJump = () => {
+    document.getElementById("ep-frame-jump").style.display = "none";
+    document.getElementById("ep-frame-counter").style.display = "";
+  };
+
+  document.getElementById("ep-frame-jump").addEventListener("keydown", (e) => {
+    if (e.key === "Enter") { e.preventDefault(); _commitJump(); }
+    else if (e.key === "Escape") { e.preventDefault(); _cancelJump(); }
+  });
+  document.getElementById("ep-frame-jump").addEventListener("blur", _cancelJump);
+
+  // Keyboard navigation (when player panel is open and no text input is focused)
+  document.addEventListener("keydown", (e) => {
+    if (!_videoPath) return;
+    if (document.getElementById("ep-frame-jump").style.display !== "none") return;
+    const tag = (e.target || {}).tagName || "";
+    if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
+
+    if (e.key === "ArrowLeft" && !e.ctrlKey) {
+      e.preventDefault(); _stop(); _epLoadFrame(_currentFrame - 1);
+    } else if (e.key === "ArrowRight" && !e.ctrlKey) {
+      e.preventDefault(); _stop(); _epLoadFrame(_currentFrame + 1);
+    } else if (e.key === "ArrowLeft" && e.ctrlKey) {
+      e.preventDefault(); _stop(); _epLoadFrame(_currentFrame - _stepSize);
+    } else if (e.key === "ArrowRight" && e.ctrlKey) {
+      e.preventDefault(); _stop(); _epLoadFrame(_currentFrame + _stepSize);
+    }
+  });
+
+  // Start / Frames → recalculate End
+  document.getElementById("ep-start").addEventListener("input", _epUpdateEnd);
+  document.getElementById("ep-frames").addEventListener("input", _epUpdateEnd);
+
+  // Lock start checkbox — when unchecked, sync Start to current frame
+  document.getElementById("ep-lock-start").addEventListener("change", (e) => {
+    if (!e.target.checked && _videoPath) {
+      document.getElementById("ep-start").value = _currentFrame + 1;
+      _epUpdateEnd();
+    }
+  });
+
+  // CSV tag navigation
+  document.getElementById("ep-prev-tag").addEventListener("click", () => {
+    if (!_csvRows.length) return;
+    const cur1 = _currentFrame + 1;
+    const row = _csvRows.find(r => r.frame_number === cur1);
+    const tagVal = row && row.note ? row.note : null;
+    if (!tagVal) return;
+    const prev = [..._csvRows].reverse().find(r => r.frame_number < cur1 && r.note === tagVal);
+    if (prev) { _stop(); _epLoadFrame(prev.frame_number - 1); }
+  });
+
+  document.getElementById("ep-next-tag").addEventListener("click", () => {
+    if (!_csvRows.length) return;
+    const cur1 = _currentFrame + 1;
+    const row = _csvRows.find(r => r.frame_number === cur1);
+    const tagVal = row && row.note ? row.note : null;
+    if (!tagVal) return;
+    const next = _csvRows.find(r => r.frame_number > cur1 && r.note === tagVal);
+    if (next) { _stop(); _epLoadFrame(next.frame_number - 1); }
+  });
+
+  // Add to template (template mode only)
+  document.getElementById("ep-add-template").addEventListener("click", async () => {
+    if (!_videoPath) return;
+    const frameNumber = _currentFrame + 1;
+    try {
+      const resp = await fetch("/clip-cutter/template/add", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ video_path: _videoPath, frame_number: frameNumber }),
+      });
+      if (resp.ok) {
+        if (typeof loadTemplate === "function") await loadTemplate();
+        setStatus("Frame " + frameNumber + " added to template");
+      } else {
+        const err = await resp.json().catch(() => ({ error: "unknown" }));
+        setStatus("Error: " + err.error);
+      }
+    } catch (e) { setStatus("Network error: " + e.message); }
+  });
+
+  // Set KF (clip mode — with overlap check)
+  document.getElementById("ep-set-kf").addEventListener("click", async () => {
+    if (!_videoPath || _detectionIdx === null) return;
+    const kf1 = _currentFrame + 1;
+
+    let data;
+    try {
+      const resp = await fetch("/clip-cutter/check-keyframe-overlap", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ video_path: _videoPath, key_frame: kf1 }),
+      });
+      if (!resp.ok) { setStatus("Overlap check failed"); return; }
+      data = await resp.json();
+    } catch (e) { setStatus("Network error: " + e.message); return; }
+
+    if (!data.overlaps) {
+      _epApplyNewKF(kf1);
+      return;
+    }
+
+    const conflict = data.conflicts[0];
+    const warning = document.getElementById("ep-warning");
+    warning.innerHTML = "";
+
+    const msg = document.createElement("div");
+    msg.style.cssText = "color:#f85149;margin-bottom:3px;";
+    msg.textContent = "⚠ Overlaps " + conflict.name + " by " + conflict.overlap_frames + " fr";
+
+    const btns = document.createElement("div");
+    btns.style.cssText = "display:flex;gap:4px;margin-top:2px;";
+
+    const cancelBtn = document.createElement("button");
+    cancelBtn.className = "player-btn";
+    cancelBtn.style.fontSize = "8px";
+    cancelBtn.textContent = "Cancel";
+    cancelBtn.onclick = () => { warning.style.display = "none"; };
+
+    const keepBtn = document.createElement("button");
+    keepBtn.className = "player-btn ep-btn-red";
+    keepBtn.style.fontSize = "8px";
+    keepBtn.textContent = "Keep anyway";
+    keepBtn.onclick = () => _epApplyNewKF(kf1);
+
+    btns.appendChild(cancelBtn);
+    btns.appendChild(keepBtn);
+    warning.appendChild(msg);
+    warning.appendChild(btns);
+    warning.style.display = "";
+  });
+
+  // Extract
+  document.getElementById("ep-extract").addEventListener("click", async () => {
+    if (!_videoPath) return;
+    const start = parseInt(document.getElementById("ep-start").value, 10);
+    const keyFrame = start + 200;
+    const postfix = document.getElementById("ep-postfix").value.trim();
+
+    const body = { video_path: _videoPath, key_frame: keyFrame };
+    if (postfix) body.postfix = postfix;
+
+    try {
+      const resp = await fetch("/clip-cutter/extract", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      if (!resp.ok) {
+        const err = await resp.json().catch(() => ({ error: resp.statusText }));
+        setStatus("Extract error: " + err.error);
+        return;
+      }
+      setStatus("Clip extracted");
+      if (_detectionIdx !== null && typeof detections !== "undefined" && detections[_detectionIdx]) {
+        detections[_detectionIdx].status = "kept";
+        const card = document.getElementById("card-" + _detectionIdx);
+        if (card) {
+          card.classList.add("kept");
+          card.querySelectorAll("button").forEach(b => { b.disabled = true; });
+        }
+        if (typeof saveDetections === "function") saveDetections();
+      }
+      document.getElementById("ep-extract").disabled = true;
+      document.getElementById("ep-set-kf").disabled = true;
+      document.getElementById("ep-reject").disabled = true;
+    } catch (e) { setStatus("Network error: " + e.message); }
+  });
+
+  // Reject (clip mode)
+  document.getElementById("ep-reject").addEventListener("click", async () => {
+    if (_detectionIdx === null || typeof detections === "undefined") return;
+    detections.splice(_detectionIdx, 1);
+    const card = document.getElementById("card-" + _detectionIdx);
+    if (card) card.remove();
+    if (typeof saveDetections === "function") saveDetections();
+    _stop();
+    document.getElementById("player-panel").style.display = "none";
+  });
+
+}); // end DOMContentLoaded
