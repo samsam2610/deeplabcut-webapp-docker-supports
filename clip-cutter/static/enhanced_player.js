@@ -41,10 +41,11 @@ async function openPlayer({ mode, videoPath, keyFrame1Based = null, detectionIdx
 
   // Show panel immediately so user sees it open without waiting for network
   document.getElementById("player-panel").style.display = "";
+  document.getElementById("ep-frame").src = "";
 
   // Fetch frame count — use cache to skip round-trip on repeated opens
   let frameCount;
-  if (_videoInfoCache[videoPath]) {
+  if (_videoInfoCache[videoPath] !== undefined) {
     frameCount = _videoInfoCache[videoPath];
   } else {
     let info;
