@@ -151,6 +151,7 @@ function _stop() {
   _playing = false;
   const btn = document.getElementById("ep-play");
   if (btn) btn.textContent = "▶";
+  _epRedrawAllCanvases();
 }
 
 // ── Display ────────────────────────────────────────────────────────────────────
@@ -170,7 +171,7 @@ function _epUpdateDisplay() {
     document.getElementById("ep-start").value = cur1;
     _epUpdateEnd();
   }
-  _epRedrawAllCanvases();
+  if (!_playing) _epRedrawAllCanvases();
 }
 
 function _epUpdateSeekHighlight() {
@@ -315,7 +316,7 @@ function _epBuildTagBars() {
   noteVals.forEach((v, i) => { _epNoteColorMap[v] = _EP_TAG_COLORS[i % _EP_TAG_COLORS.length]; });
   _epRenderNoteChips();
 
-  _epRedrawAllCanvases();
+  requestAnimationFrame(() => _epRedrawAllCanvases());
 }
 
 // ── Mode-specific UI ───────────────────────────────────────────────────────────
@@ -626,10 +627,9 @@ document.addEventListener("DOMContentLoaded", () => {
 
   document.getElementById("ep-status-next").addEventListener("click", () => {
     const cur1 = _currentFrame + 1;
-    const next = _csvRows.find(r => {
-      const v = r.frame_line_status;
-      return v && v !== "0" && _epActiveStatus.has(v) && r.frame_number > cur1;
-    });
+    const next = _csvRows
+      .filter(r => { const v = r.frame_line_status; return v && v !== "0" && _epActiveStatus.has(v) && r.frame_number > cur1; })
+      .sort((a, b) => a.frame_number - b.frame_number)[0];
     if (next) { _stop(); _epLoadFrame(next.frame_number - 1); }
   });
 
@@ -657,10 +657,9 @@ document.addEventListener("DOMContentLoaded", () => {
 
   document.getElementById("ep-note-next").addEventListener("click", () => {
     const cur1 = _currentFrame + 1;
-    const next = _csvRows.find(r => {
-      const v = r.note;
-      return v && _epActiveNote.has(v) && r.frame_number > cur1;
-    });
+    const next = _csvRows
+      .filter(r => { const v = r.note; return v && _epActiveNote.has(v) && r.frame_number > cur1; })
+      .sort((a, b) => a.frame_number - b.frame_number)[0];
     if (next) { _stop(); _epLoadFrame(next.frame_number - 1); }
   });
 
