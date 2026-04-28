@@ -42,20 +42,22 @@ function renderLibraries(libraries) {
     const card = document.createElement("div");
     card.className = "lib-card";
     const isActive = name === _activeBatchLibrary;
+    const escapedName = esc(name);
     card.innerHTML = `
       <div class="lib-card-header">
-        <span class="lib-name" title="${name}">${name}</span>
+        <span class="lib-name" title="${escapedName}">${escapedName}</span>
         <span class="lib-folder-count">${folders.length} folder${folders.length !== 1 ? "s" : ""}</span>
         <button class="player-btn lib-delete-btn" title="Delete library">&#10005;</button>
       </div>
       <div class="lib-card-body${isActive ? " open" : ""}">
         ${folders.map(p => {
-          const label = p.split("/").pop();
+          const escapedP = esc(p);
+          const label = esc(p.split("/").pop());
           const checked = _activeBatchFolders.has(p);
           return `<div class="lib-folder-row">
-            <input type="checkbox" class="lib-folder-check" data-path="${p}" ${checked ? "checked" : ""}>
-            <span class="lib-folder-label" title="${p}">${label}</span>
-            <button class="player-btn lib-folder-remove" data-path="${p}" title="Remove folder">&#10005;</button>
+            <input type="checkbox" class="lib-folder-check" data-path="${escapedP}" ${checked ? "checked" : ""}>
+            <span class="lib-folder-label" title="${escapedP}">${label}</span>
+            <button class="player-btn lib-folder-remove" data-path="${escapedP}" title="Remove folder">&#10005;</button>
           </div>`;
         }).join("")}
         <button class="player-btn lib-scan-btn" disabled>&#9654; Scan with checked (${
