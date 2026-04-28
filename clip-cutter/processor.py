@@ -979,6 +979,8 @@ def find_template_candidates(
     filtered_sims = all_sims[mask]
 
     if len(filtered_pos) == 0:
+        if phase_cb:
+            phase_cb("done", 1, 1)
         return {"candidates": [], "curve": curve, "embeddings": all_embs}
 
     # Fewer frames than clusters: skip clustering, return all
@@ -991,6 +993,8 @@ def find_template_candidates(
             }
             for i in range(len(filtered_pos))
         ]
+        if phase_cb:
+            phase_cb("done", 1, 1)
         return {"candidates": candidates, "curve": curve, "embeddings": all_embs}
 
     if phase_cb:
@@ -1020,6 +1024,7 @@ def find_template_candidates(
 
     if phase_cb:
         phase_cb("cluster", 1, 1)
+        phase_cb("done", 1, 1)
 
     return {"candidates": candidates, "curve": curve, "embeddings": all_embs}
 
