@@ -146,6 +146,70 @@ def clear_template():
     return jsonify({"ok": True})
 
 
+# ── Global template library ───────────────────────────────────────────────────
+
+@bp.route("/global-libraries", methods=["GET"])
+def get_libraries():
+    with _libraries_lock:
+        libs = _load_libraries()
+    return jsonify({"libraries": libs})
+
+
+@bp.route("/global-libraries", methods=["POST"])
+def create_library():
+    name = (request.get_json(force=True) or {}).get("name", "").strip()
+    if not name:
+        return jsonify({"error": "name required"}), 422
+    with _libraries_lock:
+        libs = _load_libraries()
+        if name in libs:
+            return jsonify({"error": "library already exists"}), 422
+        libs[name] = []
+        _save_libraries(libs)
+    return jsonify({"ok": True})
+
+
+@bp.route("/global-libraries/<name>", methods=["DELETE"])
+def delete_library(name):
+    with _libraries_lock:
+        libs = _load_libraries()
+        if name not in libs:
+            return jsonify({"error": "not found"}), 404
+        del libs[name]
+        _save_libraries(libs)
+    return jsonify({"ok": True})
+
+
+@bp.route("/global-libraries/<name>/folders", methods=["POST"])
+def add_library_folder(name):
+    path = (request.get_json(force=True) or {}).get("path", "").strip()
+    if not path:
+        return jsonify({"error": "path required"}), 422
+    with _libraries_lock:
+        libs = _load_libraries()
+        if name not in libs:
+            return jsonify({"error": "library not found"}), 404
+        if path in libs[name]:
+            return jsonify({"error": "path already in library"}), 422
+        libs[name].append(path)
+        _save_libraries(libs)
+    return jsonify({"ok": True, "count": len(libs[name])})
+
+
+@bp.route("/global-libraries/<name>/folders", methods=["DELETE"])
+def remove_library_folder(name):
+    path = (request.get_json(force=True) or {}).get("path", "").strip()
+    with _libraries_lock:
+        libs = _load_libraries()
+        if name not in libs:
+            return jsonify({"error": "library not found"}), 404
+        if path not in libs[name]:
+            return jsonify({"error": "path not in library"}), 404
+        libs[name].remove(path)
+        _save_libraries(libs)
+    return jsonify({"ok": True, "count": len(libs[name])})
+
+
 _init_status: dict = {"running": False, "error": None}
 _init_lock = threading.Lock()
 

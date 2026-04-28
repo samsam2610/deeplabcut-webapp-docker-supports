@@ -413,3 +413,99 @@ def test_save_and_load_libraries_roundtrip(tmp_path, monkeypatch):
     libs = {"TestLib": ["/user-data/session1", "/user-data/session2"]}
     routes._save_libraries(libs)
     assert routes._load_libraries() == libs
+
+
+@pytest.fixture
+def lib_client(tmp_path, monkeypatch):
+    """Flask test client with patched LIBRARIES_PATH."""
+    import config
+    import processor
+    monkeypatch.setattr(config, "LIBRARIES_PATH", tmp_path / "libraries.json")
+    monkeypatch.setattr(config, "TEMPLATE_STATE_PATH", tmp_path / "state.json")
+    rng = np.random.default_rng(42)
+    class FakeModel:
+        def encode(self, images, convert_to_numpy=True, batch_size=64, show_progress_bar=False):
+            n = len(images) if isinstance(images, list) else 1
+            arr = rng.random((n, 512)).astype(np.float32)
+            return arr[0] if n == 1 else arr
+    monkeypatch.setattr(processor, "_model", FakeModel())
+    from app import create_app
+    app = create_app()
+    app.config["TESTING"] = True
+    with app.test_client() as c:
+        yield c
+
+
+def test_global_libraries_empty_on_start(lib_client):
+    resp = lib_client.get("/clip-cutter/global-libraries")
+    assert resp.status_code == 200
+    data = json.loads(resp.data)
+    assert data["libraries"] == {}
+
+
+def test_create_library(lib_client):
+    resp = lib_client.post("/clip-cutter/global-libraries", json={"name": "TestLib"})
+    assert resp.status_code == 200
+    data = json.loads(resp.data)
+    assert data["ok"] is True
+    resp2 = lib_client.get("/clip-cutter/global-libraries")
+    assert "TestLib" in json.loads(resp2.data)["libraries"]
+
+
+def test_create_library_duplicate_returns_422(lib_client):
+    lib_client.post("/clip-cutter/global-libraries", json={"name": "TestLib"})
+    resp = lib_client.post("/clip-cutter/global-libraries", json={"name": "TestLib"})
+    assert resp.status_code == 422
+
+
+def test_create_library_empty_name_returns_422(lib_client):
+    resp = lib_client.post("/clip-cutter/global-libraries", json={"name": ""})
+    assert resp.status_code == 422
+
+
+def test_delete_library(lib_client):
+    lib_client.post("/clip-cutter/global-libraries", json={"name": "ToDelete"})
+    resp = lib_client.delete("/clip-cutter/global-libraries/ToDelete")
+    assert resp.status_code == 200
+    data = json.loads(lib_client.get("/clip-cutter/global-libraries").data)
+    assert "ToDelete" not in data["libraries"]
+
+
+def test_delete_missing_library_returns_404(lib_client):
+    resp = lib_client.delete("/clip-cutter/global-libraries/NoSuchLib")
+    assert resp.status_code == 404
+
+
+def test_add_folder_to_library(lib_client):
+    lib_client.post("/clip-cutter/global-libraries", json={"name": "Lib"})
+    resp = lib_client.post(
+        "/clip-cutter/global-libraries/Lib/folders",
+        json={"path": "/user-data/session1"},
+    )
+    assert resp.status_code == 200
+    data = json.loads(resp.data)
+    assert data["count"] == 1
+    libs = json.loads(lib_client.get("/clip-cutter/global-libraries").data)["libraries"]
+    assert "/user-data/session1" in libs["Lib"]
+
+
+def test_add_duplicate_folder_returns_422(lib_client):
+    lib_client.post("/clip-cutter/global-libraries", json={"name": "Lib"})
+    lib_client.post("/clip-cutter/global-libraries/Lib/folders", json={"path": "/p"})
+    resp = lib_client.post("/clip-cutter/global-libraries/Lib/folders", json={"path": "/p"})
+    assert resp.status_code == 422
+
+
+def test_remove_folder_from_library(lib_client):
+    lib_client.post("/clip-cutter/global-libraries", json={"name": "Lib"})
+    lib_client.post("/clip-cutter/global-libraries/Lib/folders", json={"path": "/p"})
+    resp = lib_client.delete("/clip-cutter/global-libraries/Lib/folders", json={"path": "/p"})
+    assert resp.status_code == 200
+    libs = json.loads(lib_client.get("/clip-cutter/global-libraries").data)["libraries"]
+    assert "/p" not in libs["Lib"]
+
+
+def test_remove_missing_folder_returns_404(lib_client):
+    lib_client.post("/clip-cutter/global-libraries", json={"name": "Lib"})
+    resp = lib_client.delete("/clip-cutter/global-libraries/Lib/folders", json={"path": "/nope"})
+    assert resp.status_code == 404
