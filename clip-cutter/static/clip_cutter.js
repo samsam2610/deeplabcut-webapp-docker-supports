@@ -4,6 +4,10 @@ let currentJobId = null;
 let eventSource = null;
 const detections = [];
 let currentFilter = "sensor+clip";
+let _activeBatchLibrary = null;   // name of expanded library card
+let _activeBatchFolders = new Set();  // checked folder paths in expanded library
+let _batchMode = false;
+const _batchQueue = new Set();
 
 function esc(s) {
   const d = document.createElement("div");
@@ -20,6 +24,114 @@ function applyFilter() {
       (currentFilter === "clip_only" && src === "clip_only");
     card.style.display = visible ? "" : "none";
   });
+}
+
+// ── Global libraries ──────────────────────────────────────────────────────────
+
+async function loadLibraries() {
+  const resp = await fetch("/clip-cutter/global-libraries");
+  if (!resp.ok) { setStatus("Failed to load libraries"); return; }
+  const { libraries } = await resp.json();
+  renderLibraries(libraries);
+}
+
+function renderLibraries(libraries) {
+  const list = document.getElementById("lib-list");
+  list.innerHTML = "";
+  for (const [name, folders] of Object.entries(libraries)) {
+    const card = document.createElement("div");
+    card.className = "lib-card";
+    const isActive = name === _activeBatchLibrary;
+    card.innerHTML = `
+      <div class="lib-card-header">
+        <span class="lib-name" title="${name}">${name}</span>
+        <span class="lib-folder-count">${folders.length} folder${folders.length !== 1 ? "s" : ""}</span>
+        <button class="player-btn lib-delete-btn" title="Delete library">&#10005;</button>
+      </div>
+      <div class="lib-card-body${isActive ? " open" : ""}">
+        ${folders.map(p => {
+          const label = p.split("/").pop();
+          const checked = _activeBatchFolders.has(p);
+          return `<div class="lib-folder-row">
+            <input type="checkbox" class="lib-folder-check" data-path="${p}" ${checked ? "checked" : ""}>
+            <span class="lib-folder-label" title="${p}">${label}</span>
+            <button class="player-btn lib-folder-remove" data-path="${p}" title="Remove folder">&#10005;</button>
+          </div>`;
+        }).join("")}
+        <button class="player-btn lib-scan-btn" disabled>&#9654; Scan with checked (${
+          folders.filter(p => _activeBatchFolders.has(p)).length
+        })</button>
+      </div>
+    `;
+
+    // Header click: expand/collapse
+    card.querySelector(".lib-card-header").addEventListener("click", (e) => {
+      if (e.target.closest(".lib-delete-btn")) return;
+      const body = card.querySelector(".lib-card-body");
+      const opening = !body.classList.contains("open");
+      // Collapse all
+      document.querySelectorAll(".lib-card-body.open").forEach(b => b.classList.remove("open"));
+      if (opening) {
+        body.classList.add("open");
+        _activeBatchLibrary = name;
+        _activeBatchFolders = new Set(
+          [...body.querySelectorAll(".lib-folder-check:checked")].map(cb => cb.dataset.path)
+        );
+      } else {
+        _activeBatchLibrary = null;
+        _activeBatchFolders = new Set();
+      }
+      updateBatchScanBtn();
+    });
+
+    // Delete library
+    card.querySelector(".lib-delete-btn").addEventListener("click", async () => {
+      if (!confirm(`Delete library "${name}"?`)) return;
+      await fetch(`/clip-cutter/global-libraries/${encodeURIComponent(name)}`, { method: "DELETE" });
+      if (_activeBatchLibrary === name) { _activeBatchLibrary = null; _activeBatchFolders = new Set(); }
+      await loadLibraries();
+    });
+
+    // Folder checkboxes
+    card.querySelectorAll(".lib-folder-check").forEach(cb => {
+      cb.addEventListener("change", () => {
+        if (cb.checked) _activeBatchFolders.add(cb.dataset.path);
+        else _activeBatchFolders.delete(cb.dataset.path);
+        const scanBtn = card.querySelector(".lib-scan-btn");
+        scanBtn.textContent = `▶ Scan with checked (${_activeBatchFolders.size})`;
+        updateBatchScanBtn();
+      });
+    });
+
+    // Remove folder buttons
+    card.querySelectorAll(".lib-folder-remove").forEach(btn => {
+      btn.addEventListener("click", async () => {
+        const p = btn.dataset.path;
+        await fetch(`/clip-cutter/global-libraries/${encodeURIComponent(name)}/folders`, {
+          method: "DELETE",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ path: p }),
+        });
+        _activeBatchFolders.delete(p);
+        await loadLibraries();
+      });
+    });
+
+    // Scan button
+    card.querySelector(".lib-scan-btn").addEventListener("click", () => startBatchScan());
+
+    list.appendChild(card);
+  }
+}
+
+function updateBatchScanBtn() {
+  document.querySelectorAll(".lib-scan-btn").forEach(btn => {
+    btn.disabled = _activeBatchFolders.size === 0 || _batchQueue.size === 0;
+  });
+}
+
+function startBatchScan() {
+  // implemented in Task 8
 }
 
 // ── Boot ─────────────────────────────────────────────────────────────────────
@@ -109,6 +221,54 @@ document.addEventListener("DOMContentLoaded", () => {
 
   // Sidebar init button
   document.getElementById("sidebar-init-btn").addEventListener("click", initTemplate);
+
+  // ── Sidebar tabs ──────────────────────────────────────────────────────────────
+  const tabTemplate  = document.getElementById("tab-template");
+  const tabLibraries = document.getElementById("tab-libraries");
+  const templateBody = [
+    "sidebar-empty-state", "sidebar-no-template", "template-list",
+    "template-footer", "sidebar-actions",
+  ].map(id => document.getElementById(id));
+  const librariesPanel = document.getElementById("libraries-panel");
+  const initBtn = document.getElementById("sidebar-init-btn");
+
+  function showTemplateTab() {
+    tabTemplate.classList.add("active");
+    tabLibraries.classList.remove("active");
+    librariesPanel.style.display = "none";
+    initBtn.style.display = _selectedVideoStem ? "" : "none";
+    loadTemplate();
+  }
+
+  function showLibrariesTab() {
+    tabLibraries.classList.add("active");
+    tabTemplate.classList.remove("active");
+    templateBody.forEach(el => { if (el) el.style.display = "none"; });
+    initBtn.style.display = "none";
+    librariesPanel.style.display = "flex";
+    loadLibraries();
+  }
+
+  tabTemplate.addEventListener("click", showTemplateTab);
+  tabLibraries.addEventListener("click", showLibrariesTab);
+
+  // ── [+ New] library button ────────────────────────────────────────────────────
+  document.getElementById("lib-new-btn").addEventListener("click", async () => {
+    const name = document.getElementById("lib-new-name").value.trim();
+    if (!name) return;
+    const resp = await fetch("/clip-cutter/global-libraries", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name }),
+    });
+    if (resp.ok) {
+      document.getElementById("lib-new-name").value = "";
+      await loadLibraries();
+    } else {
+      const err = await resp.json();
+      setStatus("Error: " + err.error);
+    }
+  });
 
   // Browse frames buttons
   const _openBrowse = () => {

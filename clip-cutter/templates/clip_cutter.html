@@ -25,6 +25,8 @@ header h1 { font-size: 15px; font-weight: 600; }
 .sidebar.collapsed #sidebar-actions,
 .sidebar.collapsed #sidebar-empty-state,
 .sidebar.collapsed #sidebar-no-template { display: none !important; }
+.sidebar.collapsed #libraries-panel,
+.sidebar.collapsed #sidebar-tabs { display: none !important; }
 
 /* ── Collapsible browser section ────────────────────────────────────────────── */
 #browser-section.collapsed #browser-list,
@@ -46,6 +48,33 @@ header h1 { font-size: 15px; font-weight: 600; }
 .tpl-view-btn, .tpl-del-btn { flex-shrink: 0; padding: 2px 6px; font-size: 10px; }
 #sidebar-frame-count { font-size: 9px; color: #768390; margin-left: auto; margin-right: 4px; }
 #template-footer { padding: 6px 10px; border-top: 1px solid #30363d; font-size: 10px; color: #768390; flex-shrink: 0; }
+
+/* ── Sidebar tabs ───────────────────────────────────────────────────────────── */
+#sidebar-tabs { display: flex; gap: 2px; margin: 0 6px; }
+.sidebar-tab { font-size: 9px; padding: 2px 7px; border-radius: 3px; cursor: pointer;
+               border: 1px solid #30363d; background: transparent; color: #768390; }
+.sidebar-tab.active { border-color: #388bfd; color: #388bfd; }
+/* ── Library panel ──────────────────────────────────────────────────────────── */
+#libraries-panel { display: none; flex-direction: column; flex: 1; overflow: hidden; }
+#lib-header { padding: 5px 8px; border-bottom: 1px solid #30363d; display: flex; gap: 4px; flex-shrink: 0; }
+#lib-new-name { flex: 1; font-size: 10px; padding: 2px 6px; background: #0d1117;
+                border: 1px solid #30363d; border-radius: 3px; color: #cdd9e5; }
+#lib-list { overflow-y: auto; flex: 1; }
+.lib-card { border-bottom: 1px solid #21262d; }
+.lib-card-header { display: flex; align-items: center; gap: 4px; padding: 5px 8px;
+                   cursor: pointer; user-select: none; }
+.lib-card-header:hover { background: #1c2128; }
+.lib-name { flex: 1; font-size: 10px; color: #cdd9e5; overflow: hidden;
+            text-overflow: ellipsis; white-space: nowrap; }
+.lib-folder-count { font-size: 9px; color: #768390; flex-shrink: 0; }
+.lib-delete-btn { flex-shrink: 0; padding: 1px 5px; font-size: 9px; }
+.lib-card-body { padding: 4px 8px 6px; display: none; }
+.lib-card-body.open { display: block; }
+.lib-folder-row { display: flex; align-items: center; gap: 4px; padding: 2px 0; }
+.lib-folder-label { flex: 1; font-size: 9px; color: #768390; overflow: hidden;
+                    text-overflow: ellipsis; white-space: nowrap; }
+.lib-folder-remove { flex-shrink: 0; padding: 1px 4px; font-size: 9px; }
+.lib-scan-btn { width: 100%; margin-top: 5px; font-size: 9px; padding: 3px 0; }
 
 /* Folder browser */
 .browser-toolbar { display: flex; align-items: center; gap: 6px; margin-bottom: 6px; }
@@ -341,6 +370,10 @@ header h1 { font-size: 15px; font-weight: 600; }
     <div class="sidebar-header">
       <span class="sidebar-title">Template Bank</span>
       <span id="sidebar-frame-count"></span>
+      <div id="sidebar-tabs">
+        <button class="sidebar-tab active" id="tab-template">Template</button>
+        <button class="sidebar-tab" id="tab-libraries">Libraries</button>
+      </div>
       <button class="btn-sm btn-green" id="sidebar-init-btn" style="display:none;" title="Init template from this video">&#8635; Init</button>
       <button class="btn-sm" id="sidebar-toggle" title="Collapse sidebar">&#9660;</button>
     </div>
@@ -354,6 +387,13 @@ header h1 { font-size: 15px; font-weight: 600; }
     <div id="sidebar-actions" style="display:none;padding:6px 10px;border-top:1px solid #30363d;gap:6px;flex-shrink:0;flex-direction:column;">
       <button class="btn-sm" id="sidebar-browse-btn2">&#9654; Browse frames</button>
       <button class="btn-sm btn-red" id="sidebar-clear-btn">&#10005; Clear</button>
+    </div>
+    <div id="libraries-panel">
+      <div id="lib-header">
+        <input id="lib-new-name" placeholder="New library name…">
+        <button class="player-btn" id="lib-new-btn">+ New</button>
+      </div>
+      <div id="lib-list"></div>
     </div>
     <div id="sidebar-resize-handle"></div>
   </div>
