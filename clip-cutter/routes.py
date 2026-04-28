@@ -275,7 +275,9 @@ def _run_batch_init(job_id: str, video_paths: list[str]):
     for i, video_path in enumerate(video_paths):
         p = Path(video_path)
         clips_dir = p.parent / p.stem
-        state_path = clips_dir / "template" / "template_state.json"
+        template_dir = clips_dir / "template"
+        template_dir.mkdir(parents=True, exist_ok=True)
+        state_path = template_dir / "template_state.json"
         with _batch_init_jobs_lock:
             _batch_init_jobs[job_id]["current"] = i + 1
             _batch_init_jobs[job_id]["video"] = p.name

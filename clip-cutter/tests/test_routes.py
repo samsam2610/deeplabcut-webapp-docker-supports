@@ -538,7 +538,7 @@ def test_batch_init_returns_job_id(lib_client, monkeypatch, tmp_path):
 
 
 def test_batch_init_stream_returns_done(lib_client, monkeypatch, tmp_path):
-    import processor, routes
+    import processor
     monkeypatch.setattr(
         processor, "init_template_from_clips_dir",
         lambda clips_dir, state_path, crop=None: {"frames": [], "mean_embedding": None, "dino_mean_embedding": None}
