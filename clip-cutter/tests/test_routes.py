@@ -36,7 +36,7 @@ def client(tmp_path, monkeypatch):
 
 @pytest.fixture(autouse=True)
 def reset_routes_state():
-    """Reset global _state and _init_status between tests."""
+    """Reset global route state between tests."""
     import routes
     routes._state = {
         "frames": [],
@@ -46,6 +46,8 @@ def reset_routes_state():
         "video_parent": None,
     }
     routes._init_status = {"running": False, "error": None}
+    routes._batch_init_jobs.clear()
+    routes._batch_scan_jobs.clear()
     yield
     routes._state = {
         "frames": [],
@@ -55,6 +57,8 @@ def reset_routes_state():
         "video_parent": None,
     }
     routes._init_status = {"running": False, "error": None}
+    routes._batch_init_jobs.clear()
+    routes._batch_scan_jobs.clear()
 
 
 def test_index_returns_200(client):
