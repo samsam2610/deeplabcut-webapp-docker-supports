@@ -349,10 +349,10 @@ def _run_batch_scan(job_id: str, template_dirs: list, video_paths: list, params:
     results = []
     total_videos = len(video_paths)
     for i, video_path in enumerate(video_paths):
-        def phase_cb(phase, current, total, _vpath=video_path):
+        def phase_cb(phase, current, total, _vpath=video_path, _i=i):
             with _batch_scan_jobs_lock:
                 _batch_scan_jobs[job_id]["video"] = Path(_vpath).name
-                _batch_scan_jobs[job_id]["video_index"] = i + 1
+                _batch_scan_jobs[job_id]["video_index"] = _i + 1
                 _batch_scan_jobs[job_id]["video_total"] = total_videos
                 _batch_scan_jobs[job_id]["phase"] = phase
                 _batch_scan_jobs[job_id]["current"] = current

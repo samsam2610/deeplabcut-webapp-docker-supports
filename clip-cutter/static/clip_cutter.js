@@ -161,11 +161,11 @@ async function startBatchScan() {
       const job = JSON.parse(e.data);
       if (job.phase === "done") {
         es.close();
-        let total = 0;
-        (job.results || []).forEach(r => {
-          total += r.detections.length;
-          renderDetections(r.detections);
-        });
+        const allDetections = [];
+        (job.results || []).forEach(r => allDetections.push(...r.detections));
+        currentFilter = "all";
+        renderDetections(allDetections);
+        const total = allDetections.length;
         setStatus(`Batch scan done — ${total} detection${total !== 1 ? "s" : ""} across ${video_paths.length} video${video_paths.length !== 1 ? "s" : ""}`);
       } else if (job.phase === "error") {
         es.close();
@@ -950,6 +950,9 @@ function buildResultCard(d, idx) {
     } else if (d.source === "clip_only") {
       badge.classList.add("source-clip-only");
       badge.textContent = "CLIP only";
+    } else if (d.source === "global_library") {
+      badge.classList.add("source-global-library");
+      badge.textContent = "global library";
     }
     card.querySelector(".result-meta").appendChild(badge);
   }
