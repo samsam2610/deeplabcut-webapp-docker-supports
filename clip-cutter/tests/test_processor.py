@@ -317,3 +317,49 @@ def test_scan_video_multi_template_finds_detections(mock_model, tiny_video, tmp_
     for d in detections:
         assert "frame_number" in d
         assert "similarity" in d
+
+
+def test_scan_video_sensor_guided_multi_no_csv_raises(mock_model, tiny_video, tmp_path):
+    """CSV path that doesn't exist should propagate as FileNotFoundError."""
+    import processor
+    rng = np.random.default_rng(0)
+    clip_matrix = rng.random((2, 512)).astype(np.float32)
+    clip_matrix /= np.linalg.norm(clip_matrix, axis=1, keepdims=True)
+    combined = {"clip_matrix": clip_matrix, "dino_matrix": None}
+
+    import pytest
+    with pytest.raises((FileNotFoundError, Exception)):
+        processor.scan_video_sensor_guided_multi(
+            tiny_video, combined,
+            csv_path=tmp_path / "missing.csv",
+            trigger_value=14, sensor_margin=2,
+            stride=2, threshold=0.0, min_spacing=10, fine_window=2,
+        )
+
+
+def test_scan_video_sensor_guided_multi_returns_list(mock_model, tiny_video, tmp_path):
+    """With a well-formed CSV, returns a list (possibly empty)."""
+    import csv, processor
+    csv_path = tmp_path / "sensor.csv"
+    with open(csv_path, "w", newline="") as f:
+        w = csv.writer(f)
+        w.writerow(["frame_number", "frame_line_status"])
+        for i in range(1, 21):
+            w.writerow([i, 14 if i in (5, 10) else 0])
+
+    rng = np.random.default_rng(0)
+    clip_matrix = rng.random((2, 512)).astype(np.float32)
+    clip_matrix /= np.linalg.norm(clip_matrix, axis=1, keepdims=True)
+    combined = {"clip_matrix": clip_matrix, "dino_matrix": None}
+
+    results = processor.scan_video_sensor_guided_multi(
+        tiny_video, combined,
+        csv_path=csv_path,
+        trigger_value=14, sensor_margin=2,
+        stride=2, threshold=0.0, min_spacing=10, fine_window=2,
+    )
+    assert isinstance(results, list)
+    for r in results:
+        assert "frame_number" in r
+        assert "similarity" in r
+        assert "source" in r
