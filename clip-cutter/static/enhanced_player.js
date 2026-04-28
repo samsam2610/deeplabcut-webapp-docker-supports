@@ -127,6 +127,18 @@ async function openPlayer({ mode, videoPath, keyFrame1Based = null, detectionIdx
     }
   }
 
+  // Fetch sibling camera path (computed server-side at select-video time)
+  _syncCamEnabled = false;
+  _siblingVideoPath = null;
+  try {
+    const sr = await fetch("/clip-cutter/sibling-camera");
+    if (sr.ok) {
+      const sd = await sr.json();
+      _siblingVideoPath = sd.sibling_video_path || null;
+    }
+  } catch (e) { console.warn("[enhanced_player] sibling-camera fetch failed:", e); }
+  _epUpdateSyncCamUI();
+
   _epBuildTagBars();
 
   await _epLoadFrame(_clipStart);
@@ -170,6 +182,7 @@ async function _epLoadFrame(n) {
     _epUpdateDisplay();
     const _ac = document.getElementById("ep-add-confirm");
     if (_ac) _ac.style.display = "none";
+    _epLoadCam2Frame(n);   // non-blocking parallel fetch for second camera
     if (n < (_unlocked ? _frameCount - 1 : _clipEnd)) {
       new Image().src = `/clip-cutter/frame?video=${encodeURIComponent(_videoPath)}&n=${n + 1}`;
     }
@@ -847,6 +860,13 @@ document.addEventListener("DOMContentLoaded", () => {
     document.getElementById("ep-zoom-pct").textContent = pct + "%";
     const img = document.getElementById("ep-frame");
     img.style.transform = "scale(" + (pct / 100) + ")";
+  });
+
+  // Sync cam checkbox
+  document.getElementById("ep-sync-cam").addEventListener("change", (e) => {
+    _syncCamEnabled = e.target.checked;
+    _epUpdateSyncCamUI();
+    if (_syncCamEnabled) _epLoadCam2Frame(_currentFrame);
   });
 
   // Frame counter — double-click to jump
