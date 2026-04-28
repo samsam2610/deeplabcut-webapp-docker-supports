@@ -946,10 +946,9 @@ def test_unlock_button_visible_in_clip_mode(page: Page):
         detectionIdx: 0
     })""")
     expect(page.locator("#ep-unlock-btn")).to_be_visible()
-    assert "Unlock" in page.locator("#ep-unlock-btn").inner_text()
+    expect(page.locator("#ep-unlock-btn")).to_contain_text("Unlock")
     # Lock badge should show lock emoji and range
-    lock_text = page.locator("#ep-lock-badge").inner_text()
-    assert "🔒" in lock_text
+    expect(page.locator("#ep-lock-badge")).to_contain_text("🔒")
 
 
 def test_unlock_toggles_state(page: Page):
@@ -983,9 +982,9 @@ def test_unlock_toggles_state(page: Page):
     page.wait_for_timeout(100)
 
     # Button should now say Lock
-    assert "Lock" in page.locator("#ep-unlock-btn").inner_text()
+    expect(page.locator("#ep-unlock-btn")).to_contain_text("Lock")
     # Lock badge should show unlocked state
-    assert "unlocked" in page.locator("#ep-lock-badge").inner_text().lower()
+    expect(page.locator("#ep-lock-badge")).to_contain_text("unlocked")
     # Lock overlay should be visible
     expect(page.locator("#ep-lock-overlay")).to_be_visible()
     # Seek highlight should be hidden
@@ -994,5 +993,5 @@ def test_unlock_toggles_state(page: Page):
     # Click again to re-lock
     page.locator("#ep-unlock-btn").click()
     page.wait_for_timeout(100)
-    assert "Unlock" in page.locator("#ep-unlock-btn").inner_text()
+    expect(page.locator("#ep-unlock-btn")).to_contain_text("Unlock")
     expect(page.locator("#ep-lock-overlay")).to_be_hidden()
