@@ -909,3 +909,90 @@ def test_unlock_button_exists(page: Page):
     setup_routes(page)
     page.goto(BASE_URL + "/clip-cutter/")
     expect(page.locator("#ep-unlock-btn")).to_have_count(1)
+
+
+def test_unlock_button_initial_state_hidden(page: Page):
+    """Unlock button is hidden before player is opened."""
+    setup_routes(page)
+    page.goto(BASE_URL + "/clip-cutter/")
+    # Button exists in DOM but is hidden (display:none)
+    expect(page.locator("#ep-unlock-btn")).to_have_count(1)
+    expect(page.locator("#ep-unlock-btn")).to_be_hidden()
+
+
+def test_unlock_button_visible_in_clip_mode(page: Page):
+    """After opening player in clip mode, unlock button appears and shows 'Unlock'."""
+    setup_routes(page)
+    page.route(
+        "**/clip-cutter/video-info**",
+        lambda route: route.fulfill(
+            content_type="application/json",
+            body='{"frame_count": 2000}',
+        ),
+    )
+    page.route(
+        "**/clip-cutter/frame**",
+        lambda route: route.fulfill(
+            content_type="image/jpeg",
+            body=base64.b64decode(_JPEG_B64),
+        ),
+    )
+    page.goto(BASE_URL + "/clip-cutter/")
+    # Open player in clip mode via JS
+    page.evaluate("""() => openPlayer({
+        mode: 'clip',
+        videoPath: '/user-data/test.avi',
+        keyFrame1Based: 500,
+        detectionIdx: 0
+    })""")
+    expect(page.locator("#ep-unlock-btn")).to_be_visible()
+    assert "Unlock" in page.locator("#ep-unlock-btn").inner_text()
+    # Lock badge should show lock emoji and range
+    lock_text = page.locator("#ep-lock-badge").inner_text()
+    assert "🔒" in lock_text
+
+
+def test_unlock_toggles_state(page: Page):
+    """Clicking unlock changes button label and shows lock overlay."""
+    setup_routes(page)
+    page.route(
+        "**/clip-cutter/video-info**",
+        lambda route: route.fulfill(
+            content_type="application/json",
+            body='{"frame_count": 2000}',
+        ),
+    )
+    page.route(
+        "**/clip-cutter/frame**",
+        lambda route: route.fulfill(
+            content_type="image/jpeg",
+            body=base64.b64decode(_JPEG_B64),
+        ),
+    )
+    page.goto(BASE_URL + "/clip-cutter/")
+    page.evaluate("""() => openPlayer({
+        mode: 'clip',
+        videoPath: '/user-data/test.avi',
+        keyFrame1Based: 500,
+        detectionIdx: 0
+    })""")
+    page.wait_for_selector("#ep-unlock-btn", state="visible")
+
+    # Click unlock
+    page.locator("#ep-unlock-btn").click()
+    page.wait_for_timeout(100)
+
+    # Button should now say Lock
+    assert "Lock" in page.locator("#ep-unlock-btn").inner_text()
+    # Lock badge should show unlocked state
+    assert "unlocked" in page.locator("#ep-lock-badge").inner_text().lower()
+    # Lock overlay should be visible
+    expect(page.locator("#ep-lock-overlay")).to_be_visible()
+    # Seek highlight should be hidden
+    expect(page.locator("#ep-seek-highlight")).to_be_hidden()
+
+    # Click again to re-lock
+    page.locator("#ep-unlock-btn").click()
+    page.wait_for_timeout(100)
+    assert "Unlock" in page.locator("#ep-unlock-btn").inner_text()
+    expect(page.locator("#ep-lock-overlay")).to_be_hidden()
