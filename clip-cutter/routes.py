@@ -48,6 +48,7 @@ def _load_libraries() -> dict:
 
 
 def _save_libraries(libs: dict) -> None:
+    """Persist libs to LIBRARIES_PATH. Caller must hold _libraries_lock."""
     config.LIBRARIES_PATH.parent.mkdir(parents=True, exist_ok=True)
     with open(config.LIBRARIES_PATH, "w") as f:
         json.dump(libs, f, indent=2)
