@@ -339,7 +339,7 @@ def test_keep_detection_grays_out_card(page: Page):
     cards = page.locator(".result-card")
     expect(cards).to_have_count(2, timeout=8_000)
 
-    keep_btn = cards.nth(0).locator("button", has_text="Keep")
+    keep_btn = cards.nth(0).locator(".keep-btn")
     keep_btn.click()
 
     expect(cards.nth(0)).to_have_class(re.compile(r"kept"))
@@ -358,7 +358,7 @@ def test_reject_detection_grays_out_card(page: Page):
     cards = page.locator(".result-card")
     expect(cards).to_have_count(2, timeout=8_000)
 
-    reject_btn = cards.nth(1).locator("button", has_text="Reject")
+    reject_btn = cards.nth(1).locator(".reject-btn")
     reject_btn.click()
 
     expect(cards.nth(1)).to_have_class(re.compile(r"rejected"))
@@ -378,7 +378,7 @@ def test_add_detection_to_template(page: Page):
     cards = page.locator(".result-card")
     expect(cards).to_have_count(2, timeout=8_000)
 
-    cards.nth(0).locator("button", has_text="Add to template").click()
+    cards.nth(0).locator(".add-btn").click()
 
     expect(page.locator("#template-footer")).to_have_text("6 frames loaded")
 
@@ -525,7 +525,7 @@ def test_reject_persists_via_put_detections(page: Page):
         and "/clip-cutter/detections" in r.url
         and "rejected" in (r.post_data or "")
     ):
-        cards.nth(1).locator("button", has_text="Reject").click()
+        cards.nth(1).locator(".reject-btn").click()
 
     assert any(
         any(d.get("status") == "rejected" for d in call.get("detections", []))
@@ -710,7 +710,7 @@ def test_source_badge_sensor_clip(page: Page):
     """)
     badge = page.locator(".source-badge.source-sensor-clip")
     expect(badge).to_be_visible()
-    expect(badge).to_have_text("✓ sensor+CLIP")
+    expect(badge).to_have_text("s+c")
 
 
 def test_no_source_badge_when_absent(page: Page):
@@ -903,56 +903,23 @@ def test_clear_modal_cancel_closes_modal(page: Page):
     expect(page.locator("#clear-confirm-modal")).not_to_have_class(re.compile(r"\bopen\b"))
 
 
-# ── Keyframe unlock tests ─────────────────────────────────────────────────────
+# ── Lock badge (merged lock/unlock) tests ────────────────────────────────────
 
-def test_unlock_button_exists(page: Page):
+def test_lock_badge_exists(page: Page):
+    """Lock badge button exists in the DOM."""
     setup_routes(page)
     page.goto(BASE_URL + "/clip-cutter/")
-    expect(page.locator("#ep-unlock-btn")).to_have_count(1)
+    expect(page.locator("#ep-lock-badge")).to_have_count(1)
 
 
-def test_unlock_button_initial_state_hidden(page: Page):
-    """Unlock button is hidden before player is opened."""
+def test_lock_badge_hidden_before_player_open(page: Page):
+    """Lock badge is hidden before the player is opened."""
     setup_routes(page)
     page.goto(BASE_URL + "/clip-cutter/")
-    # Button exists in DOM but is hidden (display:none)
-    expect(page.locator("#ep-unlock-btn")).to_have_count(1)
-    expect(page.locator("#ep-unlock-btn")).to_be_hidden()
+    expect(page.locator("#ep-lock-badge")).to_be_hidden()
 
 
-def test_unlock_button_visible_in_clip_mode(page: Page):
-    """After opening player in clip mode, unlock button appears and shows 'Unlock'."""
-    setup_routes(page)
-    page.route(
-        "**/clip-cutter/video-info**",
-        lambda route: route.fulfill(
-            content_type="application/json",
-            body='{"frame_count": 2000}',
-        ),
-    )
-    page.route(
-        "**/clip-cutter/frame**",
-        lambda route: route.fulfill(
-            content_type="image/jpeg",
-            body=base64.b64decode(_JPEG_B64),
-        ),
-    )
-    page.goto(BASE_URL + "/clip-cutter/")
-    # Open player in clip mode via JS
-    page.evaluate("""() => openPlayer({
-        mode: 'clip',
-        videoPath: '/user-data/test.avi',
-        keyFrame1Based: 500,
-        detectionIdx: 0
-    })""")
-    expect(page.locator("#ep-unlock-btn")).to_be_visible()
-    expect(page.locator("#ep-unlock-btn")).to_contain_text("Unlock")
-    # Lock badge should show lock emoji and range
-    expect(page.locator("#ep-lock-badge")).to_contain_text("🔒")
-
-
-def test_unlock_toggles_state(page: Page):
-    """Clicking unlock changes button label and shows lock overlay."""
+def _open_player_clip_mode(page: Page) -> None:
     setup_routes(page)
     page.route(
         "**/clip-cutter/video-info**",
@@ -975,23 +942,386 @@ def test_unlock_toggles_state(page: Page):
         keyFrame1Based: 500,
         detectionIdx: 0
     })""")
-    page.wait_for_selector("#ep-unlock-btn", state="visible")
 
-    # Click unlock
-    page.locator("#ep-unlock-btn").click()
+
+def test_lock_badge_visible_and_red_in_clip_mode(page: Page):
+    """After opening player in clip mode, lock badge is visible and shows locked state."""
+    _open_player_clip_mode(page)
+    badge = page.locator("#ep-lock-badge")
+    expect(badge).to_be_visible(timeout=5_000)
+    expect(badge).to_contain_text("🔒")
+    expect(badge).to_have_class(re.compile(r"\blocked\b"))
+
+
+def test_lock_badge_toggles_on_click(page: Page):
+    """Clicking lock badge toggles between locked (red) and unlocked (green) states."""
+    _open_player_clip_mode(page)
+    badge = page.locator("#ep-lock-badge")
+    expect(badge).to_be_visible(timeout=5_000)
+
+    # Initially locked (red)
+    expect(badge).to_have_class(re.compile(r"\blocked\b"))
+    expect(badge).to_contain_text("🔒")
+
+    # Click to unlock → green
+    badge.click()
     page.wait_for_timeout(100)
-
-    # Button should now say Lock
-    expect(page.locator("#ep-unlock-btn")).to_contain_text("Lock")
-    # Lock badge should show unlocked state
-    expect(page.locator("#ep-lock-badge")).to_contain_text("unlocked")
-    # Lock overlay should be visible
+    expect(badge).to_have_class(re.compile(r"\bunlocked\b"))
+    expect(badge).to_contain_text("🔓")
     expect(page.locator("#ep-lock-overlay")).to_be_visible()
-    # Seek highlight should be hidden
     expect(page.locator("#ep-seek-highlight")).to_be_hidden()
 
-    # Click again to re-lock
-    page.locator("#ep-unlock-btn").click()
+    # Click again to re-lock → red
+    badge.click()
     page.wait_for_timeout(100)
-    expect(page.locator("#ep-unlock-btn")).to_contain_text("Unlock")
+    expect(badge).to_have_class(re.compile(r"\blocked\b"))
+    expect(badge).to_contain_text("🔒")
     expect(page.locator("#ep-lock-overlay")).to_be_hidden()
+
+
+def test_browser_loads_files_on_page_load(page: Page):
+    """File browser populates on load — catches JS init crash from missing DOM element."""
+    setup_routes(page)
+    page.goto(f"{BASE_URL}/clip-cutter/")
+
+    # If DOMContentLoaded throws (e.g. null.addEventListener), browser-list stays empty
+    rows = page.locator(".browser-row")
+    expect(rows).to_have_count(4, timeout=5_000)
+
+
+def test_no_js_errors_on_load(page: Page):
+    """Page load must produce zero JavaScript exceptions."""
+    errors = []
+    page.on("pageerror", lambda e: errors.append(str(e)))
+    setup_routes(page)
+    page.goto(f"{BASE_URL}/clip-cutter/")
+    page.wait_for_timeout(500)
+    assert errors == [], f"JavaScript errors on load:\n" + "\n".join(errors)
+
+
+def test_lib_settings_toggle_shows_body(page: Page):
+    """Clicking #lib-settings-toggle reveals the scan-settings body."""
+    setup_routes(page)
+    page.goto(f"{BASE_URL}/clip-cutter/")
+    page.click("#tab-libraries")
+    expect(page.locator("#lib-settings-body")).to_be_hidden()
+    page.click("#lib-settings-toggle")
+    expect(page.locator("#lib-settings-body")).to_be_visible()
+
+
+def test_lib_scan_type_pill_switches_to_template(page: Page):
+    """Clicking the Template Frames pill activates it and shows template fields."""
+    setup_routes(page)
+    page.goto(f"{BASE_URL}/clip-cutter/")
+    page.click("#tab-libraries")
+    page.click("#lib-settings-toggle")
+    page.click("#lib-scan-type .pill-btn[data-val='template_frames']")
+    expect(page.locator("#lib-scan-type .pill-btn[data-val='template_frames']")).to_have_class(
+        re.compile(r"\bactive\b")
+    )
+    expect(page.locator("#lib-template-fields")).to_be_visible()
+    expect(page.locator("#lib-clips-fields")).to_be_hidden()
+
+
+def _open_player(page: Page) -> None:
+    """Helper: select a video, scan, click first card to open the player panel."""
+    page.locator(".browser-row:has(.badge-pending)").first.click()
+    page.locator("#scan-btn").click()
+    expect(page.locator(".result-card")).to_have_count(2, timeout=8_000)
+    page.locator(".result-card").first.locator(".result-name").click()
+    expect(page.locator("#player-panel")).to_be_visible(timeout=5_000)
+
+
+def test_postfix_tag_add_button_is_narrow(page: Page):
+    """The + button next to the tag input is not full-width (bug: was 100% width)."""
+    setup_routes_with_persistence(page, template_frames=_MOCK_FRAMES)
+    page.goto(f"{BASE_URL}/clip-cutter/")
+    _open_player(page)
+
+    btn = page.locator("#ep-add-tag-btn")
+    input_el = page.locator("#ep-new-tag-input")
+
+    # Button should be much narrower than the input (not full-width)
+    btn_w = btn.bounding_box()["width"]
+    inp_w = input_el.bounding_box()["width"]
+    assert btn_w < inp_w, f"+ button ({btn_w}px) should be narrower than input ({inp_w}px)"
+
+
+def test_postfix_tag_can_be_added_and_fills_postfix(page: Page):
+    """Typing a tag name and clicking + adds a pill that fills the postfix field on click."""
+    setup_routes_with_persistence(page, template_frames=_MOCK_FRAMES)
+    page.goto(f"{BASE_URL}/clip-cutter/")
+
+    # Clear any leftover localStorage from previous tests
+    page.evaluate("localStorage.removeItem('clip_cutter_postfix_tags')")
+    page.reload()
+    _open_player(page)
+
+    # Type a tag name and click +
+    page.locator("#ep-new-tag-input").fill("mytest")
+    page.locator("#ep-add-tag-btn").click()
+
+    # A pill should appear
+    pill = page.locator(".ep-postfix-tag").first
+    expect(pill).to_be_visible(timeout=2_000)
+    assert "mytest" in pill.inner_text()
+
+    # Clicking the pill should fill the postfix field
+    pill.click()
+    expect(page.locator("#ep-postfix")).to_have_value("mytest", timeout=2_000)
+
+    # Cleanup
+    page.evaluate("localStorage.removeItem('clip_cutter_postfix_tags')")
+
+
+def test_clicking_kept_card_clears_previous_active_preview(page: Page):
+    """Clicking a kept card (which has disabled buttons) must move active-preview highlight.
+
+    Bug: e.target.closest("button") matched disabled buttons, causing the card click
+    handler to bail before updating active-preview. Fixed by checking button:not([disabled]).
+    """
+    setup_routes_with_persistence(page, template_frames=_MOCK_FRAMES)
+    page.goto(f"{BASE_URL}/clip-cutter/")
+    page.locator(".browser-row:has(.badge-pending)").first.click()
+    page.locator("#scan-btn").click()
+    expect(page.locator(".result-card")).to_have_count(2, timeout=8_000)
+
+    cards = page.locator(".result-card")
+
+    # Click card-1 to make it the active-preview
+    page.evaluate("document.querySelector('#card-1 .result-name').click()")
+    expect(page.locator("#player-panel")).to_be_visible(timeout=5_000)
+    expect(cards.nth(1)).to_have_class(re.compile(r"\bactive-preview\b"), timeout=3_000)
+
+    # Keep card-0 via its button so its buttons become disabled
+    page.route(
+        "**/clip-cutter/extract",
+        lambda r: r.fulfill(
+            status=200,
+            content_type="application/json",
+            body='{"avi_path":"/tmp/test.avi","csv_path":"/tmp/test.csv"}',
+        ),
+    )
+    cards.nth(0).locator(".keep-btn").click()
+    expect(cards.nth(0)).to_have_class(re.compile(r"\bkept\b"), timeout=3_000)
+
+    # Dispatch a bubbling click from card-0's disabled Keep button.
+    # The browser won't fire .click() on disabled elements, so we use dispatchEvent.
+    # With the old code (button:not([disabled]) missing), this bailed the card handler.
+    # With the fix, the disabled button is ignored and the card gains active-preview.
+    page.evaluate("""
+      document.querySelector('#card-0 .keep-btn').dispatchEvent(
+        new MouseEvent('click', { bubbles: true, cancelable: true })
+      )
+    """)
+    expect(cards.nth(0)).to_have_class(re.compile(r"\bactive-preview\b"), timeout=3_000)
+    expect(cards.nth(1)).not_to_have_class(re.compile(r"\bactive-preview\b"))
+
+
+def test_switching_card_same_video_preserves_step_size(page: Page):
+    """Switching between two cards for the same video does not reset step size."""
+    setup_routes_with_persistence(page, template_frames=_MOCK_FRAMES)
+    page.goto(f"{BASE_URL}/clip-cutter/")
+    page.locator(".browser-row:has(.badge-pending)").first.click()
+    page.locator("#scan-btn").click()
+    expect(page.locator(".result-card")).to_have_count(2, timeout=8_000)
+
+    cards = page.locator(".result-card")
+
+    # Open player on first card
+    cards.nth(0).locator(".result-name").click()
+    expect(page.locator("#player-panel")).to_be_visible(timeout=5_000)
+
+    # Change step size
+    step_input = page.locator("#ep-step")
+    step_input.fill("25")
+    step_input.dispatch_event("change")
+
+    # Click second card (same video path in mock) via evaluate to bypass overlay
+    page.evaluate("document.querySelector('#card-1 .result-name').click()")
+    page.wait_for_timeout(500)
+
+    # Step size should be preserved
+    assert step_input.input_value() == "25", "Step size was reset on same-video card switch"
+
+
+# ── Chip-toggle / sub-timeline tests ─────────────────────────────────────────
+
+# Synthetic CSV rows: 3 "success" frames, 2 "fail" frames, 2 note frames
+_MOCK_CSV_ROWS = (
+    [{"frame_number": str(i * 50), "frame_line_status": "success", "note": ""} for i in range(1, 4)]
+    + [{"frame_number": str(i * 50 + 25), "frame_line_status": "fail", "note": ""} for i in range(1, 3)]
+    + [{"frame_number": str(i * 50), "frame_line_status": "0", "note": "added"} for i in range(5, 7)]
+)
+
+
+def _setup_player_with_csv(page: Page) -> None:
+    """Navigate to page, mock routes, and inject CSV state into the player module."""
+    setup_routes(page)
+    page.route(
+        "**/clip-cutter/video-info**",
+        lambda r: r.fulfill(content_type="application/json", body='{"frame_count":500}'),
+    )
+    page.route(
+        "**/clip-cutter/frame**",
+        lambda r: r.fulfill(content_type="image/jpeg", body=base64.b64decode(_JPEG_B64)),
+    )
+    page.route(
+        re.compile(r".*/clip-cutter/csv.*"),
+        lambda r: r.fulfill(
+            content_type="application/json",
+            body=json.dumps({"rows": _MOCK_CSV_ROWS}),
+        ),
+    )
+    page.goto(f"{BASE_URL}/clip-cutter/")
+    # Inject CSV state, show player panel, and build tag bars
+    page.evaluate(
+        f"""() => {{
+            document.getElementById('player-panel').style.display = '';
+            _csvRows = {json.dumps(_MOCK_CSV_ROWS)};
+            _frameCount = 500;
+            _epBuildTagBars();
+        }}"""
+    )
+
+
+def test_chip_click_auto_creates_sub_row(page: Page):
+    """Clicking a status chip with no sub-rows auto-creates a sub-row and assigns the chip."""
+    _setup_player_with_csv(page)
+
+    # No sub-rows yet
+    expect(page.locator("#ep-status-sub-rows .ep-sub-row")).to_have_count(0)
+
+    # Click the 'success' chip
+    page.locator("#ep-status-chips .ep-tag-chip", has_text="success").click()
+
+    # Sub-row should be auto-created
+    expect(page.locator("#ep-status-sub-rows .ep-sub-row")).to_have_count(1)
+
+    # Chip should be assigned to the sub-row
+    chip_val = page.evaluate(
+        "document.querySelector('#ep-status-sub-rows .ep-sub-row').dataset.chipVal"
+    )
+    assert chip_val == "success", f"Expected chipVal='success', got '{chip_val}'"
+
+    # Chip should have 'active' class
+    expect(page.locator("#ep-status-chips .ep-tag-chip", has_text="success")).to_have_class(
+        re.compile(r"\bactive\b")
+    )
+
+
+def test_chip_toggle_clears_sub_row(page: Page):
+    """Clicking the same chip twice toggles it off (clears the sub-row's assignment)."""
+    _setup_player_with_csv(page)
+
+    chip = page.locator("#ep-status-chips .ep-tag-chip", has_text="success")
+    chip.click()  # assign
+    expect(page.locator("#ep-status-sub-rows .ep-sub-row")).to_have_count(1)
+    expect(chip).to_have_class(re.compile(r"\bactive\b"))
+
+    chip.click()  # toggle off
+    chip_val = page.evaluate(
+        "document.querySelector('#ep-status-sub-rows .ep-sub-row').dataset.chipVal"
+    )
+    assert chip_val == "", f"Expected chipVal='' after toggle-off, got '{chip_val}'"
+    expect(chip).not_to_have_class(re.compile(r"\bactive\b"))
+
+
+def test_chip_switch_replaces_sub_row_assignment(page: Page):
+    """Clicking a different chip replaces the sub-row assignment."""
+    _setup_player_with_csv(page)
+
+    page.locator("#ep-status-chips .ep-tag-chip", has_text="success").click()
+    page.locator("#ep-status-chips .ep-tag-chip", has_text="fail").click()
+
+    chip_val = page.evaluate(
+        "document.querySelector('#ep-status-sub-rows .ep-sub-row').dataset.chipVal"
+    )
+    assert chip_val == "fail", f"Expected chipVal='fail' after switch, got '{chip_val}'"
+
+    expect(page.locator("#ep-status-chips .ep-tag-chip", has_text="fail")).to_have_class(
+        re.compile(r"\bactive\b")
+    )
+    expect(page.locator("#ep-status-chips .ep-tag-chip", has_text="success")).not_to_have_class(
+        re.compile(r"\bactive\b")
+    )
+
+
+def test_manual_plus_then_chip_assigns_to_that_row(page: Page):
+    """Clicking + then a chip assigns to the newly created row."""
+    _setup_player_with_csv(page)
+
+    # Add sub-row manually via + button
+    page.locator("#ep-status-add-sub").click()
+    expect(page.locator("#ep-status-sub-rows .ep-sub-row")).to_have_count(1)
+
+    # Click a chip — should assign to the existing row (not add another)
+    page.locator("#ep-status-chips .ep-tag-chip", has_text="success").click()
+    expect(page.locator("#ep-status-sub-rows .ep-sub-row")).to_have_count(1)
+
+    chip_val = page.evaluate(
+        "document.querySelector('#ep-status-sub-rows .ep-sub-row').dataset.chipVal"
+    )
+    assert chip_val == "success", f"Expected chipVal='success', got '{chip_val}'"
+
+
+def test_two_sub_rows_independent_chip_assignment(page: Page):
+    """Two sub-rows can hold different chip assignments independently."""
+    _setup_player_with_csv(page)
+
+    # Add first sub-row, assign 'success'
+    page.locator("#ep-status-add-sub").click()
+    page.locator("#ep-status-chips .ep-tag-chip", has_text="success").click()
+
+    # Add second sub-row (radio auto-selects it), assign 'fail'
+    page.locator("#ep-status-add-sub").click()
+    page.locator("#ep-status-chips .ep-tag-chip", has_text="fail").click()
+
+    rows = page.locator("#ep-status-sub-rows .ep-sub-row")
+    expect(rows).to_have_count(2)
+
+    val0 = page.evaluate(
+        "document.querySelectorAll('#ep-status-sub-rows .ep-sub-row')[0].dataset.chipVal"
+    )
+    val1 = page.evaluate(
+        "document.querySelectorAll('#ep-status-sub-rows .ep-sub-row')[1].dataset.chipVal"
+    )
+    assert val0 == "success", f"Row 0 expected 'success', got '{val0}'"
+    assert val1 == "fail", f"Row 1 expected 'fail', got '{val1}'"
+
+
+def test_note_chip_click_auto_creates_sub_row(page: Page):
+    """Note chips also auto-create a sub-row on first click."""
+    _setup_player_with_csv(page)
+
+    expect(page.locator("#ep-note-sub-rows .ep-sub-row")).to_have_count(0)
+    page.locator("#ep-note-chips .ep-tag-chip", has_text="added").click()
+    expect(page.locator("#ep-note-sub-rows .ep-sub-row")).to_have_count(1)
+
+    chip_val = page.evaluate(
+        "document.querySelector('#ep-note-sub-rows .ep-sub-row').dataset.chipVal"
+    )
+    assert chip_val == "added", f"Expected chipVal='added', got '{chip_val}'"
+
+
+def test_status_main_radio_exists_and_is_checked(page: Page):
+    """On load, the status bar has a main-row radio that is checked by default."""
+    _setup_player_with_csv(page)
+    radio = page.locator("#ep-status-main-radio")
+    expect(radio).to_have_count(1)
+    assert page.evaluate("document.getElementById('ep-status-main-radio').checked") is True
+
+def test_note_main_radio_exists_and_is_checked(page: Page):
+    """On load, the note bar has a main-row radio that is checked by default."""
+    _setup_player_with_csv(page)
+    radio = page.locator("#ep-note-main-radio")
+    expect(radio).to_have_count(1)
+    assert page.evaluate("document.getElementById('ep-note-main-radio').checked") is True
+
+def test_main_row_radio_in_same_group_as_sub_rows(page: Page):
+    """Main radio and sub-row radio share the same radio group (mutual exclusion)."""
+    _setup_player_with_csv(page)
+    # Add a sub-row — its radio auto-selects, main should deselect
+    page.locator("#ep-status-add-sub").click()
+    assert page.evaluate("document.getElementById('ep-status-main-radio').checked") is False
+    expect(page.locator("#ep-status-sub-rows .ep-sub-radio:checked")).to_have_count(1)

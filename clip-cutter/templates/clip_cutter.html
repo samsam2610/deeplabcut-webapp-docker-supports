@@ -12,28 +12,61 @@ header h1 { font-size: 15px; font-weight: 600; }
 .app { display: flex; flex: 1; overflow: hidden; }
 
 /* SIDEBAR */
-.sidebar { width: 210px; flex-shrink: 0; background: #161b22; border-right: 1px solid #30363d; display: flex; flex-direction: column; overflow: hidden; position: relative; }
+.sidebar {
+  flex-shrink: 0; background: #161b22; border-right: 1px solid #30363d;
+  display: flex; flex-direction: column; overflow: hidden; position: relative;
+  width: fit-content; max-width: 240px; min-width: 0;
+  transition: max-width 0.2s ease;
+}
+.sidebar.collapsed { max-width: 0; }
 #sidebar-resize-handle {
   position: absolute; top: 0; right: 0; bottom: 0; width: 5px;
   cursor: ew-resize; background: transparent; z-index: 10;
 }
 #sidebar-resize-handle:hover { background: #388bfd44; }
 
-/* ── Collapsible sidebar ────────────────────────────────────────────────────── */
-.sidebar.collapsed #template-list,
-.sidebar.collapsed #template-footer,
-.sidebar.collapsed #sidebar-actions,
-.sidebar.collapsed #sidebar-empty-state,
-.sidebar.collapsed #sidebar-no-template { display: none !important; }
-.sidebar.collapsed #libraries-panel,
-.sidebar.collapsed #sidebar-tabs { display: none !important; }
+/* ── Sidebar expand tab (shows when sidebar collapsed) ──────────────────────── */
+#sidebar-tab {
+  display: none; flex-shrink: 0; width: 18px;
+  background: #161b22; border-right: 1px solid #30363d; cursor: pointer;
+  align-items: center; justify-content: flex-start; padding-top: 10px;
+  font-size: 9px; color: #768390; user-select: none;
+  writing-mode: vertical-rl; letter-spacing: 0.5px; text-transform: uppercase;
+}
+#sidebar-tab:hover { color: #cdd9e5; background: #1c2128; }
+.sidebar.collapsed + #sidebar-tab { display: flex; }
 
-/* ── Collapsible browser section ────────────────────────────────────────────── */
-#browser-section.collapsed #browser-list,
-#browser-section.collapsed #scan-settings,
-#browser-section.collapsed #scan-btn { display: none !important; }
-.sidebar-header { padding: 10px 10px 6px; border-bottom: 1px solid #30363d; display: flex; align-items: center; justify-content: space-between; flex-shrink: 0; }
+/* ── Sidebar header – two rows ──────────────────────────────────────────────── */
+.sidebar-header {
+  border-bottom: 1px solid #30363d; display: flex; flex-direction: column;
+  gap: 4px; padding: 6px 8px; flex-shrink: 0;
+}
+.sidebar-header-row1 { display: flex; align-items: center; justify-content: space-between; }
+.sidebar-header-row2 { display: flex; align-items: center; gap: 3px; }
 .sidebar-title { font-size: 10px; color: #768390; text-transform: uppercase; letter-spacing: 0.5px; }
+
+/* ── Browser panel (left column in main) ────────────────────────────────────── */
+#browser-panel {
+  flex-shrink: 0; display: flex; flex-direction: column; overflow: hidden;
+  background: #0d1117; border-right: 1px solid #30363d;
+  width: 290px; max-width: 290px; min-width: 0;
+  transition: max-width 0.2s ease;
+}
+#browser-panel.collapsed { max-width: 0; }
+#browser-panel-body {
+  flex: 1; display: flex; flex-direction: column; overflow-y: auto; min-height: 0;
+}
+
+/* ── Browser expand tab ─────────────────────────────────────────────────────── */
+#browser-tab {
+  display: none; flex-shrink: 0; width: 18px;
+  background: #0d1117; border-right: 1px solid #30363d; cursor: pointer;
+  align-items: center; justify-content: flex-start; padding-top: 10px;
+  font-size: 9px; color: #768390; user-select: none;
+  writing-mode: vertical-rl; letter-spacing: 0.5px;
+}
+#browser-tab:hover { color: #cdd9e5; background: #161b22; }
+#browser-panel.collapsed + #browser-tab { display: flex; }
 .btn-sm { font-size: 10px; padding: 3px 8px; border-radius: 4px; cursor: pointer; border: 1px solid #444c56; background: transparent; color: #cdd9e5; }
 .btn-green { border-color: #2ea043; color: #2ea043; }
 .btn-green:hover { background: #2ea04322; }
@@ -153,16 +186,16 @@ header h1 { font-size: 15px; font-weight: 600; }
 .modal-actions { display: flex; gap: 8px; justify-content: flex-end; }
 
 /* MAIN */
-.main { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+.main { flex: 1; display: flex; flex-direction: row; overflow: hidden; }
 
-/* Video section */
-.section { padding: 10px 14px; border-bottom: 1px solid #30363d; flex-shrink: 0; }
+/* Browser panel sections */
+.section { padding: 8px 10px; border-bottom: 1px solid #30363d; flex-shrink: 0; }
 .section-label { font-size: 10px; color: #768390; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 6px; }
 .badge { font-size: 9px; padding: 1px 6px; border-radius: 3px; flex-shrink: 0; }
 .badge-done { background: #1a3a1a; color: #2ea043; }
 .badge-pending { background: #1a2535; color: #388bfd; }
 /* Scan settings panel */
-#scan-settings { margin-top: 8px; }
+#scan-settings { padding: 0 10px 4px; }
 .settings-toggle-btn { width: 100%; text-align: left; padding: 4px 8px; background: #1c2128; border: 1px solid #30363d; border-radius: 4px; color: #cdd9e5; font-size: 11px; cursor: pointer; }
 .settings-toggle-btn:hover { background: #30363d; }
 #settings-body { background: #161b22; border: 1px solid #30363d; border-radius: 4px; margin-top: 4px; padding: 8px; }
@@ -180,7 +213,7 @@ header h1 { font-size: 15px; font-weight: 600; }
 #scan-btn:not(:disabled):hover { background: #388bfd; }
 
 /* Progress */
-#progress-section { padding: 8px 14px; border-bottom: 1px solid #30363d; background: #161b22; display: none; flex-shrink: 0; }
+#progress-section { padding: 8px 10px; border-bottom: 1px solid #30363d; background: #161b22; display: none; flex-shrink: 0; }
 
 /* Pipeline steps */
 #pipeline-steps { display: flex; align-items: center; gap: 0; margin-bottom: 8px; }
@@ -198,27 +231,28 @@ header h1 { font-size: 15px; font-weight: 600; }
 #progress-bar { height: 4px; background: #30363d; border-radius: 2px; }
 #progress-fill { height: 100%; width: 0; background: linear-gradient(90deg, #1f6feb, #7ec8e3); border-radius: 2px; transition: width 0.3s; }
 
-/* Results + Player split */
-.content-split { display: flex; flex: 1; overflow: hidden; min-height: 0; }
-
-.results-pane { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
-.results-pane-header { padding: 8px 12px 4px; flex-shrink: 0; display: flex; align-items: center; justify-content: space-between; }
-#results-count { font-size: 11px; color: #2ea043; }
-#source-filter { display: flex; gap: 6px; padding: 6px 10px 2px; }
-.filter-btn { padding: 3px 10px; border-radius: 12px; border: 1px solid #30363d; background: #1c2128; color: #768390; font-size: 11px; cursor: pointer; }
+/* Results pane (flex-1 right side of .main) */
+.results-pane { flex: 1; display: flex; flex-direction: column; overflow: hidden; min-width: 0; }
+.results-pane-header {
+  padding: 3px 8px; flex-shrink: 0;
+  display: flex; align-items: center; gap: 6px;
+  border-bottom: 1px solid #30363d;
+}
+#results-count { font-size: 9px; color: #2ea043; }
+#source-filter { display: flex; gap: 3px; margin-left: auto; }
+.filter-btn { padding: 1px 7px; border-radius: 10px; border: 1px solid #30363d; background: transparent; color: #768390; font-size: 9px; cursor: pointer; }
 .filter-btn:hover { background: #30363d; border-color: #388bfd; }
 .filter-btn.active { background: #1f6feb; border-color: #1f6feb; color: #fff; }
-#results-list { flex: 1; overflow-y: auto; padding: 6px 10px; display: flex; flex-direction: column; gap: 6px; }
-.result-card { display: flex; align-items: center; gap: 10px; padding: 8px 10px; background: #1c2128; border-radius: 5px; border: 1px solid #30363d; cursor: pointer; }
+#results-list { flex: 1; overflow-y: auto; padding: 4px 8px; display: flex; flex-direction: column; gap: 3px; }
+.result-card { display: flex; align-items: center; gap: 6px; padding: 4px 7px; background: #1c2128; border-radius: 4px; border: 1px solid #30363d; cursor: pointer; }
 .result-card:hover { border-color: #388bfd44; }
 .result-card.active-preview { border-color: #388bfd; background: #1a2535; }
 .result-card.new { border-color: #388bfd55; }
 .result-card.kept { opacity: 0.4; }
 .result-card.rejected { opacity: 0.4; }
-.result-meta { flex: 1; min-width: 0; }
-.result-name { font-family: monospace; font-size: 11px; color: #cdd9e5; margin-bottom: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.result-info { font-size: 10px; color: #768390; margin-bottom: 5px; }
-.result-actions { display: flex; gap: 5px; flex-wrap: wrap; }
+.result-meta { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.result-name { font-family: monospace; font-size: 10px; color: #cdd9e5; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.result-row { display: flex; align-items: center; gap: 3px; flex-wrap: nowrap; min-width: 0; }
 .sim-pill { font-size: 10px; padding: 2px 7px; border-radius: 10px; background: #1a3a1a; color: #2ea043; flex-shrink: 0; }
 .match-pill { font-size: 9px; padding: 1px 5px; border-radius: 3px; }
 .match-known { background: #1a3a1a; color: #2ea043; }
@@ -291,11 +325,15 @@ header h1 { font-size: 15px; font-weight: 600; }
   border: 1px solid #30363d;
   border-radius: 4px;
   display: flex;
-  align-items: center;
-  justify-content: center;
+  flex-direction: row;
+  align-items: stretch;
   overflow: hidden;
   position: relative;
   min-height: 0;
+}
+#ep-cam1-inner {
+  flex: 1; display: flex; align-items: center; justify-content: center;
+  overflow: hidden; min-width: 0;
 }
 #ep-frame { max-width: 100%; max-height: 100%; display: block; transform-origin: center center; }
 #ep-lock-badge {
@@ -322,24 +360,9 @@ header h1 { font-size: 15px; font-weight: 600; }
 }
 #ep-sync-cam-label input { cursor: pointer; accent-color: #388bfd; }
 #ep-cam2-wrap {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  gap: 5px;
-  min-width: 0;
-  padding-left: 6px;
-}
-#ep-cam2-frame-wrap {
-  flex: 1;
-  background: #1c2128;
-  border: 1px solid #30363d;
-  border-radius: 4px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  overflow: hidden;
-  position: relative;
-  min-height: 0;
+  flex: 1; display: flex; align-items: center; justify-content: center;
+  overflow: hidden; min-width: 0; position: relative;
+  border-left: 1px solid #30363d;
 }
 #ep-cam2-frame { max-width: 100%; max-height: 100%; display: block; }
 #ep-cam2-label {
@@ -408,20 +431,7 @@ header h1 { font-size: 15px; font-weight: 600; }
 .ep-step-preset::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
 .ep-step-preset:focus { outline: none; }
 .ep-step-preset.active { border-color: #388bfd; background: #1f6feb22; color: #388bfd; }
-#ep-csv-strip {
-  display: flex; align-items: center; gap: 5px; flex-shrink: 0;
-  background: #161b22; border: 1px solid #30363d;
-  border-radius: 4px; padding: 3px 6px;
-}
 .ep-strip-label { font-size: 8px; color: #768390; }
-.ep-status-pill {
-  background: #1f6feb22; border: 1px solid #1f6feb;
-  border-radius: 3px; color: #58a6ff; padding: 1px 5px; font-size: 8px;
-}
-.ep-note-pill {
-  background: #2ea04322; border: 1px solid #2ea043;
-  border-radius: 3px; color: #3fb950; padding: 1px 5px; font-size: 8px;
-}
 /* Extract panel */
 #ep-extract-panel {
   width: 240px; flex-shrink: 0;
@@ -480,8 +490,17 @@ header h1 { font-size: 15px; font-weight: 600; }
 /* ── KF canvas overlay ──────────────────────────────────────────────────────── */
 #ep-kf-canvas { width:100%; border-radius:2px; background:#161b22; }
 /* ── Tag timeline bars ──────────────────────────────────────────────────────── */
-.ep-bar-header { display:flex; align-items:center; gap:4px; margin-top:4px; margin-bottom:2px; }
-.ep-chips-row { display:flex; flex-wrap:wrap; gap:3px; margin-top:2px; margin-bottom:2px; }
+.ep-bar-header { display:flex; align-items:center; gap:3px; margin-top:4px; flex-wrap:wrap; }
+.ep-add-sub { font-size:9px; padding:0; width:16px; height:16px; border-radius:50%; color:#768390; border-color:#444c56; display:inline-flex; align-items:center; justify-content:center; flex-shrink:0; }
+.ep-add-sub:hover { color:#cdd9e5; }
+.ep-add-sub.active { border-color:#388bfd; color:#388bfd; }
+.ep-sub-rows { display:flex; flex-direction:column; gap:1px; margin-top:1px; }
+.ep-main-row { display:flex; align-items:center; gap:3px; }
+.ep-main-row canvas { flex:1; min-width:0; display:block; cursor:pointer; border-radius:2px; background:#161b22; }
+.ep-main-radio { accent-color:#388bfd; cursor:pointer; flex-shrink:0; }
+.ep-sub-row { display:flex; align-items:center; gap:3px; }
+.ep-sub-row canvas { flex:1; min-width:0; display:block; cursor:pointer; border-radius:2px; background:#0d1117; }
+.ep-sub-remove { padding:0 4px !important; font-size:9px !important; width:auto !important; flex-shrink:0; }
 .ep-tag-chip {
   font-size:8px; padding:1px 5px; border-radius:3px; cursor:pointer;
   border:1px solid var(--chip-color,#555); color:var(--chip-color,#888);
@@ -511,14 +530,18 @@ header h1 { font-size: 15px; font-weight: 600; }
   <!-- Sidebar -->
   <div class="sidebar">
     <div class="sidebar-header">
-      <span class="sidebar-title">Template Bank</span>
-      <span id="sidebar-frame-count"></span>
-      <div id="sidebar-tabs">
-        <button class="sidebar-tab active" id="tab-template">Template</button>
-        <button class="sidebar-tab" id="tab-libraries">Libraries</button>
+      <div class="sidebar-header-row1">
+        <span class="sidebar-title">Template Bank</span>
+        <button class="btn-sm" id="sidebar-toggle" title="Collapse sidebar">&#9660;</button>
       </div>
-      <button class="btn-sm btn-green" id="sidebar-init-btn" style="display:none;" title="Init template from this video">&#8635; Init</button>
-      <button class="btn-sm" id="sidebar-toggle" title="Collapse sidebar">&#9660;</button>
+      <div class="sidebar-header-row2">
+        <div id="sidebar-tabs">
+          <button class="sidebar-tab active" id="tab-template">Template</button>
+          <button class="sidebar-tab" id="tab-libraries">Libraries</button>
+        </div>
+        <button class="btn-sm btn-green" id="sidebar-init-btn" style="display:none;" title="Init template from this video">&#8635; Init</button>
+        <span id="sidebar-frame-count"></span>
+      </div>
     </div>
     <div id="sidebar-empty-state" style="padding:12px 10px;font-size:10px;color:#768390;">Select a video to load its template</div>
     <div id="sidebar-no-template" style="display:none;padding:12px 10px;">
@@ -603,20 +626,27 @@ header h1 { font-size: 15px; font-weight: 600; }
     <div id="sidebar-resize-handle"></div>
   </div>
 
+  <!-- Sidebar expand tab (shows when sidebar collapsed) -->
+  <div id="sidebar-tab" title="Expand Template Bank">Template Bank</div>
+
   <!-- Main panel -->
   <div class="main">
-    <!-- Folder browser -->
-    <div class="section" id="browser-section">
-      <div class="browser-toolbar">
-        <button id="browser-up" class="btn-sm" title="Parent folder">&#8593; Up</button>
-        <button class="player-btn" id="batch-toggle" title="Toggle batch selection">&#9744; Batch</button>
-        <span id="batch-count" style="display:none;"></span>
-        <button class="player-btn" id="batch-init-btn" style="display:none;" title="Batch init templates">&#9889; Init</button>
-        <button class="player-btn" id="batch-add-folder-btn" style="display:none;" title="Add current folder to selected library">+ Lib</button>
-        <div id="browser-breadcrumb"></div>
-        <button id="browser-toggle" class="btn-sm" title="Collapse browser">&#9660;</button>
+    <!-- Browser panel (left column, collapsible) -->
+    <div id="browser-panel">
+      <div id="browser-panel-body">
+      <!-- Folder browser toolbar -->
+      <div class="section" style="padding-bottom:6px;">
+        <div class="browser-toolbar" style="margin-bottom:4px;">
+          <button id="browser-up" class="btn-sm" title="Parent folder">&#8593; Up</button>
+          <button class="player-btn" id="batch-toggle" title="Toggle batch selection">&#9744; Batch</button>
+          <span id="batch-count" style="display:none;"></span>
+          <button class="player-btn" id="batch-init-btn" style="display:none;" title="Batch init templates">&#9889; Init</button>
+          <button class="player-btn" id="batch-add-folder-btn" style="display:none;" title="Add current folder to selected library">+ Lib</button>
+          <div id="browser-breadcrumb"></div>
+          <button id="browser-toggle" class="btn-sm" title="Collapse browser">&#9660;</button>
+        </div>
+        <div id="browser-list"></div>
       </div>
-      <div id="browser-list"></div>
       <div id="scan-settings">
         <button class="settings-toggle-btn" id="settings-toggle">&#9881; Scan settings &#9660;</button>
         <div id="settings-body" style="display:none;">
@@ -661,13 +691,13 @@ header h1 { font-size: 15px; font-weight: 600; }
           </div>
         </div>
       </div>
-      <div style="display:flex;gap:6px;align-items:center;margin-top:0;">
-        <button id="scan-btn" disabled onclick="startScan()" style="flex:1;margin-top:0;">&#9654; Scan selected video</button>
+      <div style="display:flex;gap:6px;align-items:center;padding:6px 10px;">
+        <button id="scan-btn" disabled onclick="startScan()" style="flex:1;">&#9654; Scan selected video</button>
         <button id="scan-cancel-btn" style="display:none;padding:6px 12px;background:#c62828;color:#fff;border:none;border-radius:5px;cursor:pointer;font-size:12px;" onclick="cancelScan()">&#9632; Cancel</button>
       </div>
-    </div>
+    </div><!-- /browser-panel-body -->
 
-    <!-- Progress -->
+    <!-- Progress (inside browser-panel) -->
     <div id="progress-section">
       <div id="pipeline-steps">
         <div class="pipeline-step" data-phase="sensor_parse">
@@ -696,25 +726,25 @@ header h1 { font-size: 15px; font-weight: 600; }
       </div>
       <div id="progress-bar"><div id="progress-fill"></div></div>
     </div>
+  </div><!-- /browser-panel -->
 
-    <!-- Results + Player split -->
-    <div class="content-split">
-      <!-- Results list -->
-      <div class="results-pane">
-        <div class="results-pane-header">
-          <span class="section-label">Detections</span>
-          <span id="results-count"></span>
-        </div>
-        <div id="source-filter">
-          <button class="filter-btn active" data-filter="sensor+clip">✓ sensor+CLIP</button>
-          <button class="filter-btn" data-filter="clip_only">CLIP only</button>
-          <button class="filter-btn" data-filter="all">All</button>
-        </div>
-        <div id="results-list"></div>
+  <!-- Browser expand tab (shows when browser collapsed) -->
+  <div id="browser-tab" title="Expand file browser">Files</div>
+
+  <!-- Detection results -->
+  <div class="results-pane">
+    <div class="results-pane-header">
+      <span class="section-label" style="font-size:9px;">Detections</span>
+      <span id="results-count"></span>
+      <div id="source-filter">
+        <button class="filter-btn active" data-filter="sensor+clip">&#10003; sensor+CLIP</button>
+        <button class="filter-btn" data-filter="clip_only">CLIP only</button>
+        <button class="filter-btn" data-filter="all">All</button>
       </div>
-
     </div>
+    <div id="results-list"></div>
   </div>
+</div><!-- /main -->
 </div>
 
 <!-- Enhanced player bottom panel -->
@@ -728,7 +758,13 @@ header h1 { font-size: 15px; font-weight: 600; }
   <!-- Left: frame + controls -->
   <div id="ep-left">
     <div id="ep-frame-wrap">
-      <img id="ep-frame" alt="frame">
+      <div id="ep-cam1-inner">
+        <img id="ep-frame" alt="frame">
+      </div>
+      <div id="ep-cam2-wrap" style="display:none;">
+        <img id="ep-cam2-frame" alt="cam 2 frame">
+        <div id="ep-cam2-label">cam 2</div>
+      </div>
       <button id="ep-lock-badge" class="locked" style="display:none;" title="Toggle lock range">&#128274; 0&#8211;0</button>
       <div id="ep-zoom-controls">
         &#128269;
@@ -780,26 +816,21 @@ header h1 { font-size: 15px; font-weight: 600; }
       <button class="player-btn" id="ep-collapse">&#10005;</button>
     </div>
 
-    <!-- Status / note strip -->
-    <div id="ep-csv-strip">
-      <span class="ep-strip-label">Status:</span>
-      <span id="ep-status-badge" class="ep-status-pill">&#8212;</span>
-      <span class="ep-strip-label" style="margin-left:4px;">Note:</span>
-      <span id="ep-note-badge" class="ep-note-pill">&#8212;</span>
-      <div style="flex:1;"></div>
-      <button class="player-btn" id="ep-prev-tag" disabled>&#9664;</button>
-      <button class="player-btn" id="ep-next-tag" disabled>&#9654;</button>
-    </div>
-
     <!-- Status timeline bar -->
     <div id="ep-status-bar-wrap" style="display:none;">
       <div class="ep-bar-header">
         <span class="ep-strip-label">Status</span>
         <button class="player-btn" id="ep-status-prev" style="padding:1px 5px;font-size:9px;" disabled>&#9664;</button>
         <button class="player-btn" id="ep-status-next" style="padding:1px 5px;font-size:9px;" disabled>&#9654;</button>
+        <button class="player-btn ep-add-sub" id="ep-status-add-sub" title="Add sub-timeline">+</button>
+        <div id="ep-status-chips" style="display:flex;flex-wrap:wrap;gap:3px;"></div>
       </div>
-      <canvas id="ep-status-canvas" height="10" style="width:100%;display:block;cursor:pointer;border-radius:2px;background:#161b22;"></canvas>
-      <div id="ep-status-chips" class="ep-chips-row"></div>
+      <canvas id="ep-status-cursor" height="6" style="width:100%;display:block;"></canvas>
+      <div class="ep-main-row" id="ep-status-main-row">
+        <input type="radio" name="ep-status-sub-radio" id="ep-status-main-radio" class="ep-main-radio" checked>
+        <canvas id="ep-status-canvas" height="10"></canvas>
+      </div>
+      <div class="ep-sub-rows" id="ep-status-sub-rows"></div>
     </div>
 
     <!-- Note timeline bar -->
@@ -808,17 +839,15 @@ header h1 { font-size: 15px; font-weight: 600; }
         <span class="ep-strip-label">Note</span>
         <button class="player-btn" id="ep-note-prev" style="padding:1px 5px;font-size:9px;" disabled>&#9664;</button>
         <button class="player-btn" id="ep-note-next" style="padding:1px 5px;font-size:9px;" disabled>&#9654;</button>
+        <button class="player-btn ep-add-sub" id="ep-note-add-sub" title="Add sub-timeline">+</button>
+        <div id="ep-note-chips" style="display:flex;flex-wrap:wrap;gap:3px;"></div>
       </div>
-      <canvas id="ep-note-canvas" height="10" style="width:100%;display:block;cursor:pointer;border-radius:2px;background:#161b22;"></canvas>
-      <div id="ep-note-chips" class="ep-chips-row"></div>
-    </div>
-  </div>
-
-  <!-- Centre: second camera frame (sync cam view, hidden until activated) -->
-  <div id="ep-cam2-wrap" style="display:none;">
-    <div id="ep-cam2-frame-wrap">
-      <img id="ep-cam2-frame" alt="cam 2 frame">
-      <div id="ep-cam2-label">cam 2</div>
+      <canvas id="ep-note-cursor" height="6" style="width:100%;display:block;"></canvas>
+      <div class="ep-main-row" id="ep-note-main-row">
+        <input type="radio" name="ep-note-sub-radio" id="ep-note-main-radio" class="ep-main-radio" checked>
+        <canvas id="ep-note-canvas" height="10"></canvas>
+      </div>
+      <div class="ep-sub-rows" id="ep-note-sub-rows"></div>
     </div>
   </div>
 
