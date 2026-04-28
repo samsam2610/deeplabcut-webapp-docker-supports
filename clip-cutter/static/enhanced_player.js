@@ -237,6 +237,7 @@ function _epUpdateSyncCamUI() {
     return;
   }
   label.style.display = "";
+  cb.checked = _syncCamEnabled;
   cam2.style.display = _syncCamEnabled ? "flex" : "none";
 }
 
