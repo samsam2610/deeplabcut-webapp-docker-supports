@@ -76,6 +76,49 @@ header h1 { font-size: 15px; font-weight: 600; }
 .lib-folder-remove { flex-shrink: 0; padding: 1px 4px; font-size: 9px; }
 .lib-scan-btn { width: 100%; margin-top: 5px; font-size: 9px; padding: 3px 0; }
 
+/* Pill toggles */
+.pill-group { display: flex; gap: 2px; }
+.pill-btn {
+  background: #21262d; border: 1px solid #444c56;
+  color: #768390; border-radius: 4px;
+  padding: 2px 8px; font-size: 10px; cursor: pointer;
+}
+.pill-btn.active {
+  background: #1f6feb22; border-color: #1f6feb; color: #58a6ff;
+}
+.lib-settings-row {
+  display: flex; align-items: center; gap: 6px;
+  padding: 2px 0; font-size: 10px; color: #768390;
+}
+.lib-settings-label { min-width: 80px; color: #8b949e; }
+.lib-settings-input { width: 56px; }
+
+/* Two-zone library card */
+.lib-zone1 {
+  overflow-y: auto;
+  height: 112px;
+  min-height: 56px;
+  max-height: 224px;
+}
+.lib-zone1-handle {
+  height: 6px;
+  cursor: ns-resize;
+  background: transparent;
+  border-top: 1px solid #21262d;
+  margin: 2px 0;
+}
+.lib-zone1-handle:hover { background: #21262d; }
+.lib-zone2 { border-top: 1px solid #21262d; padding-top: 4px; }
+.lib-zone2-header { font-size: 10px; color: #768390; padding: 2px 4px 4px; }
+.lib-zone2-frames { max-height: 160px; overflow-y: auto; }
+.lib-frame-row {
+  display: flex; align-items: center; gap: 4px;
+  padding: 2px 4px; border-bottom: 1px solid #21262d14;
+}
+.lib-frame-num { font-size: 10px; color: #768390; flex: 1; }
+.lib-frame-thumb { object-fit: cover; border-radius: 2px; }
+.lib-folder-row.selected { background: #1f6feb22; }
+
 /* Folder browser */
 .browser-toolbar { display: flex; align-items: center; gap: 6px; margin-bottom: 6px; }
 #browser-breadcrumb { flex: 1; font-size: 10px; color: #768390; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -412,6 +455,64 @@ header h1 { font-size: 15px; font-weight: 600; }
         <button class="player-btn" id="lib-new-btn">+ New</button>
       </div>
       <div id="lib-list"></div>
+      <div id="lib-settings-body" style="display:none;padding:6px 10px;border-top:1px solid #30363d;flex-shrink:0;overflow-y:auto;font-size:10px;">
+        <!-- Scan type -->
+        <div class="lib-settings-row">
+          <span class="lib-settings-label">Scan type</span>
+          <div class="pill-group" id="lib-scan-type">
+            <button class="pill-btn active" data-val="clips">Clips</button>
+            <button class="pill-btn" data-val="template_frames">Template Frames</button>
+          </div>
+        </div>
+        <!-- Sensor mode -->
+        <div class="lib-settings-row">
+          <span class="lib-settings-label">Sensor mode</span>
+          <div class="pill-group" id="lib-sensor-mode">
+            <button class="pill-btn active" data-val="clip_only">Clip only</button>
+            <button class="pill-btn" data-val="sensor+clip">Sensor+Clip</button>
+          </div>
+        </div>
+        <!-- Sensor-only fields -->
+        <div id="lib-sensor-fields" style="display:none;">
+          <div class="lib-settings-row">
+            <label class="lib-settings-label" for="lib-trigger-value">Trigger value</label>
+            <input type="number" id="lib-trigger-value" value="14" min="1" class="lib-settings-input">
+          </div>
+          <div class="lib-settings-row">
+            <label class="lib-settings-label" for="lib-sensor-margin">Sensor margin</label>
+            <input type="number" id="lib-sensor-margin" value="25" min="0" class="lib-settings-input">
+          </div>
+        </div>
+        <!-- Common fields -->
+        <div class="lib-settings-row">
+          <label class="lib-settings-label" for="lib-scan-stride">Coarse stride</label>
+          <input type="number" id="lib-scan-stride" value="10" min="1" class="lib-settings-input">
+        </div>
+        <div class="lib-settings-row">
+          <label class="lib-settings-label" for="lib-scan-threshold">Threshold</label>
+          <input type="number" id="lib-scan-threshold" value="0.70" min="0" max="1" step="0.01" class="lib-settings-input">
+          <span id="lib-threshold-label" style="font-size:9px;color:#768390;">0.70</span>
+        </div>
+        <!-- Clips-only fields -->
+        <div id="lib-clips-fields">
+          <div class="lib-settings-row">
+            <label class="lib-settings-label" for="lib-scan-min-spacing">Min spacing</label>
+            <input type="number" id="lib-scan-min-spacing" value="900" min="1" class="lib-settings-input">
+          </div>
+          <div class="lib-settings-row">
+            <label class="lib-settings-label" for="lib-scan-fine-window">Fine window</label>
+            <input type="number" id="lib-scan-fine-window" value="50" min="1" class="lib-settings-input">
+          </div>
+        </div>
+        <!-- Template-frames-only fields -->
+        <div id="lib-template-fields" style="display:none;">
+          <div class="lib-settings-row">
+            <label class="lib-settings-label" for="lib-target-clusters">Target clusters</label>
+            <input type="number" id="lib-target-clusters" value="10" min="1" class="lib-settings-input">
+          </div>
+        </div>
+        <div id="lib-scan-progress" style="display:none;font-size:9px;color:#768390;padding:2px 0;"></div>
+      </div>
     </div>
     <div id="sidebar-resize-handle"></div>
   </div>
