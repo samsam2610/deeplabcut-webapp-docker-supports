@@ -406,26 +406,25 @@ function _epRedrawAllCanvases() {
 function _epRedrawSubRows(containerId, field, colorMap) {
   document.querySelectorAll(`#${containerId} .ep-sub-row`).forEach(row => {
     const canvas = row.querySelector("canvas");
-    if (canvas) _epDrawSubCanvas(canvas, _csvRows, field, row.dataset.chipVal || null, colorMap);
+    if (canvas) _epDrawSubCanvas(canvas, _csvRows, field, row._activeChips || new Set(), colorMap);
   });
 }
 
-function _epDrawSubCanvas(canvas, rows, field, chipVal, colorMap) {
+function _epDrawSubCanvas(canvas, rows, field, chipSet, colorMap) {
   if (!canvas) return;
   const W = Math.round(canvas.getBoundingClientRect().width) || canvas.clientWidth || 600;
   canvas.width = W;
   const H = canvas.height || 8;
   const ctx = canvas.getContext("2d");
   ctx.clearRect(0, 0, W, H);
-  if (!chipVal) return;
+  if (!chipSet || chipSet.size === 0) return;
   const total = Math.max(_frameCount, 1);
   const minW = Math.max(1, Math.round(W / total));
-  const color = colorMap[chipVal] || "#888";
   rows.forEach(row => {
     const v = row[field];
-    if (!v || v !== chipVal) return;
+    if (!v || !chipSet.has(v)) return;
     if (field === "frame_line_status" && v === "0") return;
-    ctx.fillStyle = color;
+    ctx.fillStyle = colorMap[v] || "#888";
     const x = Math.round(((row.frame_number - 1) / Math.max(total - 1, 1)) * W);
     ctx.fillRect(x, 0, minW, H);
   });
@@ -511,6 +510,7 @@ function _epAddSubRow(containerId, field, colorMapFn) {
 
   const row = document.createElement("div");
   row.className = "ep-sub-row";
+  row._activeChips = new Set();
 
   const radio = document.createElement("input");
   radio.type = "radio";
@@ -527,12 +527,11 @@ function _epAddSubRow(containerId, field, colorMapFn) {
   const canvas = document.createElement("canvas");
   canvas.height = 8;
   canvas.addEventListener("click", e => {
-    const chipVal = row.dataset.chipVal;
-    if (!chipVal) return;
+    if (!row._activeChips.size) return;
     const rect = canvas.getBoundingClientRect();
     const target = Math.round((e.clientX - rect.left) / rect.width * Math.max(_frameCount - 1, 0));
     const annotated = _csvRows
-      .filter(r => { const v = r[field]; return v && v === chipVal && (field !== "frame_line_status" || v !== "0"); })
+      .filter(r => { const v = r[field]; return v && row._activeChips.has(v) && (field !== "frame_line_status" || v !== "0"); })
       .map(r => Number(r.frame_number) - 1);
     if (!annotated.length) return;
     const nearest = annotated.reduce((a, b) => Math.abs(b - target) < Math.abs(a - target) ? b : a);

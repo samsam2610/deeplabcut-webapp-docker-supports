@@ -1333,3 +1333,14 @@ def test_main_canvas_starts_blank(page: Page):
     note_size   = page.evaluate("_epActiveNote.size")
     assert status_size == 0, f"_epActiveStatus should be empty, got size {status_size}"
     assert note_size   == 0, f"_epActiveNote should be empty, got size {note_size}"
+
+
+def test_sub_row_has_active_chips_set(page: Page):
+    """After adding a sub-row, the DOM element has an _activeChips Set (not chipVal string)."""
+    _setup_player_with_csv(page)
+    page.locator("#ep-status-add-sub").click()
+    result = page.evaluate("""() => {
+        const row = document.querySelector('#ep-status-sub-rows .ep-sub-row');
+        return row && row._activeChips instanceof Set ? row._activeChips.size : -1;
+    }""")
+    assert result == 0, f"Expected _activeChips Set with size 0, got {result}"
