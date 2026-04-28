@@ -314,6 +314,38 @@ header h1 { font-size: 15px; font-weight: 600; }
   font-size: 8px; color: #768390;
 }
 #ep-zoom-controls input { width: 50px; accent-color: #388bfd; }
+#ep-sync-cam-label {
+  position: absolute; top: 28px; right: 6px;
+  font-size: 8px; color: #768390;
+  display: flex; align-items: center; gap: 3px;
+  cursor: pointer; user-select: none;
+}
+#ep-sync-cam-label input { cursor: pointer; accent-color: #388bfd; }
+#ep-cam2-wrap {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  min-width: 0;
+  padding-left: 6px;
+}
+#ep-cam2-frame-wrap {
+  flex: 1;
+  background: #1c2128;
+  border: 1px solid #30363d;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  position: relative;
+  min-height: 0;
+}
+#ep-cam2-frame { max-width: 100%; max-height: 100%; display: block; }
+#ep-cam2-label {
+  position: absolute; bottom: 4px; left: 6px;
+  font-size: 8px; color: #768390; font-family: monospace;
+}
 #ep-seek-row {
   display: flex; align-items: center; gap: 6px; flex-shrink: 0;
 }
@@ -702,6 +734,9 @@ header h1 { font-size: 15px; font-weight: 600; }
         <input type="range" id="ep-zoom" min="50" max="200" value="100">
         <span id="ep-zoom-pct">100%</span>
       </div>
+      <label id="ep-sync-cam-label" title="Show same frame from sibling camera" style="display:none;">
+        <input type="checkbox" id="ep-sync-cam"> sync cam
+      </label>
     </div>
 
     <!-- Keyframe overlay canvas (hidden by default) -->
@@ -775,6 +810,14 @@ header h1 { font-size: 15px; font-weight: 600; }
       </div>
       <canvas id="ep-note-canvas" height="10" style="width:100%;display:block;cursor:pointer;border-radius:2px;background:#161b22;"></canvas>
       <div id="ep-note-chips" class="ep-chips-row"></div>
+    </div>
+  </div>
+
+  <!-- Centre: second camera frame (sync cam view, hidden until activated) -->
+  <div id="ep-cam2-wrap" style="display:none;">
+    <div id="ep-cam2-frame-wrap">
+      <img id="ep-cam2-frame" alt="cam 2 frame">
+      <div id="ep-cam2-label">cam 2</div>
     </div>
   </div>
 
