@@ -55,9 +55,9 @@ function renderLibraries(libraries) {
           const label = esc(p.split("/").pop());
           const checked = _activeBatchFolders.has(p);
           return `<div class="lib-folder-row">
-            <input type="checkbox" class="lib-folder-check" data-path="${escapedP}" ${checked ? "checked" : ""}>
+            <input type="checkbox" class="lib-folder-check" data-path="${p}" ${checked ? "checked" : ""}>
             <span class="lib-folder-label" title="${escapedP}">${label}</span>
-            <button class="player-btn lib-folder-remove" data-path="${escapedP}" title="Remove folder">&#10005;</button>
+            <button class="player-btn lib-folder-remove" data-path="${p}" title="Remove folder">&#10005;</button>
           </div>`;
         }).join("")}
         <button class="player-btn lib-scan-btn" disabled>&#9654; Scan with checked (${
