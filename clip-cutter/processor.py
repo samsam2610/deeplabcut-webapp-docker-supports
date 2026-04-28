@@ -813,7 +813,7 @@ def scan_video_multi_template(
         detections.append({
             "cv2_pos": best_pos,
             "frame_number": best_pos + 1,
-            "similarity": best_sim,
+            "similarity": round(best_sim, 4),
         })
         if phase_cb:
             phase_cb("fine", i + 1, len(coarse_peaks))
