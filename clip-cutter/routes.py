@@ -625,6 +625,33 @@ def batch_template_scan_recluster(job_id):
     return jsonify({"results": results})
 
 
+@bp.route("/template-frame-add", methods=["POST"])
+def template_frame_add():
+    body         = request.get_json(force=True) or {}
+    video_path   = body.get("video_path",   "").strip()
+    frame_number = body.get("frame_number")
+    if not video_path or frame_number is None:
+        return jsonify({"error": "video_path and frame_number required"}), 400
+
+    clips_dir = Path(video_path).parent / Path(video_path).stem
+    state_path = None
+    for candidate in [
+        clips_dir / "template" / "template_state.json",
+        clips_dir / "template_state.json",
+    ]:
+        if candidate.exists():
+            state_path = candidate
+            break
+    if state_path is None:
+        # Default: create inside clips_dir/template/
+        state_path = clips_dir / "template" / "template_state.json"
+        state_path.parent.mkdir(parents=True, exist_ok=True)
+
+    state = processor.load_template_state(state_path)
+    state = processor.add_frame_to_template(state, video_path, int(frame_number), state_path)
+    return jsonify({"count": len(state["frames"])})
+
+
 # ── Filesystem browser ──────────────────────────────────────────────────────────
 
 @bp.route("/fs/ls")

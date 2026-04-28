@@ -646,3 +646,28 @@ def test_batch_template_scan_starts_and_streams(client, tmp_path, monkeypatch):
     with client.get(f"/clip-cutter/batch-template-scan/stream?job_id={data['job_id']}",
                     buffered=True) as stream_resp:
         assert stream_resp.status_code == 200
+
+
+def test_template_frame_add_creates_entry(client, tmp_path, monkeypatch):
+    import cv2, json as _json, numpy as np
+
+    # Create a tiny video at a known path inside tmp_path
+    video_path = tmp_path / "rat" / "session.avi"
+    video_path.parent.mkdir(parents=True)
+    out = cv2.VideoWriter(str(video_path), cv2.VideoWriter_fourcc(*"MJPG"), 10, (64, 48))
+    for _ in range(10):
+        out.write(np.zeros((48, 64, 3), dtype=np.uint8))
+    out.release()
+
+    # Template dir: <video_parent>/<video_stem>/template/
+    clips_dir = tmp_path / "rat" / "session"
+    tdir = clips_dir / "template"
+    tdir.mkdir(parents=True)
+
+    resp = client.post("/clip-cutter/template-frame-add", json={
+        "video_path": str(video_path),
+        "frame_number": 1,
+    })
+    assert resp.status_code == 200
+    data = json.loads(resp.data)
+    assert data["count"] == 1
