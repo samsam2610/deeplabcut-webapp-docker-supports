@@ -363,3 +363,61 @@ def test_scan_video_sensor_guided_multi_returns_list(mock_model, tiny_video, tmp
         assert "frame_number" in r
         assert "similarity" in r
         assert "source" in r
+
+
+def test_find_template_candidates_empty_video_returns_empty(mock_model, tmp_path):
+    """Video that produces no frames above threshold returns empty candidates."""
+    import processor
+    rng = np.random.default_rng(0)
+    clip_matrix = rng.random((2, 512)).astype(np.float32)
+    clip_matrix /= np.linalg.norm(clip_matrix, axis=1, keepdims=True)
+    combined = {"clip_matrix": clip_matrix, "dino_matrix": None}
+
+    # Create a 1-frame video using OpenCV
+    import cv2
+    vpath = tmp_path / "tiny.avi"
+    out = cv2.VideoWriter(str(vpath), cv2.VideoWriter_fourcc(*"MJPG"), 10, (64, 48))
+    out.write(np.zeros((48, 64, 3), dtype=np.uint8))
+    out.release()
+
+    result = processor.find_template_candidates(
+        vpath, combined, n_clusters=3, threshold=0.99, stride=1
+    )
+    assert "candidates" in result
+    assert "curve" in result
+    assert "embeddings" in result
+    assert isinstance(result["candidates"], list)
+
+
+def test_find_template_candidates_fewer_than_clusters(mock_model, tiny_video):
+    """When fewer above-threshold frames than clusters, all are returned without clustering."""
+    import processor
+    rng = np.random.default_rng(42)
+    clip_matrix = rng.random((1, 512)).astype(np.float32)
+    clip_matrix /= np.linalg.norm(clip_matrix, axis=1, keepdims=True)
+    combined = {"clip_matrix": clip_matrix, "dino_matrix": None}
+
+    result = processor.find_template_candidates(
+        tiny_video, combined, n_clusters=100, threshold=0.0, stride=1
+    )
+    assert isinstance(result["candidates"], list)
+    # All frames returned as candidates (skip clustering)
+    assert len(result["candidates"]) == len(result["curve"])
+
+
+def test_find_template_candidates_clustering(mock_model, tiny_video):
+    """With enough frames, clustering runs and returns at most 2*n_clusters candidates."""
+    import processor
+    rng = np.random.default_rng(7)
+    clip_matrix = rng.random((2, 512)).astype(np.float32)
+    clip_matrix /= np.linalg.norm(clip_matrix, axis=1, keepdims=True)
+    combined = {"clip_matrix": clip_matrix, "dino_matrix": None}
+
+    result = processor.find_template_candidates(
+        tiny_video, combined, n_clusters=2, threshold=0.0, stride=1
+    )
+    assert len(result["candidates"]) <= 4  # 2 clusters × 2 nearest each
+    for c in result["candidates"]:
+        assert "frame_number" in c
+        assert "similarity" in c
+        assert "cluster_id" in c

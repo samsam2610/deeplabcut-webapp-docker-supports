@@ -867,6 +867,163 @@ def scan_video_sensor_guided_multi(
     return results
 
 
+def find_template_candidates(
+    video_path: Path | str,
+    combined: dict,
+    n_clusters: int = 10,
+    threshold: float = 0.70,
+    stride: int = 10,
+    batch_size: int = 64,
+    phase_cb=None,
+    csv_path: Path | str | None = None,
+    trigger_value: int = 14,
+    sensor_margin: int = 25,
+) -> dict:
+    """
+    K-means candidate pipeline for template frame discovery.
+
+    Returns:
+        {
+            candidates: [{frame_number (1-based), similarity, cluster_id}],
+            curve: [{frame_number (0-based cv2_pos), similarity}],  # all sampled frames
+            embeddings: ndarray shape (N, 512),                      # parallel to curve
+        }
+    """
+    from concurrent.futures import ThreadPoolExecutor
+    from sklearn.cluster import KMeans
+
+    clip_matrix = combined.get("clip_matrix")
+    if clip_matrix is None:
+        return {
+            "candidates": [],
+            "curve": [],
+            "embeddings": np.zeros((0, 512), dtype=np.float32),
+        }
+
+    cap = cv2.VideoCapture(str(video_path))
+    total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+    cap.release()
+    all_positions = np.arange(0, total_frames, stride, dtype=np.int64)
+
+    # Sensor-guided: restrict to covered windows
+    if csv_path is not None and Path(csv_path).exists():
+        _, covered_set = find_sensor_triggers(csv_path, trigger_value, sensor_margin)
+        positions = np.array(
+            [p for p in all_positions if (int(p) + 1) in covered_set], dtype=np.int64
+        )
+    else:
+        positions = all_positions
+
+    if len(positions) == 0:
+        return {
+            "candidates": [],
+            "curve": [],
+            "embeddings": np.zeros((0, 512), dtype=np.float32),
+        }
+
+    if phase_cb:
+        phase_cb("coarse", 0, len(positions))
+
+    def read_batch(batch_positions):
+        if len(batch_positions) == 0:
+            return []
+        vcap = cv2.VideoCapture(str(video_path))
+        vcap.set(cv2.CAP_PROP_POS_FRAMES, int(batch_positions[0]))
+        cur = int(batch_positions[0])
+        frames = []
+        try:
+            for target in batch_positions:
+                target = int(target)
+                while cur < target:
+                    vcap.grab()
+                    cur += 1
+                ret, frame = vcap.read()
+                cur += 1
+                frames.append(frame if ret else np.zeros((64, 64, 3), dtype=np.uint8))
+        finally:
+            vcap.release()
+        return frames
+
+    all_embs_chunks = []
+    all_sims_chunks = []
+    processed = 0
+
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        future = pool.submit(read_batch, positions[:batch_size])
+        for batch_start in range(0, len(positions), batch_size):
+            batch_pos = positions[batch_start: batch_start + batch_size]
+            frames = future.result()
+            next_start = batch_start + batch_size
+            future = pool.submit(read_batch, positions[next_start: next_start + batch_size])
+            embs = embed_frames_batch(frames)          # (B, 512)
+            sims = (embs @ clip_matrix.T).max(axis=1) # (B,)
+            n = len(batch_pos)
+            all_embs_chunks.append(embs[:n])
+            all_sims_chunks.append(sims[:n])
+            processed += n
+            if phase_cb:
+                phase_cb("coarse", processed, len(positions))
+
+    all_embs = np.vstack(all_embs_chunks) if all_embs_chunks else np.zeros((0, 512), dtype=np.float32)
+    all_sims = np.concatenate(all_sims_chunks) if all_sims_chunks else np.array([], dtype=np.float32)
+
+    curve = [
+        {"frame_number": int(positions[i]), "similarity": float(all_sims[i])}
+        for i in range(len(positions))
+    ]
+
+    # Filter above threshold
+    mask = all_sims >= threshold
+    filtered_pos = positions[mask]
+    filtered_embs = all_embs[mask]
+    filtered_sims = all_sims[mask]
+
+    if len(filtered_pos) == 0:
+        return {"candidates": [], "curve": curve, "embeddings": all_embs}
+
+    # Fewer frames than clusters: skip clustering, return all
+    if len(filtered_pos) <= n_clusters:
+        candidates = [
+            {
+                "frame_number": int(filtered_pos[i]) + 1,  # 1-based
+                "similarity": float(filtered_sims[i]),
+                "cluster_id": i,
+            }
+            for i in range(len(filtered_pos))
+        ]
+        return {"candidates": candidates, "curve": curve, "embeddings": all_embs}
+
+    if phase_cb:
+        phase_cb("cluster", 0, 1)
+
+    km = KMeans(n_clusters=n_clusters, n_init=10, random_state=42)
+    km.fit(filtered_embs)
+    labels = km.labels_
+    centroids = km.cluster_centers_
+
+    candidates = []
+    for cid in range(n_clusters):
+        idx_in_cluster = np.where(labels == cid)[0]
+        if len(idx_in_cluster) == 0:
+            continue
+        cluster_embs = filtered_embs[idx_in_cluster]
+        dists = np.linalg.norm(cluster_embs - centroids[cid], axis=1)
+        nearest = idx_in_cluster[np.argsort(dists)[:2]]
+        for j in nearest:
+            candidates.append({
+                "frame_number": int(filtered_pos[j]) + 1,  # 1-based
+                "similarity": float(filtered_sims[j]),
+                "cluster_id": int(cid),
+            })
+
+    candidates.sort(key=lambda c: c["frame_number"])
+
+    if phase_cb:
+        phase_cb("cluster", 1, 1)
+
+    return {"candidates": candidates, "curve": curve, "embeddings": all_embs}
+
+
 def scan_video_multi_template(
     video_path: Path | str,
     combined: dict,
