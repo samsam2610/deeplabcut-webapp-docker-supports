@@ -509,3 +509,9 @@ def test_remove_missing_folder_returns_404(lib_client):
     lib_client.post("/clip-cutter/global-libraries", json={"name": "Lib"})
     resp = lib_client.delete("/clip-cutter/global-libraries/Lib/folders", json={"path": "/nope"})
     assert resp.status_code == 404
+
+
+def test_remove_folder_empty_path_returns_422(lib_client):
+    lib_client.post("/clip-cutter/global-libraries", json={"name": "Lib"})
+    resp = lib_client.delete("/clip-cutter/global-libraries/Lib/folders", json={"path": ""})
+    assert resp.status_code == 422

@@ -199,6 +199,8 @@ def add_library_folder(name):
 @bp.route("/global-libraries/<name>/folders", methods=["DELETE"])
 def remove_library_folder(name):
     path = (request.get_json(force=True) or {}).get("path", "").strip()
+    if not path:
+        return jsonify({"error": "path required"}), 422
     with _libraries_lock:
         libs = _load_libraries()
         if name not in libs:
