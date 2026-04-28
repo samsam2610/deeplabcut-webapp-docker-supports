@@ -3,6 +3,7 @@ from __future__ import annotations
 import csv
 import json
 import logging
+import re
 import threading
 import time
 import uuid
@@ -23,16 +24,38 @@ bp = Blueprint(
 _scan_jobs: dict[str, dict] = {}
 _jobs_lock = threading.Lock()
 
+
+class _Cancelled(Exception):
+    pass
+
 _state: dict = {
     "frames": [],
     "mean_embedding": None,
     "dino_mean_embedding": None,
     "video_stem": None,
     "video_parent": None,
+    "sibling_video_path": None,
 }
 _state_lock = threading.Lock()
 
 _libraries_lock = threading.Lock()
+
+
+def _find_sibling_camera(video_path: Path) -> "str | None":
+    """Return the first sibling camera AVI in the same dir, or None.
+
+    Siblings share the same Subject_Date_Time prefix and differ only in the
+    trailing _N camera-number suffix (e.g. m3_20250727_163450_2.avi vs _3.avi).
+    """
+    m = re.match(r'^(.+)_(\d+)$', video_path.stem)
+    if not m:
+        return None
+    prefix = m.group(1)
+    for candidate in sorted(video_path.parent.glob(f"{prefix}_*.avi")):
+        tail = candidate.stem[len(prefix) + 1:]
+        if candidate != video_path and re.match(r'^\d+$', tail):
+            return str(candidate)
+    return None
 
 
 def _load_libraries() -> dict:
@@ -52,6 +75,18 @@ def _save_libraries(libs: dict) -> None:
     config.LIBRARIES_PATH.parent.mkdir(parents=True, exist_ok=True)
     with open(config.LIBRARIES_PATH, "w") as f:
         json.dump(libs, f, indent=2)
+
+
+def _folder_frame_count(path: str) -> int:
+    """Return the number of template frames stored for a folder path."""
+    for candidate in [
+        Path(path) / "template" / "template_state.json",
+        Path(path) / "template_state.json",
+    ]:
+        if candidate.exists():
+            state = processor.load_template_state(candidate)
+            return len(state.get("frames", []))
+    return 0
 
 
 def _template_path() -> "Path | None":
@@ -152,7 +187,9 @@ def clear_template():
 def get_libraries():
     with _libraries_lock:
         libs = _load_libraries()
-    return jsonify({"libraries": libs})
+    all_paths = {p for folders in libs.values() for p in folders}
+    counts = {p: _folder_frame_count(p) for p in all_paths}
+    return jsonify({"libraries": libs, "counts": counts})
 
 
 @bp.route("/global-libraries", methods=["POST"])
@@ -355,6 +392,11 @@ def _run_batch_scan(job_id: str, template_dirs: list, video_paths: list, params:
     results = []
     total_videos = len(video_paths)
     for i, video_path in enumerate(video_paths):
+        with _batch_scan_jobs_lock:
+            if _batch_scan_jobs[job_id].get("cancelled"):
+                _batch_scan_jobs[job_id]["phase"] = "cancelled"
+                return
+
         def phase_cb(phase, current, total, _vpath=video_path, _i=i):
             with _batch_scan_jobs_lock:
                 _batch_scan_jobs[job_id]["video"] = Path(_vpath).name
@@ -412,7 +454,7 @@ def start_batch_scan():
     with _batch_scan_jobs_lock:
         _batch_scan_jobs[job_id] = {
             "phase": "starting", "video": "", "video_index": 0, "video_total": len(video_paths),
-            "current": 0, "total": 1,
+            "current": 0, "total": 1, "cancelled": False,
         }
     thread = threading.Thread(
         target=_run_batch_scan,
@@ -434,7 +476,7 @@ def batch_scan_stream():
             with _batch_scan_jobs_lock:
                 job = dict(_batch_scan_jobs[job_id])
             yield f"data: {json.dumps(job)}\n\n"
-            if job.get("phase") in ("done", "error"):
+            if job.get("phase") in ("done", "error", "cancelled"):
                 break
             time.sleep(0.5)
 
@@ -443,6 +485,15 @@ def batch_scan_stream():
         mimetype="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
+
+
+@bp.route("/batch-scan/<job_id>/cancel", methods=["POST"])
+def cancel_batch_scan(job_id):
+    with _batch_scan_jobs_lock:
+        if job_id not in _batch_scan_jobs:
+            return jsonify({"error": "unknown job_id"}), 404
+        _batch_scan_jobs[job_id]["cancelled"] = True
+    return jsonify({"ok": True})
 
 
 def _run_batch_template_scan(job_id: str, template_dirs: list, video_paths: list, params: dict):
@@ -463,6 +514,11 @@ def _run_batch_template_scan(job_id: str, template_dirs: list, video_paths: list
     per_video = []
     total_videos = len(video_paths)
     for i, video_path in enumerate(video_paths):
+        with _batch_template_scan_jobs_lock:
+            if _batch_template_scan_jobs[job_id].get("cancelled"):
+                _batch_template_scan_jobs[job_id]["phase"] = "cancelled"
+                return
+
         def phase_cb(phase, current, total, _vpath=video_path, _i=i):
             with _batch_template_scan_jobs_lock:
                 _batch_template_scan_jobs[job_id]["video"] = Path(_vpath).name
@@ -526,6 +582,7 @@ def start_batch_template_scan():
         _batch_template_scan_jobs[job_id] = {
             "phase": "starting", "video": "", "video_index": 0,
             "video_total": len(video_paths), "current": 0, "total": 1,
+            "cancelled": False,
         }
     threading.Thread(
         target=_run_batch_template_scan,
@@ -547,7 +604,7 @@ def batch_template_scan_stream():
                 job = {k: v for k, v in _batch_template_scan_jobs[job_id].items()
                        if k not in ("per_video", "embeddings")}
             yield f"data: {json.dumps(job)}\n\n"
-            if job.get("phase") in ("done", "error"):
+            if job.get("phase") in ("done", "error", "cancelled"):
                 break
             time.sleep(0.5)
 
@@ -556,6 +613,15 @@ def batch_template_scan_stream():
         mimetype="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
+
+
+@bp.route("/batch-template-scan/<job_id>/cancel", methods=["POST"])
+def cancel_batch_template_scan(job_id):
+    with _batch_template_scan_jobs_lock:
+        if job_id not in _batch_template_scan_jobs:
+            return jsonify({"error": "unknown job_id"}), 404
+        _batch_template_scan_jobs[job_id]["cancelled"] = True
+    return jsonify({"ok": True})
 
 
 @bp.route("/batch-template-scan/<job_id>/recluster", methods=["POST"])
@@ -752,6 +818,7 @@ def select_video():
     with _state_lock:
         _state["video_stem"] = stem
         _state["video_parent"] = parent
+        _state["sibling_video_path"] = _find_sibling_camera(p)
 
     tpath = _template_path()
     if tpath and tpath.exists():
@@ -770,7 +837,19 @@ def select_video():
 
     with _state_lock:
         count = len(_state["frames"])
-    return jsonify({"count": count, "has_template": has_template})
+        sibling = _state.get("sibling_video_path")
+    return jsonify({
+        "count": count,
+        "has_template": has_template,
+        "sibling_video_path": sibling,
+    })
+
+
+@bp.route("/sibling-camera")
+def get_sibling_camera():
+    with _state_lock:
+        sibling = _state.get("sibling_video_path")
+    return jsonify({"sibling_video_path": sibling})
 
 
 # ── Scan ─────────────────────────────────────────────────────────────────────
@@ -790,6 +869,8 @@ def _run_scan(job_id: str, video_path: str, template_emb, dino_template_emb, par
 
     def phase_cb(phase, current, total):
         with _jobs_lock:
+            if _scan_jobs[job_id].get("cancelled"):
+                raise _Cancelled()
             _scan_jobs[job_id]["phase"] = phase
             _scan_jobs[job_id]["current"] = current
             _scan_jobs[job_id]["total"] = total
@@ -846,6 +927,9 @@ def _run_scan(job_id: str, video_path: str, template_emb, dino_template_emb, par
         with _jobs_lock:
             _scan_jobs[job_id]["status"] = "done"
             _scan_jobs[job_id]["detections"] = detections
+    except _Cancelled:
+        with _jobs_lock:
+            _scan_jobs[job_id]["status"] = "cancelled"
     except Exception as exc:
         with _jobs_lock:
             _scan_jobs[job_id]["status"] = "error"
@@ -886,6 +970,7 @@ def start_scan():
         _scan_jobs[job_id] = {
             "status": "running", "phase": "starting",
             "current": 0, "total": 1, "detections": [], "error": None,
+            "cancelled": False,
         }
 
     template_emb = mean_embedding.copy()
@@ -910,7 +995,7 @@ def scan_stream():
             with _jobs_lock:
                 job = dict(_scan_jobs[job_id])
             yield f"data: {json.dumps(job)}\n\n"
-            if job["status"] in ("done", "error"):
+            if job["status"] in ("done", "error", "cancelled"):
                 break
             time.sleep(0.5)
 
@@ -919,6 +1004,15 @@ def scan_stream():
         mimetype="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
+
+
+@bp.route("/scan/<job_id>/cancel", methods=["POST"])
+def cancel_scan(job_id):
+    with _jobs_lock:
+        if job_id not in _scan_jobs:
+            return jsonify({"error": "unknown job_id"}), 404
+        _scan_jobs[job_id]["cancelled"] = True
+    return jsonify({"ok": True})
 
 
 # ── Extract confirmed detection ───────────────────────────────────────────────
@@ -933,14 +1027,71 @@ def extract():
 
     video_path = Path(video_path)
     parent_csv = video_path.with_suffix(".csv")
-    output_dir = video_path.parent / (video_path.stem + config.TEST_CLIPS_SUFFIX)
+    output_dir = video_path.parent / video_path.stem
 
     if not parent_csv.exists():
         return jsonify({"error": f"parent CSV not found: {parent_csv}"}), 422
 
-    result = processor.extract_clip(video_path, parent_csv, int(key_frame), output_dir)
+    postfix = (body.get("postfix") or "").strip()
+    result = processor.extract_clip(video_path, parent_csv, int(key_frame), output_dir, postfix=postfix)
     processor.update_parent_csv_note(parent_csv, int(key_frame), "start_reaching")
     return jsonify(result)
+
+
+@bp.route("/extract/rename", methods=["POST"])
+def rename_extract():
+    import re as _re
+    body = request.get_json(force=True)
+    avi_path = (body.get("avi_path") or "").strip()
+    postfix = (body.get("postfix") or "").strip()
+    if not avi_path:
+        return jsonify({"error": "avi_path required"}), 400
+
+    p = Path(avi_path)
+    if not p.exists():
+        return jsonify({"error": f"file not found: {p.name}"}), 404
+
+    # Parent dir name == video stem (new convention: .../video_stem/clips.avi)
+    video_stem = p.parent.name
+    suffix = p.stem[len(video_stem):]          # "_start_end[_postfix]"
+    m = _re.match(r'^_(\d+)_(\d+)', suffix)
+    if not m:
+        return jsonify({"error": "cannot parse frame numbers from filename"}), 422
+
+    new_stem = f"{video_stem}_{m.group(1)}_{m.group(2)}"
+    if postfix:
+        safe = "".join(c for c in postfix if c.isalnum() or c in "-_")[:64]
+        if safe:
+            new_stem += f"_{safe}"
+
+    new_avi = p.parent / f"{new_stem}.avi"
+    new_csv = p.parent / f"{new_stem}.csv"
+    old_csv = p.with_suffix(".csv")
+
+    if new_avi == p:
+        return jsonify({"avi_path": str(p)})   # nothing to do
+
+    p.rename(new_avi)
+    if old_csv.exists():
+        old_csv.rename(new_csv)
+
+    return jsonify({"avi_path": str(new_avi)})
+
+
+@bp.route("/extract/delete", methods=["POST"])
+def delete_extract():
+    body = request.get_json(force=True)
+    avi_path = (body.get("avi_path") or "").strip()
+    if not avi_path:
+        return jsonify({"error": "avi_path required"}), 400
+    p = Path(avi_path)
+    if not p.exists():
+        return jsonify({"error": f"file not found: {p.name}"}), 404
+    csv_p = p.with_suffix(".csv")
+    p.unlink()
+    if csv_p.exists():
+        csv_p.unlink()
+    return jsonify({"ok": True})
 
 
 @bp.route("/check-keyframe-overlap", methods=["POST"])
