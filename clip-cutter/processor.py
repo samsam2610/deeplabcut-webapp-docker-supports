@@ -201,6 +201,25 @@ def save_template_state(state: dict, path: Path | str) -> None:
         json.dump(serializable, f)
 
 
+def load_combined_template(template_dirs: list) -> dict:
+    """
+    Load template_state.json from each clips_dir/template/ and stack embeddings.
+    Returns {clip_matrix: ndarray (N,512) or None, dino_matrix: ndarray (N,D) or None}.
+    """
+    clip_embs, dino_embs = [], []
+    for d in template_dirs:
+        state_path = Path(d) / "template" / "template_state.json"
+        state = load_template_state(state_path)
+        if state["mean_embedding"] is not None:
+            clip_embs.append(state["mean_embedding"])
+        if state.get("dino_mean_embedding") is not None:
+            dino_embs.append(state["dino_mean_embedding"])
+    return {
+        "clip_matrix": np.stack(clip_embs) if clip_embs else None,
+        "dino_matrix": np.stack(dino_embs) if dino_embs else None,
+    }
+
+
 def add_frame_to_template(
     state: dict,
     video_path: Path | str,
@@ -439,6 +458,73 @@ def get_similarity_curve(
     return all_positions, similarities
 
 
+def get_similarity_curve_multi(
+    video_path: Path | str,
+    clip_matrix: np.ndarray,
+    stride: int = 10,
+    batch_size: int = 64,
+    progress_cb=None,
+    positions: np.ndarray | None = None,
+) -> tuple[np.ndarray, np.ndarray]:
+    """
+    Like get_similarity_curve but uses max(clip_matrix @ frame_emb) over N templates.
+    clip_matrix shape: (N, 512).
+    """
+    from concurrent.futures import ThreadPoolExecutor
+
+    video_path_str = str(video_path)
+    cap = cv2.VideoCapture(video_path_str)
+    total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+    cap.release()
+
+    if positions is None:
+        all_positions = np.arange(0, total_frames, stride, dtype=np.int64)
+    else:
+        all_positions = np.sort(np.asarray(positions, dtype=np.int64))
+
+    similarities = np.zeros(len(all_positions), dtype=np.float32)
+    if len(all_positions) == 0:
+        return all_positions, similarities
+
+    def read_batch(batch_positions):
+        if len(batch_positions) == 0:
+            return []
+        vcap = cv2.VideoCapture(video_path_str)
+        vcap.set(cv2.CAP_PROP_POS_FRAMES, int(batch_positions[0]))
+        cur = int(batch_positions[0])
+        frames = []
+        try:
+            for target in batch_positions:
+                target = int(target)
+                while cur < target:
+                    vcap.grab()
+                    cur += 1
+                ret, frame = vcap.read()
+                cur += 1
+                frames.append(frame if ret else np.zeros((64, 64, 3), dtype=np.uint8))
+        finally:
+            vcap.release()
+        return frames
+
+    processed = 0
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        future = pool.submit(read_batch, all_positions[:batch_size])
+        for batch_start in range(0, len(all_positions), batch_size):
+            batch_pos = all_positions[batch_start: batch_start + batch_size]
+            frames = future.result()
+            next_start = batch_start + batch_size
+            future = pool.submit(read_batch, all_positions[next_start: next_start + batch_size])
+            embs = embed_frames_batch(frames)               # (B, 512)
+            sims = (embs @ clip_matrix.T).max(axis=1)      # (B,)
+            n = len(batch_pos)
+            similarities[batch_start: batch_start + n] = sims[:n]
+            processed += n
+            if progress_cb:
+                progress_cb(processed, len(all_positions))
+
+    return all_positions, similarities
+
+
 def fine_scan(
     video_path: Path | str,
     template_emb: "np.ndarray | None",
@@ -471,6 +557,40 @@ def fine_scan(
     else:
         embs = embed_frames_batch(frames)
         sims = embs @ template_emb
+
+    best_local = int(np.argmax(sims))
+    return positions[best_local], float(sims[best_local])
+
+
+def fine_scan_multi(
+    video_path: Path | str,
+    clip_matrix: "np.ndarray | None",
+    coarse_cv2_pos: int,
+    window: int = 50,
+    dino_matrix: "np.ndarray | None" = None,
+) -> tuple[int, float]:
+    """
+    Like fine_scan but uses max similarity across N template embeddings.
+    clip_matrix: (N, 512) or None. dino_matrix: (N, D_dino) or None.
+    """
+    cap = cv2.VideoCapture(str(video_path))
+    total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+    start = max(0, coarse_cv2_pos - window)
+    end = min(total - 1, coarse_cv2_pos + window)
+    positions = list(range(start, end + 1))
+    frames = []
+    for pos in positions:
+        cap.set(cv2.CAP_PROP_POS_FRAMES, pos)
+        ret, frame = cap.read()
+        frames.append(frame if ret else np.zeros((64, 64, 3), dtype=np.uint8))
+    cap.release()
+
+    if dino_matrix is not None:
+        embs = embed_frames_dino_batch(frames)              # (B, D_dino)
+        sims = (embs @ dino_matrix.T).max(axis=1)          # (B,)
+    else:
+        embs = embed_frames_batch(frames)                   # (B, 512)
+        sims = (embs @ clip_matrix.T).max(axis=1)          # (B,)
 
     best_local = int(np.argmax(sims))
     return positions[best_local], float(sims[best_local])
@@ -641,6 +761,64 @@ def scan_video_sensor_guided(
             phase_cb("fine", i + 1, len(dedup))
 
     return results
+
+
+def scan_video_multi_template(
+    video_path: Path | str,
+    combined: dict,
+    stride: int = 10,
+    threshold: float = 0.70,
+    min_spacing: int = 900,
+    fine_window: int = 50,
+    batch_size: int = 64,
+    smooth_sigma: float = 3.0,
+    progress_cb=None,
+    phase_cb=None,
+) -> list[dict]:
+    """
+    Full scan pipeline using multiple template embeddings (max similarity).
+    combined: output of load_combined_template().
+    Returns same format as scan_video(): [{cv2_pos, frame_number, similarity}, ...].
+    """
+    clip_matrix = combined.get("clip_matrix")
+    dino_matrix = combined.get("dino_matrix")
+    if clip_matrix is None:
+        return []
+
+    if phase_cb:
+        phase_cb("coarse", 0, 1)
+
+    frame_indices, similarities = get_similarity_curve_multi(
+        video_path, clip_matrix,
+        stride=stride, batch_size=batch_size,
+        progress_cb=lambda c, t: phase_cb("coarse", c, t) if phase_cb else (progress_cb(c, t) if progress_cb else None),
+    )
+
+    if len(frame_indices) == 0:
+        return []
+
+    if phase_cb:
+        phase_cb("peak_detection", 0, 1)
+    smoothed = smooth_curve(similarities, sigma=smooth_sigma)
+    coarse_peaks = find_peaks_in_curve(smoothed, frame_indices, threshold, min_spacing)
+
+    detections = []
+    if phase_cb:
+        phase_cb("fine", 0, len(coarse_peaks))
+    for i, cv2_pos in enumerate(coarse_peaks):
+        best_pos, best_sim = fine_scan_multi(
+            video_path, clip_matrix, cv2_pos,
+            window=fine_window, dino_matrix=dino_matrix,
+        )
+        detections.append({
+            "cv2_pos": best_pos,
+            "frame_number": best_pos + 1,
+            "similarity": best_sim,
+        })
+        if phase_cb:
+            phase_cb("fine", i + 1, len(coarse_peaks))
+
+    return detections
 
 
 def get_known_key_frames(clips_dir: Path | str) -> dict[int, str]:

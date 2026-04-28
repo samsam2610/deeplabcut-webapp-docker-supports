@@ -248,3 +248,72 @@ def test_extract_clip_end_to_end(tiny_video, tiny_csv, tmp_path, monkeypatch):
     clip_df = pd.read_csv(result["csv_path"])
     assert clip_df["clip_frame"].iloc[0] == 1
     assert len(clip_df) == 15  # frames 15..29 inclusive
+
+
+def test_load_combined_template_empty_dirs(tmp_path):
+    result = processor.load_combined_template([])
+    assert result["clip_matrix"] is None
+    assert result["dino_matrix"] is None
+
+
+def test_load_combined_template_missing_state(tmp_path):
+    # Directory exists but no template_state.json — should be skipped
+    (tmp_path / "template").mkdir(parents=True)
+    result = processor.load_combined_template([str(tmp_path)])
+    assert result["clip_matrix"] is None
+
+
+def test_load_combined_template_single_dir(tmp_path, mock_model):
+    # Create a minimal template_state.json
+    import json
+    state = {
+        "frames": [],
+        "mean_embedding": [0.1] * 512,
+        "dino_mean_embedding": [0.2] * 1024,
+    }
+    tpl_dir = tmp_path / "template"
+    tpl_dir.mkdir()
+    (tpl_dir / "template_state.json").write_text(json.dumps(state))
+    result = processor.load_combined_template([str(tmp_path)])
+    assert result["clip_matrix"].shape == (1, 512)
+    assert result["dino_matrix"].shape == (1, 1024)
+
+
+def test_load_combined_template_two_dirs(tmp_path, mock_model):
+    import json
+    for i in range(2):
+        d = tmp_path / f"session{i}" / "template"
+        d.mkdir(parents=True)
+        state = {
+            "frames": [],
+            "mean_embedding": [float(i)] * 512,
+            "dino_mean_embedding": [float(i)] * 1024,
+        }
+        (d / "template_state.json").write_text(json.dumps(state))
+    dirs = [str(tmp_path / f"session{i}") for i in range(2)]
+    result = processor.load_combined_template(dirs)
+    assert result["clip_matrix"].shape == (2, 512)
+    assert result["dino_matrix"].shape == (2, 1024)
+
+
+def test_scan_video_multi_template_finds_detections(mock_model, tiny_video, tmp_path):
+    """Multi-template scan returns detections list (may be empty for random embeddings)."""
+    import json
+    rng = np.random.default_rng(0)
+    state = {
+        "frames": [],
+        "mean_embedding": rng.random(512).tolist(),
+        "dino_mean_embedding": rng.random(1024).tolist(),
+    }
+    tpl_dir = tmp_path / "template"
+    tpl_dir.mkdir()
+    (tpl_dir / "template_state.json").write_text(json.dumps(state))
+    combined = processor.load_combined_template([str(tmp_path)])
+    detections = processor.scan_video_multi_template(
+        tiny_video, combined,
+        stride=5, threshold=0.0, min_spacing=1, fine_window=2, batch_size=10,
+    )
+    assert isinstance(detections, list)
+    for d in detections:
+        assert "frame_number" in d
+        assert "similarity" in d
