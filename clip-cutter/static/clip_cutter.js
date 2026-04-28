@@ -11,6 +11,8 @@ const _batchQueue = new Set();
 let _libScanType   = "clips";       // "clips" | "template_frames"
 let _libSensorMode = "clip_only";   // "clip_only" | "sensor+clip"
 let _templateScanJobId = null;
+let _libBatchScanEs = null;
+let _libBatchScanJobId = null;
 
 function esc(s) {
   const d = document.createElement("div");
@@ -34,11 +36,11 @@ function applyFilter() {
 async function loadLibraries() {
   const resp = await fetch("/clip-cutter/global-libraries");
   if (!resp.ok) { setStatus("Failed to load libraries"); return; }
-  const { libraries } = await resp.json();
-  renderLibraries(libraries);
+  const { libraries, counts } = await resp.json();
+  renderLibraries(libraries, counts || {});
 }
 
-function renderLibraries(libraries) {
+function renderLibraries(libraries, counts) {
   const list = document.getElementById("lib-list");
   list.innerHTML = "";
   for (const [name, folders] of Object.entries(libraries)) {
@@ -51,6 +53,7 @@ function renderLibraries(libraries) {
       <div class="lib-card-header">
         <span class="lib-name" title="${escapedName}">${escapedName}</span>
         <span class="lib-folder-count">${folders.length} folder${folders.length !== 1 ? "s" : ""}</span>
+        <button class="player-btn lib-refresh-btn" title="Refresh frame counts">&#8635;</button>
         <button class="player-btn lib-delete-btn" title="Delete library">&#10005;</button>
       </div>
       <div class="lib-card-body${isActive ? " open" : ""}">
@@ -82,7 +85,7 @@ function renderLibraries(libraries) {
 
     // Header click: expand/collapse
     card.querySelector(".lib-card-header").addEventListener("click", (e) => {
-      if (e.target.closest(".lib-delete-btn")) return;
+      if (e.target.closest(".lib-delete-btn") || e.target.closest(".lib-refresh-btn")) return;
       const body = card.querySelector(".lib-card-body");
       const opening = !body.classList.contains("open");
       // Collapse all
@@ -97,8 +100,11 @@ function renderLibraries(libraries) {
         _activeBatchLibrary = null;
         _activeBatchFolders = new Set();
       }
-      updateBatchScanBtn();
+      updateBatchToolbar();
     });
+
+    // Refresh frame counts
+    card.querySelector(".lib-refresh-btn").addEventListener("click", () => loadLibraries());
 
     // Delete library
     card.querySelector(".lib-delete-btn").addEventListener("click", async () => {
@@ -175,16 +181,20 @@ function renderLibraries(libraries) {
 }
 
 function updateBatchScanBtn() {
+  const hasVideos = _batchQueue.size > 0 || selectedVideoPath !== null;
   document.querySelectorAll(".lib-scan-btn").forEach(btn => {
-    btn.disabled = _activeBatchFolders.size === 0 || _batchQueue.size === 0;
+    btn.disabled = _activeBatchFolders.size === 0 || !hasVideos;
   });
 }
 
 async function startBatchScan() {
-  if (_activeBatchFolders.size === 0 || _batchQueue.size === 0) return;
+  const video_paths = _batchQueue.size > 0 ? [..._batchQueue] : (selectedVideoPath ? [selectedVideoPath] : []);
+  if (_activeBatchFolders.size === 0 || video_paths.length === 0) return;
   const template_dirs = [..._activeBatchFolders];
-  const video_paths = [..._batchQueue];
   setStatus(`Starting batch scan: ${template_dirs.length} template source(s), ${video_paths.length} video(s)…`);
+  const progressEl = document.getElementById("lib-scan-progress");
+  const setProgress = (msg) => { progressEl.style.display = msg ? "" : "none"; progressEl.textContent = msg; };
+
   try {
     const resp = await fetch("/clip-cutter/batch-scan", {
       method: "POST",
@@ -205,11 +215,18 @@ async function startBatchScan() {
     });
     if (!resp.ok) { setStatus("Batch scan error"); return; }
     const { job_id } = await resp.json();
+    _libBatchScanJobId = job_id;
     const es = new EventSource(`/clip-cutter/batch-scan/stream?job_id=${job_id}`);
+    _libBatchScanEs = es;
+    const cancelBtn = document.getElementById("lib-scan-cancel-btn");
+    cancelBtn.style.display = "";
+    cancelBtn.disabled = false;
+    function finishBatchScan() { setProgress(""); cancelBtn.style.display = "none"; _libBatchScanEs = null; _libBatchScanJobId = null; }
     es.onmessage = (e) => {
       const job = JSON.parse(e.data);
       if (job.phase === "done") {
         es.close();
+        finishBatchScan();
         const allDetections = [];
         (job.results || []).forEach(r => allDetections.push(...r.detections));
         currentFilter = "all";
@@ -218,13 +235,21 @@ async function startBatchScan() {
         setStatus(`Batch scan done — ${total} detection${total !== 1 ? "s" : ""} across ${video_paths.length} video${video_paths.length !== 1 ? "s" : ""}`);
       } else if (job.phase === "error") {
         es.close();
+        finishBatchScan();
         setStatus("Batch scan error: " + job.error);
+      } else if (job.phase === "cancelled") {
+        es.close();
+        finishBatchScan();
+        setStatus("Batch scan cancelled");
       } else {
-        setStatus(`Scanning ${job.video} (${job.video_index}/${job.video_total}) — ${job.phase}…`);
+        const msg = `${job.video || "…"} (${job.video_index || "?"}/${job.video_total || "?"}) — ${job.phase}`;
+        setProgress(msg);
+        setStatus(`Scanning ${msg}`);
       }
     };
-    es.onerror = () => { es.close(); setStatus("Batch scan stream error"); };
+    es.onerror = () => { es.close(); finishBatchScan(); setStatus("Batch scan stream error"); };
   } catch (err) {
+    setProgress("");
     setStatus("Network error: " + err.message);
   }
 }
@@ -260,13 +285,18 @@ async function startBatchTemplateScan() {
     if (!resp.ok) { setStatus("Template scan error"); return; }
     const { job_id } = await resp.json();
     _templateScanJobId = job_id;
-
+    _libBatchScanJobId = job_id;
     const es = new EventSource(`/clip-cutter/batch-template-scan/stream?job_id=${job_id}`);
+    _libBatchScanEs = es;
+    const cancelBtn = document.getElementById("lib-scan-cancel-btn");
+    cancelBtn.style.display = "";
+    cancelBtn.disabled = false;
+    function finishTemplateScan() { setProgress(""); cancelBtn.style.display = "none"; _libBatchScanEs = null; _libBatchScanJobId = null; }
     es.onmessage = (e) => {
       const job = JSON.parse(e.data);
       if (job.phase === "done") {
         es.close();
-        setProgress("");
+        finishTemplateScan();
         const allCandidates = [];
         (job.results || []).forEach(r => {
           (r.candidates || []).forEach(c => allCandidates.push({ ...c, video_path: r.video_path }));
@@ -276,14 +306,18 @@ async function startBatchTemplateScan() {
         setStatus(`Template scan done — ${allCandidates.length} candidate(s)`);
       } else if (job.phase === "error") {
         es.close();
-        setProgress("");
+        finishTemplateScan();
         setStatus("Template scan error: " + job.error);
+      } else if (job.phase === "cancelled") {
+        es.close();
+        finishTemplateScan();
+        setStatus("Template scan cancelled");
       } else {
         const msg = `${job.video || "…"} (${job.video_index || "?"}/${job.video_total || "?"}) — ${job.phase}`;
         setProgress(msg);
       }
     };
-    es.onerror = () => { es.close(); setProgress(""); setStatus("Template scan stream error"); };
+    es.onerror = () => { es.close(); finishTemplateScan(); setStatus("Template scan stream error"); };
   } catch (err) {
     setProgress("");
     setStatus("Template scan error: " + err.message);
@@ -459,7 +493,7 @@ function updateBatchToolbar() {
     countEl.style.display = "none";
     initBtn.style.display = "none";
   }
-  addFolderBtn.style.display = (_batchMode && _activeBatchLibrary !== null) ? "" : "none";
+  addFolderBtn.style.display = (_activeBatchLibrary !== null) ? "" : "none";
   updateBatchScanBtn();
 }
 
@@ -677,6 +711,18 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   });
 
+  // Library scan settings toggle + threshold label
+  document.getElementById("lib-settings-toggle").addEventListener("click", () => {
+    const body = document.getElementById("lib-settings-body");
+    const open = body.style.display === "none";
+    body.style.display = open ? "" : "none";
+    document.getElementById("lib-settings-toggle").innerHTML =
+      `&#9881; Scan settings ${open ? "&#9650;" : "&#9660;"}`;
+  });
+  document.getElementById("lib-scan-threshold").addEventListener("input", (e) => {
+    document.getElementById("lib-threshold-label").textContent = parseFloat(e.target.value).toFixed(2);
+  });
+
   document.getElementById("batch-toggle").addEventListener("click", () => {
     _batchMode = !_batchMode;
     updateBatchToolbar();
@@ -738,6 +784,7 @@ async function loadTemplate() {
 }
 
 function renderTemplate(data) {
+  if (document.getElementById("tab-libraries").classList.contains("active")) return;
   const emptyState = document.getElementById("sidebar-empty-state");
   const noTemplate = document.getElementById("sidebar-no-template");
   const noTemplateMsg = document.getElementById("sidebar-no-template-msg");
@@ -992,6 +1039,7 @@ async function selectVideo(videoPath, stem, parent) {
   }
 
   document.getElementById("scan-btn").disabled = false;
+  updateBatchScanBtn();
   detections.length = 0;
   document.getElementById("results-list").innerHTML = "";
   document.getElementById("results-count").textContent = "";
@@ -1075,12 +1123,20 @@ async function startScan() {
 
 function listenToScan(jobId) {
   const progressSection = document.getElementById("progress-section");
+  const cancelBtn = document.getElementById("scan-cancel-btn");
   progressSection.style.display = "block";
+  cancelBtn.style.display = "";
   resetPipelineStrip();
   setStatus("Scanning…");
 
   if (eventSource) eventSource.close();
   eventSource = new EventSource(`/clip-cutter/scan/stream?job_id=${jobId}`);
+
+  function finishScan() {
+    cancelBtn.style.display = "none";
+    progressSection.style.display = "none";
+    document.getElementById("scan-btn").disabled = false;
+  }
 
   eventSource.onmessage = async (e) => {
     const job = JSON.parse(e.data);
@@ -1092,7 +1148,6 @@ function listenToScan(jobId) {
         if (stepEl) { stepEl.classList.remove("active"); stepEl.classList.add("done"); }
       });
       document.querySelectorAll(".pipeline-connector").forEach((el) => el.classList.add("done"));
-      progressSection.style.display = "none";
       renderDetections(job.detections);
       currentFilter = "sensor+clip";
       document.querySelectorAll(".filter-btn").forEach((b) => {
@@ -1100,15 +1155,34 @@ function listenToScan(jobId) {
       });
       applyFilter();
       await saveDetections();
-      document.getElementById("scan-btn").disabled = false;
+      finishScan();
       setStatus(`Scan complete — ${job.detections.length} detection${job.detections.length !== 1 ? "s" : ""}`);
     } else if (job.status === "error") {
       eventSource.close();
-      progressSection.style.display = "none";
+      finishScan();
       setStatus("Scan error: " + job.error);
-      document.getElementById("scan-btn").disabled = false;
+    } else if (job.status === "cancelled") {
+      eventSource.close();
+      finishScan();
+      setStatus("Scan cancelled");
     }
   };
+}
+
+async function cancelScan() {
+  if (!currentJobId) return;
+  document.getElementById("scan-cancel-btn").disabled = true;
+  await fetch(`/clip-cutter/scan/${encodeURIComponent(currentJobId)}/cancel`, { method: "POST" });
+}
+
+async function cancelLibScan() {
+  if (!_libBatchScanJobId) return;
+  const btn = document.getElementById("lib-scan-cancel-btn");
+  btn.disabled = true;
+  const endpoint = _libScanType === "template_frames"
+    ? `/clip-cutter/batch-template-scan/${encodeURIComponent(_libBatchScanJobId)}/cancel`
+    : `/clip-cutter/batch-scan/${encodeURIComponent(_libBatchScanJobId)}/cancel`;
+  await fetch(endpoint, { method: "POST" });
 }
 
 const PIPELINE_PHASES = ["sensor_parse", "coarse", "peak_detection", "fine"];
@@ -1218,7 +1292,8 @@ function buildResultCard(d, idx) {
     <span class="sim-pill"></span>`;
 
   // Populate text content safely
-  card.querySelector(".result-name").textContent = clipName + ".avi";
+  const postfixSuffix = d.extract_postfix ? `_${d.extract_postfix}` : "";
+  card.querySelector(".result-name").textContent = clipName + postfixSuffix + ".avi";
   card.querySelector(".kf-num").textContent = d.frame_number.toLocaleString();
   card.querySelector(".match-pill").textContent = isKnown
     ? "✓ matches " + d.known_match
@@ -1253,16 +1328,20 @@ function buildResultCard(d, idx) {
   );
 
   card.addEventListener("click", (e) => {
-    if (e.target.closest("button")) return;
+    if (e.target.closest("button:not([disabled])")) return;
     document.querySelectorAll(".result-card").forEach((c) => c.classList.remove("active-preview"));
     card.classList.add("active-preview");
-    openPlayer({
-      mode: "clip",
-      videoPath: d.video_path,
-      keyFrame1Based: d.frame_number,
-      detectionIdx: idx,
-      csvPath: d.video_path.replace(/\.avi$/i, ".csv"),
-    });
+    if (typeof getVideoPath === "function" && getVideoPath() === d.video_path) {
+      epSwitchDetection({ detectionIdx: idx, keyFrame1Based: d.frame_number });
+    } else {
+      openPlayer({
+        mode: "clip",
+        videoPath: d.video_path,
+        keyFrame1Based: d.frame_number,
+        detectionIdx: idx,
+        csvPath: d.video_path.replace(/\.avi$/i, ".csv"),
+      });
+    }
   });
 
   return card;
@@ -1276,7 +1355,9 @@ async function keepDetection(idx) {
     body: JSON.stringify({ video_path: d.video_path, key_frame: d.frame_number }),
   });
   if (resp.ok) {
+    const data = await resp.json().catch(() => ({}));
     detections[idx].status = "kept";
+    if (data.avi_path) detections[idx].extract_avi_path = data.avi_path;
     const card = document.getElementById(`card-${idx}`);
     card.classList.add("kept");
     card.querySelectorAll("button").forEach((b) => (b.disabled = true));

@@ -34,7 +34,7 @@ header h1 { font-size: 15px; font-weight: 600; }
 #browser-section.collapsed #scan-btn { display: none !important; }
 .sidebar-header { padding: 10px 10px 6px; border-bottom: 1px solid #30363d; display: flex; align-items: center; justify-content: space-between; flex-shrink: 0; }
 .sidebar-title { font-size: 10px; color: #768390; text-transform: uppercase; letter-spacing: 0.5px; }
-.btn-sm { font-size: 10px; padding: 3px 8px; border-radius: 4px; cursor: pointer; border: 1px solid; background: transparent; }
+.btn-sm { font-size: 10px; padding: 3px 8px; border-radius: 4px; cursor: pointer; border: 1px solid #444c56; background: transparent; color: #cdd9e5; }
 .btn-green { border-color: #2ea043; color: #2ea043; }
 .btn-green:hover { background: #2ea04322; }
 .btn-blue { border-color: #388bfd; color: #388bfd; }
@@ -71,10 +71,16 @@ header h1 { font-size: 15px; font-weight: 600; }
 .lib-card-body { padding: 4px 8px 6px; display: none; }
 .lib-card-body.open { display: block; }
 .lib-folder-row { display: flex; align-items: center; gap: 4px; padding: 2px 0; }
-.lib-folder-label { flex: 1; font-size: 9px; color: #768390; overflow: hidden;
+.lib-folder-label { flex: 1; font-size: 9px; color: #adbac7; overflow: hidden;
                     text-overflow: ellipsis; white-space: nowrap; }
+.lib-folder-frames { font-size: 9px; color: #57ab5a; flex-shrink: 0; min-width: 28px; text-align: right; }
 .lib-folder-remove { flex-shrink: 0; padding: 1px 4px; font-size: 9px; }
 .lib-scan-btn { width: 100%; margin-top: 5px; font-size: 9px; padding: 3px 0; }
+#lib-scan-settings { border-top: 1px solid #21262d; flex-shrink: 0; }
+#lib-scan-settings .settings-toggle-btn { border-radius: 0; border: none; border-bottom: 1px solid #21262d; font-size: 10px; }
+#lib-scan-settings .settings-row { padding: 2px 8px; }
+#lib-scan-settings .settings-row label { min-width: 80px; }
+#lib-scan-progress { padding: 4px 8px; font-size: 9px; color: #768390; }
 
 /* Pill toggles */
 .pill-group { display: flex; gap: 2px; }
@@ -124,18 +130,18 @@ header h1 { font-size: 15px; font-weight: 600; }
 #browser-breadcrumb { flex: 1; font-size: 10px; color: #768390; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .bc-segment { cursor: pointer; color: #58a6ff; }
 .bc-segment:hover { text-decoration: underline; }
-.bc-sep { color: #30363d; }
+.bc-sep { color: #444c56; }
 .bc-current { color: #e6edf3; cursor: default; }
 #browser-list { display: flex; flex-direction: column; gap: 2px; max-height: 160px; overflow-y: auto; }
-.browser-row { display: flex; align-items: center; gap: 6px; padding: 4px 6px; border-radius: 4px; cursor: pointer; border: 1px solid transparent; }
-.browser-row:hover { background: #1c2128; border-color: #30363d; }
+.browser-row { display: flex; align-items: center; gap: 6px; padding: 4px 6px; border-radius: 4px; cursor: pointer; background: #161b22; border: 1px solid #21262d; }
+.browser-row:hover { background: #1c2128; border-color: #388bfd55; }
 .browser-row.selected { background: #1a2535; border-color: #388bfd; }
 /* ── Batch mode ─────────────────────────────────────────────────────────────── */
 #batch-toggle.active { border-color: #f0c040; color: #f0c040; }
-#batch-count { font-size: 10px; color: #768390; }
+#batch-count { font-size: 10px; color: #cdd9e5; }
 .browser-row-checkbox { flex-shrink: 0; accent-color: #388bfd; }
 .browser-icon { font-size: 11px; flex-shrink: 0; }
-.browser-name { font-family: monospace; font-size: 11px; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.browser-name { font-family: monospace; font-size: 11px; color: #cdd9e5; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* Clear confirmation modal */
 #clear-confirm-modal { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.7); z-index: 100; align-items: center; justify-content: center; }
@@ -251,14 +257,27 @@ header h1 { font-size: 15px; font-weight: 600; }
   user-select: none;
 }
 #ep-drag-handle:hover { background: #388bfd44; }
+#ep-titlebar {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-bottom: 1px solid #21262d;
+  background: #161b22;
+}
+#ep-title { flex: 1; font-size: 10px; color: #768390; }
+#ep-minimize-btn { font-size: 10px; padding: 1px 6px; }
+#player-panel.minimized #ep-inner { display: none; }
+#player-panel.minimized #ep-drag-handle { display: none; }
 #ep-inner {
   flex: 1;
   display: flex;
-  gap: 8px;
+  gap: 0;
   padding: 8px;
   overflow: auto;
   min-height: 0;
 }
+#ep-left { padding-right: 0; }
 #ep-left {
   flex: 1;
   display: flex;
@@ -280,17 +299,15 @@ header h1 { font-size: 15px; font-weight: 600; }
 }
 #ep-frame { max-width: 100%; max-height: 100%; display: block; transform-origin: center center; }
 #ep-lock-badge {
-  position: absolute; top: 4px; left: 6px;
-  background: #da363322; border: 1px solid #da3633; border-radius: 3px;
-  padding: 1px 5px; font-size: 8px; color: #f85149;
-  font-family: monospace;
+  position: absolute; top: 4px; left: 6px; z-index: 2;
+  border-radius: 3px; padding: 2px 6px; font-size: 8px;
+  font-family: monospace; cursor: pointer; outline: none;
+  border: 1px solid; background: transparent;
 }
-#ep-unlock-btn {
-  position: absolute;
-  top: 4px;
-  left: 6px;
-  z-index: 2;
-}
+#ep-lock-badge.locked  { border-color: #da3633; color: #f85149; background: #da363322; }
+#ep-lock-badge.locked:hover  { background: #da363344; }
+#ep-lock-badge.unlocked { border-color: #2ea043; color: #3fb950; background: #2ea04322; }
+#ep-lock-badge.unlocked:hover { background: #2ea04344; }
 #ep-zoom-controls {
   position: absolute; top: 4px; right: 6px;
   display: flex; align-items: center; gap: 4px;
@@ -340,7 +357,7 @@ header h1 { font-size: 15px; font-weight: 600; }
 }
 #ep-step { width: 48px; }
 #ep-playn { width: 42px; }
-#ep-play {
+#ep-play, #ep-play-back {
   background: #1f6feb !important;
   border-color: #388bfd !important;
   color: #fff !important;
@@ -348,7 +365,17 @@ header h1 { font-size: 15px; font-weight: 600; }
   padding: 2px 10px !important;
   font-weight: 600;
 }
-#ep-play:hover { background: #388bfd !important; }
+#ep-play:hover, #ep-play-back:hover { background: #388bfd !important; }
+.ep-step-preset {
+  width: 40px; padding: 2px 3px; font-size: 9px; text-align: center; cursor: pointer;
+  border: 1px solid #30363d; border-radius: 10px;
+  background: transparent; color: #768390;
+  -moz-appearance: textfield;
+}
+.ep-step-preset::-webkit-outer-spin-button,
+.ep-step-preset::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+.ep-step-preset:focus { outline: none; }
+.ep-step-preset.active { border-color: #388bfd; background: #1f6feb22; color: #388bfd; }
 #ep-csv-strip {
   display: flex; align-items: center; gap: 5px; flex-shrink: 0;
   background: #161b22; border: 1px solid #30363d;
@@ -365,11 +392,22 @@ header h1 { font-size: 15px; font-weight: 600; }
 }
 /* Extract panel */
 #ep-extract-panel {
-  width: 160px; flex-shrink: 0;
+  width: 240px; flex-shrink: 0;
   background: #161b22; border: 1px solid #30363d; border-radius: 4px;
   padding: 7px;
   display: flex; flex-direction: column; gap: 5px;
 }
+/* Vertical drag handle between video and extract panel */
+#ep-panel-resize-handle {
+  width: 8px; flex-shrink: 0; cursor: ew-resize;
+  background: transparent; position: relative; user-select: none;
+}
+#ep-panel-resize-handle::after {
+  content: ''; position: absolute; top: 6px; bottom: 6px; left: 3px;
+  width: 2px; background: #30363d; border-radius: 1px;
+}
+#ep-panel-resize-handle:hover::after,
+#ep-panel-resize-handle.dragging::after { background: #388bfd; }
 .ep-panel-title {
   font-size: 9px; font-weight: 600; color: #cdd9e5;
   border-bottom: 1px solid #30363d; padding-bottom: 3px;
@@ -405,6 +443,7 @@ header h1 { font-size: 15px; font-weight: 600; }
 .ep-btn-red { border-color: #da3633 !important; color: #f85149 !important; }
 .ep-btn-red:hover { background: #da363322 !important; }
 #ep-extract-panel .player-btn { width: 100%; font-size: 8px; padding: 3px 5px; }
+#ep-add-tag-btn { width: auto !important; padding: 2px 7px !important; flex-shrink: 0; }
 /* ── KF canvas overlay ──────────────────────────────────────────────────────── */
 #ep-kf-canvas { width:100%; border-radius:2px; background:#161b22; }
 /* ── Tag timeline bars ──────────────────────────────────────────────────────── */
@@ -416,6 +455,16 @@ header h1 { font-size: 15px; font-weight: 600; }
   background:transparent; user-select:none;
 }
 .ep-tag-chip.active { background: color-mix(in srgb, var(--chip-color,#555) 20%, transparent); }
+.player-btn:disabled { opacity:0.3; cursor:not-allowed; }
+.ep-postfix-tag {
+  font-size:8px; padding:1px 6px 1px 5px; border-radius:10px;
+  border:1px solid #444c56; color:#768390; cursor:pointer;
+  background:transparent; user-select:none; white-space:nowrap;
+  display:inline-flex; align-items:center; gap:3px;
+}
+.ep-postfix-tag:hover { background:#30363d33; }
+.ep-postfix-tag.active { border-color:#388bfd; color:#388bfd; background:#1f6feb22; }
+.ep-postfix-tag .ep-tag-del { font-size:9px; color:#f85149; line-height:1; padding:0 1px; }
 </style>
 </head>
 <body>
@@ -455,6 +504,7 @@ header h1 { font-size: 15px; font-weight: 600; }
         <button class="player-btn" id="lib-new-btn">+ New</button>
       </div>
       <div id="lib-list"></div>
+      <button id="lib-settings-toggle" style="width:100%;background:none;border:none;border-top:1px solid #30363d;color:#768390;font-size:10px;padding:4px 10px;cursor:pointer;text-align:left;">&#9881; Scan settings &#9660;</button>
       <div id="lib-settings-body" style="display:none;padding:6px 10px;border-top:1px solid #30363d;flex-shrink:0;overflow-y:auto;font-size:10px;">
         <!-- Scan type -->
         <div class="lib-settings-row">
@@ -511,7 +561,10 @@ header h1 { font-size: 15px; font-weight: 600; }
             <input type="number" id="lib-target-clusters" value="10" min="1" class="lib-settings-input">
           </div>
         </div>
-        <div id="lib-scan-progress" style="display:none;font-size:9px;color:#768390;padding:2px 0;"></div>
+        <div style="display:flex;align-items:center;gap:4px;">
+          <div id="lib-scan-progress" style="display:none;font-size:9px;color:#768390;padding:2px 0;flex:1;"></div>
+          <button id="lib-scan-cancel-btn" style="display:none;padding:2px 7px;background:#c62828;color:#fff;border:none;border-radius:3px;cursor:pointer;font-size:9px;" onclick="cancelLibScan()">&#9632;</button>
+        </div>
       </div>
     </div>
     <div id="sidebar-resize-handle"></div>
@@ -575,7 +628,10 @@ header h1 { font-size: 15px; font-weight: 600; }
           </div>
         </div>
       </div>
-      <button id="scan-btn" disabled onclick="startScan()">&#9654; Scan selected video</button>
+      <div style="display:flex;gap:6px;align-items:center;margin-top:0;">
+        <button id="scan-btn" disabled onclick="startScan()" style="flex:1;margin-top:0;">&#9654; Scan selected video</button>
+        <button id="scan-cancel-btn" style="display:none;padding:6px 12px;background:#c62828;color:#fff;border:none;border-radius:5px;cursor:pointer;font-size:12px;" onclick="cancelScan()">&#9632; Cancel</button>
+      </div>
     </div>
 
     <!-- Progress -->
@@ -631,13 +687,16 @@ header h1 { font-size: 15px; font-weight: 600; }
 <!-- Enhanced player bottom panel -->
 <div id="player-panel" style="display:none;">
   <div id="ep-drag-handle"></div>
+  <div id="ep-titlebar">
+    <span id="ep-title">Video Viewer</span>
+    <button id="ep-minimize-btn" class="player-btn" title="Minimize viewer">&#9660;</button>
+  </div>
   <div id="ep-inner">
   <!-- Left: frame + controls -->
   <div id="ep-left">
     <div id="ep-frame-wrap">
       <img id="ep-frame" alt="frame">
-      <div id="ep-lock-badge" style="display:none;">&#128274; 0&#8211;0</div>
-      <button id="ep-unlock-btn" class="player-btn" style="display:none;font-size:9px;">&#128275; Unlock</button>
+      <button id="ep-lock-badge" class="locked" style="display:none;" title="Toggle lock range">&#128274; 0&#8211;0</button>
       <div id="ep-zoom-controls">
         &#128269;
         <input type="range" id="ep-zoom" min="50" max="200" value="100">
@@ -668,16 +727,20 @@ header h1 { font-size: 15px; font-weight: 600; }
       <button class="player-btn" id="ep-kf-next" title="Next keyframe">KF &#9654;</button>
       <button class="player-btn" id="ep-back" title="Back by step size">&#9664;&#9664;</button>
       <button class="player-btn" id="ep-back1" title="Back 1 frame">&#8249;</button>
-      <button class="player-btn" id="ep-play" title="Play / Pause">&#9654;</button>
+      <button class="player-btn" id="ep-play-back" title="Play backward">&#9664;</button>
+      <button class="player-btn" id="ep-play" title="Play forward / Pause">&#9654;</button>
       <button class="player-btn" id="ep-fwd1" title="Forward 1 frame">&#8250;</button>
       <button class="player-btn" id="ep-fwd" title="Forward by step size">&#9654;&#9654;</button>
       <button class="player-btn" id="ep-last" title="Jump to end">&#9197;</button>
+      <button class="player-btn" id="ep-loop">&#8635;</button>
+      <input class="ep-step-preset" type="number" value="50" title="Step preset 1 — click to select">
+      <input class="ep-step-preset" type="number" value="100" title="Step preset 2 — click to select">
+      <input class="ep-step-preset" type="number" value="200" title="Step preset 3 — click to select">
+      <div style="flex:1;"></div>
       <span>Step</span>
       <input type="number" id="ep-step" min="1" value="10" title="Step size (frames)">
       <span>Play&#215;</span>
       <input type="number" id="ep-playn" min="1" value="1" title="Play every N frames">
-      <button class="player-btn" id="ep-loop">&#8635;</button>
-      <div style="flex:1;"></div>
       <button class="player-btn" id="ep-collapse">&#10005;</button>
     </div>
 
@@ -688,16 +751,16 @@ header h1 { font-size: 15px; font-weight: 600; }
       <span class="ep-strip-label" style="margin-left:4px;">Note:</span>
       <span id="ep-note-badge" class="ep-note-pill">&#8212;</span>
       <div style="flex:1;"></div>
-      <button class="player-btn" id="ep-prev-tag">&#9664;</button>
-      <button class="player-btn" id="ep-next-tag">&#9654;</button>
+      <button class="player-btn" id="ep-prev-tag" disabled>&#9664;</button>
+      <button class="player-btn" id="ep-next-tag" disabled>&#9654;</button>
     </div>
 
     <!-- Status timeline bar -->
     <div id="ep-status-bar-wrap" style="display:none;">
       <div class="ep-bar-header">
         <span class="ep-strip-label">Status</span>
-        <button class="player-btn" id="ep-status-prev" style="padding:1px 5px;font-size:9px;">&#9664;</button>
-        <button class="player-btn" id="ep-status-next" style="padding:1px 5px;font-size:9px;">&#9654;</button>
+        <button class="player-btn" id="ep-status-prev" style="padding:1px 5px;font-size:9px;" disabled>&#9664;</button>
+        <button class="player-btn" id="ep-status-next" style="padding:1px 5px;font-size:9px;" disabled>&#9654;</button>
       </div>
       <canvas id="ep-status-canvas" height="10" style="width:100%;display:block;cursor:pointer;border-radius:2px;background:#161b22;"></canvas>
       <div id="ep-status-chips" class="ep-chips-row"></div>
@@ -707,13 +770,16 @@ header h1 { font-size: 15px; font-weight: 600; }
     <div id="ep-note-bar-wrap" style="display:none;">
       <div class="ep-bar-header">
         <span class="ep-strip-label">Note</span>
-        <button class="player-btn" id="ep-note-prev" style="padding:1px 5px;font-size:9px;">&#9664;</button>
-        <button class="player-btn" id="ep-note-next" style="padding:1px 5px;font-size:9px;">&#9654;</button>
+        <button class="player-btn" id="ep-note-prev" style="padding:1px 5px;font-size:9px;" disabled>&#9664;</button>
+        <button class="player-btn" id="ep-note-next" style="padding:1px 5px;font-size:9px;" disabled>&#9654;</button>
       </div>
       <canvas id="ep-note-canvas" height="10" style="width:100%;display:block;cursor:pointer;border-radius:2px;background:#161b22;"></canvas>
       <div id="ep-note-chips" class="ep-chips-row"></div>
     </div>
   </div>
+
+  <!-- Drag handle between video viewer and extract panel -->
+  <div id="ep-panel-resize-handle"></div>
 
   <!-- Right: extract panel -->
   <div id="ep-extract-panel">
@@ -728,6 +794,16 @@ header h1 { font-size: 15px; font-weight: 600; }
       <input type="number" id="ep-end" readonly>
       <span>Postfix</span>
       <input type="text" id="ep-postfix" placeholder="opt.">
+    </div>
+
+    <!-- Persistent postfix tags -->
+    <div id="ep-postfix-tags-section" style="margin-top:5px;">
+      <div style="font-size:8px;color:#768390;margin-bottom:2px;">Quick tags</div>
+      <div style="display:flex;align-items:center;gap:3px;margin-bottom:3px;">
+        <input type="text" id="ep-new-tag-input" placeholder="add tag…" style="flex:1;background:#21262d;border:1px solid #30363d;border-radius:3px;color:#e6edf3;font-size:9px;padding:2px 4px;min-width:0;">
+        <button class="player-btn" id="ep-add-tag-btn">+</button>
+      </div>
+      <div id="ep-postfix-tags" style="display:flex;flex-wrap:wrap;gap:2px;min-height:14px;"></div>
     </div>
 
     <div id="ep-lock-row">
@@ -751,6 +827,8 @@ header h1 { font-size: 15px; font-weight: 600; }
     </div>
     <button class="player-btn ep-btn-green" id="ep-set-kf" style="display:none;">&#128204; Set KF</button>
     <button class="player-btn ep-btn-blue" id="ep-extract">&#9986; Extract</button>
+    <button class="player-btn ep-btn-green" id="ep-rename-extract" style="display:none;" title="Rename with current postfix">&#9998; Update name</button>
+    <button class="player-btn ep-btn-red" id="ep-delete-extract" style="display:none;">&#128465; Delete extract</button>
     <button class="player-btn ep-btn-red" id="ep-reject" style="display:none;">&#10005; Reject</button>
   </div>
   </div><!-- /ep-inner -->
