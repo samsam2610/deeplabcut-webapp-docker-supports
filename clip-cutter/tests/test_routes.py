@@ -48,6 +48,7 @@ def reset_routes_state():
     routes._init_status = {"running": False, "error": None}
     routes._batch_init_jobs.clear()
     routes._batch_scan_jobs.clear()
+    routes._batch_template_scan_jobs.clear()
     yield
     routes._state = {
         "frames": [],
@@ -59,6 +60,7 @@ def reset_routes_state():
     routes._init_status = {"running": False, "error": None}
     routes._batch_init_jobs.clear()
     routes._batch_scan_jobs.clear()
+    routes._batch_template_scan_jobs.clear()
 
 
 def test_index_returns_200(client):
@@ -594,3 +596,53 @@ def test_batch_init_stream_returns_done(lib_client, monkeypatch, tmp_path):
     events = [json.loads(line[6:]) for line in raw.splitlines() if line.startswith("data:")]
     statuses = {e.get("phase") for e in events}
     assert "done" in statuses
+
+
+def test_batch_template_scan_missing_template_dirs(client):
+    resp = client.post("/clip-cutter/batch-template-scan",
+                       json={"video_paths": ["/x/v.avi"], "params": {}})
+    assert resp.status_code == 400
+    assert b"template_dirs" in resp.data
+
+
+def test_batch_template_scan_starts_and_streams(client, tmp_path, monkeypatch):
+    import routes, numpy as np
+
+    # Patch find_template_candidates to return immediately
+    def fake_find(video_path, combined, **kwargs):
+        return {
+            "candidates": [{"frame_number": 5, "similarity": 0.8, "cluster_id": 0}],
+            "curve": [{"frame_number": 0, "similarity": 0.8}],
+            "embeddings": np.zeros((1, 512), dtype=np.float32),
+        }
+
+    monkeypatch.setattr("processor.find_template_candidates", fake_find)
+
+    # Create a fake template dir with template_state.json
+    tdir = tmp_path / "templ"
+    tdir.mkdir()
+    state_path = tdir / "template_state.json"
+    state_path.write_text('{"frames": [{"video_path": "x.avi", "frame_number": 1, "embedding": [], "dino_embedding": [], "thumbnail": ""}]}')
+
+    import processor
+    monkeypatch.setattr(processor, "load_combined_template", lambda dirs: {
+        "clip_matrix": np.ones((1, 512), dtype=np.float32),
+        "dino_matrix": None,
+    })
+
+    resp = client.post("/clip-cutter/batch-template-scan", json={
+        "template_dirs": [str(tdir)],
+        "video_paths": ["/x/v.avi"],
+        "params": {"stride": 10, "threshold": 0.7, "n_clusters": 5},
+    })
+    assert resp.status_code == 200
+    data = json.loads(resp.data)
+    assert "job_id" in data
+
+    import time
+    time.sleep(0.2)
+
+    # Stream until done
+    with client.get(f"/clip-cutter/batch-template-scan/stream?job_id={data['job_id']}",
+                    buffered=True) as stream_resp:
+        assert stream_resp.status_code == 200

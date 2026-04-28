@@ -221,6 +221,9 @@ _batch_init_jobs_lock = threading.Lock()
 _batch_scan_jobs: dict[str, dict] = {}
 _batch_scan_jobs_lock = threading.Lock()
 
+_batch_template_scan_jobs: dict[str, dict] = {}
+_batch_template_scan_jobs_lock = threading.Lock()
+
 
 def _run_init(video_stem: str, video_parent: str):
     global _state
@@ -338,6 +341,9 @@ def _run_batch_scan(job_id: str, template_dirs: list, video_paths: list, params:
     threshold     = params.get("threshold",     config.SIMILARITY_THRESHOLD)
     min_spacing   = params.get("min_spacing",   config.MIN_PEAK_SPACING)
     fine_window   = params.get("fine_window",   config.FINE_SCAN_WINDOW)
+    scan_mode     = params.get("scan_mode",     "clip_only")
+    trigger_value = params.get("trigger_value", config.SENSOR_TRIGGER_VALUE)
+    sensor_margin = params.get("sensor_margin", config.SENSOR_MARGIN)
 
     combined = processor.load_combined_template(template_dirs)
     if combined["clip_matrix"] is None:
@@ -359,13 +365,27 @@ def _run_batch_scan(job_id: str, template_dirs: list, video_paths: list, params:
                 _batch_scan_jobs[job_id]["total"] = total
 
         try:
-            detections = processor.scan_video_multi_template(
-                video_path, combined,
-                stride=stride, threshold=threshold,
-                min_spacing=min_spacing, fine_window=fine_window,
-                batch_size=config.SCAN_BATCH_SIZE,
-                phase_cb=phase_cb,
-            )
+            if scan_mode == "sensor+clip":
+                csv_path = Path(video_path).with_suffix(".csv")
+                if not csv_path.exists():
+                    raise FileNotFoundError(f"CSV not found for {video_path}")
+                detections = processor.scan_video_sensor_guided_multi(
+                    video_path, combined, csv_path,
+                    trigger_value=trigger_value,
+                    sensor_margin=sensor_margin,
+                    stride=stride, threshold=threshold,
+                    min_spacing=min_spacing, fine_window=fine_window,
+                    batch_size=config.SCAN_BATCH_SIZE,
+                    phase_cb=phase_cb,
+                )
+            else:
+                detections = processor.scan_video_multi_template(
+                    video_path, combined,
+                    stride=stride, threshold=threshold,
+                    min_spacing=min_spacing, fine_window=fine_window,
+                    batch_size=config.SCAN_BATCH_SIZE,
+                    phase_cb=phase_cb,
+                )
             for d in detections:
                 d["status"] = "pending"
                 d["source"] = "global_library"
@@ -423,6 +443,186 @@ def batch_scan_stream():
         mimetype="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
+
+
+def _run_batch_template_scan(job_id: str, template_dirs: list, video_paths: list, params: dict):
+    stride        = params.get("stride",        config.SCAN_STRIDE)
+    threshold     = params.get("threshold",     config.SIMILARITY_THRESHOLD)
+    n_clusters    = params.get("n_clusters",    10)
+    scan_mode     = params.get("scan_mode",     "clip_only")
+    trigger_value = params.get("trigger_value", 14)
+    sensor_margin = params.get("sensor_margin", 25)
+
+    combined = processor.load_combined_template(template_dirs)
+    if combined["clip_matrix"] is None:
+        with _batch_template_scan_jobs_lock:
+            _batch_template_scan_jobs[job_id]["phase"] = "error"
+            _batch_template_scan_jobs[job_id]["error"] = "No valid templates found in selected directories"
+        return
+
+    per_video = []
+    total_videos = len(video_paths)
+    for i, video_path in enumerate(video_paths):
+        def phase_cb(phase, current, total, _vpath=video_path, _i=i):
+            with _batch_template_scan_jobs_lock:
+                _batch_template_scan_jobs[job_id]["video"] = Path(_vpath).name
+                _batch_template_scan_jobs[job_id]["video_index"] = _i + 1
+                _batch_template_scan_jobs[job_id]["video_total"] = total_videos
+                _batch_template_scan_jobs[job_id]["phase"] = phase
+                _batch_template_scan_jobs[job_id]["current"] = current
+                _batch_template_scan_jobs[job_id]["total"] = total
+
+        try:
+            csv_path = Path(video_path).with_suffix(".csv") if scan_mode == "sensor+clip" else None
+            result = processor.find_template_candidates(
+                video_path, combined,
+                n_clusters=n_clusters,
+                threshold=threshold,
+                stride=stride,
+                batch_size=config.SCAN_BATCH_SIZE,
+                phase_cb=phase_cb,
+                csv_path=csv_path,
+                trigger_value=trigger_value,
+                sensor_margin=sensor_margin,
+            )
+            per_video.append({
+                "video_path": video_path,
+                "candidates": result["candidates"],
+                "curve": result["curve"],
+                "embeddings": result["embeddings"],  # ndarray — stays in memory
+            })
+        except Exception as exc:
+            per_video.append({
+                "video_path": video_path,
+                "candidates": [],
+                "curve": [],
+                "embeddings": None,
+                "error": str(exc),
+            })
+
+    # Build serialisable results for SSE (exclude embeddings ndarray)
+    sse_results = [
+        {"video_path": v["video_path"], "candidates": v["candidates"]}
+        for v in per_video
+    ]
+    with _batch_template_scan_jobs_lock:
+        _batch_template_scan_jobs[job_id]["phase"] = "done"
+        _batch_template_scan_jobs[job_id]["results"] = sse_results
+        _batch_template_scan_jobs[job_id]["per_video"] = per_video
+
+
+@bp.route("/batch-template-scan", methods=["POST"])
+def start_batch_template_scan():
+    body = request.get_json(force=True) or {}
+    template_dirs = body.get("template_dirs", [])
+    video_paths   = body.get("video_paths",   [])
+    if not template_dirs:
+        return jsonify({"error": "template_dirs required"}), 400
+    if not video_paths:
+        return jsonify({"error": "video_paths required"}), 400
+    params = body.get("params") if isinstance(body.get("params"), dict) else {}
+    job_id = str(uuid.uuid4())
+    with _batch_template_scan_jobs_lock:
+        _batch_template_scan_jobs[job_id] = {
+            "phase": "starting", "video": "", "video_index": 0,
+            "video_total": len(video_paths), "current": 0, "total": 1,
+        }
+    threading.Thread(
+        target=_run_batch_template_scan,
+        args=(job_id, template_dirs, video_paths, params),
+        daemon=True,
+    ).start()
+    return jsonify({"job_id": job_id})
+
+
+@bp.route("/batch-template-scan/stream")
+def batch_template_scan_stream():
+    job_id = request.args.get("job_id")
+    if not job_id or job_id not in _batch_template_scan_jobs:
+        return jsonify({"error": "unknown job_id"}), 404
+
+    def generate():
+        while True:
+            with _batch_template_scan_jobs_lock:
+                job = {k: v for k, v in _batch_template_scan_jobs[job_id].items()
+                       if k not in ("per_video", "embeddings")}
+            yield f"data: {json.dumps(job)}\n\n"
+            if job.get("phase") in ("done", "error"):
+                break
+            time.sleep(0.5)
+
+    return Response(
+        stream_with_context(generate()),
+        mimetype="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
+@bp.route("/batch-template-scan/<job_id>/recluster", methods=["POST"])
+def batch_template_scan_recluster(job_id):
+    import numpy as np
+    from sklearn.cluster import KMeans
+
+    body      = request.get_json(force=True) or {}
+    threshold  = float(body.get("threshold",  0.70))
+    n_clusters = int(body.get("n_clusters",   10))
+
+    with _batch_template_scan_jobs_lock:
+        if job_id not in _batch_template_scan_jobs:
+            return jsonify({"error": "unknown job_id"}), 404
+        job = _batch_template_scan_jobs[job_id]
+        if job.get("phase") != "done":
+            return jsonify({"error": "job not complete"}), 400
+        per_video = job.get("per_video", [])
+
+    results = []
+    for vdata in per_video:
+        video_path = vdata["video_path"]
+        curve      = vdata.get("curve", [])
+        embeddings = vdata.get("embeddings")
+
+        if embeddings is None or len(curve) == 0:
+            results.append({"video_path": video_path, "candidates": []})
+            continue
+
+        filtered_indices = [i for i, c in enumerate(curve) if c["similarity"] >= threshold]
+        if not filtered_indices:
+            results.append({"video_path": video_path, "candidates": []})
+            continue
+
+        filtered_pos  = np.array([curve[i]["frame_number"] for i in filtered_indices])
+        filtered_embs = embeddings[filtered_indices]
+        filtered_sims = np.array([curve[i]["similarity"]   for i in filtered_indices])
+
+        if len(filtered_pos) <= n_clusters:
+            candidates = [
+                {"frame_number": int(filtered_pos[i]) + 1,
+                 "similarity":   float(filtered_sims[i]),
+                 "cluster_id":   i}
+                for i in range(len(filtered_pos))
+            ]
+            results.append({"video_path": video_path, "candidates": candidates})
+            continue
+
+        km = KMeans(n_clusters=n_clusters, n_init=10, random_state=42)
+        km.fit(filtered_embs)
+        candidates = []
+        for cid in range(n_clusters):
+            idx_in_cluster = np.where(km.labels_ == cid)[0]
+            if len(idx_in_cluster) == 0:
+                continue
+            dists  = np.linalg.norm(filtered_embs[idx_in_cluster] - km.cluster_centers_[cid], axis=1)
+            nearest = idx_in_cluster[np.argsort(dists)[:2]]
+            for j in nearest:
+                candidates.append({
+                    "frame_number": int(filtered_pos[j]) + 1,
+                    "similarity":   float(filtered_sims[j]),
+                    "cluster_id":   int(cid),
+                })
+        candidates.sort(key=lambda c: c["frame_number"])
+        results.append({"video_path": video_path, "candidates": candidates})
+
+    return jsonify({"results": results})
 
 
 # ── Filesystem browser ──────────────────────────────────────────────────────────
