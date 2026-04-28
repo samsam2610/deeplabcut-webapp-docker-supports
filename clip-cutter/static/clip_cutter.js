@@ -136,6 +136,28 @@ function startBatchScan() {
   // implemented in Task 8
 }
 
+function updateBatchToolbar() {
+  const countEl  = document.getElementById("batch-count");
+  const initBtn  = document.getElementById("batch-init-btn");
+  const addFolderBtn = document.getElementById("batch-add-folder-btn");
+  const toggleBtn = document.getElementById("batch-toggle");
+  toggleBtn.classList.toggle("active", _batchMode);
+  if (_batchMode && _batchQueue.size > 0) {
+    countEl.style.display = "";
+    countEl.textContent = `(${_batchQueue.size} selected)`;
+    initBtn.style.display = "";
+  } else {
+    countEl.style.display = "none";
+    initBtn.style.display = "none";
+  }
+  addFolderBtn.style.display = (_batchMode && _activeBatchLibrary !== null) ? "" : "none";
+  updateBatchScanBtn();
+}
+
+function startBatchInit() {
+  // implemented in Task 6
+}
+
 // ── Boot ─────────────────────────────────────────────────────────────────────
 
 document.addEventListener("DOMContentLoaded", () => {
@@ -310,6 +332,33 @@ document.addEventListener("DOMContentLoaded", () => {
       setStatus("Template cleared");
     } else {
       setStatus("Clear failed");
+    }
+  });
+
+  document.getElementById("batch-toggle").addEventListener("click", () => {
+    _batchMode = !_batchMode;
+    updateBatchToolbar();
+    if (_browserCurrentPath) loadFolder(_browserCurrentPath);
+  });
+
+  document.getElementById("batch-init-btn").addEventListener("click", startBatchInit);
+
+  document.getElementById("batch-add-folder-btn").addEventListener("click", async () => {
+    if (!_activeBatchLibrary || !_browserCurrentPath) return;
+    const resp = await fetch(
+      `/clip-cutter/global-libraries/${encodeURIComponent(_activeBatchLibrary)}/folders`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ path: _browserCurrentPath }),
+      }
+    );
+    if (resp.ok) {
+      setStatus(`Added "${_browserCurrentPath.split("/").pop()}" to ${_activeBatchLibrary}`);
+      await loadLibraries();
+    } else {
+      const err = await resp.json();
+      setStatus("Error: " + err.error);
     }
   });
 
@@ -516,6 +565,9 @@ function renderBrowser(data) {
     row.appendChild(icon);
     row.appendChild(name);
 
+    const videoPath = data.path + "/" + entry.name;
+    const stem = entry.name.replace(/\.avi$/i, "");
+
     if (entry.type === "dir") {
       icon.textContent = "📁";
       row.addEventListener("click", () => loadFolder(data.path + "/" + entry.name));
@@ -525,15 +577,35 @@ function renderBrowser(data) {
       badge.className = `badge ${entry.done ? "badge-done" : "badge-pending"}`;
       badge.textContent = entry.done ? "done" : "ready";
       row.appendChild(badge);
-      row.addEventListener("click", () => {
-        document.querySelectorAll(".browser-row.selected").forEach((r) =>
-          r.classList.remove("selected")
-        );
-        row.classList.add("selected");
-        const videoPath = data.path + "/" + entry.name;
-        const stem = entry.name.replace(/\.avi$/i, "");
-        selectVideo(videoPath, stem, data.path);
-      });
+
+      if (_batchMode) {
+        const cb = document.createElement("input");
+        cb.type = "checkbox";
+        cb.className = "browser-row-checkbox";
+        cb.checked = _batchQueue.has(videoPath);
+        cb.addEventListener("change", (e) => {
+          e.stopPropagation();
+          if (cb.checked) _batchQueue.add(videoPath);
+          else _batchQueue.delete(videoPath);
+          updateBatchToolbar();
+        });
+        row.insertBefore(cb, icon);
+        row.addEventListener("click", (e) => {
+          if (e.target === cb) return;
+          cb.checked = !cb.checked;
+          if (cb.checked) _batchQueue.add(videoPath);
+          else _batchQueue.delete(videoPath);
+          updateBatchToolbar();
+        });
+      } else {
+        row.addEventListener("click", () => {
+          document.querySelectorAll(".browser-row.selected").forEach((r) =>
+            r.classList.remove("selected")
+          );
+          row.classList.add("selected");
+          selectVideo(videoPath, stem, data.path);
+        });
+      }
     }
     list.appendChild(row);
   });

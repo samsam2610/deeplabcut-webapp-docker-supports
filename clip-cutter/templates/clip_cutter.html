@@ -87,6 +87,10 @@ header h1 { font-size: 15px; font-weight: 600; }
 .browser-row { display: flex; align-items: center; gap: 6px; padding: 4px 6px; border-radius: 4px; cursor: pointer; border: 1px solid transparent; }
 .browser-row:hover { background: #1c2128; border-color: #30363d; }
 .browser-row.selected { background: #1a2535; border-color: #388bfd; }
+/* ── Batch mode ─────────────────────────────────────────────────────────────── */
+#batch-toggle.active { border-color: #f0c040; color: #f0c040; }
+#batch-count { font-size: 10px; color: #768390; }
+.browser-row-checkbox { flex-shrink: 0; accent-color: #388bfd; }
 .browser-icon { font-size: 11px; flex-shrink: 0; }
 .browser-name { font-family: monospace; font-size: 11px; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
@@ -404,6 +408,10 @@ header h1 { font-size: 15px; font-weight: 600; }
     <div class="section" id="browser-section">
       <div class="browser-toolbar">
         <button id="browser-up" class="btn-sm" title="Parent folder">&#8593; Up</button>
+        <button class="player-btn" id="batch-toggle" title="Toggle batch selection">&#9744; Batch</button>
+        <span id="batch-count" style="display:none;"></span>
+        <button class="player-btn" id="batch-init-btn" style="display:none;" title="Batch init templates">&#9889; Init</button>
+        <button class="player-btn" id="batch-add-folder-btn" style="display:none;" title="Add current folder to selected library">+ Lib</button>
         <div id="browser-breadcrumb"></div>
         <button id="browser-toggle" class="btn-sm" title="Collapse browser">&#9660;</button>
       </div>
