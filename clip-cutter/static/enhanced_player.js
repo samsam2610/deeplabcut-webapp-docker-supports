@@ -135,7 +135,7 @@ async function _epLoadFrame(n) {
     _epUpdateDisplay();
     const _ac = document.getElementById("ep-add-confirm");
     if (_ac) _ac.style.display = "none";
-    if (n < _clipEnd) {
+    if (n < (_unlocked ? _frameCount - 1 : _clipEnd)) {
       new Image().src = `/clip-cutter/frame?video=${encodeURIComponent(_videoPath)}&n=${n + 1}`;
     }
   } finally {
@@ -189,10 +189,25 @@ function _epUpdateDisplay() {
   if (!_playing) _epRedrawAllCanvases();
 }
 
+function _epUpdateLockOverlay() {
+  const overlay = document.getElementById("ep-lock-overlay");
+  if (!overlay) return;
+  if (!_unlocked || _mode !== "clip" || _frameCount <= 1) {
+    overlay.style.display = "none";
+    return;
+  }
+  overlay.style.display = "";
+  const total = _frameCount - 1;
+  const left = (_clipStart / total) * 100;
+  const width = ((_clipEnd - _clipStart) / total) * 100;
+  overlay.style.left = left + "%";
+  overlay.style.width = width + "%";
+}
+
 function _epUpdateSeekHighlight() {
   const h = document.getElementById("ep-seek-highlight");
   if (!h) return;
-  if (_mode !== "clip" || _frameCount <= 1) { h.style.display = "none"; return; }
+  if (_mode !== "clip" || _frameCount <= 1 || _unlocked) { h.style.display = "none"; return; }
   h.style.display = "";
   const total = _frameCount - 1;
   const left = (_clipStart / total) * 100;
@@ -383,7 +398,14 @@ function _epUpdateModeUI() {
 
   if (_mode === "clip") {
     lockBadge.style.display = "";
-    lockBadge.textContent = "🔒 " + (_clipStart + 1) + "–" + (_clipEnd + 1);
+    lockBadge.textContent = _unlocked
+      ? "🔓 unlocked"
+      : "🔒 " + (_clipStart + 1) + "–" + (_clipEnd + 1);
+    const unlockBtn = document.getElementById("ep-unlock-btn");
+    if (unlockBtn) {
+      unlockBtn.style.display = "";
+      unlockBtn.textContent = _unlocked ? "🔒 Lock" : "🔓 Unlock";
+    }
     setKfBtn.style.display = "";
     rejectBtn.style.display = "";
     addTemplateBtn.style.display = "none";
@@ -399,6 +421,8 @@ function _epUpdateModeUI() {
     document.getElementById("ep-extract").disabled = isFinished;
   } else {
     lockBadge.style.display = "none";
+    const unlockBtn = document.getElementById("ep-unlock-btn");
+    if (unlockBtn) unlockBtn.style.display = "none";
     setKfBtn.style.display = "none";
     rejectBtn.style.display = "none";
     addTemplateBtn.style.display = "";
@@ -407,6 +431,7 @@ function _epUpdateModeUI() {
   }
 
   _epUpdateSeekHighlight();
+  _epUpdateLockOverlay();
 }
 
 // ── Extract panel init ─────────────────────────────────────────────────────────
@@ -443,6 +468,9 @@ function _epApplyNewKF(kf1) {
 
   document.getElementById("ep-lock-badge").textContent =
     "🔒 " + (_clipStart + 1) + "–" + (_clipEnd + 1);
+  _unlocked = false;
+  const unlockBtn = document.getElementById("ep-unlock-btn");
+  if (unlockBtn) unlockBtn.textContent = "🔓 Unlock";
 
   const seekEl = document.getElementById("ep-seek");
   seekEl.min = 0;
@@ -461,6 +489,7 @@ function _epApplyNewKF(kf1) {
   }
 
   _epUpdateSeekHighlight();
+  _epUpdateLockOverlay();
   if (typeof saveDetections === "function") saveDetections();
   document.getElementById("ep-warning").style.display = "none";
   _epDrawKfCanvas();
