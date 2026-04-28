@@ -132,8 +132,52 @@ function updateBatchScanBtn() {
   });
 }
 
-function startBatchScan() {
-  // implemented in Task 8
+async function startBatchScan() {
+  if (_activeBatchFolders.size === 0 || _batchQueue.size === 0) return;
+  const template_dirs = [..._activeBatchFolders];
+  const video_paths = [..._batchQueue];
+  setStatus(`Starting batch scan: ${template_dirs.length} template source(s), ${video_paths.length} video(s)…`);
+  try {
+    const resp = await fetch("/clip-cutter/batch-scan", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        template_dirs,
+        video_paths,
+        params: {
+          trigger_value: parseInt(document.getElementById("trigger-value").value, 10),
+          sensor_margin: parseInt(document.getElementById("sensor-margin").value, 10),
+          stride: parseInt(document.getElementById("scan-stride").value, 10),
+          threshold: parseFloat(document.getElementById("scan-threshold").value),
+          min_spacing: parseInt(document.getElementById("min-spacing").value, 10),
+          fine_window: parseInt(document.getElementById("fine-window").value, 10),
+        },
+      }),
+    });
+    if (!resp.ok) { setStatus("Batch scan error"); return; }
+    const { job_id } = await resp.json();
+    const es = new EventSource(`/clip-cutter/batch-scan/stream?job_id=${job_id}`);
+    es.onmessage = (e) => {
+      const job = JSON.parse(e.data);
+      if (job.phase === "done") {
+        es.close();
+        let total = 0;
+        (job.results || []).forEach(r => {
+          total += r.detections.length;
+          renderDetections(r.detections);
+        });
+        setStatus(`Batch scan done — ${total} detection${total !== 1 ? "s" : ""} across ${video_paths.length} video${video_paths.length !== 1 ? "s" : ""}`);
+      } else if (job.phase === "error") {
+        es.close();
+        setStatus("Batch scan error: " + job.error);
+      } else {
+        setStatus(`Scanning ${job.video} (${job.video_index}/${job.video_total}) — ${job.phase}…`);
+      }
+    };
+    es.onerror = () => { es.close(); setStatus("Batch scan stream error"); };
+  } catch (err) {
+    setStatus("Network error: " + err.message);
+  }
 }
 
 function updateBatchToolbar() {

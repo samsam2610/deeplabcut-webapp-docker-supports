@@ -218,6 +218,9 @@ _init_lock = threading.Lock()
 _batch_init_jobs: dict[str, dict] = {}
 _batch_init_jobs_lock = threading.Lock()
 
+_batch_scan_jobs: dict[str, dict] = {}
+_batch_scan_jobs_lock = threading.Lock()
+
 
 def _run_init(video_stem: str, video_parent: str):
     global _state
@@ -320,6 +323,98 @@ def batch_init_stream():
                 job = dict(_batch_init_jobs[job_id])
             yield f"data: {json.dumps(job)}\n\n"
             if job.get("phase") == "done":
+                break
+            time.sleep(0.5)
+
+    return Response(
+        stream_with_context(generate()),
+        mimetype="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
+def _run_batch_scan(job_id: str, template_dirs: list, video_paths: list, params: dict):
+    stride        = params.get("stride",        config.SCAN_STRIDE)
+    threshold     = params.get("threshold",     config.SIMILARITY_THRESHOLD)
+    min_spacing   = params.get("min_spacing",   config.MIN_PEAK_SPACING)
+    fine_window   = params.get("fine_window",   config.FINE_SCAN_WINDOW)
+
+    combined = processor.load_combined_template(template_dirs)
+    if combined["clip_matrix"] is None:
+        with _batch_scan_jobs_lock:
+            _batch_scan_jobs[job_id]["phase"] = "error"
+            _batch_scan_jobs[job_id]["error"] = "No valid templates found in selected directories"
+        return
+
+    results = []
+    total_videos = len(video_paths)
+    for i, video_path in enumerate(video_paths):
+        def phase_cb(phase, current, total, _vpath=video_path):
+            with _batch_scan_jobs_lock:
+                _batch_scan_jobs[job_id]["video"] = Path(_vpath).name
+                _batch_scan_jobs[job_id]["video_index"] = i + 1
+                _batch_scan_jobs[job_id]["video_total"] = total_videos
+                _batch_scan_jobs[job_id]["phase"] = phase
+                _batch_scan_jobs[job_id]["current"] = current
+                _batch_scan_jobs[job_id]["total"] = total
+
+        try:
+            detections = processor.scan_video_multi_template(
+                video_path, combined,
+                stride=stride, threshold=threshold,
+                min_spacing=min_spacing, fine_window=fine_window,
+                batch_size=config.SCAN_BATCH_SIZE,
+                phase_cb=phase_cb,
+            )
+            for d in detections:
+                d["status"] = "pending"
+                d["source"] = "global_library"
+            results.append({"video": video_path, "detections": detections})
+        except Exception as exc:
+            results.append({"video": video_path, "error": str(exc), "detections": []})
+
+    with _batch_scan_jobs_lock:
+        _batch_scan_jobs[job_id]["phase"] = "done"
+        _batch_scan_jobs[job_id]["results"] = results
+
+
+@bp.route("/batch-scan", methods=["POST"])
+def start_batch_scan():
+    body = request.get_json(force=True) or {}
+    template_dirs = body.get("template_dirs", [])
+    video_paths = body.get("video_paths", [])
+    if not template_dirs:
+        return jsonify({"error": "template_dirs required"}), 400
+    if not video_paths:
+        return jsonify({"error": "video_paths required"}), 400
+    params = body.get("params") if isinstance(body.get("params"), dict) else {}
+    job_id = str(uuid.uuid4())
+    with _batch_scan_jobs_lock:
+        _batch_scan_jobs[job_id] = {
+            "phase": "starting", "video": "", "video_index": 0, "video_total": len(video_paths),
+            "current": 0, "total": 1,
+        }
+    thread = threading.Thread(
+        target=_run_batch_scan,
+        args=(job_id, template_dirs, video_paths, params),
+        daemon=True,
+    )
+    thread.start()
+    return jsonify({"job_id": job_id})
+
+
+@bp.route("/batch-scan/stream")
+def batch_scan_stream():
+    job_id = request.args.get("job_id")
+    if not job_id or job_id not in _batch_scan_jobs:
+        return jsonify({"error": "unknown job_id"}), 404
+
+    def generate():
+        while True:
+            with _batch_scan_jobs_lock:
+                job = dict(_batch_scan_jobs[job_id])
+            yield f"data: {json.dumps(job)}\n\n"
+            if job.get("phase") in ("done", "error"):
                 break
             time.sleep(0.5)
 

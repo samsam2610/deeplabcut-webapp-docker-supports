@@ -537,6 +537,40 @@ def test_batch_init_returns_job_id(lib_client, monkeypatch, tmp_path):
     assert "job_id" in data
 
 
+def test_batch_scan_requires_template_dirs(lib_client):
+    resp = lib_client.post(
+        "/clip-cutter/batch-scan",
+        json={"template_dirs": [], "video_paths": ["/user-data/v.avi"]},
+    )
+    assert resp.status_code == 400
+
+
+def test_batch_scan_requires_video_paths(lib_client):
+    resp = lib_client.post(
+        "/clip-cutter/batch-scan",
+        json={"template_dirs": ["/some/dir"], "video_paths": []},
+    )
+    assert resp.status_code == 400
+
+
+def test_batch_scan_returns_job_id(lib_client, monkeypatch, tmp_path):
+    import processor
+    monkeypatch.setattr(
+        processor, "load_combined_template",
+        lambda dirs: {"clip_matrix": None, "dino_matrix": None},
+    )
+    monkeypatch.setattr(
+        processor, "scan_video_multi_template",
+        lambda *a, **kw: [],
+    )
+    resp = lib_client.post(
+        "/clip-cutter/batch-scan",
+        json={"template_dirs": ["/some/dir"], "video_paths": [str(tmp_path / "v.avi")]},
+    )
+    assert resp.status_code == 200
+    assert "job_id" in json.loads(resp.data)
+
+
 def test_batch_init_stream_returns_done(lib_client, monkeypatch, tmp_path):
     import processor
     monkeypatch.setattr(
