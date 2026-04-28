@@ -165,7 +165,7 @@ function renderTemplate(data) {
   const emptyState = document.getElementById("sidebar-empty-state");
   const noTemplate = document.getElementById("sidebar-no-template");
   const noTemplateMsg = document.getElementById("sidebar-no-template-msg");
-  const grid = document.getElementById("template-grid");
+  const list = document.getElementById("template-list");
   const footer = document.getElementById("template-footer");
   const initBtn = document.getElementById("sidebar-init-btn");
   const sidebarActions = document.getElementById("sidebar-actions");
@@ -174,7 +174,7 @@ function renderTemplate(data) {
   if (!_selectedVideoStem) {
     emptyState.style.display = "";
     noTemplate.style.display = "none";
-    grid.style.display = "none";
+    list.style.display = "none";
     footer.style.display = "none";
     initBtn.style.display = "none";
     sidebarActions.style.display = "none";
@@ -188,7 +188,7 @@ function renderTemplate(data) {
   if (!data.has_template) {
     noTemplate.style.display = "";
     noTemplateMsg.textContent = `No template for ${_selectedVideoStem}`;
-    grid.style.display = "none";
+    list.style.display = "none";
     footer.style.display = "none";
     sidebarActions.style.display = "none";
     frameCount.textContent = "";
@@ -196,25 +196,36 @@ function renderTemplate(data) {
   }
 
   noTemplate.style.display = "none";
-  grid.style.display = "flex";
+  list.style.display = "";
   footer.style.display = "";
   sidebarActions.style.display = "flex";
   frameCount.textContent = `${data.count} fr`;
 
-  grid.innerHTML = "";
+  list.innerHTML = "";
   data.frames.forEach((f, idx) => {
-    const div = document.createElement("div");
-    div.className = "thumb";
-    div.title = `${f.video_path} frame ${f.frame_number}\nClick to remove`;
-    div.innerHTML = `<img src="data:image/jpeg;base64,${f.thumbnail}"><span class="thumb-label">fr${f.frame_number}</span>`;
-    div.addEventListener("click", () => removeTemplateFrame(idx));
-    grid.appendChild(div);
+    const stem = f.video_path.split("/").pop().replace(/\.avi$/i, "");
+    const label = `${stem} · fr${f.frame_number}`;
+    const row = document.createElement("div");
+    row.className = "tpl-row";
+    row.innerHTML = `
+      <span class="tpl-label" title="${f.video_path} · fr${f.frame_number}">${label}</span>
+      <button class="player-btn tpl-view-btn" title="View frame">&#8599;</button>
+      <button class="player-btn tpl-del-btn" title="Remove">&#10005;</button>
+    `;
+    row.querySelector(".tpl-view-btn").addEventListener("click", () => {
+      window.open(
+        `/clip-cutter/frame?video=${encodeURIComponent(f.video_path)}&n=${f.frame_number - 1}`,
+        "_blank"
+      );
+    });
+    row.querySelector(".tpl-del-btn").addEventListener("click", () => removeTemplateFrame(idx));
+    list.appendChild(row);
   });
   footer.textContent = `${data.count} frame${data.count !== 1 ? "s" : ""} loaded`;
 }
 
 async function initTemplate() {
-  if (document.getElementById("template-grid").style.display !== "none") {
+  if (document.getElementById("template-list").style.display !== "none") {
     // Template already exists — confirm re-init
     if (!confirm(`Re-initialise template for ${_selectedVideoStem}? This will replace the current template.`)) return;
   }

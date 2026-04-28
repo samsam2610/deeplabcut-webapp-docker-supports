@@ -253,7 +253,7 @@ def test_template_init_flow(page: Page):
         "19 frames loaded", timeout=12_000
     )
     expect(page.locator("#status-msg")).to_contain_text("Template initialised: 19")
-    expect(page.locator(".thumb")).to_have_count(19)
+    expect(page.locator(".tpl-row")).to_have_count(19)
 
 
 def test_template_frame_removal(page: Page):
@@ -264,13 +264,13 @@ def test_template_frame_removal(page: Page):
     # Select a video to load its template into the sidebar
     page.locator(".browser-row:has(.badge-pending)").first.click()
 
-    expect(page.locator(".thumb")).to_have_count(3)
+    expect(page.locator(".tpl-row")).to_have_count(3)
     expect(page.locator("#template-footer")).to_have_text("3 frames loaded")
 
     page.once("dialog", lambda d: d.accept())
-    page.locator(".thumb").first.click()
+    page.locator(".tpl-del-btn").first.click()
 
-    expect(page.locator(".thumb")).to_have_count(2)
+    expect(page.locator(".tpl-row")).to_have_count(2)
     expect(page.locator("#template-footer")).to_have_text("2 frames loaded")
 
 
@@ -283,9 +283,9 @@ def test_template_frame_removal_cancelled(page: Page):
     page.locator(".browser-row:has(.badge-pending)").first.click()
 
     page.once("dialog", lambda d: d.dismiss())
-    page.locator(".thumb").first.click()
+    page.locator(".tpl-del-btn").first.click()
 
-    expect(page.locator(".thumb")).to_have_count(3)
+    expect(page.locator(".tpl-row")).to_have_count(3)
 
 
 def test_scan_flow_shows_detections(page: Page):
