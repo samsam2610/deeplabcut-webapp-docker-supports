@@ -733,23 +733,23 @@ def test_delete_library_folder_frame(client, tmp_path):
 # ── Sibling camera discovery ──────────────────────────────────────────────────
 
 def test_find_sibling_returns_sibling(tmp_path):
-    cam2 = tmp_path / "m3_20250727_163450_2.avi"
-    cam3 = tmp_path / "m3_20250727_163450_3.avi"
-    cam2.touch()
-    cam3.touch()
+    cam0 = tmp_path / "OM-2_cam0_20260420_105214_2_trig1_fps200_exposure1500_gain10.avi"
+    cam1 = tmp_path / "OM-2_cam1_20260420_105215_2_trig1_fps200_exposure1500_gain10.avi"
+    cam0.touch()
+    cam1.touch()
     import routes
-    assert routes._find_sibling_camera(cam3) == str(cam2)
+    assert routes._find_sibling_camera(cam0) == str(cam1)
 
 
 def test_find_sibling_returns_none_when_alone(tmp_path):
-    cam3 = tmp_path / "m3_20250727_163450_3.avi"
-    cam3.touch()
+    cam0 = tmp_path / "OM-2_cam0_20260420_105214_2_trig1_fps200_exposure1500_gain10.avi"
+    cam0.touch()
     import routes
-    assert routes._find_sibling_camera(cam3) is None
+    assert routes._find_sibling_camera(cam0) is None
 
 
-def test_find_sibling_returns_none_no_trailing_number(tmp_path):
-    vid = tmp_path / "no_trailing_number.avi"
+def test_find_sibling_returns_none_no_cam_pattern(tmp_path):
+    vid = tmp_path / "no_cam_identifier.avi"
     vid.touch()
     import routes
     assert routes._find_sibling_camera(vid) is None
@@ -762,20 +762,20 @@ def test_sibling_camera_route_no_video_selected(client):
 
 
 def test_sibling_camera_route_after_select(client, tmp_path):
-    cam2 = tmp_path / "m3_20250727_163450_2.avi"
-    cam3 = tmp_path / "m3_20250727_163450_3.avi"
-    cam2.touch()
-    cam3.touch()
-    resp = client.post("/clip-cutter/select-video", json={"video_path": str(cam3)})
+    cam0 = tmp_path / "OM-2_cam0_20260420_105214_2_trig1_fps200_exposure1500_gain10.avi"
+    cam1 = tmp_path / "OM-2_cam1_20260420_105215_2_trig1_fps200_exposure1500_gain10.avi"
+    cam0.touch()
+    cam1.touch()
+    resp = client.post("/clip-cutter/select-video", json={"video_path": str(cam0)})
     assert resp.status_code == 200
-    assert resp.get_json()["sibling_video_path"] == str(cam2)
+    assert resp.get_json()["sibling_video_path"] == str(cam1)
     resp2 = client.get("/clip-cutter/sibling-camera")
-    assert resp2.get_json()["sibling_video_path"] == str(cam2)
+    assert resp2.get_json()["sibling_video_path"] == str(cam1)
 
 
 def test_select_video_no_sibling_returns_null(client, tmp_path):
-    cam3 = tmp_path / "m3_20250727_163450_3.avi"
-    cam3.touch()
-    resp = client.post("/clip-cutter/select-video", json={"video_path": str(cam3)})
+    cam0 = tmp_path / "OM-2_cam0_20260420_105214_2_trig1_fps200_exposure1500_gain10.avi"
+    cam0.touch()
+    resp = client.post("/clip-cutter/select-video", json={"video_path": str(cam0)})
     assert resp.status_code == 200
     assert resp.get_json()["sibling_video_path"] is None

@@ -44,16 +44,15 @@ _libraries_lock = threading.Lock()
 def _find_sibling_camera(video_path: Path) -> "str | None":
     """Return the first sibling camera AVI in the same dir, or None.
 
-    Siblings share the same Subject_Date_Time prefix and differ only in the
-    trailing _N camera-number suffix (e.g. m3_20250727_163450_2.avi vs _3.avi).
+    Siblings share the same Subject prefix before _camN
+    (e.g. OM-2_cam0_20260420_... and OM-2_cam1_20260420_...).
     """
-    m = re.match(r'^(.+)_(\d+)$', video_path.stem)
+    m = re.match(r'^(.*?)_cam\d+', video_path.stem)
     if not m:
         return None
-    prefix = m.group(1)
-    for candidate in sorted(video_path.parent.glob(f"{prefix}_*.avi")):
-        tail = candidate.stem[len(prefix) + 1:]
-        if candidate != video_path and re.match(r'^\d+$', tail):
+    subject = m.group(1)
+    for candidate in sorted(video_path.parent.glob(f"{subject}_cam*.avi")):
+        if candidate != video_path:
             return str(candidate)
     return None
 

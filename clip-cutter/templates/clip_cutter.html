@@ -428,6 +428,7 @@ header h1 { font-size: 15px; font-weight: 600; }
   background: #161b22; border: 1px solid #30363d; border-radius: 4px;
   padding: 7px;
   display: flex; flex-direction: column; gap: 5px;
+  overflow-y: auto;
 }
 /* Vertical drag handle between video and extract panel */
 #ep-panel-resize-handle {
@@ -463,7 +464,7 @@ header h1 { font-size: 15px; font-weight: 600; }
   border: 1px solid #21262d; border-radius: 3px; padding: 2px 4px;
   background: #0d1117;
 }
-#ep-extract-panel .ep-spacer { flex: 1; }
+#ep-extract-panel .ep-spacer { flex: 1; min-height: 0; }
 #ep-warning {
   font-size: 8px; padding: 4px; background: #1a0a0a;
   border: 1px solid #da3633; border-radius: 3px;
