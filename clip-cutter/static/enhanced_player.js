@@ -27,6 +27,7 @@ let _epNoteColorMap   = {};
 let _epActiveStatus   = new Set();
 let _epActiveNote     = new Set();
 let _kfCanvasVisible = false;
+let _unlocked = false;
 
 // ── Public API ──────────────────────────────────────────────────────────────────
 
@@ -45,6 +46,7 @@ async function openPlayer({ mode, videoPath, keyFrame1Based = null, detectionIdx
   if (playNEl) playNEl.value = 1;
 
   _kfCanvasVisible = false;
+  _unlocked = false;
 
   // Show panel immediately so user sees it open without waiting for network
   document.getElementById("player-panel").style.display = "";
@@ -108,7 +110,9 @@ async function openPlayer({ mode, videoPath, keyFrame1Based = null, detectionIdx
 async function _epLoadFrame(n) {
   if (_busy || !_videoPath) return;
   _busy = true;
-  n = Math.max(_clipStart, Math.min(n, _clipEnd));
+  n = _unlocked
+    ? Math.max(0, Math.min(n, _frameCount - 1))
+    : Math.max(_clipStart, Math.min(n, _clipEnd));
   const prev = _currentFrame;
   _currentFrame = n;
   try {
@@ -146,8 +150,8 @@ async function _epLoop() {
   if (_busy) { _timerId = setTimeout(_epLoop, Math.round(1000 / _EP_FPS)); return; }
 
   let next = _currentFrame + _playN;
-  if (next > _clipEnd) {
-    if (_looping) next = _clipStart;
+  if (next > (_unlocked ? _frameCount - 1 : _clipEnd)) {
+    if (_looping) next = _unlocked ? 0 : _clipStart;
     else { _stop(); return; }
   }
   const t0 = performance.now();
@@ -565,7 +569,7 @@ document.addEventListener("DOMContentLoaded", () => {
   document.getElementById("ep-seek").addEventListener("input", (e) => {
     _stop();
     let n = parseInt(e.target.value, 10);
-    if (_mode === "clip") {
+    if (_mode === "clip" && !_unlocked) {
       n = Math.max(_clipStart, Math.min(n, _clipEnd));
       e.target.value = n;
     }
@@ -585,8 +589,8 @@ document.addEventListener("DOMContentLoaded", () => {
     if (!_videoPath) return;
     const jump = document.getElementById("ep-frame-jump");
     jump.value = _currentFrame + 1;
-    jump.min = _clipStart + 1;
-    jump.max = _clipEnd + 1;
+    jump.min = _unlocked ? 1 : _clipStart + 1;
+    jump.max = _unlocked ? _frameCount : _clipEnd + 1;
     document.getElementById("ep-frame-counter").style.display = "none";
     jump.style.display = "";
     jump.select();
@@ -597,7 +601,10 @@ document.addEventListener("DOMContentLoaded", () => {
   const _commitJump = () => {
     const jump = document.getElementById("ep-frame-jump");
     let n1 = parseInt(jump.value, 10);
-    n1 = Math.max(_clipStart + 1, Math.min(n1, _clipEnd + 1));
+    n1 = Math.max(
+      _unlocked ? 1 : _clipStart + 1,
+      Math.min(n1, _unlocked ? _frameCount : _clipEnd + 1)
+    );
     jump.style.display = "none";
     document.getElementById("ep-frame-counter").style.display = "";
     _stop();
