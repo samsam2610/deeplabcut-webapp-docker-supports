@@ -815,10 +815,12 @@ def select_video():
     p = Path(video_path_str)
     stem = p.stem
     parent = str(p.parent)
+    sibling_path = _find_sibling_camera(p)
+
     with _state_lock:
         _state["video_stem"] = stem
         _state["video_parent"] = parent
-        _state["sibling_video_path"] = _find_sibling_camera(p)
+        _state["sibling_video_path"] = sibling_path
 
     tpath = _template_path()
     if tpath and tpath.exists():
@@ -827,6 +829,7 @@ def select_video():
         new_state["video_parent"] = parent
         with _state_lock:
             _state.update(new_state)
+            _state["sibling_video_path"] = sibling_path  # survives update()
         has_template = True
     else:
         with _state_lock:
