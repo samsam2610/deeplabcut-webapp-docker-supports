@@ -259,6 +259,13 @@ header h1 { font-size: 15px; font-weight: 600; }
   background: #1f6feb33; border-radius: 2px;
   pointer-events: none;
 }
+#ep-lock-overlay {
+  position: absolute;
+  top: 0; bottom: 0;
+  background: rgba(56, 139, 253, 0.15);
+  pointer-events: none;
+  border-radius: 2px;
+}
 #ep-seek {
   position: absolute; top: 0; left: 0; right: 0; width: 100%;
   margin: 0; accent-color: #1f6feb; cursor: pointer;
@@ -523,6 +530,7 @@ header h1 { font-size: 15px; font-weight: 600; }
     <div id="ep-frame-wrap">
       <img id="ep-frame" alt="frame">
       <div id="ep-lock-badge" style="display:none;">&#128274; 0&#8211;0</div>
+      <button id="ep-unlock-btn" class="player-btn" style="display:none;font-size:9px;">&#128275; Unlock</button>
       <div id="ep-zoom-controls">
         &#128269;
         <input type="range" id="ep-zoom" min="50" max="200" value="100">
@@ -537,6 +545,7 @@ header h1 { font-size: 15px; font-weight: 600; }
     <div id="ep-seek-row">
       <div id="ep-seek-track">
         <div id="ep-seek-highlight" style="display:none;"></div>
+        <div id="ep-lock-overlay" style="display:none;"></div>
         <input type="range" id="ep-seek" min="0" max="1000" value="0">
       </div>
       <span id="ep-frame-counter" title="double-click to jump">fr <span id="ep-frame-num">0</span> / <span id="ep-frame-total">0</span></span>

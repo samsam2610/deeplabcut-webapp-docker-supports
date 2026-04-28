@@ -901,3 +901,11 @@ def test_clear_modal_cancel_closes_modal(page: Page):
     page.click("#sidebar-clear-btn")
     page.click("#clear-cancel-btn")
     expect(page.locator("#clear-confirm-modal")).not_to_have_class(re.compile(r"\bopen\b"))
+
+
+# ── Keyframe unlock tests ─────────────────────────────────────────────────────
+
+def test_unlock_button_exists(page: Page):
+    setup_routes(page)
+    page.goto(BASE_URL + "/clip-cutter/")
+    assert page.locator("#ep-unlock-btn").count() == 1
