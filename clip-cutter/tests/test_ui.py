@@ -236,7 +236,7 @@ def test_only_one_video_selected_at_a_time(page: Page):
 def test_template_init_flow(page: Page):
     """
     Clicking Init POSTs to /template/init, polls /status, shows progress
-    messages, and fills the sidebar with thumbnails when done.
+    messages, and fills the sidebar with template rows when done.
     """
     setup_routes_with_persistence(page)
     page.goto(f"{BASE_URL}/clip-cutter/")
@@ -257,7 +257,7 @@ def test_template_init_flow(page: Page):
 
 
 def test_template_frame_removal(page: Page):
-    """Clicking a thumbnail prompts for confirmation then removes the frame."""
+    """Clicking the Delete button prompts for confirmation then removes the frame."""
     setup_routes(page, template_frames=_MOCK_FRAMES[:3])
     page.goto(f"{BASE_URL}/clip-cutter/")
 
