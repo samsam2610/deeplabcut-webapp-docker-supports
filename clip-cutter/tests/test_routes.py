@@ -515,3 +515,44 @@ def test_remove_folder_empty_path_returns_422(lib_client):
     lib_client.post("/clip-cutter/global-libraries", json={"name": "Lib"})
     resp = lib_client.delete("/clip-cutter/global-libraries/Lib/folders", json={"path": ""})
     assert resp.status_code == 422
+
+
+def test_batch_init_requires_videos(lib_client):
+    resp = lib_client.post("/clip-cutter/batch-init", json={"videos": []})
+    assert resp.status_code == 400
+
+
+def test_batch_init_returns_job_id(lib_client, monkeypatch, tmp_path):
+    import processor
+    monkeypatch.setattr(
+        processor, "init_template_from_clips_dir",
+        lambda clips_dir, state_path, crop=None: {"frames": [], "mean_embedding": None, "dino_mean_embedding": None}
+    )
+    resp = lib_client.post(
+        "/clip-cutter/batch-init",
+        json={"videos": [str(tmp_path / "myvid.avi")]},
+    )
+    assert resp.status_code == 200
+    data = json.loads(resp.data)
+    assert "job_id" in data
+
+
+def test_batch_init_stream_returns_done(lib_client, monkeypatch, tmp_path):
+    import processor, routes
+    monkeypatch.setattr(
+        processor, "init_template_from_clips_dir",
+        lambda clips_dir, state_path, crop=None: {"frames": [], "mean_embedding": None, "dino_mean_embedding": None}
+    )
+    resp = lib_client.post(
+        "/clip-cutter/batch-init",
+        json={"videos": [str(tmp_path / "myvid.avi")]},
+    )
+    job_id = json.loads(resp.data)["job_id"]
+    import time
+    time.sleep(0.2)
+    stream_resp = lib_client.get(f"/clip-cutter/batch-init/stream?job_id={job_id}")
+    # Read one SSE event
+    raw = stream_resp.data.decode()
+    events = [json.loads(line[6:]) for line in raw.splitlines() if line.startswith("data:")]
+    statuses = {e.get("phase") for e in events}
+    assert "done" in statuses

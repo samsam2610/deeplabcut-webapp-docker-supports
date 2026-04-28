@@ -215,6 +215,9 @@ def remove_library_folder(name):
 _init_status: dict = {"running": False, "error": None}
 _init_lock = threading.Lock()
 
+_batch_init_jobs: dict[str, dict] = {}
+_batch_init_jobs_lock = threading.Lock()
+
 
 def _run_init(video_stem: str, video_parent: str):
     global _state
@@ -264,6 +267,65 @@ def init_template_status():
         running = _init_status["running"]
         error = _init_status["error"]
     return jsonify({"running": running, "count": count, "error": error})
+
+
+def _run_batch_init(job_id: str, video_paths: list[str]):
+    total = len(video_paths)
+    failed = []
+    for i, video_path in enumerate(video_paths):
+        p = Path(video_path)
+        clips_dir = p.parent / p.stem
+        state_path = clips_dir / "template" / "template_state.json"
+        with _batch_init_jobs_lock:
+            _batch_init_jobs[job_id]["current"] = i + 1
+            _batch_init_jobs[job_id]["video"] = p.name
+        try:
+            processor.init_template_from_clips_dir(clips_dir, state_path, crop=config.TRAINING_CROP)
+        except Exception as exc:
+            failed.append({"video": p.name, "error": str(exc)})
+    with _batch_init_jobs_lock:
+        _batch_init_jobs[job_id]["phase"] = "done"
+        _batch_init_jobs[job_id]["initialized"] = total - len(failed)
+        _batch_init_jobs[job_id]["failed"] = len(failed)
+        _batch_init_jobs[job_id]["failed_videos"] = failed
+
+
+@bp.route("/batch-init", methods=["POST"])
+def start_batch_init():
+    body = request.get_json(force=True) or {}
+    videos = body.get("videos", [])
+    if not videos:
+        return jsonify({"error": "videos list required"}), 400
+    job_id = str(uuid.uuid4())
+    with _batch_init_jobs_lock:
+        _batch_init_jobs[job_id] = {
+            "phase": "progress", "current": 0, "total": len(videos), "video": "",
+        }
+    thread = threading.Thread(target=_run_batch_init, args=(job_id, videos), daemon=True)
+    thread.start()
+    return jsonify({"job_id": job_id})
+
+
+@bp.route("/batch-init/stream")
+def batch_init_stream():
+    job_id = request.args.get("job_id")
+    if not job_id or job_id not in _batch_init_jobs:
+        return jsonify({"error": "unknown job_id"}), 404
+
+    def generate():
+        while True:
+            with _batch_init_jobs_lock:
+                job = dict(_batch_init_jobs[job_id])
+            yield f"data: {json.dumps(job)}\n\n"
+            if job.get("phase") == "done":
+                break
+            time.sleep(0.5)
+
+    return Response(
+        stream_with_context(generate()),
+        mimetype="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
 
 
 # ── Filesystem browser ──────────────────────────────────────────────────────────

@@ -154,8 +154,41 @@ function updateBatchToolbar() {
   updateBatchScanBtn();
 }
 
-function startBatchInit() {
-  // implemented in Task 6
+async function startBatchInit() {
+  if (_batchQueue.size === 0) return;
+  const videos = [..._batchQueue];
+  document.getElementById("batch-init-btn").disabled = true;
+  setStatus(`Starting batch init for ${videos.length} video${videos.length !== 1 ? "s" : ""}…`);
+  try {
+    const resp = await fetch("/clip-cutter/batch-init", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ videos }),
+    });
+    if (!resp.ok) { setStatus("Batch init error"); document.getElementById("batch-init-btn").disabled = false; return; }
+    const { job_id } = await resp.json();
+    const es = new EventSource(`/clip-cutter/batch-init/stream?job_id=${job_id}`);
+    es.onmessage = (e) => {
+      const job = JSON.parse(e.data);
+      if (job.phase === "done") {
+        es.close();
+        document.getElementById("batch-init-btn").disabled = false;
+        const msg = `Batch init done: ${job.initialized} initialized` +
+          (job.failed > 0 ? `, ${job.failed} failed` : "");
+        setStatus(msg);
+      } else {
+        setStatus(`Initializing ${job.current}/${job.total}: ${job.video}…`);
+      }
+    };
+    es.onerror = () => {
+      es.close();
+      document.getElementById("batch-init-btn").disabled = false;
+      setStatus("Batch init stream error");
+    };
+  } catch (err) {
+    document.getElementById("batch-init-btn").disabled = false;
+    setStatus("Network error: " + err.message);
+  }
 }
 
 // ── Boot ─────────────────────────────────────────────────────────────────────
