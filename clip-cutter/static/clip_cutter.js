@@ -304,10 +304,10 @@ function renderTemplateCandidateCards(candidates) {
       <img class="result-thumb" src="/clip-cutter/frame?video=${encodeURIComponent(c.video_path)}&n=${c.frame_number - 1}" style="width:80px;height:60px;object-fit:cover;border-radius:3px;">
       <div class="result-info">
         <div class="result-title">${esc(videoName)}</div>
-        <div class="result-sub">Frame ${c.frame_number} &middot; sim ${c.similarity.toFixed(2)}</div>
+        <div class="result-sub">Frame ${esc(String(c.frame_number))} &middot; sim ${esc(c.similarity.toFixed(2))}</div>
         ${sensorBadge}
         <div style="display:flex;gap:4px;margin-top:4px;">
-          <button class="player-btn tc-add-btn" data-video="${esc(c.video_path)}" data-frame="${c.frame_number}">Add to template</button>
+          <button class="player-btn tc-add-btn" data-video="${esc(c.video_path)}" data-frame="${esc(String(c.frame_number))}">Add to template</button>
           <button class="player-btn tc-skip-btn">Skip</button>
         </div>
       </div>
@@ -365,8 +365,10 @@ function showRethresholdBar() {
     document.getElementById("rethreshold-label").textContent = parseFloat(e.target.value).toFixed(2);
   });
 
-  document.getElementById("rethreshold-apply").addEventListener("click", async () => {
+  document.getElementById("rethreshold-apply").addEventListener("click", async (e) => {
     if (!_templateScanJobId) return;
+    const applyBtn = e.currentTarget;
+    applyBtn.disabled = true;
     const threshold  = parseFloat(document.getElementById("rethreshold-slider").value);
     const n_clusters = parseInt(document.getElementById("lib-target-clusters").value, 10);
     try {
@@ -384,6 +386,8 @@ function showRethresholdBar() {
       renderTemplateCandidateCards(allCandidates);
     } catch (err) {
       setStatus("Recluster error: " + err.message);
+    } finally {
+      applyBtn.disabled = false;
     }
   });
 }
@@ -405,8 +409,8 @@ async function loadFolderFrames(path, label, zone2El) {
       const row = document.createElement("div");
       row.className = "lib-frame-row";
       row.innerHTML = `
-        <img class="lib-frame-thumb" src="/clip-cutter/frame?video=${encodeURIComponent(f.video_path)}&n=${f.frame_number - 1}" width="48" height="36">
-        <span class="lib-frame-num">fr ${f.frame_number}</span>
+        <img class="lib-frame-thumb" src="/clip-cutter/frame?video=${encodeURIComponent(f.video_path)}&n=${encodeURIComponent(f.frame_number - 1)}" width="48" height="36">
+        <span class="lib-frame-num">fr ${esc(String(f.frame_number))}</span>
         <button class="player-btn lib-frame-view">View</button>
         <button class="player-btn lib-frame-del">Del</button>
       `;
