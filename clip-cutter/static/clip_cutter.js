@@ -8,6 +8,9 @@ let _activeBatchLibrary = null;   // name of expanded library card
 let _activeBatchFolders = new Set();  // checked folder paths in expanded library
 let _batchMode = false;
 const _batchQueue = new Set();
+let _libScanType   = "clips";       // "clips" | "template_frames"
+let _libSensorMode = "clip_only";   // "clip_only" | "sensor+clip"
+let _templateScanJobId = null;
 
 function esc(s) {
   const d = document.createElement("div");
@@ -43,6 +46,7 @@ function renderLibraries(libraries) {
     card.className = "lib-card";
     const isActive = name === _activeBatchLibrary;
     const escapedName = esc(name);
+    const counts = {};
     card.innerHTML = `
       <div class="lib-card-header">
         <span class="lib-name" title="${escapedName}">${escapedName}</span>
@@ -50,19 +54,29 @@ function renderLibraries(libraries) {
         <button class="player-btn lib-delete-btn" title="Delete library">&#10005;</button>
       </div>
       <div class="lib-card-body${isActive ? " open" : ""}">
-        ${folders.map(p => {
-          const escapedP = esc(p);
-          const label = esc(p.split("/").pop());
-          const checked = _activeBatchFolders.has(p);
-          return `<div class="lib-folder-row">
-            <input type="checkbox" class="lib-folder-check" data-path="${escapedP}" ${checked ? "checked" : ""}>
-            <span class="lib-folder-label" title="${escapedP}">${label}</span>
-            <button class="player-btn lib-folder-remove" data-path="${escapedP}" title="Remove folder">&#10005;</button>
-          </div>`;
-        }).join("")}
-        <button class="player-btn lib-scan-btn" disabled>&#9654; Scan with checked (${
-          folders.filter(p => _activeBatchFolders.has(p)).length
-        })</button>
+        <div class="lib-zone1">
+          ${folders.map(p => {
+            const escapedP = esc(p);
+            const parts = p.split("/");
+            const label = esc(parts[parts.length - 2] || parts[parts.length - 1]);
+            const checked = _activeBatchFolders.has(p);
+            const frameCount = counts[p] ?? "?";
+            return `<div class="lib-folder-row">
+              <input type="checkbox" class="lib-folder-check" data-path="${escapedP}" ${checked ? "checked" : ""}>
+              <span class="lib-folder-label" title="${escapedP}">${label}</span>
+              <span class="lib-folder-frames">${frameCount} fr</span>
+              <button class="player-btn lib-folder-remove" data-path="${escapedP}" title="Remove folder">&#10005;</button>
+            </div>`;
+          }).join("")}
+          <button class="player-btn lib-scan-btn" disabled>&#9654; Scan with checked (${
+            folders.filter(p => _activeBatchFolders.has(p)).length
+          })</button>
+        </div>
+        <div class="lib-zone1-handle"></div>
+        <div class="lib-zone2" style="display:none;">
+          <div class="lib-zone2-header"></div>
+          <div class="lib-zone2-frames"></div>
+        </div>
       </div>
     `;
 
@@ -119,8 +133,42 @@ function renderLibraries(libraries) {
       });
     });
 
+    // Folder row click → load Zone 2
+    const zone2El = card.querySelector(".lib-zone2");
+    card.querySelectorAll(".lib-folder-row").forEach(row => {
+      row.addEventListener("click", (e) => {
+        if (e.target.closest(".lib-folder-check") || e.target.closest(".lib-folder-remove")) return;
+        const path  = row.querySelector(".lib-folder-check").dataset.path;
+        const label = row.querySelector(".lib-folder-label").textContent;
+        card.querySelectorAll(".lib-folder-row").forEach(r => r.classList.remove("selected"));
+        row.classList.add("selected");
+        loadFolderFrames(path, label, zone2El);
+      });
+    });
+
+    // Zone 1 drag handle
+    const zone1El = card.querySelector(".lib-zone1");
+    const handleEl = card.querySelector(".lib-zone1-handle");
+    handleEl.addEventListener("mousedown", (e) => {
+      e.preventDefault();
+      const startY = e.clientY;
+      const startH = zone1El.offsetHeight;
+      const onMove = (me) => {
+        zone1El.style.height = Math.max(56, Math.min(224, startH + me.clientY - startY)) + "px";
+      };
+      const onUp = () => {
+        document.removeEventListener("mousemove", onMove);
+        document.removeEventListener("mouseup", onUp);
+      };
+      document.addEventListener("mousemove", onMove);
+      document.addEventListener("mouseup", onUp);
+    });
+
     // Scan button
-    card.querySelector(".lib-scan-btn").addEventListener("click", () => startBatchScan());
+    card.querySelector(".lib-scan-btn").addEventListener("click", () => {
+      if (_libScanType === "template_frames") startBatchTemplateScan();
+      else startBatchScan();
+    });
 
     list.appendChild(card);
   }
@@ -145,12 +193,13 @@ async function startBatchScan() {
         template_dirs,
         video_paths,
         params: {
-          trigger_value: parseInt(document.getElementById("trigger-value").value, 10),
-          sensor_margin: parseInt(document.getElementById("sensor-margin").value, 10),
-          stride: parseInt(document.getElementById("scan-stride").value, 10),
-          threshold: parseFloat(document.getElementById("scan-threshold").value),
-          min_spacing: parseInt(document.getElementById("min-spacing").value, 10),
-          fine_window: parseInt(document.getElementById("fine-window").value, 10),
+          stride:      parseInt(document.getElementById("lib-scan-stride").value, 10),
+          threshold:   parseFloat(document.getElementById("lib-scan-threshold").value),
+          min_spacing: parseInt(document.getElementById("lib-scan-min-spacing").value, 10),
+          fine_window: parseInt(document.getElementById("lib-scan-fine-window").value, 10),
+          scan_mode:     _libSensorMode,
+          trigger_value: parseInt(document.getElementById("lib-trigger-value").value, 10) || 14,
+          sensor_margin: parseInt(document.getElementById("lib-sensor-margin").value, 10) || 25,
         },
       }),
     });
@@ -437,6 +486,29 @@ document.addEventListener("DOMContentLoaded", () => {
       const err = await resp.json();
       setStatus("Error: " + err.error);
     }
+  });
+
+  // Scan type pills
+  document.getElementById("lib-scan-type").querySelectorAll(".pill-btn").forEach(btn => {
+    btn.addEventListener("click", () => {
+      document.getElementById("lib-scan-type")
+        .querySelectorAll(".pill-btn").forEach(b => b.classList.remove("active"));
+      btn.classList.add("active");
+      _libScanType = btn.dataset.val;
+      document.getElementById("lib-clips-fields").style.display    = _libScanType === "clips"            ? "" : "none";
+      document.getElementById("lib-template-fields").style.display = _libScanType === "template_frames" ? "" : "none";
+    });
+  });
+
+  // Sensor mode pills
+  document.getElementById("lib-sensor-mode").querySelectorAll(".pill-btn").forEach(btn => {
+    btn.addEventListener("click", () => {
+      document.getElementById("lib-sensor-mode")
+        .querySelectorAll(".pill-btn").forEach(b => b.classList.remove("active"));
+      btn.classList.add("active");
+      _libSensorMode = btn.dataset.val;
+      document.getElementById("lib-sensor-fields").style.display = _libSensorMode === "sensor+clip" ? "" : "none";
+    });
   });
 
 });
