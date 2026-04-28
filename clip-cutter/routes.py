@@ -32,6 +32,26 @@ _state: dict = {
 }
 _state_lock = threading.Lock()
 
+_libraries_lock = threading.Lock()
+
+
+def _load_libraries() -> dict:
+    """Load libraries.json; return {} if absent or malformed."""
+    p = config.LIBRARIES_PATH
+    if not p.exists():
+        return {}
+    try:
+        with open(p) as f:
+            return json.load(f)
+    except (json.JSONDecodeError, OSError):
+        return {}
+
+
+def _save_libraries(libs: dict) -> None:
+    config.LIBRARIES_PATH.parent.mkdir(parents=True, exist_ok=True)
+    with open(config.LIBRARIES_PATH, "w") as f:
+        json.dump(libs, f, indent=2)
+
 
 def _template_path() -> "Path | None":
     with _state_lock:

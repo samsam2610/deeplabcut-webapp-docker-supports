@@ -28,6 +28,12 @@ DETECTIONS_DIR = Path(
         str(_DATA_ROOT / "Reaching-Task-Data/clip-cutter/detections"),
     )
 )
+LIBRARIES_PATH = Path(
+    os.environ.get(
+        "CLIP_CUTTER_LIBRARIES_PATH",
+        str(_DATA_ROOT / "Reaching-Task-Data/clip-cutter/libraries.json"),
+    )
+)
 
 # --- Template ---
 TRAINING_CROP = (401, 268, 581, 632)   # (x, y, w, h) in original 1376×900 frame

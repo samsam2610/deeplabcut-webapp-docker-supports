@@ -397,3 +397,19 @@ def test_csv_path_outside_data_root_returns_403(client, tmp_path, monkeypatch):
 def test_csv_blank_path_returns_400(client):
     resp = client.get("/clip-cutter/csv")
     assert resp.status_code == 400
+
+
+def test_load_libraries_returns_empty_when_missing(tmp_path, monkeypatch):
+    import config
+    import routes
+    monkeypatch.setattr(config, "LIBRARIES_PATH", tmp_path / "libraries.json")
+    assert routes._load_libraries() == {}
+
+
+def test_save_and_load_libraries_roundtrip(tmp_path, monkeypatch):
+    import config
+    import routes
+    monkeypatch.setattr(config, "LIBRARIES_PATH", tmp_path / "libraries.json")
+    libs = {"TestLib": ["/user-data/session1", "/user-data/session2"]}
+    routes._save_libraries(libs)
+    assert routes._load_libraries() == libs
