@@ -505,6 +505,23 @@ document.addEventListener("DOMContentLoaded", () => {
     document.getElementById("player-panel").style.display = "none";
   });
 
+  // Unlock / re-lock clip range
+  document.getElementById("ep-unlock-btn").addEventListener("click", () => {
+    if (!_videoPath || _mode !== "clip") return;
+    _unlocked = !_unlocked;
+    const btn = document.getElementById("ep-unlock-btn");
+    btn.textContent = _unlocked ? "🔒 Lock" : "🔓 Unlock";
+    const badge = document.getElementById("ep-lock-badge");
+    if (badge) badge.textContent = _unlocked ? "🔓 unlocked" : "🔒 " + (_clipStart + 1) + "–" + (_clipEnd + 1);
+    _epUpdateSeekHighlight();
+    _epUpdateLockOverlay();
+    if (!_unlocked) {
+      // Re-clamp current frame into locked range
+      const clamped = Math.max(_clipStart, Math.min(_currentFrame, _clipEnd));
+      if (clamped !== _currentFrame) _epLoadFrame(clamped);
+    }
+  });
+
   // Play / pause
   document.getElementById("ep-play").addEventListener("click", () => {
     if (!_videoPath) return;
