@@ -229,6 +229,218 @@ async function startBatchScan() {
   }
 }
 
+async function startBatchTemplateScan() {
+  const video_paths = _batchQueue.size > 0 ? [..._batchQueue] : (selectedVideoPath ? [selectedVideoPath] : []);
+  if (_activeBatchFolders.size === 0 || video_paths.length === 0) return;
+  const template_dirs = [..._activeBatchFolders];
+  setStatus(`Starting template scan: ${template_dirs.length} template source(s), ${video_paths.length} video(s)…`);
+  const progressEl = document.getElementById("lib-scan-progress");
+  const setProgress = (msg) => { progressEl.style.display = msg ? "" : "none"; progressEl.textContent = msg; };
+
+  const oldBar = document.getElementById("rethreshold-bar");
+  if (oldBar) oldBar.remove();
+
+  try {
+    const resp = await fetch("/clip-cutter/batch-template-scan", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        template_dirs,
+        video_paths,
+        params: {
+          scan_mode:     _libSensorMode,
+          stride:        parseInt(document.getElementById("lib-scan-stride").value, 10),
+          threshold:     parseFloat(document.getElementById("lib-scan-threshold").value),
+          n_clusters:    parseInt(document.getElementById("lib-target-clusters").value, 10),
+          trigger_value: parseInt(document.getElementById("lib-trigger-value").value, 10) || 14,
+          sensor_margin: parseInt(document.getElementById("lib-sensor-margin").value, 10) || 25,
+        },
+      }),
+    });
+    if (!resp.ok) { setStatus("Template scan error"); return; }
+    const { job_id } = await resp.json();
+    _templateScanJobId = job_id;
+
+    const es = new EventSource(`/clip-cutter/batch-template-scan/stream?job_id=${job_id}`);
+    es.onmessage = (e) => {
+      const job = JSON.parse(e.data);
+      if (job.phase === "done") {
+        es.close();
+        setProgress("");
+        const allCandidates = [];
+        (job.results || []).forEach(r => {
+          (r.candidates || []).forEach(c => allCandidates.push({ ...c, video_path: r.video_path }));
+        });
+        renderTemplateCandidateCards(allCandidates);
+        if (allCandidates.length > 0) showRethresholdBar();
+        setStatus(`Template scan done — ${allCandidates.length} candidate(s)`);
+      } else if (job.phase === "error") {
+        es.close();
+        setProgress("");
+        setStatus("Template scan error: " + job.error);
+      } else {
+        const msg = `${job.video || "…"} (${job.video_index || "?"}/${job.video_total || "?"}) — ${job.phase}`;
+        setProgress(msg);
+      }
+    };
+    es.onerror = () => { es.close(); setProgress(""); setStatus("Template scan stream error"); };
+  } catch (err) {
+    setProgress("");
+    setStatus("Template scan error: " + err.message);
+  }
+}
+
+function renderTemplateCandidateCards(candidates) {
+  const list = document.getElementById("results-list");
+  list.innerHTML = "";
+  candidates.forEach((c) => {
+    const videoName = c.video_path.split("/").pop().replace(/\.avi$/i, "");
+    const card = document.createElement("div");
+    card.className = "result-card";
+    card.dataset.resultType = "template-candidate";
+    const sensorBadge = _libSensorMode === "sensor+clip"
+      ? `<span class="source-badge source-sensor-clip">sensor+clip</span>` : "";
+    card.innerHTML = `
+      <img class="result-thumb" src="/clip-cutter/frame?video=${encodeURIComponent(c.video_path)}&n=${c.frame_number - 1}" style="width:80px;height:60px;object-fit:cover;border-radius:3px;">
+      <div class="result-info">
+        <div class="result-title">${esc(videoName)}</div>
+        <div class="result-sub">Frame ${c.frame_number} &middot; sim ${c.similarity.toFixed(2)}</div>
+        ${sensorBadge}
+        <div style="display:flex;gap:4px;margin-top:4px;">
+          <button class="player-btn tc-add-btn" data-video="${esc(c.video_path)}" data-frame="${c.frame_number}">Add to template</button>
+          <button class="player-btn tc-skip-btn">Skip</button>
+        </div>
+      </div>
+    `;
+
+    card.querySelector(".tc-add-btn").addEventListener("click", async (e) => {
+      const btn = e.currentTarget;
+      btn.disabled = true;
+      try {
+        const r = await fetch("/clip-cutter/template-frame-add", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ video_path: btn.dataset.video, frame_number: parseInt(btn.dataset.frame, 10) }),
+        });
+        if (r.ok) {
+          const { count } = await r.json();
+          btn.textContent = "Added";
+          setStatus(`Frame ${btn.dataset.frame} added. Template now has ${count} frame(s).`);
+          loadLibraries();
+        } else {
+          btn.disabled = false;
+          setStatus("Error adding frame to template");
+        }
+      } catch (err) {
+        btn.disabled = false;
+        setStatus("Network error: " + err.message);
+      }
+    });
+
+    card.querySelector(".tc-skip-btn").addEventListener("click", (e) => {
+      e.currentTarget.closest(".result-card").remove();
+    });
+
+    list.appendChild(card);
+  });
+}
+
+function showRethresholdBar() {
+  const resultsList = document.getElementById("results-list");
+  const bar = document.createElement("div");
+  bar.id = "rethreshold-bar";
+  bar.style.cssText =
+    "display:flex;align-items:center;gap:8px;padding:6px 8px;" +
+    "background:#1c2128;border:1px solid #444c56;border-radius:4px;margin-bottom:6px;";
+  const initVal = document.getElementById("lib-scan-threshold").value;
+  bar.innerHTML = `
+    <span style="font-size:10px;color:#768390;">Threshold</span>
+    <input type="range" id="rethreshold-slider" min="0" max="1" step="0.01" value="${initVal}" style="flex:1;">
+    <span id="rethreshold-label" style="font-size:10px;color:#cdd9e5;min-width:32px;">${parseFloat(initVal).toFixed(2)}</span>
+    <button class="player-btn" id="rethreshold-apply">Apply</button>
+  `;
+  resultsList.parentElement.insertBefore(bar, resultsList);
+
+  document.getElementById("rethreshold-slider").addEventListener("input", (e) => {
+    document.getElementById("rethreshold-label").textContent = parseFloat(e.target.value).toFixed(2);
+  });
+
+  document.getElementById("rethreshold-apply").addEventListener("click", async () => {
+    if (!_templateScanJobId) return;
+    const threshold  = parseFloat(document.getElementById("rethreshold-slider").value);
+    const n_clusters = parseInt(document.getElementById("lib-target-clusters").value, 10);
+    try {
+      const r = await fetch(`/clip-cutter/batch-template-scan/${_templateScanJobId}/recluster`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ threshold, n_clusters }),
+      });
+      if (!r.ok) { setStatus("Recluster error"); return; }
+      const { results } = await r.json();
+      const allCandidates = [];
+      (results || []).forEach(rv => {
+        (rv.candidates || []).forEach(c => allCandidates.push({ ...c, video_path: rv.video_path }));
+      });
+      renderTemplateCandidateCards(allCandidates);
+    } catch (err) {
+      setStatus("Recluster error: " + err.message);
+    }
+  });
+}
+
+async function loadFolderFrames(path, label, zone2El) {
+  zone2El.style.display = "";
+  const headerEl = zone2El.querySelector(".lib-zone2-header");
+  const framesEl = zone2El.querySelector(".lib-zone2-frames");
+  headerEl.textContent = `${label} — loading…`;
+  framesEl.innerHTML = "";
+
+  try {
+    const r = await fetch(`/clip-cutter/library-folder-frames?path=${encodeURIComponent(path)}`);
+    if (!r.ok) { headerEl.textContent = "Error loading frames"; return; }
+    const { frames, count } = await r.json();
+    headerEl.textContent = `${label} — ${count} frame${count !== 1 ? "s" : ""}`;
+
+    frames.forEach(f => {
+      const row = document.createElement("div");
+      row.className = "lib-frame-row";
+      row.innerHTML = `
+        <img class="lib-frame-thumb" src="/clip-cutter/frame?video=${encodeURIComponent(f.video_path)}&n=${f.frame_number - 1}" width="48" height="36">
+        <span class="lib-frame-num">fr ${f.frame_number}</span>
+        <button class="player-btn lib-frame-view">View</button>
+        <button class="player-btn lib-frame-del">Del</button>
+      `;
+
+      row.querySelector(".lib-frame-view").addEventListener("click", async () => {
+        await openPlayer({ mode: "template", videoPath: f.video_path });
+        _epLoadFrame(f.frame_number - 1);
+      });
+
+      row.querySelector(".lib-frame-del").addEventListener("click", async (e) => {
+        const btn = e.currentTarget;
+        btn.disabled = true;
+        const r2 = await fetch("/clip-cutter/library-folder-frames", {
+          method: "DELETE",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ path, frame_number: f.frame_number }),
+        });
+        if (r2.ok) {
+          const { count: newCount } = await r2.json();
+          row.remove();
+          headerEl.textContent = `${label} — ${newCount} frame${newCount !== 1 ? "s" : ""}`;
+          loadLibraries();
+        } else {
+          btn.disabled = false;
+        }
+      });
+
+      framesEl.appendChild(row);
+    });
+  } catch (err) {
+    headerEl.textContent = "Error: " + err.message;
+  }
+}
+
 function updateBatchToolbar() {
   const countEl  = document.getElementById("batch-count");
   const initBtn  = document.getElementById("batch-init-btn");
