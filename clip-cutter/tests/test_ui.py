@@ -908,4 +908,4 @@ def test_clear_modal_cancel_closes_modal(page: Page):
 def test_unlock_button_exists(page: Page):
     setup_routes(page)
     page.goto(BASE_URL + "/clip-cutter/")
-    assert page.locator("#ep-unlock-btn").count() == 1
+    expect(page.locator("#ep-unlock-btn")).to_have_count(1)
