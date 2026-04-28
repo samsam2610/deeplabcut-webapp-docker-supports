@@ -215,6 +215,7 @@ function _epUpdateSyncCamUI() {
   const label = document.getElementById("ep-sync-cam-label");
   const cb    = document.getElementById("ep-sync-cam");
   const cam2  = document.getElementById("ep-cam2-wrap");
+  if (!label || !cb || !cam2) return;
   if (!_siblingVideoPath) {
     label.style.display = "none";
     cb.checked = false;
@@ -235,7 +236,8 @@ async function _epLoadCam2Frame(n) {
     const blobUrl = URL.createObjectURL(blob);
     const img = document.getElementById("ep-cam2-frame");
     const prevSrc = img.src;
-    img.onload = () => { if (prevSrc && prevSrc.startsWith("blob:")) URL.revokeObjectURL(prevSrc); };
+    img.onload  = () => { if (prevSrc && prevSrc.startsWith("blob:")) URL.revokeObjectURL(prevSrc); };
+    img.onerror = () => { URL.revokeObjectURL(blobUrl); };
     img.src = blobUrl;
   } catch (e) {
     console.warn("[enhanced_player] cam2 frame load error:", e.message);
