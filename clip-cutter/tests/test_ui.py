@@ -1325,3 +1325,11 @@ def test_main_row_radio_in_same_group_as_sub_rows(page: Page):
     page.locator("#ep-status-add-sub").click()
     assert page.evaluate("document.getElementById('ep-status-main-radio').checked") is False
     expect(page.locator("#ep-status-sub-rows .ep-sub-radio:checked")).to_have_count(1)
+
+def test_main_canvas_starts_blank(page: Page):
+    """After _epBuildTagBars, both main canvases start blank (no chip events drawn)."""
+    _setup_player_with_csv(page)
+    status_size = page.evaluate("_epActiveStatus.size")
+    note_size   = page.evaluate("_epActiveNote.size")
+    assert status_size == 0, f"_epActiveStatus should be empty, got size {status_size}"
+    assert note_size   == 0, f"_epActiveNote should be empty, got size {note_size}"

@@ -28,7 +28,7 @@ let _epStatusColorMap = {};
 let _epNoteColorMap   = {};
 let _epActiveStatus   = new Set();
 let _epActiveNote     = new Set();
-let _epActiveChip     = null;  // { type: "status"|"note", val: string } | null
+let _epActiveChip     = null;  // { type: "status"|"note", val: string } | null for nav
 let _kfCanvasVisible = false;
 let _unlocked = false;
 let _syncCamEnabled = false;
@@ -82,6 +82,9 @@ async function openPlayer({ mode, videoPath, keyFrame1Based = null, detectionIdx
   _kfCanvasVisible = false;
   _unlocked = false;
   _epActiveChip = null;
+  _epActivePostfixTag = null;
+  _epRenderPostfixTags();
+  // Sub-rows are cleared inside _epBuildTagBars when a new video loads
 
   // Show panel immediately so user sees it open without waiting for network
   document.getElementById("player-panel").style.display = "";
@@ -306,16 +309,17 @@ function _epUpdateSeekHighlight() {
 }
 
 function _epUpdateCsvStrip() {
-  const cur1 = _currentFrame + 1;
-  const row = _csvRows.find(r => r.frame_number === cur1);
   const statusBadge = document.getElementById("ep-status-badge");
   const noteBadge = document.getElementById("ep-note-badge");
+  if (!statusBadge && !noteBadge) return;
+  const cur1 = _currentFrame + 1;
+  const row = _csvRows.find(r => r.frame_number === cur1);
   if (row) {
-    statusBadge.textContent = row.frame_line_status || "—";
-    noteBadge.textContent = row.note || "—";
+    if (statusBadge) statusBadge.textContent = row.frame_line_status || "—";
+    if (noteBadge) noteBadge.textContent = row.note || "—";
   } else {
-    statusBadge.textContent = "—";
-    noteBadge.textContent = "—";
+    if (statusBadge) statusBadge.textContent = "—";
+    if (noteBadge) noteBadge.textContent = "—";
   }
 }
 
@@ -359,11 +363,29 @@ function _epDrawCanvasCursor(canvas) {
   ctx.restore();
 }
 
+function _epDrawCursorTriangle(cursorCanvas) {
+  if (!cursorCanvas || !_frameCount) return;
+  const W = Math.round(cursorCanvas.getBoundingClientRect().width) || cursorCanvas.clientWidth || 600;
+  cursorCanvas.width = W;
+  const H = cursorCanvas.height;
+  const ctx = cursorCanvas.getContext("2d");
+  ctx.clearRect(0, 0, W, H);
+  const x = Math.round((_currentFrame / Math.max(_frameCount - 1, 1)) * W);
+  ctx.fillStyle = "#e6edf3";
+  ctx.beginPath();
+  ctx.moveTo(x - 4, 0);
+  ctx.lineTo(x + 4, 0);
+  ctx.lineTo(x, H);
+  ctx.closePath();
+  ctx.fill();
+}
+
 function _epRedrawStatusCanvas() {
   const canvas = document.getElementById("ep-status-canvas");
   if (!canvas || document.getElementById("ep-status-bar-wrap").style.display === "none") return;
   _epDrawTagCanvas(canvas, _csvRows, "frame_line_status", _epActiveStatus, _epStatusColorMap);
   _epDrawCanvasCursor(canvas);
+  _epDrawCursorTriangle(document.getElementById("ep-status-cursor"));
 }
 
 function _epRedrawNoteCanvas() {
@@ -371,12 +393,45 @@ function _epRedrawNoteCanvas() {
   if (!canvas || document.getElementById("ep-note-bar-wrap").style.display === "none") return;
   _epDrawTagCanvas(canvas, _csvRows, "note", _epActiveNote, _epNoteColorMap);
   _epDrawCanvasCursor(canvas);
+  _epDrawCursorTriangle(document.getElementById("ep-note-cursor"));
 }
 
 function _epRedrawAllCanvases() {
   _epRedrawStatusCanvas();
   _epRedrawNoteCanvas();
+  _epRedrawSubRows("ep-status-sub-rows", "frame_line_status", _epStatusColorMap);
+  _epRedrawSubRows("ep-note-sub-rows",   "note",              _epNoteColorMap);
 }
+
+function _epRedrawSubRows(containerId, field, colorMap) {
+  document.querySelectorAll(`#${containerId} .ep-sub-row`).forEach(row => {
+    const canvas = row.querySelector("canvas");
+    if (canvas) _epDrawSubCanvas(canvas, _csvRows, field, row.dataset.chipVal || null, colorMap);
+  });
+}
+
+function _epDrawSubCanvas(canvas, rows, field, chipVal, colorMap) {
+  if (!canvas) return;
+  const W = Math.round(canvas.getBoundingClientRect().width) || canvas.clientWidth || 600;
+  canvas.width = W;
+  const H = canvas.height || 8;
+  const ctx = canvas.getContext("2d");
+  ctx.clearRect(0, 0, W, H);
+  if (!chipVal) return;
+  const total = Math.max(_frameCount, 1);
+  const minW = Math.max(1, Math.round(W / total));
+  const color = colorMap[chipVal] || "#888";
+  rows.forEach(row => {
+    const v = row[field];
+    if (!v || v !== chipVal) return;
+    if (field === "frame_line_status" && v === "0") return;
+    ctx.fillStyle = color;
+    const x = Math.round(((row.frame_number - 1) / Math.max(total - 1, 1)) * W);
+    ctx.fillRect(x, 0, minW, H);
+  });
+  _epDrawCanvasCursor(canvas);
+}
+
 
 function _epRenderStatusChips() {
   const container = document.getElementById("ep-status-chips");
@@ -384,19 +439,29 @@ function _epRenderStatusChips() {
   container.innerHTML = "";
   Object.keys(_epStatusColorMap).forEach(val => {
     const chip = document.createElement("span");
-    const isActive = _epActiveChip?.type === "status" && _epActiveChip?.val === val;
-    chip.className = "ep-tag-chip" + (isActive ? " active" : "");
+    const selRow = document.querySelector("#ep-status-sub-rows .ep-sub-radio:checked")?.closest(".ep-sub-row");
+    chip.className = "ep-tag-chip" + (selRow?.dataset.chipVal === val ? " active" : "");
     chip.textContent = val;
     chip.style.setProperty("--chip-color", _epStatusColorMap[val]);
     chip.addEventListener("click", () => {
-      const alreadyActive = _epActiveChip?.type === "status" && _epActiveChip?.val === val;
-      _epActiveStatus = new Set();
-      _epActiveNote   = new Set();
-      _epActiveChip   = alreadyActive ? null : { type: "status", val };
-      if (_epActiveChip) _epActiveStatus.add(val);
+      let row = document.querySelector("#ep-status-sub-rows .ep-sub-radio:checked")?.closest(".ep-sub-row");
+      if (!row) {
+        _epAddSubRow("ep-status-sub-rows", "frame_line_status");
+        row = document.querySelector("#ep-status-sub-rows .ep-sub-radio:checked")?.closest(".ep-sub-row");
+      }
+      if (!row) return;
+      if (row.dataset.chipVal === val) {
+        row.dataset.chipVal = "";
+        const canvas = row.querySelector("canvas");
+        if (canvas) _epDrawSubCanvas(canvas, _csvRows, "frame_line_status", null, _epStatusColorMap);
+        _epActiveChip = null;
+      } else {
+        row.dataset.chipVal = val;
+        const canvas = row.querySelector("canvas");
+        if (canvas) _epDrawSubCanvas(canvas, _csvRows, "frame_line_status", val, _epStatusColorMap);
+        _epActiveChip = { type: "status", val };
+      }
       _epRenderStatusChips();
-      _epRenderNoteChips();
-      _epRedrawAllCanvases();
       _epUpdateNavButtons();
     });
     container.appendChild(chip);
@@ -409,23 +474,92 @@ function _epRenderNoteChips() {
   container.innerHTML = "";
   Object.keys(_epNoteColorMap).forEach(val => {
     const chip = document.createElement("span");
-    const isActive = _epActiveChip?.type === "note" && _epActiveChip?.val === val;
-    chip.className = "ep-tag-chip" + (isActive ? " active" : "");
+    const selRow = document.querySelector("#ep-note-sub-rows .ep-sub-radio:checked")?.closest(".ep-sub-row");
+    chip.className = "ep-tag-chip" + (selRow?.dataset.chipVal === val ? " active" : "");
     chip.textContent = val;
     chip.style.setProperty("--chip-color", _epNoteColorMap[val]);
     chip.addEventListener("click", () => {
-      const alreadyActive = _epActiveChip?.type === "note" && _epActiveChip?.val === val;
-      _epActiveStatus = new Set();
-      _epActiveNote   = new Set();
-      _epActiveChip   = alreadyActive ? null : { type: "note", val };
-      if (_epActiveChip) _epActiveNote.add(val);
-      _epRenderStatusChips();
+      let row = document.querySelector("#ep-note-sub-rows .ep-sub-radio:checked")?.closest(".ep-sub-row");
+      if (!row) {
+        _epAddSubRow("ep-note-sub-rows", "note");
+        row = document.querySelector("#ep-note-sub-rows .ep-sub-radio:checked")?.closest(".ep-sub-row");
+      }
+      if (!row) return;
+      if (row.dataset.chipVal === val) {
+        row.dataset.chipVal = "";
+        const canvas = row.querySelector("canvas");
+        if (canvas) _epDrawSubCanvas(canvas, _csvRows, "note", null, _epNoteColorMap);
+        _epActiveChip = null;
+      } else {
+        row.dataset.chipVal = val;
+        const canvas = row.querySelector("canvas");
+        if (canvas) _epDrawSubCanvas(canvas, _csvRows, "note", val, _epNoteColorMap);
+        _epActiveChip = { type: "note", val };
+      }
       _epRenderNoteChips();
-      _epRedrawAllCanvases();
       _epUpdateNavButtons();
     });
     container.appendChild(chip);
   });
+}
+
+function _epAddSubRow(containerId, field, colorMapFn) {
+  const container = document.getElementById(containerId);
+  if (!container) return;
+  const barType  = containerId.includes("status") ? "status" : "note";
+  const radioName = `ep-${barType}-sub-radio`;
+
+  const row = document.createElement("div");
+  row.className = "ep-sub-row";
+
+  const radio = document.createElement("input");
+  radio.type = "radio";
+  radio.name = radioName;
+  radio.className = "ep-sub-radio";
+  radio.style.cssText = "accent-color:#388bfd;cursor:pointer;flex-shrink:0;";
+  radio.addEventListener("change", () => {
+    const chipVal = row.dataset.chipVal || null;
+    _epActiveChip = chipVal ? { type: barType, val: chipVal } : null;
+    if (barType === "status") _epRenderStatusChips(); else _epRenderNoteChips();
+    _epUpdateNavButtons();
+  });
+
+  const canvas = document.createElement("canvas");
+  canvas.height = 8;
+  canvas.addEventListener("click", e => {
+    const chipVal = row.dataset.chipVal;
+    if (!chipVal) return;
+    const rect = canvas.getBoundingClientRect();
+    const target = Math.round((e.clientX - rect.left) / rect.width * Math.max(_frameCount - 1, 0));
+    const annotated = _csvRows
+      .filter(r => { const v = r[field]; return v && v === chipVal && (field !== "frame_line_status" || v !== "0"); })
+      .map(r => Number(r.frame_number) - 1);
+    if (!annotated.length) return;
+    const nearest = annotated.reduce((a, b) => Math.abs(b - target) < Math.abs(a - target) ? b : a);
+    _stop(); _epLoadFrame(nearest);
+  });
+
+  const removeBtn = document.createElement("button");
+  removeBtn.className = "player-btn ep-sub-remove";
+  removeBtn.textContent = "×";
+  removeBtn.addEventListener("click", () => {
+    row.remove();
+    if (!document.querySelector(`#${containerId} .ep-sub-radio:checked`)) {
+      _epActiveChip = null;
+      if (barType === "status") _epRenderStatusChips(); else _epRenderNoteChips();
+      _epUpdateNavButtons();
+    }
+  });
+
+  row.appendChild(radio);
+  row.appendChild(canvas);
+  row.appendChild(removeBtn);
+  container.appendChild(row);
+
+  radio.checked = true;
+  _epActiveChip = null;
+  if (barType === "status") _epRenderStatusChips(); else _epRenderNoteChips();
+  _epUpdateNavButtons();
 }
 
 function _epBuildTagBars() {
@@ -435,18 +569,26 @@ function _epBuildTagBars() {
   document.getElementById("ep-status-bar-wrap").style.display = hasStatus ? "" : "none";
   document.getElementById("ep-note-bar-wrap").style.display   = hasNote   ? "" : "none";
 
+  // Clear sub-rows from previous video
+  document.getElementById("ep-status-sub-rows").innerHTML = "";
+  document.getElementById("ep-note-sub-rows").innerHTML   = "";
+
   const statusVals = [...new Set(_csvRows.map(r => r.frame_line_status).filter(v => v && v !== "0"))];
   _epStatusColorMap = {};
-  _epActiveStatus   = new Set();   // start empty — user selects one chip at a time
+  _epActiveStatus   = new Set();
   statusVals.forEach((v, i) => { _epStatusColorMap[v] = _EP_TAG_COLORS[i % _EP_TAG_COLORS.length]; });
   _epRenderStatusChips();
 
   const noteVals = [...new Set(_csvRows.map(r => r.note).filter(v => v))];
   _epNoteColorMap = {};
-  _epActiveNote   = new Set();    // start empty
+  _epActiveNote   = new Set();
   noteVals.forEach((v, i) => { _epNoteColorMap[v] = _EP_TAG_COLORS[i % _EP_TAG_COLORS.length]; });
   _epRenderNoteChips();
 
+  const srMain = document.getElementById("ep-status-main-radio");
+  if (srMain) srMain.checked = true;
+  const nrMain = document.getElementById("ep-note-main-radio");
+  if (nrMain) nrMain.checked = true;
   _epActiveChip = null;
   _epUpdateNavButtons();
   requestAnimationFrame(() => _epRedrawAllCanvases());
@@ -458,8 +600,6 @@ function _epUpdateNavButtons() {
   const any  = _epActiveChip !== null;
   const stat = any && _epActiveChip.type === "status";
   const note = any && _epActiveChip.type === "note";
-  document.getElementById("ep-prev-tag").disabled    = !any;
-  document.getElementById("ep-next-tag").disabled    = !any;
   document.getElementById("ep-status-prev").disabled = !stat;
   document.getElementById("ep-status-next").disabled = !stat;
   document.getElementById("ep-note-prev").disabled   = !note;
@@ -943,9 +1083,13 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   });
 
-  // CSV tag navigation — ep-prev/next-tag navigate by the active chip (any type)
-  document.getElementById("ep-prev-tag").addEventListener("click", () => { _epNavByChip(-1); });
-  document.getElementById("ep-next-tag").addEventListener("click", () => { _epNavByChip(1); });
+  // ── Add sub-timeline rows ─────────────────────────────────────────────────
+  document.getElementById("ep-status-add-sub").addEventListener("click", () => {
+    _epAddSubRow("ep-status-sub-rows", "frame_line_status");
+  });
+  document.getElementById("ep-note-add-sub").addEventListener("click", () => {
+    _epAddSubRow("ep-note-sub-rows", "note");
+  });
 
   // ── Status timeline canvas ────────────────────────────────────────────────
 
@@ -955,7 +1099,7 @@ document.addEventListener("DOMContentLoaded", () => {
     const rect = canvas.getBoundingClientRect();
     const target = Math.round((e.clientX - rect.left) / rect.width * Math.max(_frameCount - 1, 0));
     const annotated = _csvRows
-      .filter(r => { const v = r.frame_line_status; return v && v !== "0" && _epActiveStatus.has(v); })
+      .filter(r => { const v = r.frame_line_status; return v && v !== "0" && v === _epActiveChip.val; })
       .map(r => Number(r.frame_number) - 1);
     if (!annotated.length) return;
     const nearest = annotated.reduce((a, b) => Math.abs(b - target) < Math.abs(a - target) ? b : a);
@@ -973,7 +1117,7 @@ document.addEventListener("DOMContentLoaded", () => {
     const rect = canvas.getBoundingClientRect();
     const target = Math.round((e.clientX - rect.left) / rect.width * Math.max(_frameCount - 1, 0));
     const annotated = _csvRows
-      .filter(r => { const v = r.note; return v && _epActiveNote.has(v); })
+      .filter(r => { const v = r.note; return v && v === _epActiveChip.val; })
       .map(r => Number(r.frame_number) - 1);
     if (!annotated.length) return;
     const nearest = annotated.reduce((a, b) => Math.abs(b - target) < Math.abs(a - target) ? b : a);
