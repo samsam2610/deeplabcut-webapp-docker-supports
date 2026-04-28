@@ -15,6 +15,8 @@ let _detectionIdx = null;
 let _csvRows = [];
 let _stepSize = 10;
 let _playN = 1;
+let _playDir = 1;          // 1 = forward, -1 = backward
+let _activePresetIdx = null;
 let _playing = false;
 let _looping = true;
 let _busy = false;
@@ -26,10 +28,39 @@ let _epStatusColorMap = {};
 let _epNoteColorMap   = {};
 let _epActiveStatus   = new Set();
 let _epActiveNote     = new Set();
+let _epActiveChip     = null;  // { type: "status"|"note", val: string } | null
 let _kfCanvasVisible = false;
 let _unlocked = false;
+let _syncCamEnabled = false;
+let _siblingVideoPath = null;
+
+// Postfix tags — persistent via localStorage
+let _epPostfixTags = [];
+let _epActivePostfixTag = null;
+const _EP_POSTFIX_TAGS_KEY = "clip_cutter_postfix_tags";
 
 // ── Public API ──────────────────────────────────────────────────────────────────
+
+function getVideoPath() { return _videoPath; }
+
+// Switch to a different detection on the SAME already-loaded video.
+// Preserves step size, loop, presets, play direction, active chip, and tag bars.
+async function epSwitchDetection({ detectionIdx, keyFrame1Based }) {
+  _stop();
+  _detectionIdx = detectionIdx;
+
+  const kf0 = keyFrame1Based - 1;
+  _keyFrame = kf0;
+  _clipStart = Math.max(0, kf0 - 200);
+  _clipEnd = Math.min(_frameCount - 1, kf0 + 599);
+  _unlocked = false;
+
+  _epInitExtractPanel(_videoPath, keyFrame1Based);
+  _epUpdateModeUI();
+
+  // Navigate to the new detection's keyframe
+  await _epLoadFrame(_keyFrame);
+}
 
 async function openPlayer({ mode, videoPath, keyFrame1Based = null, detectionIdx = null, csvPath = null }) {
   _stop();
@@ -39,14 +70,18 @@ async function openPlayer({ mode, videoPath, keyFrame1Based = null, detectionIdx
   _csvRows = [];
   _stepSize = 10;
   _playN = 1;
+  _playDir = 1;
+  _activePresetIdx = null;
   _looping = true;
   const stepEl = document.getElementById("ep-step");
   const playNEl = document.getElementById("ep-playn");
   if (stepEl) stepEl.value = 10;
   if (playNEl) playNEl.value = 1;
+  document.querySelectorAll(".ep-step-preset").forEach(el => el.classList.remove("active"));
 
   _kfCanvasVisible = false;
   _unlocked = false;
+  _epActiveChip = null;
 
   // Show panel immediately so user sees it open without waiting for network
   document.getElementById("player-panel").style.display = "";
@@ -80,8 +115,8 @@ async function openPlayer({ mode, videoPath, keyFrame1Based = null, detectionIdx
   }
   _currentFrame = _clipStart;
 
-  _epUpdateModeUI();
   _epInitExtractPanel(videoPath, keyFrame1Based);
+  _epUpdateModeUI();
 
   if (csvPath) {
     try {
@@ -149,11 +184,16 @@ async function _epLoop() {
   if (!_playing) return;
   if (_busy) { _timerId = setTimeout(_epLoop, Math.round(1000 / _EP_FPS)); return; }
 
-  let next = _currentFrame + _playN;
-  if (next > (_unlocked ? _frameCount - 1 : _clipEnd)) {
-    if (_looping) next = _unlocked ? 0 : _clipStart;
-    else { _stop(); return; }
+  const lo = _unlocked ? 0 : _clipStart;
+  const hi = _unlocked ? _frameCount - 1 : _clipEnd;
+  let next = _currentFrame + _playN * _playDir;
+
+  if (_playDir > 0 && next > hi) {
+    if (_looping) next = lo; else { _stop(); return; }
+  } else if (_playDir < 0 && next < lo) {
+    if (_looping) next = hi; else { _stop(); return; }
   }
+
   const t0 = performance.now();
   await _epLoadFrame(next);
   if (!_playing) return;
@@ -164,9 +204,42 @@ async function _epLoop() {
 function _stop() {
   if (_timerId !== null) { clearTimeout(_timerId); _timerId = null; }
   _playing = false;
-  const btn = document.getElementById("ep-play");
-  if (btn) btn.textContent = "▶";
+  const fwd = document.getElementById("ep-play");
+  const bwd = document.getElementById("ep-play-back");
+  if (fwd) fwd.textContent = "▶";
+  if (bwd) bwd.textContent = "◀";
   _epRedrawAllCanvases();
+}
+
+function _epUpdateSyncCamUI() {
+  const label = document.getElementById("ep-sync-cam-label");
+  const cb    = document.getElementById("ep-sync-cam");
+  const cam2  = document.getElementById("ep-cam2-wrap");
+  if (!_siblingVideoPath) {
+    label.style.display = "none";
+    cb.checked = false;
+    _syncCamEnabled = false;
+    cam2.style.display = "none";
+    return;
+  }
+  label.style.display = "";
+  cam2.style.display = _syncCamEnabled ? "flex" : "none";
+}
+
+async function _epLoadCam2Frame(n) {
+  if (!_syncCamEnabled || !_siblingVideoPath) return;
+  try {
+    const resp = await fetch(`/clip-cutter/frame?video=${encodeURIComponent(_siblingVideoPath)}&n=${n}`);
+    if (!resp.ok) return;
+    const blob = await resp.blob();
+    const blobUrl = URL.createObjectURL(blob);
+    const img = document.getElementById("ep-cam2-frame");
+    const prevSrc = img.src;
+    img.onload = () => { if (prevSrc && prevSrc.startsWith("blob:")) URL.revokeObjectURL(prevSrc); };
+    img.src = blobUrl;
+  } catch (e) {
+    console.warn("[enhanced_player] cam2 frame load error:", e.message);
+  }
 }
 
 // ── Display ────────────────────────────────────────────────────────────────────
@@ -295,14 +368,20 @@ function _epRenderStatusChips() {
   container.innerHTML = "";
   Object.keys(_epStatusColorMap).forEach(val => {
     const chip = document.createElement("span");
-    chip.className = "ep-tag-chip" + (_epActiveStatus.has(val) ? " active" : "");
+    const isActive = _epActiveChip?.type === "status" && _epActiveChip?.val === val;
+    chip.className = "ep-tag-chip" + (isActive ? " active" : "");
     chip.textContent = val;
     chip.style.setProperty("--chip-color", _epStatusColorMap[val]);
     chip.addEventListener("click", () => {
-      if (_epActiveStatus.has(val)) _epActiveStatus.delete(val);
-      else _epActiveStatus.add(val);
+      const alreadyActive = _epActiveChip?.type === "status" && _epActiveChip?.val === val;
+      _epActiveStatus = new Set();
+      _epActiveNote   = new Set();
+      _epActiveChip   = alreadyActive ? null : { type: "status", val };
+      if (_epActiveChip) _epActiveStatus.add(val);
       _epRenderStatusChips();
-      _epRedrawStatusCanvas();
+      _epRenderNoteChips();
+      _epRedrawAllCanvases();
+      _epUpdateNavButtons();
     });
     container.appendChild(chip);
   });
@@ -314,14 +393,20 @@ function _epRenderNoteChips() {
   container.innerHTML = "";
   Object.keys(_epNoteColorMap).forEach(val => {
     const chip = document.createElement("span");
-    chip.className = "ep-tag-chip" + (_epActiveNote.has(val) ? " active" : "");
+    const isActive = _epActiveChip?.type === "note" && _epActiveChip?.val === val;
+    chip.className = "ep-tag-chip" + (isActive ? " active" : "");
     chip.textContent = val;
     chip.style.setProperty("--chip-color", _epNoteColorMap[val]);
     chip.addEventListener("click", () => {
-      if (_epActiveNote.has(val)) _epActiveNote.delete(val);
-      else _epActiveNote.add(val);
+      const alreadyActive = _epActiveChip?.type === "note" && _epActiveChip?.val === val;
+      _epActiveStatus = new Set();
+      _epActiveNote   = new Set();
+      _epActiveChip   = alreadyActive ? null : { type: "note", val };
+      if (_epActiveChip) _epActiveNote.add(val);
+      _epRenderStatusChips();
       _epRenderNoteChips();
-      _epRedrawNoteCanvas();
+      _epRedrawAllCanvases();
+      _epUpdateNavButtons();
     });
     container.appendChild(chip);
   });
@@ -336,17 +421,105 @@ function _epBuildTagBars() {
 
   const statusVals = [...new Set(_csvRows.map(r => r.frame_line_status).filter(v => v && v !== "0"))];
   _epStatusColorMap = {};
-  _epActiveStatus   = new Set(statusVals);
+  _epActiveStatus   = new Set();   // start empty — user selects one chip at a time
   statusVals.forEach((v, i) => { _epStatusColorMap[v] = _EP_TAG_COLORS[i % _EP_TAG_COLORS.length]; });
   _epRenderStatusChips();
 
   const noteVals = [...new Set(_csvRows.map(r => r.note).filter(v => v))];
   _epNoteColorMap = {};
-  _epActiveNote   = new Set(noteVals);
+  _epActiveNote   = new Set();    // start empty
   noteVals.forEach((v, i) => { _epNoteColorMap[v] = _EP_TAG_COLORS[i % _EP_TAG_COLORS.length]; });
   _epRenderNoteChips();
 
+  _epActiveChip = null;
+  _epUpdateNavButtons();
   requestAnimationFrame(() => _epRedrawAllCanvases());
+}
+
+// ── Nav button state ───────────────────────────────────────────────────────────
+
+function _epUpdateNavButtons() {
+  const any  = _epActiveChip !== null;
+  const stat = any && _epActiveChip.type === "status";
+  const note = any && _epActiveChip.type === "note";
+  document.getElementById("ep-prev-tag").disabled    = !any;
+  document.getElementById("ep-next-tag").disabled    = !any;
+  document.getElementById("ep-status-prev").disabled = !stat;
+  document.getElementById("ep-status-next").disabled = !stat;
+  document.getElementById("ep-note-prev").disabled   = !note;
+  document.getElementById("ep-note-next").disabled   = !note;
+}
+
+function _epNavByChip(dir) {
+  if (!_epActiveChip || !_csvRows.length) return;
+  const { type, val } = _epActiveChip;
+  const field = type === "status" ? "frame_line_status" : "note";
+  const cur1  = _currentFrame + 1;
+  const rows  = _csvRows.filter(r => {
+    const v = r[field];
+    return v && (field !== "frame_line_status" || v !== "0") && v === val;
+  });
+  if (dir < 0) {
+    const prev = [...rows].filter(r => Number(r.frame_number) < cur1)
+      .sort((a, b) => b.frame_number - a.frame_number)[0];
+    if (prev) { _stop(); _epLoadFrame(Number(prev.frame_number) - 1); }
+  } else {
+    const next = rows.filter(r => Number(r.frame_number) > cur1)
+      .sort((a, b) => a.frame_number - b.frame_number)[0];
+    if (next) { _stop(); _epLoadFrame(Number(next.frame_number) - 1); }
+  }
+}
+
+// ── Postfix tags ───────────────────────────────────────────────────────────────
+
+function _epLoadPostfixTags() {
+  try {
+    const saved = localStorage.getItem(_EP_POSTFIX_TAGS_KEY);
+    _epPostfixTags = saved ? JSON.parse(saved) : [];
+  } catch { _epPostfixTags = []; }
+}
+
+function _epSavePostfixTags() {
+  localStorage.setItem(_EP_POSTFIX_TAGS_KEY, JSON.stringify(_epPostfixTags));
+}
+
+function _epRenderPostfixTags() {
+  const container = document.getElementById("ep-postfix-tags");
+  if (!container) return;
+  container.innerHTML = "";
+  _epPostfixTags.forEach((tag, idx) => {
+    const pill = document.createElement("span");
+    pill.className = "ep-postfix-tag" + (_epActivePostfixTag === tag ? " active" : "");
+    const label = document.createElement("span");
+    label.textContent = tag;
+    const del = document.createElement("span");
+    del.className = "ep-tag-del";
+    del.textContent = "×";
+    del.title = "Remove tag";
+    del.addEventListener("click", (e) => {
+      e.stopPropagation();
+      _epPostfixTags.splice(idx, 1);
+      if (_epActivePostfixTag === tag) {
+        _epActivePostfixTag = null;
+        document.getElementById("ep-postfix").value = "";
+      }
+      _epSavePostfixTags();
+      _epRenderPostfixTags();
+    });
+    pill.appendChild(label);
+    pill.appendChild(del);
+    pill.addEventListener("click", () => {
+      if (_epActivePostfixTag === tag) {
+        _epActivePostfixTag = null;
+        document.getElementById("ep-postfix").value = "";
+      } else {
+        _epActivePostfixTag = tag;
+        document.getElementById("ep-postfix").value = tag;
+      }
+      _epRenderPostfixTags();
+    });
+    container.appendChild(pill);
+  });
 }
 
 // ── Keyframe canvas overlay ────────────────────────────────────────────────────
@@ -398,14 +571,10 @@ function _epUpdateModeUI() {
 
   if (_mode === "clip") {
     lockBadge.style.display = "";
+    lockBadge.className = _unlocked ? "unlocked" : "locked";
     lockBadge.textContent = _unlocked
-      ? "🔓 unlocked"
+      ? "🔓 " + (_clipStart + 1) + "–" + (_clipEnd + 1)
       : "🔒 " + (_clipStart + 1) + "–" + (_clipEnd + 1);
-    const unlockBtn = document.getElementById("ep-unlock-btn");
-    if (unlockBtn) {
-      unlockBtn.style.display = "";
-      unlockBtn.textContent = _unlocked ? "🔒 Lock" : "🔓 Unlock";
-    }
     setKfBtn.style.display = "";
     rejectBtn.style.display = "";
     addTemplateBtn.style.display = "none";
@@ -421,13 +590,12 @@ function _epUpdateModeUI() {
     document.getElementById("ep-extract").disabled = isFinished;
   } else {
     lockBadge.style.display = "none";
-    const unlockBtn = document.getElementById("ep-unlock-btn");
-    if (unlockBtn) unlockBtn.style.display = "none";
     setKfBtn.style.display = "none";
     rejectBtn.style.display = "none";
     addTemplateBtn.style.display = "";
     gotoKfBtn.style.display = "none";
     document.getElementById("ep-lock-start").checked = false;
+    document.getElementById("ep-extract").disabled = false;
   }
 
   _epUpdateSeekHighlight();
@@ -442,10 +610,21 @@ function _epInitExtractPanel(videoPath, keyFrame1Based) {
     : 1;
   document.getElementById("ep-start").value = start;
   document.getElementById("ep-frames").value = 800;
-  document.getElementById("ep-postfix").value = "";
-  document.getElementById("ep-extract").disabled = false;
+  const _storedPostfix = (_detectionIdx !== null && typeof detections !== "undefined")
+    ? (detections[_detectionIdx]?.extract_postfix || "")
+    : "";
+  document.getElementById("ep-postfix").value = _storedPostfix;
   document.getElementById("ep-warning").style.display = "none";
   _epUpdateEnd();
+
+  // Show extract button or rename/delete buttons based on detection state
+  const isKept = _mode === "clip" && _detectionIdx !== null &&
+    typeof detections !== "undefined" && detections[_detectionIdx]?.status === "kept";
+  const hasPath = isKept && !!detections[_detectionIdx]?.extract_avi_path;
+  document.getElementById("ep-extract").style.display = isKept ? "none" : "";
+  document.getElementById("ep-rename-extract").style.display = isKept ? "" : "none";
+  document.getElementById("ep-rename-extract").disabled = !hasPath;
+  document.getElementById("ep-delete-extract").style.display = isKept ? "" : "none";
 
   const parts = videoPath.split("/");
   const filename = parts[parts.length - 1];
@@ -466,11 +645,10 @@ function _epApplyNewKF(kf1) {
   _clipStart = Math.max(0, kf0 - 200);
   _clipEnd = Math.min(_frameCount - 1, kf0 + 599);
 
-  document.getElementById("ep-lock-badge").textContent =
-    "🔒 " + (_clipStart + 1) + "–" + (_clipEnd + 1);
   _unlocked = false;
-  const unlockBtn = document.getElementById("ep-unlock-btn");
-  if (unlockBtn) unlockBtn.textContent = "🔓 Unlock";
+  const badge = document.getElementById("ep-lock-badge");
+  badge.className = "locked";
+  badge.textContent = "🔒 " + (_clipStart + 1) + "–" + (_clipEnd + 1);
 
   const seekEl = document.getElementById("ep-seek");
   seekEl.min = 0;
@@ -505,31 +683,45 @@ document.addEventListener("DOMContentLoaded", () => {
     document.getElementById("player-panel").style.display = "none";
   });
 
-  // Unlock / re-lock clip range
-  document.getElementById("ep-unlock-btn").addEventListener("click", () => {
+  // Lock badge — toggle lock/unlock clip range
+  document.getElementById("ep-lock-badge").addEventListener("click", () => {
     if (!_videoPath || _mode !== "clip") return;
     _unlocked = !_unlocked;
-    const btn = document.getElementById("ep-unlock-btn");
-    btn.textContent = _unlocked ? "🔒 Lock" : "🔓 Unlock";
     const badge = document.getElementById("ep-lock-badge");
-    if (badge) badge.textContent = _unlocked ? "🔓 unlocked" : "🔒 " + (_clipStart + 1) + "–" + (_clipEnd + 1);
+    badge.className = _unlocked ? "unlocked" : "locked";
+    badge.textContent = (_unlocked ? "🔓 " : "🔒 ") + (_clipStart + 1) + "–" + (_clipEnd + 1);
     _epUpdateSeekHighlight();
     _epUpdateLockOverlay();
     if (!_unlocked) {
-      // Re-clamp current frame into locked range
       const clamped = Math.max(_clipStart, Math.min(_currentFrame, _clipEnd));
       if (clamped !== _currentFrame) _epLoadFrame(clamped);
     }
   });
 
-  // Play / pause
+  // Play forward / pause
   document.getElementById("ep-play").addEventListener("click", () => {
     if (!_videoPath) return;
-    if (_playing) {
+    if (_playing && _playDir === 1) {
       _stop();
     } else {
+      _stop();
+      _playDir = 1;
       _playing = true;
       document.getElementById("ep-play").textContent = "⏸";
+      _epLoop();
+    }
+  });
+
+  // Play backward / pause
+  document.getElementById("ep-play-back").addEventListener("click", () => {
+    if (!_videoPath) return;
+    if (_playing && _playDir === -1) {
+      _stop();
+    } else {
+      _stop();
+      _playDir = -1;
+      _playing = true;
+      document.getElementById("ep-play-back").textContent = "⏸";
       _epLoop();
     }
   });
@@ -591,11 +783,36 @@ document.addEventListener("DOMContentLoaded", () => {
     _stop(); _epLoadFrame(_currentFrame + _stepSize);
   });
 
-  // Step size input
+  // Step size input — deselects all presets
   document.getElementById("ep-step").addEventListener("change", (e) => {
     const v = parseInt(e.target.value, 10);
     _stepSize = v > 0 ? v : 1;
     e.target.value = _stepSize;
+    _activePresetIdx = null;
+    document.querySelectorAll(".ep-step-preset").forEach(el => el.classList.remove("active"));
+  });
+
+  // Step preset inputs — radio-style; click selects, value change updates step
+  document.querySelectorAll(".ep-step-preset").forEach((input, idx) => {
+    input.addEventListener("click", () => {
+      _activePresetIdx = idx;
+      document.querySelectorAll(".ep-step-preset").forEach((el, i) => el.classList.toggle("active", i === idx));
+      const v = parseInt(input.value, 10);
+      if (v > 0) {
+        _stepSize = v;
+        document.getElementById("ep-step").value = _stepSize;
+      }
+    });
+    input.addEventListener("change", () => {
+      const v = parseInt(input.value, 10);
+      if (v > 0) {
+        input.value = v;
+        if (_activePresetIdx === idx) {
+          _stepSize = v;
+          document.getElementById("ep-step").value = _stepSize;
+        }
+      }
+    });
   });
 
   // Play-N input
@@ -703,30 +920,14 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   });
 
-  // CSV tag navigation
-  document.getElementById("ep-prev-tag").addEventListener("click", () => {
-    if (!_csvRows.length) return;
-    const cur1 = _currentFrame + 1;
-    const row = _csvRows.find(r => r.frame_number === cur1);
-    const tagVal = row && row.note ? row.note : null;
-    if (!tagVal) return;
-    const prev = [..._csvRows].reverse().find(r => r.frame_number < cur1 && r.note === tagVal);
-    if (prev) { _stop(); _epLoadFrame(prev.frame_number - 1); }
-  });
-
-  document.getElementById("ep-next-tag").addEventListener("click", () => {
-    if (!_csvRows.length) return;
-    const cur1 = _currentFrame + 1;
-    const row = _csvRows.find(r => r.frame_number === cur1);
-    const tagVal = row && row.note ? row.note : null;
-    if (!tagVal) return;
-    const next = _csvRows.find(r => r.frame_number > cur1 && r.note === tagVal);
-    if (next) { _stop(); _epLoadFrame(next.frame_number - 1); }
-  });
+  // CSV tag navigation — ep-prev/next-tag navigate by the active chip (any type)
+  document.getElementById("ep-prev-tag").addEventListener("click", () => { _epNavByChip(-1); });
+  document.getElementById("ep-next-tag").addEventListener("click", () => { _epNavByChip(1); });
 
   // ── Status timeline canvas ────────────────────────────────────────────────
 
   document.getElementById("ep-status-canvas").addEventListener("click", e => {
+    if (!_epActiveChip || _epActiveChip.type !== "status") return;
     const canvas = e.currentTarget;
     const rect = canvas.getBoundingClientRect();
     const target = Math.round((e.clientX - rect.left) / rect.width * Math.max(_frameCount - 1, 0));
@@ -738,25 +939,13 @@ document.addEventListener("DOMContentLoaded", () => {
     _stop(); _epLoadFrame(nearest);
   });
 
-  document.getElementById("ep-status-prev").addEventListener("click", () => {
-    const cur1 = _currentFrame + 1;
-    const prev = [..._csvRows]
-      .filter(r => { const v = r.frame_line_status; return v && v !== "0" && _epActiveStatus.has(v) && r.frame_number < cur1; })
-      .sort((a, b) => b.frame_number - a.frame_number)[0];
-    if (prev) { _stop(); _epLoadFrame(prev.frame_number - 1); }
-  });
-
-  document.getElementById("ep-status-next").addEventListener("click", () => {
-    const cur1 = _currentFrame + 1;
-    const next = _csvRows
-      .filter(r => { const v = r.frame_line_status; return v && v !== "0" && _epActiveStatus.has(v) && r.frame_number > cur1; })
-      .sort((a, b) => a.frame_number - b.frame_number)[0];
-    if (next) { _stop(); _epLoadFrame(next.frame_number - 1); }
-  });
+  document.getElementById("ep-status-prev").addEventListener("click", () => { _epNavByChip(-1); });
+  document.getElementById("ep-status-next").addEventListener("click", () => { _epNavByChip(1); });
 
   // ── Note timeline canvas ──────────────────────────────────────────────────
 
   document.getElementById("ep-note-canvas").addEventListener("click", e => {
+    if (!_epActiveChip || _epActiveChip.type !== "note") return;
     const canvas = e.currentTarget;
     const rect = canvas.getBoundingClientRect();
     const target = Math.round((e.clientX - rect.left) / rect.width * Math.max(_frameCount - 1, 0));
@@ -768,21 +957,8 @@ document.addEventListener("DOMContentLoaded", () => {
     _stop(); _epLoadFrame(nearest);
   });
 
-  document.getElementById("ep-note-prev").addEventListener("click", () => {
-    const cur1 = _currentFrame + 1;
-    const prev = [..._csvRows]
-      .filter(r => { const v = r.note; return v && _epActiveNote.has(v) && r.frame_number < cur1; })
-      .sort((a, b) => b.frame_number - a.frame_number)[0];
-    if (prev) { _stop(); _epLoadFrame(prev.frame_number - 1); }
-  });
-
-  document.getElementById("ep-note-next").addEventListener("click", () => {
-    const cur1 = _currentFrame + 1;
-    const next = _csvRows
-      .filter(r => { const v = r.note; return v && _epActiveNote.has(v) && r.frame_number > cur1; })
-      .sort((a, b) => a.frame_number - b.frame_number)[0];
-    if (next) { _stop(); _epLoadFrame(next.frame_number - 1); }
-  });
+  document.getElementById("ep-note-prev").addEventListener("click", () => { _epNavByChip(-1); });
+  document.getElementById("ep-note-next").addEventListener("click", () => { _epNavByChip(1); });
 
   // Add to template (template mode only) — two-step confirm
   const _addConfirmEl  = document.getElementById("ep-add-confirm");
@@ -889,19 +1065,110 @@ document.addEventListener("DOMContentLoaded", () => {
         setStatus("Extract error: " + err.error);
         return;
       }
+      const data = await resp.json();
       setStatus("Clip extracted");
       if (_detectionIdx !== null && typeof detections !== "undefined" && detections[_detectionIdx]) {
         detections[_detectionIdx].status = "kept";
+        detections[_detectionIdx].extract_avi_path = data.avi_path;
+        detections[_detectionIdx].extract_postfix = postfix || null;
         const card = document.getElementById("card-" + _detectionIdx);
         if (card) {
           card.classList.add("kept");
           card.querySelectorAll("button").forEach(b => { b.disabled = true; });
+          const nameEl = card.querySelector(".result-name");
+          if (nameEl) nameEl.textContent = data.avi_path.split("/").pop();
         }
         if (typeof saveDetections === "function") saveDetections();
       }
-      document.getElementById("ep-extract").disabled = true;
+      document.getElementById("ep-extract").style.display = "none";
+      document.getElementById("ep-rename-extract").style.display = "";
+      document.getElementById("ep-rename-extract").disabled = false;
+      document.getElementById("ep-delete-extract").style.display = "";
       document.getElementById("ep-set-kf").disabled = true;
       document.getElementById("ep-reject").disabled = true;
+    } catch (e) { setStatus("Network error: " + e.message); }
+  });
+
+  // Delete extract
+  document.getElementById("ep-delete-extract").addEventListener("click", async () => {
+    if (_detectionIdx === null || typeof detections === "undefined") return;
+    const det = detections[_detectionIdx];
+    const aviPath = det?.extract_avi_path;
+
+    const _unlock = () => {
+      det.status = null;
+      delete det.extract_avi_path;
+      document.getElementById("ep-delete-extract").style.display = "none";
+      document.getElementById("ep-rename-extract").style.display = "none";
+      document.getElementById("ep-extract").style.display = "";
+      document.getElementById("ep-extract").disabled = false;
+      document.getElementById("ep-set-kf").disabled = false;
+      document.getElementById("ep-reject").disabled = false;
+      const card = document.getElementById("card-" + _detectionIdx);
+      if (card) {
+        card.classList.remove("kept");
+        card.querySelectorAll("button").forEach(b => { b.disabled = false; });
+      }
+      if (typeof saveDetections === "function") saveDetections();
+    };
+
+    if (!aviPath) {
+      // No path recorded — just unlock the candidate
+      _unlock();
+      setStatus("No file path recorded — candidate unlocked");
+      return;
+    }
+
+    try {
+      const resp = await fetch("/clip-cutter/extract/delete", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ avi_path: aviPath }),
+      });
+      if (!resp.ok) {
+        const err = await resp.json().catch(() => ({ error: resp.statusText }));
+        // File-not-found (404) → still unlock the candidate
+        if (resp.status === 404) {
+          _unlock();
+          setStatus("File not found on disk — candidate unlocked");
+        } else {
+          setStatus("Delete error: " + err.error);
+        }
+        return;
+      }
+      _unlock();
+      setStatus("Extract deleted");
+    } catch (e) { setStatus("Network error: " + e.message); }
+  });
+
+  // Rename extract — apply current postfix to the extracted filename
+  document.getElementById("ep-rename-extract").addEventListener("click", async () => {
+    if (_detectionIdx === null || typeof detections === "undefined") return;
+    const det = detections[_detectionIdx];
+    const aviPath = det?.extract_avi_path;
+    if (!aviPath) { setStatus("No extract path recorded"); return; }
+    const postfix = document.getElementById("ep-postfix").value.trim();
+    try {
+      const resp = await fetch("/clip-cutter/extract/rename", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ avi_path: aviPath, postfix }),
+      });
+      if (!resp.ok) {
+        const err = await resp.json().catch(() => ({ error: resp.statusText }));
+        setStatus("Rename error: " + err.error);
+        return;
+      }
+      const data = await resp.json();
+      det.extract_avi_path = data.avi_path;
+      det.extract_postfix = postfix || null;
+      const card = document.getElementById("card-" + _detectionIdx);
+      if (card) {
+        const nameEl = card.querySelector(".result-name");
+        if (nameEl) nameEl.textContent = data.avi_path.split("/").pop();
+      }
+      if (typeof saveDetections === "function") saveDetections();
+      setStatus("Renamed → " + data.avi_path.split("/").pop());
     } catch (e) { setStatus("Network error: " + e.message); }
   });
 
@@ -940,5 +1207,82 @@ document.addEventListener("DOMContentLoaded", () => {
       document.removeEventListener("mouseup",   onUp);
     }
   })();
+
+  // Horizontal resize — drag handle between video and extract panel
+  (function () {
+    const handle  = document.getElementById("ep-panel-resize-handle");
+    const extract = document.getElementById("ep-extract-panel");
+    let startX = 0, startW = 0;
+
+    handle.addEventListener("mousedown", (e) => {
+      startX = e.clientX;
+      startW = extract.offsetWidth;
+      handle.classList.add("dragging");
+      document.addEventListener("mousemove", onMove);
+      document.addEventListener("mouseup",   onUp);
+      e.preventDefault();
+    });
+
+    function onMove(e) {
+      const delta = startX - e.clientX;   // drag left → wider extract panel
+      extract.style.width = Math.max(160, Math.min(480, startW + delta)) + "px";
+    }
+
+    function onUp() {
+      handle.classList.remove("dragging");
+      document.removeEventListener("mousemove", onMove);
+      document.removeEventListener("mouseup",   onUp);
+    }
+  })();
+
+  // Minimize / restore
+  (function () {
+    const panel = document.getElementById("player-panel");
+    const btn   = document.getElementById("ep-minimize-btn");
+    let savedHeight = null;
+
+    btn.addEventListener("click", () => {
+      if (panel.classList.contains("minimized")) {
+        panel.classList.remove("minimized");
+        if (savedHeight) panel.style.height = savedHeight;
+        btn.innerHTML = "&#9660;";
+        btn.title = "Minimize viewer";
+      } else {
+        savedHeight = panel.style.height || panel.offsetHeight + "px";
+        panel.classList.add("minimized");
+        panel.style.height = "";
+        btn.innerHTML = "&#9650;";
+        btn.title = "Restore viewer";
+      }
+    });
+  })();
+
+  // ── Postfix tags ──────────────────────────────────────────────────────────
+
+  _epLoadPostfixTags();
+  _epRenderPostfixTags();
+
+  document.getElementById("ep-add-tag-btn").addEventListener("click", () => {
+    const input = document.getElementById("ep-new-tag-input");
+    const val = input.value.trim();
+    if (!val || _epPostfixTags.includes(val)) { input.value = ""; return; }
+    _epPostfixTags.push(val);
+    _epSavePostfixTags();
+    _epRenderPostfixTags();
+    input.value = "";
+  });
+
+  document.getElementById("ep-new-tag-input").addEventListener("keydown", (e) => {
+    if (e.key === "Enter") { e.preventDefault(); document.getElementById("ep-add-tag-btn").click(); }
+  });
+
+  // Sync postfix input back to active tag selection
+  document.getElementById("ep-postfix").addEventListener("input", (e) => {
+    const val = e.target.value.trim();
+    if (_epActivePostfixTag && val !== _epActivePostfixTag) {
+      _epActivePostfixTag = null;
+      _epRenderPostfixTags();
+    }
+  });
 
 }); // end DOMContentLoaded
