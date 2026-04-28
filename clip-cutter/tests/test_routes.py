@@ -671,3 +671,58 @@ def test_template_frame_add_creates_entry(client, tmp_path, monkeypatch):
     assert resp.status_code == 200
     data = json.loads(resp.data)
     assert data["count"] == 1
+
+
+def test_library_folder_frames_empty(client, tmp_path):
+    resp = client.get(f"/clip-cutter/library-folder-frames?path={tmp_path}")
+    assert resp.status_code == 200
+    data = json.loads(resp.data)
+    assert data["frames"] == []
+    assert data["count"] == 0
+
+
+def test_library_folder_frames_returns_frames(client, tmp_path):
+    import json as _json, numpy as np
+
+    state_path = tmp_path / "template_state.json"
+    state = {
+        "frames": [
+            {"video_path": "/x/v.avi", "frame_number": 42,
+             "embedding": np.zeros(512).tolist(),
+             "dino_embedding": np.zeros(384).tolist(),
+             "thumbnail": ""},
+        ],
+        "mean_embedding": np.zeros(512).tolist(),
+        "dino_mean_embedding": None,
+    }
+    state_path.write_text(_json.dumps(state))
+
+    resp = client.get(f"/clip-cutter/library-folder-frames?path={tmp_path}")
+    assert resp.status_code == 200
+    data = json.loads(resp.data)
+    assert data["count"] == 1
+    assert data["frames"][0]["frame_number"] == 42
+    assert data["frames"][0]["video_path"] == "/x/v.avi"
+
+
+def test_delete_library_folder_frame(client, tmp_path):
+    import json as _json, numpy as np
+
+    state_path = tmp_path / "template_state.json"
+    state = {
+        "frames": [
+            {"video_path": "/x/v.avi", "frame_number": 42,
+             "embedding": np.zeros(512).tolist(),
+             "dino_embedding": np.zeros(384).tolist(),
+             "thumbnail": ""},
+        ],
+        "mean_embedding": np.zeros(512).tolist(),
+        "dino_mean_embedding": None,
+    }
+    state_path.write_text(_json.dumps(state))
+
+    resp = client.delete("/clip-cutter/library-folder-frames",
+                         json={"path": str(tmp_path), "frame_number": 42})
+    assert resp.status_code == 200
+    data = json.loads(resp.data)
+    assert data["count"] == 0

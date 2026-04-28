@@ -652,6 +652,64 @@ def template_frame_add():
     return jsonify({"count": len(state["frames"])})
 
 
+@bp.route("/library-folder-frames")
+def library_folder_frames():
+    path = request.args.get("path", "").strip()
+    if not path:
+        return jsonify({"error": "path required"}), 400
+
+    state_path = None
+    for candidate in [
+        Path(path) / "template" / "template_state.json",
+        Path(path) / "template_state.json",
+    ]:
+        if candidate.exists():
+            state_path = candidate
+            break
+
+    if state_path is None:
+        return jsonify({"frames": [], "count": 0})
+
+    state = processor.load_template_state(state_path)
+    frames = [
+        {"frame_number": f["frame_number"], "video_path": f["video_path"]}
+        for f in state.get("frames", [])
+    ]
+    return jsonify({"frames": frames, "count": len(frames)})
+
+
+@bp.route("/library-folder-frames", methods=["DELETE"])
+def delete_library_folder_frame():
+    body         = request.get_json(force=True) or {}
+    path         = body.get("path",         "").strip()
+    frame_number = body.get("frame_number")
+    if not path or frame_number is None:
+        return jsonify({"error": "path and frame_number required"}), 400
+
+    state_path = None
+    for candidate in [
+        Path(path) / "template" / "template_state.json",
+        Path(path) / "template_state.json",
+    ]:
+        if candidate.exists():
+            state_path = candidate
+            break
+
+    if state_path is None:
+        return jsonify({"error": "template not found"}), 404
+
+    state = processor.load_template_state(state_path)
+    idx = next(
+        (i for i, f in enumerate(state["frames"]) if f["frame_number"] == int(frame_number)),
+        None,
+    )
+    if idx is None:
+        return jsonify({"error": "frame not found"}), 404
+
+    state = processor.remove_frame_from_template(state, idx, state_path)
+    return jsonify({"count": len(state["frames"])})
+
+
 # ── Filesystem browser ──────────────────────────────────────────────────────────
 
 @bp.route("/fs/ls")
