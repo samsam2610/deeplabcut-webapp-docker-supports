@@ -1970,7 +1970,7 @@ def test_setkf_in_browse_mode_updates_start_field(page: Page):
     assert int(start_val) == 101, f"ep-start should be max(1, 300+1-200)=101, got {start_val}"
 
 
-def _setup_browse_routes(page):
+def _setup_browse_routes(page: Page):
     """Setup routes + video-info + frame for browse-mode tests."""
     setup_routes(page)
     page.route("**/clip-cutter/video-info**", lambda r: r.fulfill(
@@ -2039,3 +2039,26 @@ def test_browse_extract_keeps_extract_btn_enabled(page: Page):
     extract_enabled = page.evaluate("!document.getElementById('ep-extract').disabled")
     assert extract_visible, "ep-extract should remain visible after browse extract"
     assert extract_enabled, "ep-extract should remain enabled after browse extract"
+
+
+def test_browse_extract_consecutive_creates_two_entries(page: Page):
+    """Two extracts in browse mode must create two separate detection entries."""
+    _setup_browse_routes(page)
+    page.goto(f"{BASE_URL}/clip-cutter/")
+    page.evaluate("""() => {
+        selectedVideoPath = '/user-data/vid1.avi';
+        openPlayer({ mode: 'clip', videoPath: '/user-data/vid1.avi', unlocked: true });
+    }""")
+    page.wait_for_selector("#player-panel", state="visible")
+    # First extract
+    page.click("#ep-extract")
+    page.wait_for_function("detections.length === 1", timeout=3000)
+    # Second extract
+    page.click("#ep-extract")
+    page.wait_for_function("detections.length === 2", timeout=3000)
+    count = page.locator(".result-card").count()
+    assert count == 2, f"expected 2 cards after two browse extracts, got {count}"
+    source0 = page.evaluate("detections[0].source")
+    source1 = page.evaluate("detections[1].source")
+    assert source0 == "manual", f"first detection source wrong: {source0}"
+    assert source1 == "manual", f"second detection source wrong: {source1}"
