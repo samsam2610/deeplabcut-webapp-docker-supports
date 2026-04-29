@@ -816,7 +816,9 @@ function _epRenderPostfixTags() {
       e.dataTransfer.dropEffect = "link";
       pill.classList.add("drop-hover");
     });
-    pill.addEventListener("dragleave", () => pill.classList.remove("drop-hover"));
+    pill.addEventListener("dragleave", e => {
+      if (!pill.contains(e.relatedTarget)) pill.classList.remove("drop-hover");
+    });
     pill.addEventListener("drop", e => {
       e.preventDefault();
       pill.classList.remove("drop-hover");
@@ -1718,8 +1720,8 @@ document.addEventListener("DOMContentLoaded", () => {
   // ── Postfix tags ──────────────────────────────────────────────────────────
 
   _epLoadPostfixTags();
-  _epRenderPostfixTags();
   _epLoadNoteMappings();
+  _epRenderPostfixTags();
 
   document.getElementById("ep-add-tag-btn").addEventListener("click", () => {
     const input = document.getElementById("ep-new-tag-input");
