@@ -557,20 +557,30 @@ document.addEventListener("DOMContentLoaded", () => {
   // Sidebar collapse toggle
   const sidebarToggle = document.getElementById("sidebar-toggle");
   const sidebarEl = document.querySelector(".sidebar");
+  const sidebarExpandTab = document.getElementById("sidebar-tab");
   if (sidebarToggle && sidebarEl) {
     sidebarToggle.addEventListener("click", () => {
-      const collapsed = sidebarEl.classList.toggle("collapsed");
-      sidebarToggle.textContent = collapsed ? "▶" : "▼";
+      sidebarEl.classList.toggle("collapsed");
+    });
+  }
+  if (sidebarExpandTab && sidebarEl) {
+    sidebarExpandTab.addEventListener("click", () => {
+      sidebarEl.classList.remove("collapsed");
     });
   }
 
-  // Browser section collapse toggle
+  // Browser panel collapse toggle
   const browserToggle = document.getElementById("browser-toggle");
-  const browserSection = document.getElementById("browser-section");
-  if (browserToggle && browserSection) {
+  const browserPanel = document.getElementById("browser-panel");
+  const browserExpandTab = document.getElementById("browser-tab");
+  if (browserToggle && browserPanel) {
     browserToggle.addEventListener("click", () => {
-      const collapsed = browserSection.classList.toggle("collapsed");
-      browserToggle.textContent = collapsed ? "▶" : "▼";
+      browserPanel.classList.toggle("collapsed");
+    });
+  }
+  if (browserExpandTab && browserPanel) {
+    browserExpandTab.addEventListener("click", () => {
+      browserPanel.classList.remove("collapsed");
     });
   }
 
@@ -1275,49 +1285,46 @@ function buildResultCard(d, idx) {
   card.id = `card-${idx}`;
   card.dataset.source = d.source || "";
 
-  // Build inner structure with safe static skeleton
+  // Build compact two-line card
   card.innerHTML = `
+    <div class="result-accent-bar"></div>
     <div class="result-meta">
       <div class="result-name" id="card-clipname-${idx}"></div>
-      <div class="result-info">
-        Key frame <span class="kf-num"></span> &middot;
+      <div class="result-row">
+        <span style="font-size:9px;color:#768390;white-space:nowrap;">kf <span class="kf-num"></span></span>
+        <span class="sim-pill"></span>
         <span class="match-pill ${isKnown ? "match-known" : "match-new"}"></span>
+        <div style="flex:1;min-width:0;"></div>
+        <button class="btn-sm btn-green keep-btn" style="padding:1px 5px;font-size:9px;">&#10003;</button>
+        <button class="btn-sm btn-red reject-btn" style="padding:1px 5px;font-size:9px;">&#10007;</button>
+        <button class="btn-sm btn-blue add-btn" style="padding:1px 5px;font-size:9px;">+Tpl</button>
       </div>
-      <div class="result-actions">
-        <button class="btn-sm btn-green keep-btn">&#10003; Keep</button>
-        <button class="btn-sm btn-red reject-btn">&#10007; Reject</button>
-        <button class="btn-sm btn-blue add-btn">+ Add to template</button>
-      </div>
-    </div>
-    <span class="sim-pill"></span>`;
+    </div>`;
 
-  // Populate text content safely
+  // Populate text safely
   const postfixSuffix = d.extract_postfix ? `_${d.extract_postfix}` : "";
   card.querySelector(".result-name").textContent = clipName + postfixSuffix + ".avi";
   card.querySelector(".kf-num").textContent = d.frame_number.toLocaleString();
   card.querySelector(".match-pill").textContent = isKnown
-    ? "✓ matches " + d.known_match
-    : "new detection";
+    ? "✓ " + d.known_match
+    : "new";
   card.querySelector(".sim-pill").textContent = d.similarity.toFixed(2);
 
-  // Source badge
+  // Source badge — insert before the spacer in result-row
   if (d.source && d.source !== "pending") {
     const badge = document.createElement("span");
     badge.className = "source-badge";
     if (d.source === "sensor+clip") {
-      badge.classList.add("source-sensor-clip");
-      badge.textContent = "✓ sensor+CLIP";
+      badge.classList.add("source-sensor-clip"); badge.textContent = "s+c";
     } else if (d.source === "sensor_only") {
-      badge.classList.add("source-sensor-only");
-      badge.textContent = "sensor only";
+      badge.classList.add("source-sensor-only"); badge.textContent = "sen";
     } else if (d.source === "clip_only") {
-      badge.classList.add("source-clip-only");
-      badge.textContent = "CLIP only";
+      badge.classList.add("source-clip-only"); badge.textContent = "clip";
     } else if (d.source === "global_library") {
-      badge.classList.add("source-global-library");
-      badge.textContent = "global library";
+      badge.classList.add("source-global-library"); badge.textContent = "lib";
     }
-    card.querySelector(".result-meta").appendChild(badge);
+    const spacer = card.querySelector(".result-row div");
+    card.querySelector(".result-row").insertBefore(badge, spacer);
   }
 
   // Attach event listeners (no onclick attributes with embedded data)
@@ -1406,6 +1413,7 @@ function setStatus(msg) {
   function onMove(e) {
     const w = Math.max(120, Math.min(400, startW + (e.clientX - startX)));
     sidebar.style.width = w + "px";
+    sidebar.style.maxWidth = w + "px";
   }
 
   function onUp() {

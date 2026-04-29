@@ -1185,64 +1185,59 @@ def _setup_player_with_csv(page: Page) -> None:
     )
 
 
-def test_chip_click_auto_creates_sub_row(page: Page):
-    """Clicking a status chip with no sub-rows auto-creates a sub-row and assigns the chip."""
+def test_chip_click_with_main_radio_updates_main_canvas(page: Page):
+    """Clicking a chip when main radio is selected toggles the main canvas; no sub-row is created."""
     _setup_player_with_csv(page)
 
-    # No sub-rows yet
+    # Main radio is checked by default, no sub-rows
     expect(page.locator("#ep-status-sub-rows .ep-sub-row")).to_have_count(0)
 
-    # Click the 'success' chip
     page.locator("#ep-status-chips .ep-tag-chip", has_text="success").click()
 
-    # Sub-row should be auto-created
-    expect(page.locator("#ep-status-sub-rows .ep-sub-row")).to_have_count(1)
+    # No sub-row created
+    expect(page.locator("#ep-status-sub-rows .ep-sub-row")).to_have_count(0)
 
-    # Chip should be assigned to the sub-row
-    chip_val = page.evaluate(
-        "document.querySelector('#ep-status-sub-rows .ep-sub-row').dataset.chipVal"
-    )
-    assert chip_val == "success", f"Expected chipVal='success', got '{chip_val}'"
+    # Main active set contains 'success'
+    has_chip = page.evaluate("_epActiveStatus.has('success')")
+    assert has_chip, "Expected _epActiveStatus to contain 'success'"
 
-    # Chip should have 'active' class
     expect(page.locator("#ep-status-chips .ep-tag-chip", has_text="success")).to_have_class(
         re.compile(r"\bactive\b")
     )
 
 
-def test_chip_toggle_clears_sub_row(page: Page):
-    """Clicking the same chip twice toggles it off (clears the sub-row's assignment)."""
+def test_chip_toggle_off_main_canvas(page: Page):
+    """Clicking the same chip twice on main canvas toggles it off."""
     _setup_player_with_csv(page)
 
     chip = page.locator("#ep-status-chips .ep-tag-chip", has_text="success")
-    chip.click()  # assign
-    expect(page.locator("#ep-status-sub-rows .ep-sub-row")).to_have_count(1)
+    chip.click()  # toggle on
+    has_on = page.evaluate("_epActiveStatus.has('success')")
+    assert has_on, "Expected 'success' in _epActiveStatus after first click"
     expect(chip).to_have_class(re.compile(r"\bactive\b"))
 
     chip.click()  # toggle off
-    chip_val = page.evaluate(
-        "document.querySelector('#ep-status-sub-rows .ep-sub-row').dataset.chipVal"
-    )
-    assert chip_val == "", f"Expected chipVal='' after toggle-off, got '{chip_val}'"
+    has_off = page.evaluate("_epActiveStatus.has('success')")
+    assert not has_off, "Expected 'success' removed from _epActiveStatus after second click"
     expect(chip).not_to_have_class(re.compile(r"\bactive\b"))
 
 
-def test_chip_switch_replaces_sub_row_assignment(page: Page):
-    """Clicking a different chip replaces the sub-row assignment."""
+def test_chip_multiple_chips_accumulate_on_main_canvas(page: Page):
+    """Clicking multiple chips with main radio selected adds them all to _epActiveStatus."""
     _setup_player_with_csv(page)
 
     page.locator("#ep-status-chips .ep-tag-chip", has_text="success").click()
     page.locator("#ep-status-chips .ep-tag-chip", has_text="fail").click()
 
-    chip_val = page.evaluate(
-        "document.querySelector('#ep-status-sub-rows .ep-sub-row').dataset.chipVal"
-    )
-    assert chip_val == "fail", f"Expected chipVal='fail' after switch, got '{chip_val}'"
+    has_success = page.evaluate("_epActiveStatus.has('success')")
+    has_fail = page.evaluate("_epActiveStatus.has('fail')")
+    assert has_success, "Expected _epActiveStatus to contain 'success'"
+    assert has_fail, "Expected _epActiveStatus to contain 'fail'"
 
-    expect(page.locator("#ep-status-chips .ep-tag-chip", has_text="fail")).to_have_class(
+    expect(page.locator("#ep-status-chips .ep-tag-chip", has_text="success")).to_have_class(
         re.compile(r"\bactive\b")
     )
-    expect(page.locator("#ep-status-chips .ep-tag-chip", has_text="success")).not_to_have_class(
+    expect(page.locator("#ep-status-chips .ep-tag-chip", has_text="fail")).to_have_class(
         re.compile(r"\bactive\b")
     )
 
@@ -1259,10 +1254,10 @@ def test_manual_plus_then_chip_assigns_to_that_row(page: Page):
     page.locator("#ep-status-chips .ep-tag-chip", has_text="success").click()
     expect(page.locator("#ep-status-sub-rows .ep-sub-row")).to_have_count(1)
 
-    chip_val = page.evaluate(
-        "document.querySelector('#ep-status-sub-rows .ep-sub-row').dataset.chipVal"
+    has_chip = page.evaluate(
+        "document.querySelector('#ep-status-sub-rows .ep-sub-row')._activeChips.has('success')"
     )
-    assert chip_val == "success", f"Expected chipVal='success', got '{chip_val}'"
+    assert has_chip, "Expected _activeChips to contain 'success'"
 
 
 def test_two_sub_rows_independent_chip_assignment(page: Page):
@@ -1280,28 +1275,28 @@ def test_two_sub_rows_independent_chip_assignment(page: Page):
     rows = page.locator("#ep-status-sub-rows .ep-sub-row")
     expect(rows).to_have_count(2)
 
-    val0 = page.evaluate(
-        "document.querySelectorAll('#ep-status-sub-rows .ep-sub-row')[0].dataset.chipVal"
+    has0 = page.evaluate(
+        "document.querySelectorAll('#ep-status-sub-rows .ep-sub-row')[0]._activeChips.has('success')"
     )
-    val1 = page.evaluate(
-        "document.querySelectorAll('#ep-status-sub-rows .ep-sub-row')[1].dataset.chipVal"
+    has1 = page.evaluate(
+        "document.querySelectorAll('#ep-status-sub-rows .ep-sub-row')[1]._activeChips.has('fail')"
     )
-    assert val0 == "success", f"Row 0 expected 'success', got '{val0}'"
-    assert val1 == "fail", f"Row 1 expected 'fail', got '{val1}'"
+    assert has0, "Row 0 expected _activeChips to contain 'success'"
+    assert has1, "Row 1 expected _activeChips to contain 'fail'"
 
 
-def test_note_chip_click_auto_creates_sub_row(page: Page):
-    """Note chips also auto-create a sub-row on first click."""
+def test_note_chip_click_with_main_radio_updates_main_canvas(page: Page):
+    """Note chips with main radio checked update _epActiveNote, not a sub-row."""
     _setup_player_with_csv(page)
 
     expect(page.locator("#ep-note-sub-rows .ep-sub-row")).to_have_count(0)
     page.locator("#ep-note-chips .ep-tag-chip", has_text="added").click()
-    expect(page.locator("#ep-note-sub-rows .ep-sub-row")).to_have_count(1)
 
-    chip_val = page.evaluate(
-        "document.querySelector('#ep-note-sub-rows .ep-sub-row').dataset.chipVal"
-    )
-    assert chip_val == "added", f"Expected chipVal='added', got '{chip_val}'"
+    # No sub-row created
+    expect(page.locator("#ep-note-sub-rows .ep-sub-row")).to_have_count(0)
+
+    has_chip = page.evaluate("_epActiveNote.has('added')")
+    assert has_chip, "Expected _epActiveNote to contain 'added'"
 
 
 def test_status_main_radio_exists_and_is_checked(page: Page):
@@ -1344,3 +1339,97 @@ def test_sub_row_has_active_chips_set(page: Page):
         return row && row._activeChips instanceof Set ? row._activeChips.size : -1;
     }""")
     assert result == 0, f"Expected _activeChips Set with size 0, got {result}"
+
+
+def test_remove_sub_row_falls_back_to_main_radio(page: Page):
+    """Removing the selected sub-row re-checks the main radio and updates chip highlights."""
+    _setup_player_with_csv(page)
+
+    # Create a sub-row (radio auto-selects it)
+    page.locator("#ep-status-add-sub").click()
+    assert page.evaluate("document.getElementById('ep-status-main-radio').checked") is False
+
+    # Remove the sub-row
+    page.locator("#ep-status-sub-rows .ep-sub-remove").click()
+    expect(page.locator("#ep-status-sub-rows .ep-sub-row")).to_have_count(0)
+
+    # Main radio should be re-checked
+    assert page.evaluate("document.getElementById('ep-status-main-radio').checked") is True
+
+
+def test_note_timelines_horizontally_aligned(page: Page):
+    """Main note canvas and sub-row canvas must have identical left/right pixel boundaries."""
+    _setup_player_with_csv(page)
+
+    page.locator("#ep-note-add-sub").click()
+    expect(page.locator("#ep-note-sub-rows .ep-sub-row")).to_have_count(1)
+
+    rects = page.evaluate("""() => {
+        const main = document.getElementById('ep-note-canvas').getBoundingClientRect();
+        const sub  = document.querySelector('#ep-note-sub-rows .ep-sub-row canvas').getBoundingClientRect();
+        return {
+            mainLeft: Math.round(main.left),
+            mainRight: Math.round(main.right),
+            subLeft: Math.round(sub.left),
+            subRight: Math.round(sub.right),
+        };
+    }""")
+
+    assert rects["mainLeft"] == rects["subLeft"], (
+        f"Left edges differ: main={rects['mainLeft']} sub={rects['subLeft']}"
+    )
+    assert rects["mainRight"] == rects["subRight"], (
+        f"Right edges differ: main={rects['mainRight']} sub={rects['subRight']}"
+    )
+
+
+def test_accent_bar_visible_on_kept_active_card(page: Page):
+    """Accent bar stays visible (non-transparent bg) when a card is both kept and active-preview."""
+    _setup_player_with_csv(page)
+
+    # Inject two fake detection cards into the results list
+    page.evaluate("""() => {
+        const list = document.getElementById('results-list');
+        list.innerHTML = '';
+        for (let i = 0; i < 2; i++) {
+            const card = document.createElement('div');
+            card.className = 'result-card';
+            card.id = 'card-' + i;
+            const bar = document.createElement('div');
+            bar.className = 'result-accent-bar';
+            const meta = document.createElement('div');
+            meta.className = 'result-meta';
+            const name = document.createElement('div');
+            name.className = 'result-name';
+            name.textContent = 'VID_' + i + '.avi';
+            meta.appendChild(name);
+            card.appendChild(bar);
+            card.appendChild(meta);
+            list.appendChild(card);
+        }
+    }""")
+
+    # Mark card 0 as active-preview and kept
+    page.evaluate("""() => {
+        const card = document.getElementById('card-0');
+        card.classList.add('active-preview', 'kept');
+    }""")
+
+    # The accent bar background should be #388bfd (not transparent / empty)
+    bar_bg = page.evaluate("""() => {
+        const bar = document.querySelector('#card-0 .result-accent-bar');
+        return window.getComputedStyle(bar).backgroundColor;
+    }""")
+    # rgb(56, 139, 253) is #388bfd
+    assert bar_bg == "rgb(56, 139, 253)", (
+        f"Expected accent bar to be blue (#388bfd / rgb(56,139,253)), got: {bar_bg}"
+    )
+
+    # Card 1 (not active) should have transparent bar
+    bar1_bg = page.evaluate("""() => {
+        const bar = document.querySelector('#card-1 .result-accent-bar');
+        return window.getComputedStyle(bar).backgroundColor;
+    }""")
+    assert bar1_bg in ("rgba(0, 0, 0, 0)", "transparent"), (
+        f"Expected inactive bar to be transparent, got: {bar1_bg}"
+    )
