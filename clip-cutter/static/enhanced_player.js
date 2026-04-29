@@ -927,12 +927,22 @@ function _epApplyRescanKF(idx, newFrame1Based) {
 }
 
 async function _epStartRescan(detectionIdx) {
+  // Tear down any in-flight rescan before starting a new one
+  if (_rescanEs) { _rescanEs.close(); _rescanEs = null; }
+  if (_rescanJobId) {
+    const oldJid = _rescanJobId;
+    _rescanJobId = null;
+    fetch(`/clip-cutter/rescan-forward/${oldJid}/cancel`, { method: "POST" }).catch(() => {});
+  }
+
+  const videoPath = _videoPath;
+
   if (!document.getElementById("ep-propagate-kf")?.checked) return;
 
   const candidates = [];
   for (let i = detectionIdx + 3; i < detections.length; i++) {
     const d = detections[i];
-    if (!d || d.video_path !== _videoPath) continue;
+    if (!d || d.video_path !== videoPath) continue;
     if (d.status === "kept" || d.status === "rejected") continue;
     candidates.push({ idx: i, frame_number: d.frame_number });
   }
@@ -947,7 +957,7 @@ async function _epStartRescan(detectionIdx) {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        video_path: _videoPath,
+        video_path: videoPath,
         candidates,
         params: { fine_window: fineWindow },
       }),
@@ -979,7 +989,8 @@ async function _epStartRescan(detectionIdx) {
   }
 
   es.onmessage = (e) => {
-    const msg = JSON.parse(e.data);
+    let msg;
+    try { msg = JSON.parse(e.data); } catch { es.close(); _finishRescan(); return; }
     if (msg.phase) {
       es.close();
       _finishRescan();
