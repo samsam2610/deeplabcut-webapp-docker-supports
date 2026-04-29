@@ -1594,7 +1594,8 @@ document.addEventListener("keydown", e => {
   const active = document.querySelector(".result-card.active-preview");
   if (!active) return;
 
-  const cards = Array.from(document.querySelectorAll("#results-list .result-card"));
+  const cards = Array.from(document.querySelectorAll("#results-list .result-card"))
+    .filter(c => c.style.display !== "none");
   const cur = cards.indexOf(active);
   if (cur === -1) return;
 

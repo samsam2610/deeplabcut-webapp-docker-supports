@@ -1810,3 +1810,37 @@ def test_sim_reset_clears_filter(page: Page):
     expect(page.locator("#sim-value")).to_have_value("0")
     expect(page.locator(".result-card").nth(1)).to_be_visible()
     expect(page.locator("#sim-reset")).to_be_hidden()
+
+
+def test_tab_skips_hidden_cards(page: Page):
+    """Tab from the active card skips cards hidden by the similarity filter.
+
+    Setup: 2 cards, threshold=0.80 → card[1] (sim=0.74) is hidden.
+    Make card[0] active-preview, dispatch Tab → should NOT activate card[1].
+    """
+    setup_routes_with_persistence(page, template_frames=_MOCK_FRAMES)
+    page.goto(f"{BASE_URL}/clip-cutter/")
+    page.locator(".browser-row:has(.badge-pending)").first.click()
+    page.locator("#scan-btn").click()
+    expect(page.locator(".result-card")).to_have_count(2, timeout=8_000)
+
+    # Open player so Tab handler is active
+    page.locator(".result-card").first.locator(".result-name").click()
+    expect(page.locator("#player-panel")).to_be_visible(timeout=5_000)
+
+    # Set threshold to 0.80 via the field — card[1] (sim=0.74) becomes hidden
+    page.click(".filter-btn[data-filter='all']")
+    page.fill("#sim-value", "0.80")
+    page.dispatch_event("#sim-value", "input")
+
+    # card[0] is active-preview (it was clicked to open player)
+    expect(page.locator(".result-card").nth(0)).to_have_class(re.compile(r"active-preview"))
+    expect(page.locator(".result-card").nth(1)).to_be_hidden()
+
+    # Press Tab — with the fix, no visible next card, so active-preview stays on card[0]
+    page.locator("body").press("Tab")
+    page.wait_for_timeout(200)
+
+    # card[0] should still be active (no next visible card to jump to)
+    expect(page.locator(".result-card").nth(0)).to_have_class(re.compile(r"active-preview"))
+    expect(page.locator(".result-card").nth(1)).not_to_have_class(re.compile(r"active-preview"))
