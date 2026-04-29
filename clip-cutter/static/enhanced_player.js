@@ -744,7 +744,7 @@ function _epRenderNotePalette() {
     chip.dataset.noteVal = val;
     chip.addEventListener("dragstart", e => {
       e.dataTransfer.setData("text/plain", val);
-      e.dataTransfer.effectAllowed = "link";
+      e.dataTransfer.effectAllowed = "all";
     });
     palette.appendChild(chip);
   });
@@ -871,9 +871,9 @@ function _epRenderPostfixTags() {
     }
 
     // Drop zone
+    pill.addEventListener("dragenter", e => { e.preventDefault(); });
     pill.addEventListener("dragover", e => {
       e.preventDefault();
-      e.dataTransfer.dropEffect = "link";
       pill.classList.add("drop-hover");
     });
     pill.addEventListener("dragleave", e => {
