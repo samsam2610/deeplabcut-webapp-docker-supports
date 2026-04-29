@@ -1241,11 +1241,8 @@ def get_video_info():
 # ── Rescan-forward ────────────────────────────────────────────────────────────
 
 def _run_rescan_forward(job_id: str, video_path: str, candidates: list,
-                        fine_window: int, template_state: dict) -> None:
-    cancel_ev = threading.Event()
-    with _rescan_jobs_lock:
-        _rescan_jobs[job_id]["cancel_event"] = cancel_ev
-
+                        fine_window: int, template_state: dict,
+                        cancel_ev: threading.Event) -> None:
     try:
         results = processor.rescan_forward_candidates(
             video_path=video_path,
@@ -1286,18 +1283,19 @@ def start_rescan_forward():
         }
 
     job_id = str(uuid.uuid4())
+    cancel_ev = threading.Event()
     with _rescan_jobs_lock:
         _rescan_jobs[job_id] = {
             "phase": "running",
             "results": [],
             "total": len(candidates),
             "error": None,
-            "cancel_event": None,
+            "cancel_event": cancel_ev,
         }
 
     threading.Thread(
         target=_run_rescan_forward,
-        args=(job_id, video_path, candidates, fine_window, template_state),
+        args=(job_id, video_path, candidates, fine_window, template_state, cancel_ev),
         daemon=True,
     ).start()
 
@@ -1318,11 +1316,12 @@ def rescan_forward_stream():
                 job = _rescan_jobs[job_id]
                 new_results = job["results"][sent:]
                 phase = job["phase"]
+                error = job.get("error")
             for r in new_results:
                 yield f"data: {json.dumps(r)}\n\n"
                 sent += 1
             if phase in ("done", "error", "cancelled"):
-                yield f"data: {json.dumps({'phase': phase, 'error': job.get('error')})}\n\n"
+                yield f"data: {json.dumps({'phase': phase, 'error': error})}\n\n"
                 break
             time.sleep(0.3)
 
