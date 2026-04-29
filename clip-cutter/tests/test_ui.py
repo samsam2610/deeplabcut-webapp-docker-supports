@@ -1451,3 +1451,55 @@ def test_accent_bar_visible_on_kept_active_card(page: Page):
     assert float(bar_own_opacity) == 1.0, (
         f"Bar's own opacity should be 1.0 (CSS class controls color, not opacity), got: {bar_own_opacity}"
     )
+
+
+# ── Task 2: results-list padding-bottom syncs to player panel height ──────────
+
+def test_results_list_padding_syncs_on_open(page: Page):
+    """After openPlayer shows the panel, _epSyncResultsPadding sets paddingBottom > 0px."""
+    _setup_player_with_csv(page)
+
+    # Simulate what openPlayer does: panel is visible, call _epSyncResultsPadding
+    padding = page.evaluate("""() => {
+        _epSyncResultsPadding();
+        return document.getElementById('results-list').style.paddingBottom;
+    }""")
+    # paddingBottom should be a positive px value set by _epSyncResultsPadding
+    assert padding and padding != "0px" and padding != "", (
+        f"Expected results-list paddingBottom > 0px after openPlayer, got: {repr(padding)}"
+    )
+
+
+def test_results_list_padding_zero_on_close(page: Page):
+    """After closing the player panel, #results-list paddingBottom should be 0px."""
+    _setup_player_with_csv(page)
+
+    # Close the player via the collapse button
+    page.click("#ep-collapse")
+
+    padding = page.evaluate("""() => {
+        return document.getElementById('results-list').style.paddingBottom;
+    }""")
+    assert padding == "0px", (
+        f"Expected results-list paddingBottom to be 0px after close, got: {repr(padding)}"
+    )
+
+
+def test_results_list_padding_syncs_on_drag_resize(page: Page):
+    """After a drag resize, #results-list paddingBottom should match the new panel height."""
+    _setup_player_with_csv(page)
+
+    # Directly set the panel to a known height and call _epSyncResultsPadding
+    result = page.evaluate("""() => {
+        const panel = document.getElementById('player-panel');
+        panel.style.height = '350px';
+        _epSyncResultsPadding();
+        return {
+            panelHeight: panel.offsetHeight,
+            padding: document.getElementById('results-list').style.paddingBottom,
+        };
+    }""")
+    expected = f"{result['panelHeight']}px"
+    assert result["padding"] == expected, (
+        f"Expected results-list paddingBottom={expected} after drag resize, got: {repr(result['padding'])}"
+    )
