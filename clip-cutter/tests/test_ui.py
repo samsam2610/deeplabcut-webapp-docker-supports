@@ -1938,6 +1938,11 @@ def test_propagate_row_has_add_kf_checkbox_and_propagate_btn(page: Page):
     expect(btn).to_have_count(1)
     expect(btn).to_be_disabled()
 
+    btn_in_row = page.evaluate(
+        "document.querySelector('#ep-propagate-row #ep-propagate-btn') !== null"
+    )
+    assert btn_in_row, "ep-propagate-btn must be inside #ep-propagate-row"
+
 
 def test_browse_btn_exists_in_detections_header(page: Page):
     """#detections-browse-btn must exist inside .results-pane-header."""
