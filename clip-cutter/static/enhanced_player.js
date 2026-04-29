@@ -759,6 +759,8 @@ function _epAutoPopulatePostfixes() {
   if (!Object.keys(mappings).length) return;
   if (typeof detections === "undefined") return;
 
+  let changed = false;
+
   detections.forEach((d, i) => {
     if (!d || !d.frame_number) return;
     if (d.status === "kept" || d.status === "rejected") return;
@@ -777,17 +779,19 @@ function _epAutoPopulatePostfixes() {
 
     if (mappedNotes.length === 1) {
       const postfix = mappings[mappedNotes[0]];
-      d.extract_postfix = postfix;
-
-      const nameEl = document.getElementById("card-clipname-" + i);
-      if (nameEl) {
-        const videoName = d.video_path.split("/").pop().replace(/\.avi$/i, "");
-        nameEl.textContent =
-          videoName + "_" + (d.frame_number - 200) + "_" + (d.frame_number + 599) + "_" + postfix + ".avi";
-      }
-      if (_detectionIdx === i) {
-        const pfEl = document.getElementById("ep-postfix");
-        if (pfEl) pfEl.value = postfix;
+      if (!d.extract_postfix) {
+        d.extract_postfix = postfix;
+        const nameEl = document.getElementById("card-clipname-" + i);
+        if (nameEl) {
+          const videoName = d.video_path.split("/").pop().replace(/\.avi$/i, "");
+          nameEl.textContent =
+            videoName + "_" + (d.frame_number - 200) + "_" + (d.frame_number + 599) + "_" + postfix + ".avi";
+        }
+        if (_detectionIdx === i) {
+          const pfEl = document.getElementById("ep-postfix");
+          if (pfEl) pfEl.value = postfix;
+        }
+        changed = true;
       }
       if (card) card.classList.remove("has-conflict");
       if (conflictBadge) conflictBadge.style.display = "none";
@@ -805,7 +809,7 @@ function _epAutoPopulatePostfixes() {
     }
   });
 
-  if (typeof saveDetections === "function") saveDetections();
+  if (changed && typeof saveDetections === "function") saveDetections();
 }
 
 function _epRenderPostfixTags() {
