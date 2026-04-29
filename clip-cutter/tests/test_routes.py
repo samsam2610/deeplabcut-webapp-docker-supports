@@ -779,3 +779,54 @@ def test_select_video_no_sibling_returns_null(client, tmp_path):
     resp = client.post("/clip-cutter/select-video", json={"video_path": str(cam0)})
     assert resp.status_code == 200
     assert resp.get_json()["sibling_video_path"] is None
+
+
+# ── Rescan-forward routes ─────────────────────────────────────────────────────
+
+def test_rescan_forward_missing_params(client):
+    """Returns 400 when video_path or candidates is missing."""
+    resp = client.post("/clip-cutter/rescan-forward",
+                       json={"video_path": "/some/video.avi"})
+    assert resp.status_code == 400
+
+    resp2 = client.post("/clip-cutter/rescan-forward",
+                        json={"candidates": [{"idx": 0, "frame_number": 10}]})
+    assert resp2.status_code == 400
+
+
+def test_rescan_forward_returns_job_id(client, monkeypatch, tiny_video):
+    """POST returns a job_id string."""
+    import routes
+    monkeypatch.setattr(routes, "_state", {
+        "frames": [],
+        "mean_embedding": None,
+        "dino_mean_embedding": [1.0] * 1024,
+        "video_stem": "test",
+        "video_parent": str(tiny_video.parent),
+        "sibling_video_path": None,
+    })
+    # Patch processor so the worker doesn't actually run DINOv2
+    import processor
+    monkeypatch.setattr(processor, "rescan_forward_candidates", lambda **kw: [])
+
+    resp = client.post("/clip-cutter/rescan-forward", json={
+        "video_path": str(tiny_video),
+        "candidates": [{"idx": 3, "frame_number": 20}],
+        "params": {"fine_window": 5},
+    })
+    assert resp.status_code == 200
+    data = resp.get_json()
+    assert "job_id" in data
+    assert isinstance(data["job_id"], str)
+
+
+def test_rescan_forward_stream_unknown_job(client):
+    """Stream endpoint returns 404 for unknown job_id."""
+    resp = client.get("/clip-cutter/rescan-forward/stream?job_id=nonexistent")
+    assert resp.status_code == 404
+
+
+def test_rescan_forward_cancel_unknown_job(client):
+    """Cancel endpoint returns 404 for unknown job_id."""
+    resp = client.post("/clip-cutter/rescan-forward/nonexistent/cancel")
+    assert resp.status_code == 404

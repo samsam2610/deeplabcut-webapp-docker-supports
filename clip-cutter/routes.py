@@ -24,6 +24,9 @@ bp = Blueprint(
 _scan_jobs: dict[str, dict] = {}
 _jobs_lock = threading.Lock()
 
+_rescan_jobs: dict[str, dict] = {}
+_rescan_jobs_lock = threading.Lock()
+
 
 class _Cancelled(Exception):
     pass
@@ -1233,3 +1236,110 @@ def get_video_info():
     except FileNotFoundError as e:
         return jsonify({"error": str(e)}), 404
     return jsonify(info)
+
+
+# ── Rescan-forward ────────────────────────────────────────────────────────────
+
+def _run_rescan_forward(job_id: str, video_path: str, candidates: list,
+                        fine_window: int, template_state: dict) -> None:
+    cancel_ev = threading.Event()
+    with _rescan_jobs_lock:
+        _rescan_jobs[job_id]["cancel_event"] = cancel_ev
+
+    try:
+        results = processor.rescan_forward_candidates(
+            video_path=video_path,
+            candidates=candidates,
+            fine_window=fine_window,
+            template_state=template_state,
+            cancel_event=cancel_ev,
+        )
+        with _rescan_jobs_lock:
+            if cancel_ev.is_set():
+                _rescan_jobs[job_id]["phase"] = "cancelled"
+            else:
+                _rescan_jobs[job_id]["results"].extend(results)
+                _rescan_jobs[job_id]["phase"] = "done"
+    except Exception as exc:
+        logging.exception("rescan_forward error")
+        with _rescan_jobs_lock:
+            _rescan_jobs[job_id]["phase"] = "error"
+            _rescan_jobs[job_id]["error"] = str(exc)
+
+
+@bp.route("/rescan-forward", methods=["POST"])
+def start_rescan_forward():
+    body = request.get_json(force=True) or {}
+    video_path = body.get("video_path")
+    candidates = body.get("candidates", [])
+    if not video_path or not candidates:
+        return jsonify({"error": "video_path and candidates required"}), 400
+
+    params = body.get("params", {})
+    fine_window = int(params.get("fine_window", config.FINE_SCAN_WINDOW))
+
+    with _state_lock:
+        template_state = {
+            "frames": list(_state["frames"]),
+            "mean_embedding": _state.get("mean_embedding"),
+            "dino_mean_embedding": _state.get("dino_mean_embedding"),
+        }
+
+    job_id = str(uuid.uuid4())
+    with _rescan_jobs_lock:
+        _rescan_jobs[job_id] = {
+            "phase": "running",
+            "results": [],
+            "total": len(candidates),
+            "error": None,
+            "cancel_event": None,
+        }
+
+    threading.Thread(
+        target=_run_rescan_forward,
+        args=(job_id, video_path, candidates, fine_window, template_state),
+        daemon=True,
+    ).start()
+
+    return jsonify({"job_id": job_id})
+
+
+@bp.route("/rescan-forward/stream")
+def rescan_forward_stream():
+    job_id = request.args.get("job_id")
+    with _rescan_jobs_lock:
+        if not job_id or job_id not in _rescan_jobs:
+            return jsonify({"error": "unknown job_id"}), 404
+
+    def generate():
+        sent = 0
+        while True:
+            with _rescan_jobs_lock:
+                job = _rescan_jobs[job_id]
+                new_results = job["results"][sent:]
+                phase = job["phase"]
+            for r in new_results:
+                yield f"data: {json.dumps(r)}\n\n"
+                sent += 1
+            if phase in ("done", "error", "cancelled"):
+                yield f"data: {json.dumps({'phase': phase, 'error': job.get('error')})}\n\n"
+                break
+            time.sleep(0.3)
+
+    return Response(
+        stream_with_context(generate()),
+        mimetype="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
+@bp.route("/rescan-forward/<job_id>/cancel", methods=["POST"])
+def cancel_rescan_forward(job_id: str):
+    with _rescan_jobs_lock:
+        if job_id not in _rescan_jobs:
+            return jsonify({"error": "unknown job_id"}), 404
+        ev = _rescan_jobs[job_id].get("cancel_event")
+        _rescan_jobs[job_id]["phase"] = "cancelled"
+    if ev:
+        ev.set()
+    return jsonify({"ok": True})
