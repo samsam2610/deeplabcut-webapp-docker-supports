@@ -135,6 +135,7 @@ async function openPlayer({ mode, videoPath, keyFrame1Based = null, detectionIdx
       console.warn("[enhanced_player] CSV load failed:", e);
     }
   }
+  _epAutoPopulatePostfixes();
 
   // Fetch sibling camera path (computed server-side at select-video time)
   _syncCamEnabled = false;
@@ -750,6 +751,61 @@ function _epRenderNotePalette() {
 
   // Re-render quicktag pills with drop-zone and badge behaviour
   _epRenderPostfixTags();
+}
+
+function _epAutoPopulatePostfixes() {
+  if (!_csvRows.length) return;
+  const mappings = _epNoteMappings;
+  if (!Object.keys(mappings).length) return;
+  if (typeof detections === "undefined") return;
+
+  detections.forEach((d, i) => {
+    if (!d || !d.frame_number) return;
+    if (d.status === "kept" || d.status === "rejected") return;
+
+    const lo = d.frame_number - 200;
+    const hi = d.frame_number + 599;
+    const notesInWindow = new Set(
+      _csvRows
+        .filter(r => Number(r.frame_number) >= lo && Number(r.frame_number) <= hi && r.note)
+        .map(r => r.note)
+    );
+    const mappedNotes = [...notesInWindow].filter(n => mappings[n]);
+
+    const card = document.getElementById("card-" + i);
+    const conflictBadge = card ? card.querySelector(".ep-conflict-badge") : null;
+
+    if (mappedNotes.length === 1) {
+      const postfix = mappings[mappedNotes[0]];
+      d.extract_postfix = postfix;
+
+      const nameEl = document.getElementById("card-clipname-" + i);
+      if (nameEl) {
+        const videoName = d.video_path.split("/").pop().replace(/\.avi$/i, "");
+        nameEl.textContent =
+          videoName + "_" + (d.frame_number - 200) + "_" + (d.frame_number + 599) + "_" + postfix + ".avi";
+      }
+      if (_detectionIdx === i) {
+        const pfEl = document.getElementById("ep-postfix");
+        if (pfEl) pfEl.value = postfix;
+      }
+      if (card) card.classList.remove("has-conflict");
+      if (conflictBadge) conflictBadge.style.display = "none";
+
+    } else if (mappedNotes.length > 1) {
+      if (card) card.classList.add("has-conflict");
+      if (conflictBadge) {
+        conflictBadge.textContent = "⚠ " + mappedNotes.join(" + ");
+        conflictBadge.style.display = "";
+      }
+
+    } else {
+      if (card) card.classList.remove("has-conflict");
+      if (conflictBadge) conflictBadge.style.display = "none";
+    }
+  });
+
+  if (typeof saveDetections === "function") saveDetections();
 }
 
 function _epRenderPostfixTags() {

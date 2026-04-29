@@ -1272,6 +1272,7 @@ function renderDetections(dets) {
     list.appendChild(card);
   });
   applyFilter();
+  if (typeof _epAutoPopulatePostfixes === "function") _epAutoPopulatePostfixes();
 }
 
 function buildResultCard(d, idx) {
@@ -1295,6 +1296,7 @@ function buildResultCard(d, idx) {
         <span class="sim-pill"></span>
         <span class="match-pill ${isKnown ? "match-known" : "match-new"}"></span>
         <div style="flex:1;min-width:0;"></div>
+        <span class="ep-conflict-badge"></span>
         <button class="btn-sm btn-green keep-btn" style="padding:1px 5px;font-size:9px;">&#10003;</button>
         <button class="btn-sm btn-red reject-btn" style="padding:1px 5px;font-size:9px;">&#10007;</button>
         <button class="btn-sm btn-blue add-btn" style="padding:1px 5px;font-size:9px;">+Tpl</button>
