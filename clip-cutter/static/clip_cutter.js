@@ -21,13 +21,16 @@ function esc(s) {
 }
 
 function applyFilter() {
+  const sliderEl = document.getElementById("sim-slider");
+  const threshold = sliderEl ? parseFloat(sliderEl.value) : 0;
   document.querySelectorAll(".result-card").forEach((card) => {
     const src = card.dataset.source || "";
-    const visible =
+    const sim = parseFloat(card.dataset.similarity ?? 0);
+    const sourceOk =
       currentFilter === "all" ||
       (currentFilter === "sensor+clip" && src === "sensor+clip") ||
       (currentFilter === "clip_only" && src === "clip_only");
-    card.style.display = visible ? "" : "none";
+    card.style.display = sourceOk && sim >= threshold ? "" : "none";
   });
 }
 

@@ -1705,3 +1705,47 @@ def test_result_card_has_data_similarity_attribute(page: Page):
     sim1 = page.evaluate("document.querySelectorAll('.result-card')[1].dataset.similarity")
     assert float(sim0) == pytest.approx(0.87, abs=0.001), f"card 0 data-similarity wrong: {sim0}"
     assert float(sim1) == pytest.approx(0.74, abs=0.001), f"card 1 data-similarity wrong: {sim1}"
+
+
+def test_threshold_zero_shows_all_cards(page: Page):
+    """Threshold=0 (default) shows all cards regardless of similarity."""
+    setup_routes(page)
+    page.goto(f"{BASE_URL}/clip-cutter/")
+    page.click(".filter-btn[data-filter='all']")  # switch to all-sources to isolate sim filter
+    _inject_sim_detections(page)
+    # Both cards visible with threshold=0
+    expect(page.locator(".result-card").nth(0)).to_be_visible()
+    expect(page.locator(".result-card").nth(1)).to_be_visible()
+
+
+def test_threshold_hides_low_similarity_cards(page: Page):
+    """Setting threshold to 0.80 hides the card with similarity 0.74."""
+    setup_routes(page)
+    page.goto(f"{BASE_URL}/clip-cutter/")
+    page.click(".filter-btn[data-filter='all']")
+    _inject_sim_detections(page)
+
+    # Simulate slider input: create slider element, set value, dispatch input event to trigger applyFilter
+    page.evaluate("""() => {
+        // Create the sim-slider element if it doesn't exist
+        if (!document.getElementById('sim-slider')) {
+            const slider = document.createElement('input');
+            slider.id = 'sim-slider';
+            slider.type = 'range';
+            slider.min = '0';
+            slider.max = '1';
+            slider.step = '0.01';
+            slider.value = '0.80';
+            document.body.appendChild(slider);
+        }
+        const slider = document.getElementById('sim-slider');
+        slider.value = '0.80';
+        // Dispatch input event which triggers applyFilter
+        slider.dispatchEvent(new Event('input'));
+        // Manually call applyFilter to apply the filter
+        applyFilter();
+    }""")
+
+    cards = page.locator(".result-card")
+    expect(cards.nth(0)).to_be_visible()   # 0.87 >= 0.80 → visible
+    expect(cards.nth(1)).to_be_hidden()    # 0.74 < 0.80 → hidden
