@@ -41,6 +41,9 @@ let _epPostfixTags = [];
 let _epActivePostfixTag = null;
 const _EP_POSTFIX_TAGS_KEY = "clip_cutter_postfix_tags";
 
+const _EP_NOTE_MAPPINGS_KEY = "clip_cutter_note_mappings";
+let _epNoteMappings = {};  // { note_value: postfix_tag }
+
 // ── Public API ──────────────────────────────────────────────────────────────────
 
 function getVideoPath() { return _videoPath; }
@@ -146,6 +149,7 @@ async function openPlayer({ mode, videoPath, keyFrame1Based = null, detectionIdx
   _epUpdateSyncCamUI();
 
   _epBuildTagBars();
+  _epRenderNotePalette();
 
   await _epLoadFrame(_clipStart);
 
@@ -700,6 +704,54 @@ function _epSavePostfixTags() {
   localStorage.setItem(_EP_POSTFIX_TAGS_KEY, JSON.stringify(_epPostfixTags));
 }
 
+function _epLoadNoteMappings() {
+  try {
+    const saved = localStorage.getItem(_EP_NOTE_MAPPINGS_KEY);
+    _epNoteMappings = saved ? JSON.parse(saved) : {};
+  } catch { _epNoteMappings = {}; }
+}
+
+function _epSaveNoteMapping(noteVal, tagVal) {
+  // One tag can only map one note; remove any existing mapping TO this tag
+  for (const k of Object.keys(_epNoteMappings)) {
+    if (_epNoteMappings[k] === tagVal) delete _epNoteMappings[k];
+  }
+  _epNoteMappings[noteVal] = tagVal;
+  localStorage.setItem(_EP_NOTE_MAPPINGS_KEY, JSON.stringify(_epNoteMappings));
+}
+
+function _epRemoveNoteMapping(noteVal) {
+  delete _epNoteMappings[noteVal];
+  localStorage.setItem(_EP_NOTE_MAPPINGS_KEY, JSON.stringify(_epNoteMappings));
+}
+
+function _epRenderNotePalette() {
+  const section = document.getElementById("ep-note-mapping-section");
+  const palette = document.getElementById("ep-note-palette");
+  if (!section || !palette) return;
+
+  const noteVals = Object.keys(_epNoteColorMap);
+  section.style.display = noteVals.length > 0 ? "" : "none";
+  if (!noteVals.length) return;
+
+  palette.innerHTML = "";
+  noteVals.forEach(val => {
+    const chip = document.createElement("span");
+    chip.className = "ep-note-chip-drag";
+    chip.textContent = "⠿ " + val;
+    chip.draggable = true;
+    chip.dataset.noteVal = val;
+    chip.addEventListener("dragstart", e => {
+      e.dataTransfer.setData("text/plain", val);
+      e.dataTransfer.effectAllowed = "link";
+    });
+    palette.appendChild(chip);
+  });
+
+  // Re-render quicktag pills with drop-zone and badge behaviour
+  _epRenderPostfixTags();
+}
+
 function _epRenderPostfixTags() {
   const container = document.getElementById("ep-postfix-tags");
   if (!container) return;
@@ -735,6 +787,46 @@ function _epRenderPostfixTags() {
       }
       _epRenderPostfixTags();
     });
+
+    // Mapped-note badge
+    const mappedNote = Object.keys(_epNoteMappings).find(n => _epNoteMappings[n] === tag);
+    if (mappedNote) {
+      pill.style.borderStyle = "solid";
+      const badge = document.createElement("span");
+      badge.className = "ep-tag-mapped-badge";
+      badge.textContent = mappedNote;
+      const delX = document.createElement("span");
+      delX.textContent = "×";
+      delX.style.cssText = "cursor:pointer;margin-left:1px;";
+      delX.addEventListener("click", e => {
+        e.stopPropagation();
+        _epRemoveNoteMapping(mappedNote);
+        _epRenderNotePalette();
+        if (typeof _epAutoPopulatePostfixes === "function") _epAutoPopulatePostfixes();
+      });
+      badge.appendChild(delX);
+      pill.appendChild(badge);
+    } else {
+      pill.style.borderStyle = "dashed";
+    }
+
+    // Drop zone
+    pill.addEventListener("dragover", e => {
+      e.preventDefault();
+      e.dataTransfer.dropEffect = "link";
+      pill.classList.add("drop-hover");
+    });
+    pill.addEventListener("dragleave", () => pill.classList.remove("drop-hover"));
+    pill.addEventListener("drop", e => {
+      e.preventDefault();
+      pill.classList.remove("drop-hover");
+      const noteVal = e.dataTransfer.getData("text/plain");
+      if (!noteVal) return;
+      _epSaveNoteMapping(noteVal, tag);
+      _epRenderNotePalette();
+      if (typeof _epAutoPopulatePostfixes === "function") _epAutoPopulatePostfixes();
+    });
+
     container.appendChild(pill);
   });
 }
@@ -1627,6 +1719,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
   _epLoadPostfixTags();
   _epRenderPostfixTags();
+  _epLoadNoteMappings();
 
   document.getElementById("ep-add-tag-btn").addEventListener("click", () => {
     const input = document.getElementById("ep-new-tag-input");
