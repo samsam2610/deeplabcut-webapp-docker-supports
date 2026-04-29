@@ -365,6 +365,48 @@ def test_reject_detection_grays_out_card(page: Page):
     expect(reject_btn).to_be_disabled()
 
 
+def test_reject_highlights_reject_button(page: Page):
+    """Rejected card's reject button gets a solid red fill to show which action was taken."""
+    setup_routes(page, template_frames=_MOCK_FRAMES)
+    page.goto(f"{BASE_URL}/clip-cutter/")
+
+    page.locator(".browser-row:has(.badge-pending)").first.click()
+    page.locator("#scan-btn").click()
+
+    cards = page.locator(".result-card")
+    expect(cards).to_have_count(2, timeout=8_000)
+
+    cards.nth(0).locator(".reject-btn").click()
+
+    # Solid red background via CSS rule .result-card.rejected .reject-btn
+    bg = page.locator("#card-0 .reject-btn").evaluate(
+        "el => getComputedStyle(el).backgroundColor"
+    )
+    # rgb(248, 81, 73) is #f85149
+    assert "248" in bg and "81" in bg, f"reject-btn background not red after reject: {bg}"
+
+
+def test_keep_highlights_keep_button(page: Page):
+    """Kept card's keep (✓) button gets a solid green fill to show which action was taken."""
+    setup_routes(page, template_frames=_MOCK_FRAMES)
+    page.goto(f"{BASE_URL}/clip-cutter/")
+
+    page.locator(".browser-row:has(.badge-pending)").first.click()
+    page.locator("#scan-btn").click()
+
+    cards = page.locator(".result-card")
+    expect(cards).to_have_count(2, timeout=8_000)
+
+    cards.nth(0).locator(".keep-btn").click()
+    expect(cards.nth(0)).to_have_class(re.compile(r"kept"), timeout=5_000)
+
+    bg = page.locator("#card-0 .keep-btn").evaluate(
+        "el => getComputedStyle(el).backgroundColor"
+    )
+    # rgb(46, 160, 67) is #2ea043
+    assert "46" in bg and "160" in bg, f"keep-btn background not green after keep: {bg}"
+
+
 def test_add_detection_to_template(page: Page):
     """Clicking + Add to template calls /template/add and updates footer count."""
     setup_routes(page, template_frames=_MOCK_FRAMES[:5])
