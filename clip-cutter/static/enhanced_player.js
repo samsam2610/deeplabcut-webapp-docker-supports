@@ -1559,7 +1559,7 @@ document.addEventListener("DOMContentLoaded", () => {
     } catch (e) { setStatus("Network error: " + e.message); }
   });
 
-  // Set KF (clip mode — with overlap check)
+  // Set KF — browse-mode fast path (no detection) or clip mode with overlap check
   document.getElementById("ep-set-kf").addEventListener("click", async () => {
     if (!_videoPath) return;
     const kf1 = _currentFrame + 1;

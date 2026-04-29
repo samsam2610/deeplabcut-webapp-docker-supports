@@ -1940,6 +1940,7 @@ def test_openplayer_unlocked_starts_with_open_lock(page: Page):
     badge_class = page.evaluate("document.getElementById('ep-lock-badge').className")
     lock_start_checked = page.evaluate("document.getElementById('ep-lock-start').checked")
     assert "unlocked" in badge_class, f"lock badge class wrong: {badge_class}"
+    assert lock_start_checked is False, "ep-lock-start should be unchecked in browse mode"
 
 
 def test_setkf_in_browse_mode_updates_start_field(page: Page):
