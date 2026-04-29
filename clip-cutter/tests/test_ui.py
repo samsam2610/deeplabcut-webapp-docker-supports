@@ -1765,3 +1765,48 @@ def test_sim_reset_hidden_by_default(page: Page):
     setup_routes(page)
     page.goto(f"{BASE_URL}/clip-cutter/")
     expect(page.locator("#sim-reset")).to_be_hidden()
+
+
+def test_sim_slider_updates_field_and_filters(page: Page):
+    """Moving #sim-slider to 0.80 updates #sim-value and hides the low-sim card."""
+    setup_routes(page)
+    page.goto(f"{BASE_URL}/clip-cutter/")
+    page.click(".filter-btn[data-filter='all']")
+    _inject_sim_detections(page)
+
+    page.fill("#sim-value", "0.80")
+    page.dispatch_event("#sim-value", "input")
+
+    expect(page.locator("#sim-slider")).to_have_value("0.8")
+    expect(page.locator(".result-card").nth(0)).to_be_visible()   # 0.87 >= 0.80
+    expect(page.locator(".result-card").nth(1)).to_be_hidden()    # 0.74 < 0.80
+
+
+def test_sim_reset_appears_when_threshold_nonzero(page: Page):
+    """#sim-reset button becomes visible when threshold > 0."""
+    setup_routes(page)
+    page.goto(f"{BASE_URL}/clip-cutter/")
+
+    page.fill("#sim-value", "0.50")
+    page.dispatch_event("#sim-value", "input")
+
+    expect(page.locator("#sim-reset")).to_be_visible()
+
+
+def test_sim_reset_clears_filter(page: Page):
+    """Clicking #sim-reset resets threshold to 0, shows all cards, hides itself."""
+    setup_routes(page)
+    page.goto(f"{BASE_URL}/clip-cutter/")
+    page.click(".filter-btn[data-filter='all']")
+    _inject_sim_detections(page)
+
+    page.fill("#sim-value", "0.80")
+    page.dispatch_event("#sim-value", "input")
+    expect(page.locator(".result-card").nth(1)).to_be_hidden()
+
+    page.click("#sim-reset")
+
+    expect(page.locator("#sim-slider")).to_have_value("0")
+    expect(page.locator("#sim-value")).to_have_value("0")
+    expect(page.locator(".result-card").nth(1)).to_be_visible()
+    expect(page.locator("#sim-reset")).to_be_hidden()
