@@ -754,6 +754,41 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   }
 
+  // ── Similarity threshold filter ────────────────────────────────────────────
+  (function () {
+    const slider = document.getElementById("sim-slider");
+    const field  = document.getElementById("sim-value");
+    const reset  = document.getElementById("sim-reset");
+    if (!slider || !field || !reset) return;
+
+    function _updateReset() {
+      reset.style.display = parseFloat(slider.value) > 0 ? "" : "none";
+    }
+
+    slider.addEventListener("input", () => {
+      field.value = slider.value;
+      _updateReset();
+      applyFilter();
+    });
+
+    field.addEventListener("input", () => {
+      let v = parseFloat(field.value);
+      if (isNaN(v)) v = 0;
+      v = Math.max(0, Math.min(1, v));
+      field.value = v;
+      slider.value = v;
+      _updateReset();
+      applyFilter();
+    });
+
+    reset.addEventListener("click", () => {
+      slider.value = 0;
+      field.value = 0;
+      reset.style.display = "none";
+      applyFilter();
+    });
+  })();
+
   // Source filter buttons
   document.querySelectorAll(".filter-btn").forEach((btn) => {
     btn.addEventListener("click", () => {
