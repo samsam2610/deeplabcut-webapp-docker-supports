@@ -1007,10 +1007,16 @@ header h1 { font-size: 15px; font-weight: 600; }
 
     <div id="ep-warning" style="display:none;"></div>
 
-    <!-- Propagate KF — shown in clip mode only -->
-    <div id="ep-propagate-row" style="display:none;align-items:center;gap:6px;padding:3px 4px;margin-bottom:2px;">
-      <input type="checkbox" id="ep-propagate-kf" checked style="accent-color:#388bfd;cursor:pointer;flex-shrink:0;">
-      <label for="ep-propagate-kf" style="font-size:10px;color:#adbac7;cursor:pointer;flex:1;">↻ Propagate KF</label>
+    <!-- KF options — always visible -->
+    <div id="ep-propagate-row" style="display:flex;align-items:center;gap:10px;padding:3px 4px;margin-bottom:2px;">
+      <label style="display:flex;align-items:center;gap:4px;font-size:10px;color:#adbac7;cursor:pointer;">
+        <input type="checkbox" id="ep-add-kf-to-template" checked style="accent-color:#388bfd;cursor:pointer;">
+        add KF to template
+      </label>
+      <label style="display:flex;align-items:center;gap:4px;font-size:10px;color:#adbac7;cursor:pointer;">
+        <input type="checkbox" id="ep-propagate-kf" style="accent-color:#388bfd;cursor:pointer;">
+        propagate
+      </label>
     </div>
     <!-- Rescan progress (hidden until a rescan job is running) -->
     <div id="ep-rescan-progress" style="display:none;align-items:center;gap:6px;padding:3px 6px;background:#1e2d1e;border:1px solid #2e5a2e;border-radius:3px;font-size:9px;color:#3fb950;margin-bottom:2px;">

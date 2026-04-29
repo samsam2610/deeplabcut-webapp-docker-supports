@@ -960,8 +960,6 @@ function _epUpdateModeUI() {
     rejectBtn.disabled = isFinished;
     document.getElementById("ep-extract").disabled = isFinished;
 
-    const propagateRow = document.getElementById("ep-propagate-row");
-    if (propagateRow) propagateRow.style.display = "flex";
   } else {
     lockBadge.style.display = "none";
     setKfBtn.style.display = "none";
@@ -971,8 +969,6 @@ function _epUpdateModeUI() {
     document.getElementById("ep-lock-start").checked = false;
     document.getElementById("ep-extract").disabled = false;
 
-    const propagateRow = document.getElementById("ep-propagate-row");
-    if (propagateRow) propagateRow.style.display = "none";
   }
 
   _epUpdateSeekHighlight();
@@ -1163,13 +1159,18 @@ async function _epStartRescan(detectionIdx) {
 
 function _epSyncResultsPadding() {
   const panel = document.getElementById("player-panel");
+  const app   = document.querySelector(".app");
   const list  = document.getElementById("results-list");
-  if (!panel || !list) return;
-  list.style.paddingBottom = panel.offsetHeight + "px";
+  if (!panel) return;
+  const h = panel.offsetHeight + "px";
+  if (app)  app.style.paddingBottom  = h;
+  if (list) list.style.paddingBottom = h;
 }
 
 function _epClearResultsPadding() {
+  const app  = document.querySelector(".app");
   const list = document.getElementById("results-list");
+  if (app)  app.style.paddingBottom  = "0px";
   if (list) list.style.paddingBottom = "0px";
 }
 
@@ -1397,7 +1398,12 @@ document.addEventListener("DOMContentLoaded", () => {
     _jumpCancelled = false;
   });
 
-  // Keyboard navigation (when player panel is open and no text input is focused)
+  // Keyboard shortcuts — active when cursor hovers over the video viewer
+  let _cursorOverViewer = false;
+  const _epInner = document.getElementById("ep-inner");
+  _epInner.addEventListener("mouseenter", () => { _cursorOverViewer = true; });
+  _epInner.addEventListener("mouseleave", () => { _cursorOverViewer = false; });
+
   document.addEventListener("keydown", (e) => {
     if (!_videoPath) return;
     if (document.getElementById("ep-frame-jump").style.display !== "none") return;
@@ -1405,14 +1411,58 @@ document.addEventListener("DOMContentLoaded", () => {
     if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
     if (e.target && e.target.isContentEditable) return;
 
-    if (e.key === "ArrowLeft" && !e.ctrlKey) {
-      e.preventDefault(); _stop(); _epLoadFrame(_currentFrame - 1);
-    } else if (e.key === "ArrowRight" && !e.ctrlKey) {
-      e.preventDefault(); _stop(); _epLoadFrame(_currentFrame + 1);
-    } else if (e.key === "ArrowLeft" && e.ctrlKey) {
-      e.preventDefault(); _stop(); _epLoadFrame(_currentFrame - _stepSize);
-    } else if (e.key === "ArrowRight" && e.ctrlKey) {
-      e.preventDefault(); _stop(); _epLoadFrame(_currentFrame + _stepSize);
+    // Hover-gated shortcuts (require cursor over video viewer)
+    if (_cursorOverViewer) {
+      if (e.key === " " && !e.shiftKey) {
+        // Spacebar — play forward / pause
+        e.preventDefault();
+        if (_playing && _playDir === 1) {
+          _stop();
+        } else {
+          _stop(); _playDir = 1; _playing = true;
+          document.getElementById("ep-play").textContent = "⏸";
+          _epLoop();
+        }
+        return;
+      }
+      if (e.key === " " && e.shiftKey) {
+        // Shift+Space — play backward / pause
+        e.preventDefault();
+        if (_playing && _playDir === -1) {
+          _stop();
+        } else {
+          _stop(); _playDir = -1; _playing = true;
+          document.getElementById("ep-play-back").textContent = "⏸";
+          _epLoop();
+        }
+        return;
+      }
+      if (e.key === "ArrowLeft" && !e.shiftKey) {
+        e.preventDefault(); _stop(); _epLoadFrame(_currentFrame - 1); return;
+      }
+      if (e.key === "ArrowRight" && !e.shiftKey) {
+        e.preventDefault(); _stop(); _epLoadFrame(_currentFrame + 1); return;
+      }
+      if (e.key === "ArrowLeft" && e.shiftKey) {
+        e.preventDefault(); _stop(); _epLoadFrame(_currentFrame - _stepSize); return;
+      }
+      if (e.key === "ArrowRight" && e.shiftKey) {
+        e.preventDefault(); _stop(); _epLoadFrame(_currentFrame + _stepSize); return;
+      }
+      if (e.key === "S" && e.shiftKey && _mode === "clip") {
+        // Shift+S — Set KF here
+        e.preventDefault();
+        const btn = document.getElementById("ep-set-kf");
+        if (btn && !btn.disabled) btn.click();
+        return;
+      }
+      if (e.key === "E" && e.shiftKey && _mode === "clip") {
+        // Shift+E — Extract
+        e.preventDefault();
+        const btn = document.getElementById("ep-extract");
+        if (btn && !btn.disabled) btn.click();
+        return;
+      }
     }
   });
 
@@ -1523,6 +1573,9 @@ document.addEventListener("DOMContentLoaded", () => {
 
     if (!data.overlaps) {
       await _epApplyNewKF(kf1);
+      if (document.getElementById("ep-add-kf-to-template")?.checked && _detectionIdx !== null) {
+        if (typeof addToTemplate === "function") addToTemplate(_videoPath, kf1);
+      }
       return;
     }
 
@@ -1547,7 +1600,12 @@ document.addEventListener("DOMContentLoaded", () => {
     keepBtn.className = "player-btn ep-btn-red";
     keepBtn.style.fontSize = "8px";
     keepBtn.textContent = "Keep anyway";
-    keepBtn.onclick = async () => await _epApplyNewKF(kf1);
+    keepBtn.onclick = async () => {
+      await _epApplyNewKF(kf1);
+      if (document.getElementById("ep-add-kf-to-template")?.checked && _detectionIdx !== null) {
+        if (typeof addToTemplate === "function") addToTemplate(_videoPath, kf1);
+      }
+    };
 
     btns.appendChild(cancelBtn);
     btns.appendChild(keepBtn);

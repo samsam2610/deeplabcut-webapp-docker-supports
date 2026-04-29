@@ -1859,3 +1859,34 @@ def test_note_palette_has_scroll_limit(page: Page):
     )
     assert max_h == "72px", f"max-height wrong: {max_h}"
     assert overflow == "auto", f"overflow-y wrong: {overflow}"
+
+
+def test_propagate_row_visible_in_template_mode(page: Page):
+    """#ep-propagate-row must NOT be hidden in template/non-clip mode."""
+    setup_routes(page)
+    page.goto(f"{BASE_URL}/clip-cutter/")
+    page.locator(".browser-row:has(.badge-pending)").first.click()
+    page.wait_for_selector("#sidebar-browse-btn:not([disabled])", timeout=3000)
+    # Open template browse mode
+    page.evaluate("""() => {
+        openPlayer({ mode: 'template', videoPath: '/user-data/vid1.avi' });
+    }""")
+    page.wait_for_selector("#player-panel", state="visible")
+    display = page.evaluate(
+        "document.getElementById('ep-propagate-row').style.display"
+    )
+    assert display != "none", f"propagate-row hidden in template mode: {display}"
+
+
+def test_propagate_row_has_two_checkboxes(page: Page):
+    """#ep-propagate-row must contain ep-add-kf-to-template (checked) and ep-propagate-kf (unchecked)."""
+    setup_routes(page)
+    page.goto(f"{BASE_URL}/clip-cutter/")
+    add_kf_checked = page.evaluate(
+        "document.getElementById('ep-add-kf-to-template').checked"
+    )
+    propagate_checked = page.evaluate(
+        "document.getElementById('ep-propagate-kf').checked"
+    )
+    assert add_kf_checked is True, "ep-add-kf-to-template should be checked by default"
+    assert propagate_checked is False, "ep-propagate-kf should be unchecked by default"
