@@ -975,6 +975,8 @@ function _epUpdateModeUI() {
 
   }
 
+  const propagateBtn = document.getElementById("ep-propagate-btn");
+  if (propagateBtn) propagateBtn.disabled = (_detectionIdx === null);
   _epUpdateSeekHighlight();
   _epUpdateLockOverlay();
 }
@@ -1049,18 +1051,6 @@ async function _epApplyNewKF(kf1) {
   if (typeof saveDetections === "function") saveDetections();
   document.getElementById("ep-warning").style.display = "none";
   _epDrawKfCanvas();
-
-  // Enrich template with new keyframe before rescanning
-  if (document.getElementById("ep-propagate-kf")?.checked) {
-    try {
-      await fetch("/clip-cutter/template/add", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ video_path: _videoPath, frame_number: kf1 }),
-      });
-    } catch { /* non-fatal */ }
-  }
-  _epStartRescan(_detectionIdx);
 }
 
 function _epApplyRescanKF(idx, newFrame1Based) {
@@ -1083,7 +1073,7 @@ function _epApplyRescanKF(idx, newFrame1Based) {
   if (typeof _epAutoPopulatePostfixes === "function") _epAutoPopulatePostfixes();
 }
 
-async function _epStartRescan(detectionIdx) {
+async function _epStartRescan(candidates) {
   // Tear down any in-flight rescan before starting a new one
   if (_rescanEs) { _rescanEs.close(); _rescanEs = null; }
   if (_rescanJobId) {
@@ -1092,19 +1082,9 @@ async function _epStartRescan(detectionIdx) {
     fetch(`/clip-cutter/rescan-forward/${oldJid}/cancel`, { method: "POST" }).catch(() => {});
   }
 
+  if (!candidates || !candidates.length) return;
+
   const videoPath = _videoPath;
-
-  if (!document.getElementById("ep-propagate-kf")?.checked) return;
-
-  const candidates = [];
-  for (let i = detectionIdx + 3; i < detections.length; i++) {
-    const d = detections[i];
-    if (!d || d.video_path !== videoPath) continue;
-    if (d.status === "kept" || d.status === "rejected") continue;
-    candidates.push({ idx: i, frame_number: d.frame_number });
-  }
-  if (!candidates.length) return;
-
   const fineWindowEl = document.getElementById("fine-window");
   const fineWindow = fineWindowEl ? parseInt(fineWindowEl.value, 10) : 50;
 
@@ -1130,7 +1110,7 @@ async function _epStartRescan(detectionIdx) {
   const countEl = document.getElementById("ep-rescan-count");
   if (prog) {
     prog.style.display = "flex";
-    if (textEl) textEl.textContent = `↻ Rescanning ${candidates.length} ahead…`;
+    if (textEl) textEl.textContent = `↻ Rescanning ${candidates.length} candidates…`;
     if (countEl) countEl.textContent = "";
   }
 
@@ -1158,6 +1138,20 @@ async function _epStartRescan(detectionIdx) {
     _epApplyRescanKF(msg.idx, msg.new_frame_number);
   };
   es.onerror = () => { es.close(); _finishRescan(); };
+}
+
+function _epPropagateAll() {
+  if (_detectionIdx === null || typeof detections === "undefined") return;
+  const videoPath = _videoPath;
+  const candidates = [];
+  for (let i = 0; i < detections.length; i++) {
+    if (i === _detectionIdx) continue;
+    const d = detections[i];
+    if (!d || d.video_path !== videoPath) continue;
+    if (d.status === "kept" || d.status === "rejected") continue;
+    candidates.push({ idx: i, frame_number: d.frame_number });
+  }
+  _epStartRescan(candidates);
 }
 
 // ── Layout helpers ─────────────────────────────────────────────────────────────
@@ -1919,5 +1913,8 @@ document.addEventListener("DOMContentLoaded", () => {
       await fetch(`/clip-cutter/rescan-forward/${jid}/cancel`, { method: "POST" }).catch(() => {});
     }
   });
+
+  document.getElementById("ep-propagate-btn")
+    ?.addEventListener("click", () => _epPropagateAll());
 
 }); // end DOMContentLoaded

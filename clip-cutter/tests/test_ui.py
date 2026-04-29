@@ -2196,3 +2196,70 @@ def test_stop_resets_busy_flag_so_player_reopens_cleanly(page: Page):
     page.wait_for_function("!_busy", timeout=3000)
     busy_final = page.evaluate("_busy")
     assert not busy_final, "_busy stuck true after player reopen — frame never loaded"
+
+
+def test_propagate_btn_disabled_in_browse_mode(page: Page):
+    """Propagate button must be disabled when no detection is active (browse mode)."""
+    _setup_browse_routes(page)
+    page.goto(f"{BASE_URL}/clip-cutter/")
+    page.evaluate("""() => {
+        selectedVideoPath = '/user-data/vid1.avi';
+        openPlayer({ mode: 'clip', videoPath: '/user-data/vid1.avi', unlocked: true });
+    }""")
+    page.wait_for_selector("#player-panel", state="visible")
+    expect(page.locator("#ep-propagate-btn")).to_be_disabled()
+
+
+def test_propagate_btn_enabled_when_detection_active(page: Page):
+    """Propagate button must be enabled when a clip-mode detection is active."""
+    _setup_browse_routes(page)
+    page.goto(f"{BASE_URL}/clip-cutter/")
+    page.evaluate("""() => {
+        detections.length = 0;
+        detections.push({
+            video_path: '/user-data/vid1.avi', frame_number: 500,
+            similarity: 0, source: 'manual', status: 'pending'
+        });
+        openPlayer({ mode: 'clip', videoPath: '/user-data/vid1.avi',
+                     keyFrame1Based: 500, detectionIdx: 0 });
+    }""")
+    page.wait_for_selector("#player-panel", state="visible")
+    expect(page.locator("#ep-propagate-btn")).not_to_be_disabled()
+
+
+def test_propagate_btn_collects_both_directions(page: Page):
+    """Clicking Propagate posts candidates from both before and after the active detection."""
+    requests_captured = []
+
+    def capture(req):
+        if "rescan-forward" in req.url and req.method == "POST":
+            requests_captured.append(req)
+
+    _setup_browse_routes(page)
+    page.route("**/clip-cutter/rescan-forward", lambda r: r.fulfill(
+        status=200, content_type="application/json",
+        body=json.dumps({"job_id": "test-job-123"})
+    ))
+    page.on("request", capture)
+    page.goto(f"{BASE_URL}/clip-cutter/")
+
+    # Three detections: idx 0 (before), idx 1 (active), idx 2 (after)
+    page.evaluate("""() => {
+        detections.length = 0;
+        detections.push(
+            { video_path: '/user-data/vid1.avi', frame_number: 200, similarity: 0, source: 'manual', status: 'pending' },
+            { video_path: '/user-data/vid1.avi', frame_number: 500, similarity: 0, source: 'manual', status: 'pending' },
+            { video_path: '/user-data/vid1.avi', frame_number: 800, similarity: 0, source: 'manual', status: 'pending' }
+        );
+        openPlayer({ mode: 'clip', videoPath: '/user-data/vid1.avi',
+                     keyFrame1Based: 500, detectionIdx: 1 });
+    }""")
+    page.wait_for_selector("#player-panel", state="visible")
+    page.click("#ep-propagate-btn")
+
+    page.wait_for_timeout(400)
+
+    assert len(requests_captured) == 1, f"expected 1 rescan request, got {len(requests_captured)}"
+    body = json.loads(requests_captured[0].post_data)
+    candidate_idxs = sorted(c["idx"] for c in body["candidates"])
+    assert candidate_idxs == [0, 2], f"expected candidates [0, 2], got {candidate_idxs}"
