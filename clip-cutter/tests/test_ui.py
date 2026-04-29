@@ -1968,3 +1968,82 @@ def test_setkf_in_browse_mode_updates_start_field(page: Page):
     page.click("#ep-set-kf")
     start_val = page.evaluate("document.getElementById('ep-start').value")
     assert int(start_val) == 101, f"ep-start should be max(1, 300+1-200)=101, got {start_val}"
+
+
+_MOCK_BROWSE_EXTRACT = {
+    "avi_path": "/user-data/out/browse_clip.avi",
+    "csv_path": "/user-data/out/browse_clip.csv",
+    "start_frame_number": 100,
+    "end_frame_number": 899,
+}
+
+
+def _setup_browse_routes(page):
+    """Setup routes + video-info + frame for browse-mode tests."""
+    setup_routes(page)
+    page.route("**/clip-cutter/video-info**", lambda r: r.fulfill(
+        status=200, content_type="application/json",
+        body=json.dumps({"frame_count": 1000})
+    ))
+    page.route("**/clip-cutter/sibling-camera", lambda r: r.fulfill(
+        status=200, content_type="application/json",
+        body=json.dumps({"sibling_video_path": None})
+    ))
+    page.route("**/clip-cutter/frame**", lambda r: r.fulfill(
+        status=200, content_type="image/jpeg",
+        body=base64.b64decode(_JPEG_B64)
+    ))
+    page.route("**/clip-cutter/detections", lambda r: r.fulfill(
+        status=200, content_type="application/json",
+        body=json.dumps({"ok": True})
+    ))
+
+
+def test_browse_extract_creates_new_detection_card(page: Page):
+    """Extracting in browse mode must append a new result card with source=manual."""
+    _setup_browse_routes(page)
+    page.goto(f"{BASE_URL}/clip-cutter/")
+    page.evaluate("""() => {
+        selectedVideoPath = '/user-data/vid1.avi';
+        openPlayer({ mode: 'clip', videoPath: '/user-data/vid1.avi', unlocked: true });
+    }""")
+    page.wait_for_selector("#player-panel", state="visible")
+    initial_count = page.evaluate("detections.length")
+    page.click("#ep-extract")
+    page.wait_for_function("detections.length > 0", timeout=3000)
+    card_count = page.locator(".result-card").count()
+    assert card_count == initial_count + 1, f"expected 1 new card, got {card_count - initial_count}"
+    source = page.evaluate("detections[detections.length - 1].source")
+    assert source == "manual", f"new detection source should be 'manual', got {source}"
+
+
+def test_browse_extract_switches_filter_to_all(page: Page):
+    """Extracting in browse mode must switch the source filter to 'all'."""
+    _setup_browse_routes(page)
+    page.goto(f"{BASE_URL}/clip-cutter/")
+    page.evaluate("""() => {
+        selectedVideoPath = '/user-data/vid1.avi';
+        openPlayer({ mode: 'clip', videoPath: '/user-data/vid1.avi', unlocked: true });
+    }""")
+    page.wait_for_selector("#player-panel", state="visible")
+    page.click("#ep-extract")
+    page.wait_for_function("detections.length > 0", timeout=3000)
+    active_filter = page.evaluate("currentFilter")
+    assert active_filter == "all", f"filter should switch to 'all', got {active_filter}"
+
+
+def test_browse_extract_keeps_extract_btn_enabled(page: Page):
+    """After browse-mode extract, the Extract button must remain visible and enabled."""
+    _setup_browse_routes(page)
+    page.goto(f"{BASE_URL}/clip-cutter/")
+    page.evaluate("""() => {
+        selectedVideoPath = '/user-data/vid1.avi';
+        openPlayer({ mode: 'clip', videoPath: '/user-data/vid1.avi', unlocked: true });
+    }""")
+    page.wait_for_selector("#player-panel", state="visible")
+    page.click("#ep-extract")
+    page.wait_for_function("detections.length > 0", timeout=3000)
+    extract_visible = page.evaluate("document.getElementById('ep-extract').style.display !== 'none'")
+    extract_enabled = page.evaluate("!document.getElementById('ep-extract').disabled")
+    assert extract_visible, "ep-extract should remain visible after browse extract"
+    assert extract_enabled, "ep-extract should remain enabled after browse extract"

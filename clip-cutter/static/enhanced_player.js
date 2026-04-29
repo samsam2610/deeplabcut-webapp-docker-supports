@@ -1652,7 +1652,36 @@ document.addEventListener("DOMContentLoaded", () => {
       }
       const data = await resp.json();
       setStatus("Clip extracted");
-      if (capturedIdx !== null && typeof detections !== "undefined" && detections[capturedIdx]) {
+      if (_browseMode) {
+        // Browse mode: always create a new manual detection entry
+        const kf = start + 200;
+        const newDet = {
+          video_path: capturedVideoPath,
+          frame_number: kf,
+          similarity: 0,
+          source: "manual",
+          status: "kept",
+          extract_avi_path: data.avi_path,
+          extract_postfix: postfix || null,
+        };
+        if (typeof detections !== "undefined") {
+          detections.push(newDet);
+          const newIdx = detections.length - 1;
+          if (typeof buildResultCard === "function") {
+            const card = buildResultCard(newDet, newIdx);
+            card.classList.add("kept");
+            card.querySelectorAll("button").forEach(b => { b.disabled = true; });
+            document.getElementById("results-list").appendChild(card);
+          }
+          _detectionIdx = newIdx;
+          // Switch source filter to "all" so manual card is visible
+          const allFilterBtn = document.querySelector('.filter-btn[data-filter="all"]');
+          if (allFilterBtn) allFilterBtn.click();
+          else if (typeof applyFilter === "function") applyFilter();
+          if (typeof saveDetections === "function") saveDetections();
+        }
+        // Keep Extract button enabled for next clip in browse session
+      } else if (capturedIdx !== null && typeof detections !== "undefined" && detections[capturedIdx]) {
         detections[capturedIdx].status = "kept";
         detections[capturedIdx].extract_avi_path = data.avi_path;
         detections[capturedIdx].extract_postfix = postfix || null;
@@ -1664,14 +1693,14 @@ document.addEventListener("DOMContentLoaded", () => {
           if (nameEl) nameEl.textContent = data.avi_path.split("/").pop();
         }
         if (typeof saveDetections === "function") saveDetections();
-      }
-      if (_detectionIdx === capturedIdx) {
-        document.getElementById("ep-extract").style.display = "none";
-        document.getElementById("ep-rename-extract").style.display = "";
-        document.getElementById("ep-rename-extract").disabled = false;
-        document.getElementById("ep-delete-extract").style.display = "";
-        document.getElementById("ep-set-kf").disabled = true;
-        document.getElementById("ep-reject").disabled = true;
+        if (_detectionIdx === capturedIdx) {
+          document.getElementById("ep-extract").style.display = "none";
+          document.getElementById("ep-rename-extract").style.display = "";
+          document.getElementById("ep-rename-extract").disabled = false;
+          document.getElementById("ep-delete-extract").style.display = "";
+          document.getElementById("ep-set-kf").disabled = true;
+          document.getElementById("ep-reject").disabled = true;
+        }
       }
     } catch (e) { setStatus("Network error: " + e.message); }
   });
