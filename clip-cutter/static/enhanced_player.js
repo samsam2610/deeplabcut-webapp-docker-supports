@@ -33,6 +33,8 @@ let _kfCanvasVisible = false;
 let _unlocked = false;
 let _syncCamEnabled = false;
 let _siblingVideoPath = null;
+let _rescanJobId = null;
+let _rescanEs = null;
 
 // Postfix tags — persistent via localStorage
 let _epPostfixTags = [];
@@ -803,6 +805,9 @@ function _epUpdateModeUI() {
     setKfBtn.disabled = isFinished;
     rejectBtn.disabled = isFinished;
     document.getElementById("ep-extract").disabled = isFinished;
+
+    const propagateRow = document.getElementById("ep-propagate-row");
+    if (propagateRow) propagateRow.style.display = "flex";
   } else {
     lockBadge.style.display = "none";
     setKfBtn.style.display = "none";
@@ -811,6 +816,9 @@ function _epUpdateModeUI() {
     gotoKfBtn.style.display = "none";
     document.getElementById("ep-lock-start").checked = false;
     document.getElementById("ep-extract").disabled = false;
+
+    const propagateRow = document.getElementById("ep-propagate-row");
+    if (propagateRow) propagateRow.style.display = "none";
   }
 
   _epUpdateSeekHighlight();
@@ -852,7 +860,7 @@ function _epInitExtractPanel(videoPath, keyFrame1Based) {
 
 // ── Apply new keyframe ─────────────────────────────────────────────────────────
 
-function _epApplyNewKF(kf1) {
+async function _epApplyNewKF(kf1) {
   if (_detectionIdx === null || typeof detections === "undefined") return;
   detections[_detectionIdx].frame_number = kf1;
   const kf0 = kf1 - 1;
@@ -886,6 +894,102 @@ function _epApplyNewKF(kf1) {
   if (typeof saveDetections === "function") saveDetections();
   document.getElementById("ep-warning").style.display = "none";
   _epDrawKfCanvas();
+
+  // Enrich template with new keyframe before rescanning
+  if (document.getElementById("ep-propagate-kf")?.checked) {
+    try {
+      await fetch("/clip-cutter/template/add", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ video_path: _videoPath, frame_number: kf1 }),
+      });
+    } catch { /* non-fatal */ }
+  }
+  _epStartRescan(_detectionIdx);
+}
+
+function _epApplyRescanKF(idx, newFrame1Based) {
+  if (typeof detections === "undefined" || !detections[idx]) return;
+  const d = detections[idx];
+  if (_detectionIdx === idx) return;  // user is on this candidate — discard
+  if (d.status === "kept" || d.status === "rejected") return;  // already processed
+
+  d.frame_number = newFrame1Based;
+  const nameEl = document.getElementById("card-clipname-" + idx);
+  if (nameEl) {
+    const videoName = d.video_path.split("/").pop().replace(/\.avi$/i, "");
+    const postfixSuffix = d.extract_postfix ? `_${d.extract_postfix}` : "";
+    nameEl.textContent =
+      videoName + "_" + (newFrame1Based - 200) + "_" + (newFrame1Based + 599) + postfixSuffix + ".avi";
+  }
+  if (_kfCanvasVisible) _epDrawKfCanvas();
+  if (typeof saveDetections === "function") saveDetections();
+}
+
+async function _epStartRescan(detectionIdx) {
+  if (!document.getElementById("ep-propagate-kf")?.checked) return;
+
+  const candidates = [];
+  for (let i = detectionIdx + 3; i < detections.length; i++) {
+    const d = detections[i];
+    if (!d || d.video_path !== _videoPath) continue;
+    if (d.status === "kept" || d.status === "rejected") continue;
+    candidates.push({ idx: i, frame_number: d.frame_number });
+  }
+  if (!candidates.length) return;
+
+  const fineWindowEl = document.getElementById("fine-window");
+  const fineWindow = fineWindowEl ? parseInt(fineWindowEl.value, 10) : 50;
+
+  let data;
+  try {
+    const resp = await fetch("/clip-cutter/rescan-forward", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        video_path: _videoPath,
+        candidates,
+        params: { fine_window: fineWindow },
+      }),
+    });
+    if (!resp.ok) return;
+    data = await resp.json();
+  } catch { return; }
+
+  _rescanJobId = data.job_id;
+
+  const prog = document.getElementById("ep-rescan-progress");
+  const textEl = document.getElementById("ep-rescan-text");
+  const countEl = document.getElementById("ep-rescan-count");
+  if (prog) {
+    prog.style.display = "flex";
+    if (textEl) textEl.textContent = `↻ Rescanning ${candidates.length} ahead…`;
+    if (countEl) countEl.textContent = "";
+  }
+
+  let done = 0;
+  const total = candidates.length;
+  const es = new EventSource(`/clip-cutter/rescan-forward/stream?job_id=${_rescanJobId}`);
+  _rescanEs = es;
+
+  function _finishRescan() {
+    _rescanEs = null;
+    _rescanJobId = null;
+    if (prog) prog.style.display = "none";
+  }
+
+  es.onmessage = (e) => {
+    const msg = JSON.parse(e.data);
+    if (msg.phase) {
+      es.close();
+      _finishRescan();
+      return;
+    }
+    done++;
+    if (countEl) countEl.textContent = `${done} / ${total}`;
+    _epApplyRescanKF(msg.idx, msg.new_frame_number);
+  };
+  es.onerror = () => { es.close(); _finishRescan(); };
 }
 
 // ── Layout helpers ─────────────────────────────────────────────────────────────
@@ -1251,7 +1355,7 @@ document.addEventListener("DOMContentLoaded", () => {
     } catch (e) { setStatus("Network error: " + e.message); return; }
 
     if (!data.overlaps) {
-      _epApplyNewKF(kf1);
+      await _epApplyNewKF(kf1);
       return;
     }
 
@@ -1276,7 +1380,7 @@ document.addEventListener("DOMContentLoaded", () => {
     keepBtn.className = "player-btn ep-btn-red";
     keepBtn.style.fontSize = "8px";
     keepBtn.textContent = "Keep anyway";
-    keepBtn.onclick = () => _epApplyNewKF(kf1);
+    keepBtn.onclick = async () => await _epApplyNewKF(kf1);
 
     btns.appendChild(cancelBtn);
     btns.appendChild(keepBtn);
@@ -1533,6 +1637,17 @@ document.addEventListener("DOMContentLoaded", () => {
     if (_epActivePostfixTag && val !== _epActivePostfixTag) {
       _epActivePostfixTag = null;
       _epRenderPostfixTags();
+    }
+  });
+
+  document.getElementById("ep-rescan-cancel")?.addEventListener("click", async () => {
+    if (_rescanEs) { _rescanEs.close(); _rescanEs = null; }
+    const jid = _rescanJobId;
+    _rescanJobId = null;
+    const prog = document.getElementById("ep-rescan-progress");
+    if (prog) prog.style.display = "none";
+    if (jid) {
+      await fetch(`/clip-cutter/rescan-forward/${jid}/cancel`, { method: "POST" }).catch(() => {});
     }
   });
 
