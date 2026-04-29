@@ -1767,8 +1767,8 @@ def test_sim_reset_hidden_by_default(page: Page):
     expect(page.locator("#sim-reset")).to_be_hidden()
 
 
-def test_sim_slider_updates_field_and_filters(page: Page):
-    """Moving #sim-slider to 0.80 updates #sim-value and hides the low-sim card."""
+def test_sim_field_updates_slider_and_filters(page: Page):
+    """Filling #sim-value to 0.80 syncs #sim-slider and hides the low-sim card."""
     setup_routes(page)
     page.goto(f"{BASE_URL}/clip-cutter/")
     page.click(".filter-btn[data-filter='all']")
