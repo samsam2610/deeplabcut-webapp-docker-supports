@@ -216,23 +216,49 @@ async function startBatchScan() {
     if (!resp.ok) { setStatus("Batch scan error"); return; }
     const { job_id } = await resp.json();
     _libBatchScanJobId = job_id;
+    try { localStorage.setItem("cc-active-job", JSON.stringify({ job_id, type: "batch-scan", video_paths })); } catch {}
     const es = new EventSource(`/clip-cutter/batch-scan/stream?job_id=${job_id}`);
     _libBatchScanEs = es;
     const cancelBtn = document.getElementById("lib-scan-cancel-btn");
     cancelBtn.style.display = "";
     cancelBtn.disabled = false;
-    function finishBatchScan() { setProgress(""); cancelBtn.style.display = "none"; _libBatchScanEs = null; _libBatchScanJobId = null; }
+    function finishBatchScan() {
+      setProgress(""); cancelBtn.style.display = "none"; _libBatchScanEs = null; _libBatchScanJobId = null;
+      try { localStorage.removeItem("cc-active-job"); } catch {}
+    }
     es.onmessage = (e) => {
       const job = JSON.parse(e.data);
       if (job.phase === "done") {
         es.close();
         finishBatchScan();
         const allDetections = [];
-        (job.results || []).forEach(r => allDetections.push(...r.detections));
+        const videoErrors = [];
+        (job.results || []).forEach(r => {
+          (r.detections || []).forEach(d => {
+            d.video_path = r.video;   // ensure correct video_path per detection
+            allDetections.push(d);
+          });
+          if (r.error) videoErrors.push(`${r.video.split("/").pop()}: ${r.error}`);
+        });
+        // Persist each video's detections so they survive video switching
+        const byVideo = {};
+        allDetections.forEach(d => {
+          if (!byVideo[d.video_path]) byVideo[d.video_path] = [];
+          byVideo[d.video_path].push(d);
+        });
+        Object.entries(byVideo).forEach(([vp, dets]) => {
+          fetch("/clip-cutter/detections", {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ video_path: vp, detections: dets }),
+          }).catch(() => {});
+        });
+        video_paths.forEach(vp => _setBrowserScanBadge(vp, "done-scan"));
         currentFilter = "all";
         renderDetections(allDetections);
         const total = allDetections.length;
-        setStatus(`Batch scan done — ${total} detection${total !== 1 ? "s" : ""} across ${video_paths.length} video${video_paths.length !== 1 ? "s" : ""}`);
+        const errMsg = videoErrors.length ? ` (${videoErrors.length} error(s): ${videoErrors[0]})` : "";
+        setStatus(`Batch scan done — ${total} detection${total !== 1 ? "s" : ""} across ${video_paths.length} video${video_paths.length !== 1 ? "s" : ""}${errMsg}`);
       } else if (job.phase === "error") {
         es.close();
         finishBatchScan();
@@ -245,6 +271,11 @@ async function startBatchScan() {
         const msg = `${job.video || "…"} (${job.video_index || "?"}/${job.video_total || "?"}) — ${job.phase}`;
         setProgress(msg);
         setStatus(`Scanning ${msg}`);
+        const idx = (job.video_index || 1) - 1;
+        video_paths.forEach((vp, i) => {
+          if (i < idx) _setBrowserScanBadge(vp, "done-scan");
+          else if (i === idx) _setBrowserScanBadge(vp, "scanning");
+        });
       }
     };
     es.onerror = () => { es.close(); finishBatchScan(); setStatus("Batch scan stream error"); };
@@ -286,24 +317,32 @@ async function startBatchTemplateScan() {
     const { job_id } = await resp.json();
     _templateScanJobId = job_id;
     _libBatchScanJobId = job_id;
+    try { localStorage.setItem("cc-active-job", JSON.stringify({ job_id, type: "batch-template-scan", video_paths })); } catch {}
     const es = new EventSource(`/clip-cutter/batch-template-scan/stream?job_id=${job_id}`);
     _libBatchScanEs = es;
     const cancelBtn = document.getElementById("lib-scan-cancel-btn");
     cancelBtn.style.display = "";
     cancelBtn.disabled = false;
-    function finishTemplateScan() { setProgress(""); cancelBtn.style.display = "none"; _libBatchScanEs = null; _libBatchScanJobId = null; }
+    function finishTemplateScan() {
+      setProgress(""); cancelBtn.style.display = "none"; _libBatchScanEs = null; _libBatchScanJobId = null;
+      try { localStorage.removeItem("cc-active-job"); } catch {}
+    }
     es.onmessage = (e) => {
       const job = JSON.parse(e.data);
       if (job.phase === "done") {
         es.close();
         finishTemplateScan();
         const allCandidates = [];
+        const videoErrors = [];
         (job.results || []).forEach(r => {
           (r.candidates || []).forEach(c => allCandidates.push({ ...c, video_path: r.video_path }));
+          if (r.error) videoErrors.push(`${r.video_path.split("/").pop()}: ${r.error}`);
         });
+        video_paths.forEach(vp => _setBrowserScanBadge(vp, "done-scan"));
         renderTemplateCandidateCards(allCandidates);
-        if (allCandidates.length > 0) showRethresholdBar();
-        setStatus(`Template scan done — ${allCandidates.length} candidate(s)`);
+        showRethresholdBar();   // always show — lets user adjust threshold even when 0 candidates
+        const errMsg = videoErrors.length ? ` (${videoErrors.length} error(s): ${videoErrors[0]})` : "";
+        setStatus(`Template scan done — ${allCandidates.length} candidate(s)${errMsg}`);
       } else if (job.phase === "error") {
         es.close();
         finishTemplateScan();
@@ -315,6 +354,11 @@ async function startBatchTemplateScan() {
       } else {
         const msg = `${job.video || "…"} (${job.video_index || "?"}/${job.video_total || "?"}) — ${job.phase}`;
         setProgress(msg);
+        const idx = (job.video_index || 1) - 1;
+        video_paths.forEach((vp, i) => {
+          if (i < idx) _setBrowserScanBadge(vp, "done-scan");
+          else if (i === idx) _setBrowserScanBadge(vp, "scanning");
+        });
       }
     };
     es.onerror = () => { es.close(); finishTemplateScan(); setStatus("Template scan stream error"); };
@@ -361,6 +405,7 @@ function renderTemplateCandidateCards(candidates) {
           btn.textContent = "Added";
           setStatus(`Frame ${btn.dataset.frame} added. Template now has ${count} frame(s).`);
           loadLibraries();
+          loadTemplate();
         } else {
           btn.disabled = false;
           setStatus("Error adding frame to template");
@@ -534,12 +579,89 @@ async function startBatchInit() {
   }
 }
 
+// ── Reconnect active batch job after page refresh ────────────────────────────
+
+function _reconnectActiveJob() {
+  let saved;
+  try { saved = JSON.parse(localStorage.getItem("cc-active-job")); } catch {}
+  if (!saved || !saved.job_id) return;
+
+  const { job_id, type, video_paths } = saved;
+  const isBatchScan = type === "batch-scan";
+  const streamUrl = isBatchScan
+    ? `/clip-cutter/batch-scan/stream?job_id=${job_id}`
+    : `/clip-cutter/batch-template-scan/stream?job_id=${job_id}`;
+
+  _libBatchScanJobId = job_id;
+  if (!isBatchScan) _templateScanJobId = job_id;
+
+  const progressEl = document.getElementById("lib-scan-progress");
+  const setProgress = (msg) => { progressEl.style.display = msg ? "" : "none"; progressEl.textContent = msg; };
+  const cancelBtn = document.getElementById("lib-scan-cancel-btn");
+  cancelBtn.style.display = "";
+  cancelBtn.disabled = false;
+
+  function finish() {
+    setProgress(""); cancelBtn.style.display = "none"; _libBatchScanEs = null; _libBatchScanJobId = null;
+    try { localStorage.removeItem("cc-active-job"); } catch {}
+  }
+
+  const es = new EventSource(streamUrl);
+  _libBatchScanEs = es;
+
+  es.onmessage = (e) => {
+    const job = JSON.parse(e.data);
+    if (job.phase === "done") {
+      es.close(); finish();
+      if (isBatchScan) {
+        const allDetections = [];
+        (job.results || []).forEach(r => {
+          (r.detections || []).forEach(d => { d.video_path = r.video; allDetections.push(d); });
+        });
+        const byVideo = {};
+        allDetections.forEach(d => { if (!byVideo[d.video_path]) byVideo[d.video_path] = []; byVideo[d.video_path].push(d); });
+        Object.entries(byVideo).forEach(([vp, dets]) => {
+          fetch("/clip-cutter/detections", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ video_path: vp, detections: dets }) }).catch(() => {});
+        });
+        video_paths.forEach(vp => _setBrowserScanBadge(vp, "done-scan"));
+        currentFilter = "all";
+        renderDetections(allDetections);
+        setStatus(`Batch scan done — ${allDetections.length} detection(s)`);
+      } else {
+        const allCandidates = [];
+        (job.results || []).forEach(r => (r.candidates || []).forEach(c => allCandidates.push({ ...c, video_path: r.video_path })));
+        video_paths.forEach(vp => _setBrowserScanBadge(vp, "done-scan"));
+        renderTemplateCandidateCards(allCandidates);
+        showRethresholdBar();
+        setStatus(`Template scan done — ${allCandidates.length} candidate(s)`);
+      }
+    } else if (job.phase === "error") {
+      es.close(); finish(); setStatus("Scan error: " + job.error);
+    } else if (job.phase === "cancelled") {
+      es.close(); finish(); setStatus("Scan cancelled");
+    } else {
+      const msg = `${job.video || "…"} (${job.video_index || "?"}/${job.video_total || "?"}) — ${job.phase}`;
+      setProgress(msg);
+      setStatus(`Scanning ${msg}`);
+      const idx = (job.video_index || 1) - 1;
+      video_paths.forEach((vp, i) => {
+        if (i < idx) _setBrowserScanBadge(vp, "done-scan");
+        else if (i === idx) _setBrowserScanBadge(vp, "scanning");
+      });
+    }
+  };
+  es.onerror = () => {
+    // Server may have gone away — clear saved job so we don't loop forever
+    es.close(); finish(); setStatus("Scan stream lost (server restarted?)");
+  };
+}
+
 // ── Boot ─────────────────────────────────────────────────────────────────────
 
 document.addEventListener("DOMContentLoaded", () => {
   loadTemplate();
   const _savedPath = (() => { try { return localStorage.getItem("cc-browser-path"); } catch { return null; } })();
-  loadFolder(_savedPath || null);
+  loadFolder(_savedPath || null).then(() => _reconnectActiveJob());
 
   // Settings toggle
   const settingsToggle = document.getElementById("settings-toggle");
@@ -558,15 +680,26 @@ document.addEventListener("DOMContentLoaded", () => {
   const sidebarToggle = document.getElementById("sidebar-toggle");
   const sidebarEl = document.querySelector(".sidebar");
   const sidebarExpandTab = document.getElementById("sidebar-tab");
+  function _collapsePanel(el) {
+    el.dataset.savedMaxWidth = el.style.maxWidth || "";
+    el.dataset.savedWidth    = el.style.width    || "";
+    el.style.maxWidth = "";
+    el.style.width    = "";
+    el.classList.add("collapsed");
+  }
+  function _expandPanel(el) {
+    el.classList.remove("collapsed");
+    if (el.dataset.savedMaxWidth) el.style.maxWidth = el.dataset.savedMaxWidth;
+    if (el.dataset.savedWidth)    el.style.width    = el.dataset.savedWidth;
+  }
   if (sidebarToggle && sidebarEl) {
     sidebarToggle.addEventListener("click", () => {
-      sidebarEl.classList.toggle("collapsed");
+      if (sidebarEl.classList.contains("collapsed")) _expandPanel(sidebarEl);
+      else _collapsePanel(sidebarEl);
     });
   }
   if (sidebarExpandTab && sidebarEl) {
-    sidebarExpandTab.addEventListener("click", () => {
-      sidebarEl.classList.remove("collapsed");
-    });
+    sidebarExpandTab.addEventListener("click", () => _expandPanel(sidebarEl));
   }
 
   // Browser panel collapse toggle
@@ -575,13 +708,12 @@ document.addEventListener("DOMContentLoaded", () => {
   const browserExpandTab = document.getElementById("browser-tab");
   if (browserToggle && browserPanel) {
     browserToggle.addEventListener("click", () => {
-      browserPanel.classList.toggle("collapsed");
+      if (browserPanel.classList.contains("collapsed")) _expandPanel(browserPanel);
+      else _collapsePanel(browserPanel);
     });
   }
   if (browserExpandTab && browserPanel) {
-    browserExpandTab.addEventListener("click", () => {
-      browserPanel.classList.remove("collapsed");
-    });
+    browserExpandTab.addEventListener("click", () => _expandPanel(browserPanel));
   }
 
   // Tab switching
@@ -989,6 +1121,7 @@ function renderBrowser(data) {
 
     const videoPath = data.path + "/" + entry.name;
     const stem = entry.name.replace(/\.avi$/i, "");
+    row.dataset.videoPath = videoPath;
 
     if (entry.type === "dir") {
       icon.textContent = "📁";
@@ -1031,6 +1164,20 @@ function renderBrowser(data) {
     }
     list.appendChild(row);
   });
+}
+
+function _setBrowserScanBadge(fullPath, status) {
+  const row = document.querySelector(`#browser-list .browser-row[data-video-path="${CSS.escape(fullPath)}"]`);
+  if (!row) return;
+  const badge = row.querySelector(".badge");
+  if (!badge) return;
+  if (status === "scanning") {
+    badge.className = "badge badge-scanning";
+    badge.textContent = "▶ scanning";
+  } else if (status === "done-scan") {
+    badge.className = "badge badge-done";
+    badge.textContent = "done";
+  }
 }
 
 async function selectVideo(videoPath, stem, parent) {
@@ -1182,6 +1329,7 @@ function listenToScan(jobId) {
 async function cancelScan() {
   if (!currentJobId) return;
   document.getElementById("scan-cancel-btn").disabled = true;
+  document.getElementById("progress-cancel-btn").disabled = true;
   await fetch(`/clip-cutter/scan/${encodeURIComponent(currentJobId)}/cancel`, { method: "POST" });
 }
 
@@ -1285,6 +1433,7 @@ function buildResultCard(d, idx) {
   card.className = "result-card" + (isKnown ? "" : " new");
   card.id = `card-${idx}`;
   card.dataset.source = d.source || "";
+  card.dataset.similarity = d.similarity ?? 0;
 
   // Build compact two-line card
   card.innerHTML = `
@@ -1394,6 +1543,31 @@ function setStatus(msg) {
   document.getElementById("status-msg").textContent = msg;
 }
 
+// ── Tab navigation between candidates ─────────────────────────────────────────
+
+document.addEventListener("keydown", e => {
+  if (e.key !== "Tab") return;
+  const tag = document.activeElement?.tagName;
+  if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
+
+  const playerPanel = document.getElementById("player-panel");
+  if (!playerPanel || playerPanel.style.display === "none") return;
+
+  const active = document.querySelector(".result-card.active-preview");
+  if (!active) return;
+
+  const cards = Array.from(document.querySelectorAll("#results-list .result-card"));
+  const cur = cards.indexOf(active);
+  if (cur === -1) return;
+
+  const next = e.shiftKey ? cur - 1 : cur + 1;
+  if (next < 0 || next >= cards.length) { e.preventDefault(); return; }
+
+  e.preventDefault();
+  cards[next].click();
+  cards[next].scrollIntoView({ block: "nearest" });
+});
+
 // ── Sidebar resize ─────────────────────────────────────────────────────────────
 
 (function () {
@@ -1419,6 +1593,40 @@ function setStatus(msg) {
   }
 
   function onUp() {
+    document.body.style.userSelect = "";
+    document.removeEventListener("mousemove", onMove);
+    document.removeEventListener("mouseup",   onUp);
+    window.removeEventListener("blur",        onUp);
+  }
+})();
+
+// ── Browser panel resize ────────────────────────────────────────────────────────
+
+(function () {
+  const handle  = document.getElementById("browser-resize-handle");
+  const panel   = document.getElementById("browser-panel");
+  if (!handle || !panel) return;
+  let startX = 0, startW = 0;
+
+  handle.addEventListener("mousedown", e => {
+    startX = e.clientX;
+    startW = panel.offsetWidth;
+    handle.classList.add("dragging");
+    document.body.style.userSelect = "none";
+    document.addEventListener("mousemove", onMove);
+    document.addEventListener("mouseup",   onUp);
+    window.addEventListener("blur",        onUp);
+    e.preventDefault();
+  });
+
+  function onMove(e) {
+    const w = Math.max(160, Math.min(520, startW + (e.clientX - startX)));
+    panel.style.width    = w + "px";
+    panel.style.maxWidth = w + "px";
+  }
+
+  function onUp() {
+    handle.classList.remove("dragging");
     document.body.style.userSelect = "";
     document.removeEventListener("mousemove", onMove);
     document.removeEventListener("mouseup",   onUp);

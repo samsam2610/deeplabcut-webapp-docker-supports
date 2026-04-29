@@ -1674,3 +1674,34 @@ def test_rename_extract_uses_captured_idx(page: "Page"):
     assert new_path == "/user-data/out/card0_renamed.avi", (
         f"detections[0].extract_avi_path should be updated, got: {new_path}"
     )
+
+
+# ── Similarity threshold filter tests ─────────────────────────────────────────
+
+_SIM_DETECTIONS = [
+    {"frame_number": 100, "similarity": 0.87, "source": "sensor+clip",
+     "video_path": "/user-data/vid1.avi", "known_match": None, "status": "pending"},
+    {"frame_number": 200, "similarity": 0.74, "source": "sensor+clip",
+     "video_path": "/user-data/vid1.avi", "known_match": None, "status": "pending"},
+]
+
+
+def _inject_sim_detections(page: Page) -> None:
+    page.wait_for_function("typeof renderDetections === 'function'")
+    import json as _j
+    page.evaluate(f"renderDetections({_j.dumps(_SIM_DETECTIONS)})")
+
+
+def test_result_card_has_data_similarity_attribute(page: Page):
+    """Each result card must expose data-similarity matching the detection's similarity."""
+    setup_routes(page)
+    page.goto(f"{BASE_URL}/clip-cutter/")
+    _inject_sim_detections(page)
+
+    cards = page.locator(".result-card")
+    expect(cards).to_have_count(2)
+
+    sim0 = page.evaluate("document.querySelectorAll('.result-card')[0].dataset.similarity")
+    sim1 = page.evaluate("document.querySelectorAll('.result-card')[1].dataset.similarity")
+    assert float(sim0) == pytest.approx(0.87, abs=0.001), f"card 0 data-similarity wrong: {sim0}"
+    assert float(sim1) == pytest.approx(0.74, abs=0.001), f"card 1 data-similarity wrong: {sim1}"
