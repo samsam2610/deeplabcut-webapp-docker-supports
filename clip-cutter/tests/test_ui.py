@@ -1970,14 +1970,6 @@ def test_setkf_in_browse_mode_updates_start_field(page: Page):
     assert int(start_val) == 101, f"ep-start should be max(1, 300+1-200)=101, got {start_val}"
 
 
-_MOCK_BROWSE_EXTRACT = {
-    "avi_path": "/user-data/out/browse_clip.avi",
-    "csv_path": "/user-data/out/browse_clip.csv",
-    "start_frame_number": 100,
-    "end_frame_number": 899,
-}
-
-
 def _setup_browse_routes(page):
     """Setup routes + video-info + frame for browse-mode tests."""
     setup_routes(page)
