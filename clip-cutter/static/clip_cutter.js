@@ -789,6 +789,17 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   })();
 
+  // Detections-header browse button
+  document.getElementById("detections-browse-btn")?.addEventListener("click", () => {
+    if (!selectedVideoPath) return;
+    openPlayer({
+      mode: "clip",
+      videoPath: selectedVideoPath,
+      csvPath: selectedVideoPath.replace(/\.avi$/i, ".csv"),
+      unlocked: true,
+    });
+  });
+
   // Source filter buttons
   document.querySelectorAll(".filter-btn").forEach((btn) => {
     btn.addEventListener("click", () => {
@@ -1234,6 +1245,8 @@ async function selectVideo(videoPath, stem, parent) {
   }
 
   document.getElementById("scan-btn").disabled = false;
+  const browseBtn = document.getElementById("detections-browse-btn");
+  if (browseBtn) { browseBtn.disabled = false; browseBtn.style.cursor = "pointer"; }
   updateBatchScanBtn();
   detections.length = 0;
   document.getElementById("results-list").innerHTML = "";

@@ -1890,3 +1890,27 @@ def test_propagate_row_has_two_checkboxes(page: Page):
     )
     assert add_kf_checked is True, "ep-add-kf-to-template should be checked by default"
     assert propagate_checked is False, "ep-propagate-kf should be unchecked by default"
+
+
+def test_browse_btn_exists_in_detections_header(page: Page):
+    """#detections-browse-btn must exist inside .results-pane-header."""
+    setup_routes(page)
+    page.goto(f"{BASE_URL}/clip-cutter/")
+    btn = page.locator(".results-pane-header #detections-browse-btn")
+    expect(btn).to_have_count(1)
+
+
+def test_browse_btn_disabled_on_load(page: Page):
+    """Browse button must be disabled when no video is selected."""
+    setup_routes(page)
+    page.goto(f"{BASE_URL}/clip-cutter/")
+    expect(page.locator("#detections-browse-btn")).to_be_disabled()
+
+
+def test_browse_btn_enabled_after_video_select(page: Page):
+    """Browse button must be enabled after selecting a video."""
+    setup_routes(page)
+    page.goto(f"{BASE_URL}/clip-cutter/")
+    page.locator(".browser-row:has(.badge-pending)").first.click()
+    page.wait_for_selector("#scan-btn:not([disabled])")
+    expect(page.locator("#detections-browse-btn")).to_be_enabled()
