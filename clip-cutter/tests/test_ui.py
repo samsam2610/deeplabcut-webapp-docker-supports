@@ -1914,3 +1914,30 @@ def test_browse_btn_enabled_after_video_select(page: Page):
     page.locator(".browser-row:has(.badge-pending)").first.click()
     page.wait_for_selector("#scan-btn:not([disabled])")
     expect(page.locator("#detections-browse-btn")).to_be_enabled()
+
+
+def test_openplayer_unlocked_starts_with_open_lock(page: Page):
+    """openPlayer with unlocked:true must render unlocked lock badge and ep-lock-start unchecked."""
+    setup_routes(page)
+    # Mock video-info, sibling-camera, and frame endpoints
+    page.route("**/clip-cutter/video-info**", lambda r: r.fulfill(
+        status=200, content_type="application/json",
+        body=json.dumps({"frame_count": 1000})
+    ))
+    page.route("**/clip-cutter/sibling-camera", lambda r: r.fulfill(
+        status=200, content_type="application/json",
+        body=json.dumps({"sibling_video_path": None})
+    ))
+    page.route("**/clip-cutter/frame**", lambda r: r.fulfill(
+        status=200, content_type="image/jpeg",
+        body=base64.b64decode(_JPEG_B64)
+    ))
+    page.goto(f"{BASE_URL}/clip-cutter/")
+    page.evaluate("""() => {
+        openPlayer({ mode: 'clip', videoPath: '/user-data/vid1.avi', unlocked: true });
+    }""")
+    page.wait_for_selector("#player-panel", state="visible")
+    badge_class = page.evaluate("document.getElementById('ep-lock-badge').className")
+    lock_start_checked = page.evaluate("document.getElementById('ep-lock-start').checked")
+    assert "unlocked" in badge_class, f"lock badge class wrong: {badge_class}"
+    assert lock_start_checked is False, "ep-lock-start should be unchecked in browse mode"

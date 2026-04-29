@@ -31,6 +31,7 @@ let _epActiveNote     = new Set();
 let _epActiveChip     = null;  // { type: "status"|"note", val: string } | null for nav
 let _kfCanvasVisible = false;
 let _unlocked = false;
+let _browseMode = false;
 let _syncCamEnabled = false;
 let _siblingVideoPath = null;
 let _rescanJobId = null;
@@ -67,7 +68,7 @@ async function epSwitchDetection({ detectionIdx, keyFrame1Based }) {
   await _epLoadFrame(_keyFrame);
 }
 
-async function openPlayer({ mode, videoPath, keyFrame1Based = null, detectionIdx = null, csvPath = null }) {
+async function openPlayer({ mode, videoPath, keyFrame1Based = null, detectionIdx = null, csvPath = null, unlocked = false }) {
   _stop();
   _mode = mode;
   _videoPath = videoPath;
@@ -85,7 +86,8 @@ async function openPlayer({ mode, videoPath, keyFrame1Based = null, detectionIdx
   document.querySelectorAll(".ep-step-preset").forEach(el => el.classList.remove("active"));
 
   _kfCanvasVisible = false;
-  _unlocked = false;
+  _unlocked = unlocked;
+  _browseMode = unlocked;
   _epActiveChip = null;
   _epActivePostfixTag = null;
   _epRenderPostfixTags();
@@ -950,7 +952,7 @@ function _epUpdateModeUI() {
     rejectBtn.style.display = "";
     addTemplateBtn.style.display = "none";
     gotoKfBtn.style.display = "";
-    document.getElementById("ep-lock-start").checked = true;
+    document.getElementById("ep-lock-start").checked = !_unlocked;
 
     const isFinished = _detectionIdx !== null &&
       typeof detections !== "undefined" &&
