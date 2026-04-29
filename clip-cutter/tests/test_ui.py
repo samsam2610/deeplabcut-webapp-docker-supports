@@ -1456,32 +1456,53 @@ def test_accent_bar_visible_on_kept_active_card(page: Page):
 # ── Task 2: results-list padding-bottom syncs to player panel height ──────────
 
 def test_results_list_padding_syncs_on_open(page: Page):
-    """After openPlayer shows the panel, _epSyncResultsPadding sets paddingBottom > 0px."""
-    _setup_player_with_csv(page)
+    """openPlayer wires _epSyncResultsPadding — panel visible → paddingBottom > 0."""
+    setup_routes(page)
+    page.route(
+        "**/clip-cutter/video-info**",
+        lambda r: r.fulfill(content_type="application/json", body='{"frame_count":500}'),
+    )
+    page.route(
+        "**/clip-cutter/frame**",
+        lambda r: r.fulfill(content_type="image/jpeg", body=base64.b64decode(_JPEG_B64)),
+    )
+    page.goto(f"{BASE_URL}/clip-cutter/")
 
-    # Simulate what openPlayer does: panel is visible, call _epSyncResultsPadding
-    padding = page.evaluate("""() => {
-        _epSyncResultsPadding();
-        return document.getElementById('results-list').style.paddingBottom;
-    }""")
-    # paddingBottom should be a positive px value set by _epSyncResultsPadding
+    # Ensure panel starts hidden so openPlayer is the one that shows it and syncs padding
+    page.evaluate("() => { document.getElementById('player-panel').style.display = 'none'; }")
+    page.evaluate("() => { document.getElementById('results-list').style.paddingBottom = ''; }")
+
+    page.evaluate("""() => openPlayer({
+        mode: 'clip',
+        videoPath: '/user-data/test.avi',
+        keyFrame1Based: 100,
+        detectionIdx: 0
+    })""")
+
+    # openPlayer calls _epSyncResultsPadding after showing the panel
+    padding = page.evaluate("() => document.getElementById('results-list').style.paddingBottom")
     assert padding and padding != "0px" and padding != "", (
         f"Expected results-list paddingBottom > 0px after openPlayer, got: {repr(padding)}"
     )
 
 
-def test_results_list_padding_zero_on_close(page: Page):
-    """After closing the player panel, #results-list paddingBottom should be 0px."""
+def test_results_list_padding_zero_on_collapse(page: Page):
+    """Clicking ep-collapse (close) sets paddingBottom to 0px."""
     _setup_player_with_csv(page)
-
-    # Close the player via the collapse button
     page.click("#ep-collapse")
-
-    padding = page.evaluate("""() => {
-        return document.getElementById('results-list').style.paddingBottom;
-    }""")
+    padding = page.evaluate("() => document.getElementById('results-list').style.paddingBottom")
     assert padding == "0px", (
-        f"Expected results-list paddingBottom to be 0px after close, got: {repr(padding)}"
+        f"Expected paddingBottom 0px after collapse, got: {repr(padding)}"
+    )
+
+
+def test_results_list_padding_zero_on_minimize(page: Page):
+    """Minimizing the player sets paddingBottom to 0px."""
+    _setup_player_with_csv(page)
+    page.click("#ep-minimize-btn")
+    padding = page.evaluate("() => document.getElementById('results-list').style.paddingBottom")
+    assert padding == "0px", (
+        f"Expected paddingBottom 0px after minimize, got: {repr(padding)}"
     )
 
 

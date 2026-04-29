@@ -897,6 +897,11 @@ function _epSyncResultsPadding() {
   list.style.paddingBottom = panel.offsetHeight + "px";
 }
 
+function _epClearResultsPadding() {
+  const list = document.getElementById("results-list");
+  if (list) list.style.paddingBottom = "0px";
+}
+
 // ── Event wiring ───────────────────────────────────────────────────────────────
 
 document.addEventListener("DOMContentLoaded", () => {
@@ -905,7 +910,7 @@ document.addEventListener("DOMContentLoaded", () => {
   document.getElementById("ep-collapse").addEventListener("click", () => {
     _stop();
     document.getElementById("player-panel").style.display = "none";
-    document.getElementById("results-list").style.paddingBottom = "0px";
+    _epClearResultsPadding();
   });
 
   // Lock badge — toggle lock/unlock clip range
@@ -1417,8 +1422,7 @@ document.addEventListener("DOMContentLoaded", () => {
     if (typeof saveDetections === "function") saveDetections();
     _stop();
     document.getElementById("player-panel").style.display = "none";
-    const resList = document.getElementById("results-list");
-    if (resList) resList.style.paddingBottom = "0px";
+    _epClearResultsPadding();
   });
 
   // Drag handle — resize panel height by dragging the top border
@@ -1493,7 +1497,7 @@ document.addEventListener("DOMContentLoaded", () => {
         panel.style.height = "";
         btn.innerHTML = "&#9650;";
         btn.title = "Restore viewer";
-        document.getElementById("results-list").style.paddingBottom = "0px";
+        _epClearResultsPadding();
       }
     });
   })();
