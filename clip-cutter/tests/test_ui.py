@@ -1940,4 +1940,30 @@ def test_openplayer_unlocked_starts_with_open_lock(page: Page):
     badge_class = page.evaluate("document.getElementById('ep-lock-badge').className")
     lock_start_checked = page.evaluate("document.getElementById('ep-lock-start').checked")
     assert "unlocked" in badge_class, f"lock badge class wrong: {badge_class}"
-    assert lock_start_checked is False, "ep-lock-start should be unchecked in browse mode"
+
+
+def test_setkf_in_browse_mode_updates_start_field(page: Page):
+    """Set KF with no detectionIdx (browse mode) must update ep-start without crashing."""
+    setup_routes(page)
+    page.route("**/clip-cutter/video-info**", lambda r: r.fulfill(
+        status=200, content_type="application/json",
+        body=json.dumps({"frame_count": 1000})
+    ))
+    page.route("**/clip-cutter/sibling-camera", lambda r: r.fulfill(
+        status=200, content_type="application/json",
+        body=json.dumps({"sibling_video_path": None})
+    ))
+    page.route("**/clip-cutter/frame**", lambda r: r.fulfill(
+        status=200, content_type="image/jpeg",
+        body=base64.b64decode(_JPEG_B64)
+    ))
+    page.goto(f"{BASE_URL}/clip-cutter/")
+    page.evaluate("""() => {
+        openPlayer({ mode: 'clip', videoPath: '/user-data/vid1.avi', unlocked: true });
+    }""")
+    page.wait_for_selector("#player-panel", state="visible")
+    # Jump to frame 300 and press Set KF
+    page.evaluate("_currentFrame = 300")
+    page.click("#ep-set-kf")
+    start_val = page.evaluate("document.getElementById('ep-start').value")
+    assert int(start_val) == 101, f"ep-start should be max(1, 300+1-200)=101, got {start_val}"

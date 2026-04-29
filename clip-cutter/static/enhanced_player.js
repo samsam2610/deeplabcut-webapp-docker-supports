@@ -60,6 +60,7 @@ async function epSwitchDetection({ detectionIdx, keyFrame1Based }) {
   _clipStart = Math.max(0, kf0 - 200);
   _clipEnd = Math.min(_frameCount - 1, kf0 + 599);
   _unlocked = false;
+  _browseMode = false;
 
   _epInitExtractPanel(_videoPath, keyFrame1Based);
   _epUpdateModeUI();
@@ -1021,6 +1022,7 @@ async function _epApplyNewKF(kf1) {
   _clipEnd = Math.min(_frameCount - 1, kf0 + 599);
 
   _unlocked = false;
+  _browseMode = false;
   const badge = document.getElementById("ep-lock-badge");
   badge.className = "locked";
   badge.textContent = "🔒 " + (_clipStart + 1) + "–" + (_clipEnd + 1);
@@ -1559,9 +1561,18 @@ document.addEventListener("DOMContentLoaded", () => {
 
   // Set KF (clip mode — with overlap check)
   document.getElementById("ep-set-kf").addEventListener("click", async () => {
-    if (!_videoPath || _detectionIdx === null) return;
+    if (!_videoPath) return;
     const kf1 = _currentFrame + 1;
 
+    // Browse mode: no detection yet — just update the extract panel start
+    if (_detectionIdx === null) {
+      _keyFrame = _currentFrame;
+      document.getElementById("ep-start").value = Math.max(1, kf1 - 200);
+      _epUpdateEnd();
+      return;
+    }
+
+    // Normal clip mode: overlap check
     let data;
     try {
       const resp = await fetch("/clip-cutter/check-keyframe-overlap", {
