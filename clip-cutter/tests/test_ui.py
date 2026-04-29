@@ -1433,3 +1433,21 @@ def test_accent_bar_visible_on_kept_active_card(page: Page):
     assert bar1_bg in ("rgba(0, 0, 0, 0)", "transparent"), (
         f"Expected inactive bar to be transparent, got: {bar1_bg}"
     )
+
+    # Verify opacity independence: card has opacity:0.4 but bar computed opacity stays 1.0
+    # (bar is a child element — its effective opacity is product of parent × own, but
+    # getComputedStyle returns only the element's own opacity, not the inherited product)
+    card_opacity = page.evaluate("""() => {
+        const card = document.getElementById('card-0');
+        card.style.opacity = '0.4';
+        return window.getComputedStyle(card).opacity;
+    }""")
+    assert float(card_opacity) < 1.0, "Card should have reduced opacity when kept"
+
+    bar_own_opacity = page.evaluate("""() => {
+        const bar = document.querySelector('#card-0 .result-accent-bar');
+        return window.getComputedStyle(bar).opacity;
+    }""")
+    assert float(bar_own_opacity) == 1.0, (
+        f"Bar's own opacity should be 1.0 (CSS class controls color, not opacity), got: {bar_own_opacity}"
+    )
