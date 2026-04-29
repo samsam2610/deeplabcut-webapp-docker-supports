@@ -51,8 +51,14 @@ header h1 { font-size: 15px; font-weight: 600; }
   background: #0d1117; border-right: 1px solid #30363d;
   width: 290px; max-width: 290px; min-width: 0;
   transition: max-width 0.2s ease;
+  position: relative;
 }
 #browser-panel.collapsed { max-width: 0; }
+#browser-resize-handle {
+  position: absolute; top: 0; right: 0; bottom: 0; width: 5px;
+  cursor: ew-resize; background: transparent; z-index: 10;
+}
+#browser-resize-handle:hover, #browser-resize-handle.dragging { background: #388bfd44; }
 #browser-panel-body {
   flex: 1; display: flex; flex-direction: column; overflow-y: auto; min-height: 0;
 }
@@ -194,6 +200,7 @@ header h1 { font-size: 15px; font-weight: 600; }
 .badge { font-size: 9px; padding: 1px 6px; border-radius: 3px; flex-shrink: 0; }
 .badge-done { background: #1a3a1a; color: #2ea043; }
 .badge-pending { background: #1a2535; color: #388bfd; }
+.badge-scanning { background: #2a1f00; color: #e3b341; }
 /* Scan settings panel */
 #scan-settings { padding: 0 10px 4px; }
 .settings-toggle-btn { width: 100%; text-align: left; padding: 4px 8px; background: #1c2128; border: 1px solid #30363d; border-radius: 4px; color: #cdd9e5; font-size: 11px; cursor: pointer; }
@@ -243,6 +250,14 @@ header h1 { font-size: 15px; font-weight: 600; }
 .filter-btn { padding: 1px 7px; border-radius: 10px; border: 1px solid #30363d; background: transparent; color: #768390; font-size: 9px; cursor: pointer; }
 .filter-btn:hover { background: #30363d; border-color: #388bfd; }
 .filter-btn.active { background: #1f6feb; border-color: #1f6feb; color: #fff; }
+#sim-filter { display: flex; align-items: center; gap: 3px; }
+#sim-filter .sim-label { font-size: 9px; color: #768390; white-space: nowrap; }
+#sim-slider { width: 70px; accent-color: #388bfd; cursor: pointer; }
+#sim-value { width: 42px; font-size: 9px; background: #0d1117; border: 1px solid #30363d;
+             color: #cdd9e5; border-radius: 3px; padding: 1px 3px; text-align: center; }
+#sim-reset { background: transparent; border: none; color: #768390; font-size: 11px;
+             cursor: pointer; padding: 0 2px; line-height: 1; }
+#sim-reset:hover { color: #f85149; }
 #results-list { flex: 1; overflow-y: auto; padding: 4px 8px; display: flex; flex-direction: column; gap: 3px; }
 .result-card { display: flex; align-items: center; gap: 6px; padding: 4px 7px; background: #1c2128; border-radius: 4px; border: 1px solid #30363d; cursor: pointer; }
 .result-card:hover { border-color: #388bfd44; }
@@ -311,6 +326,27 @@ header h1 { font-size: 15px; font-weight: 600; }
 }
 #ep-title { flex: 1; font-size: 10px; color: #768390; }
 #ep-minimize-btn { font-size: 10px; padding: 1px 6px; }
+#ep-help-btn { font-size: 10px; padding: 1px 5px; position: relative; }
+#ep-help-tooltip {
+  display: none;
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 200;
+  background: #1c2128;
+  border: 1px solid #444c56;
+  border-radius: 4px;
+  padding: 8px 10px;
+  white-space: nowrap;
+  font-size: 10px;
+  color: #adbac7;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.5);
+}
+#ep-help-btn:hover #ep-help-tooltip { display: block; }
+#ep-help-tooltip table { border-collapse: collapse; }
+#ep-help-tooltip td { padding: 2px 8px 2px 0; }
+#ep-help-tooltip td:first-child { color: #88b4ff; font-family: monospace; white-space: nowrap; }
+#ep-help-tooltip .ht-section { color: #768390; font-size: 9px; padding-top: 6px; }
 #player-panel.minimized #ep-inner { display: none; }
 #player-panel.minimized #ep-drag-handle { display: none; }
 #ep-inner {
@@ -775,9 +811,11 @@ header h1 { font-size: 15px; font-weight: 600; }
       <div id="progress-label">
         <span id="progress-text">Scanning&#8230;</span>
         <span id="progress-pct">0%</span>
+        <button onclick="cancelScan()" id="progress-cancel-btn" style="margin-left:auto;padding:1px 8px;background:#c62828;color:#fff;border:none;border-radius:3px;cursor:pointer;font-size:9px;">&#9632; Cancel</button>
       </div>
       <div id="progress-bar"><div id="progress-fill"></div></div>
     </div>
+    <div id="browser-resize-handle"></div>
   </div><!-- /browser-panel -->
 
   <!-- Browser expand tab (shows when browser collapsed) -->
@@ -788,6 +826,12 @@ header h1 { font-size: 15px; font-weight: 600; }
     <div class="results-pane-header">
       <span class="section-label" style="font-size:9px;">Detections</span>
       <span id="results-count"></span>
+      <div id="sim-filter">
+        <span class="sim-label">&#8805;</span>
+        <input type="range" id="sim-slider" min="0" max="1" step="0.01" value="0">
+        <input type="number" id="sim-value" min="0" max="1" step="0.01" value="0">
+        <button id="sim-reset" title="Clear similarity filter" style="display:none;">&#215;</button>
+      </div>
       <div id="source-filter">
         <button class="filter-btn active" data-filter="sensor+clip">&#10003; sensor+CLIP</button>
         <button class="filter-btn" data-filter="clip_only">CLIP only</button>
@@ -804,6 +848,22 @@ header h1 { font-size: 15px; font-weight: 600; }
   <div id="ep-drag-handle"></div>
   <div id="ep-titlebar">
     <span id="ep-title">Video Viewer</span>
+    <button id="ep-help-btn" class="player-btn" title="Keyboard shortcuts">?
+      <div id="ep-help-tooltip">
+        <table>
+          <tr><td colspan="2" class="ht-section">Video viewer (cursor over viewer)</td></tr>
+          <tr><td>Space</td><td>Play forward / pause</td></tr>
+          <tr><td>Shift+Space</td><td>Play backward / pause</td></tr>
+          <tr><td>← / →</td><td>Step ±1 frame</td></tr>
+          <tr><td>Shift+← / →</td><td>Step ±step size</td></tr>
+          <tr><td>Shift+S</td><td>Set KF here</td></tr>
+          <tr><td>Shift+E</td><td>Extract clip</td></tr>
+          <tr><td colspan="2" class="ht-section">Candidate list</td></tr>
+          <tr><td>Tab</td><td>Next candidate</td></tr>
+          <tr><td>Shift+Tab</td><td>Previous candidate</td></tr>
+        </table>
+      </div>
+    </button>
     <button id="ep-minimize-btn" class="player-btn" title="Minimize viewer">&#9660;</button>
   </div>
   <div id="ep-inner">

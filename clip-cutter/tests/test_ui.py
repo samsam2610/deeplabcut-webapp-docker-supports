@@ -1749,3 +1749,19 @@ def test_threshold_hides_low_similarity_cards(page: Page):
     cards = page.locator(".result-card")
     expect(cards.nth(0)).to_be_visible()   # 0.87 >= 0.80 → visible
     expect(cards.nth(1)).to_be_hidden()    # 0.74 < 0.80 → hidden
+
+
+def test_sim_filter_control_exists_and_visible(page: Page):
+    """#sim-filter, #sim-slider, and #sim-value are present in the Detections header."""
+    setup_routes(page)
+    page.goto(f"{BASE_URL}/clip-cutter/")
+    expect(page.locator("#sim-filter")).to_be_visible()
+    expect(page.locator("#sim-slider")).to_have_attribute("type", "range")
+    expect(page.locator("#sim-value")).to_have_attribute("type", "number")
+
+
+def test_sim_reset_hidden_by_default(page: Page):
+    """#sim-reset button is hidden when threshold is 0."""
+    setup_routes(page)
+    page.goto(f"{BASE_URL}/clip-cutter/")
+    expect(page.locator("#sim-reset")).to_be_hidden()
