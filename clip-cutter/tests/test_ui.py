@@ -1844,3 +1844,18 @@ def test_tab_skips_hidden_cards(page: Page):
     # card[0] should still be active (no next visible card to jump to)
     expect(page.locator(".result-card").nth(0)).to_have_class(re.compile(r"active-preview"))
     expect(page.locator(".result-card").nth(1)).not_to_have_class(re.compile(r"active-preview"))
+
+
+def test_note_palette_has_scroll_limit(page: Page):
+    """#ep-note-palette must have max-height: 72px and overflow-y: auto."""
+    setup_routes(page)
+    page.goto(f"{BASE_URL}/clip-cutter/")
+
+    max_h = page.evaluate(
+        "getComputedStyle(document.getElementById('ep-note-palette')).maxHeight"
+    )
+    overflow = page.evaluate(
+        "getComputedStyle(document.getElementById('ep-note-palette')).overflowY"
+    )
+    assert max_h == "72px", f"max-height wrong: {max_h}"
+    assert overflow == "auto", f"overflow-y wrong: {overflow}"
