@@ -1920,18 +1920,23 @@ def test_propagate_row_visible_in_template_mode(page: Page):
     assert display != "none", f"propagate-row hidden in template mode: {display}"
 
 
-def test_propagate_row_has_two_checkboxes(page: Page):
-    """#ep-propagate-row must contain ep-add-kf-to-template (checked) and ep-propagate-kf (unchecked)."""
+def test_propagate_row_has_add_kf_checkbox_and_propagate_btn(page: Page):
+    """ep-propagate-row must have ep-add-kf-to-template checkbox (checked) and ep-propagate-btn button (disabled by default)."""
     setup_routes(page)
     page.goto(f"{BASE_URL}/clip-cutter/")
     add_kf_checked = page.evaluate(
         "document.getElementById('ep-add-kf-to-template').checked"
     )
-    propagate_checked = page.evaluate(
-        "document.getElementById('ep-propagate-kf').checked"
-    )
     assert add_kf_checked is True, "ep-add-kf-to-template should be checked by default"
-    assert propagate_checked is False, "ep-propagate-kf should be unchecked by default"
+
+    propagate_kf = page.evaluate(
+        "document.getElementById('ep-propagate-kf')"
+    )
+    assert propagate_kf is None, "ep-propagate-kf checkbox should no longer exist"
+
+    btn = page.locator("#ep-propagate-btn")
+    expect(btn).to_have_count(1)
+    expect(btn).to_be_disabled()
 
 
 def test_browse_btn_exists_in_detections_header(page: Page):
