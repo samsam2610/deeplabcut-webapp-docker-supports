@@ -1337,7 +1337,8 @@ document.addEventListener("DOMContentLoaded", () => {
   // Delete extract
   document.getElementById("ep-delete-extract").addEventListener("click", async () => {
     if (_detectionIdx === null || typeof detections === "undefined") return;
-    const det = detections[_detectionIdx];
+    const capturedIdx = _detectionIdx;
+    const det = detections[capturedIdx];
     const aviPath = det?.extract_avi_path;
 
     const _unlock = () => {
@@ -1349,7 +1350,7 @@ document.addEventListener("DOMContentLoaded", () => {
       document.getElementById("ep-extract").disabled = false;
       document.getElementById("ep-set-kf").disabled = false;
       document.getElementById("ep-reject").disabled = false;
-      const card = document.getElementById("card-" + _detectionIdx);
+      const card = document.getElementById("card-" + capturedIdx);
       if (card) {
         card.classList.remove("kept");
         card.querySelectorAll("button").forEach(b => { b.disabled = false; });
@@ -1390,7 +1391,6 @@ document.addEventListener("DOMContentLoaded", () => {
   document.getElementById("ep-rename-extract").addEventListener("click", async () => {
     if (_detectionIdx === null || typeof detections === "undefined") return;
     const capturedIdx = _detectionIdx;
-    const capturedVideoPath = _videoPath;
     const det = detections[capturedIdx];
     const aviPath = det?.extract_avi_path;
     if (!aviPath) { setStatus("No extract path recorded"); return; }
