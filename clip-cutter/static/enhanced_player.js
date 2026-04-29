@@ -1065,6 +1065,7 @@ async function _epApplyNewKF(kf1) {
 function _epApplyRescanKF(idx, newFrame1Based) {
   if (typeof detections === "undefined" || !detections[idx]) return;
   const d = detections[idx];
+  if (d.video_path !== _videoPath) return;  // wrong video — user switched
   if (_detectionIdx === idx) return;  // user is on this candidate — discard
   if (d.status === "kept" || d.status === "rejected") return;  // already processed
 
@@ -1078,6 +1079,7 @@ function _epApplyRescanKF(idx, newFrame1Based) {
   }
   if (_kfCanvasVisible) _epDrawKfCanvas();
   if (typeof saveDetections === "function") saveDetections();
+  if (typeof _epAutoPopulatePostfixes === "function") _epAutoPopulatePostfixes();
 }
 
 async function _epStartRescan(detectionIdx) {

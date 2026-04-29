@@ -1272,6 +1272,11 @@ def start_rescan_forward():
     if not video_path or not candidates:
         return jsonify({"error": "video_path and candidates required"}), 400
 
+    with _state_lock:
+        current_stem = _state.get("video_stem")
+    if current_stem and Path(video_path).stem != current_stem:
+        return jsonify({"error": "video_path does not match current video"}), 400
+
     params = body.get("params", {})
     fine_window = int(params.get("fine_window", config.FINE_SCAN_WINDOW))
 
