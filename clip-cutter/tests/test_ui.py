@@ -1524,3 +1524,153 @@ def test_results_list_padding_syncs_on_drag_resize(page: Page):
     assert result["padding"] == expected, (
         f"Expected results-list paddingBottom={expected} after drag resize, got: {repr(result['padding'])}"
     )
+
+
+# ── Task 3: Race-condition guard in extract / rename-extract handlers ──────────
+
+def _inject_two_cards(page: "Page") -> None:
+    """Inject two minimal detection cards into #results-list."""
+    page.evaluate("""() => {
+        const list = document.getElementById('results-list');
+        list.innerHTML = '';
+        for (let i = 0; i < 2; i++) {
+            const card = document.createElement('div');
+            card.className = 'result-card';
+            card.id = 'card-' + i;
+            const meta = document.createElement('div');
+            meta.className = 'result-meta';
+            const name = document.createElement('div');
+            name.className = 'result-name';
+            name.textContent = 'VID_' + i + '.avi';
+            const btn = document.createElement('button');
+            btn.className = 'keep-btn';
+            btn.textContent = 'Keep';
+            meta.appendChild(name);
+            card.appendChild(meta);
+            card.appendChild(btn);
+            list.appendChild(card);
+        }
+    }""")
+
+
+def test_extract_uses_captured_idx_not_current(page: "Page"):
+    """Extract completion updates the originally-extracted card even if navigation happened.
+
+    Integration test: click extract on card 0, verify card 0's name is updated
+    (not a corrupted card-1 or nothing).  The mock response routes to the card
+    identified by the captured _detectionIdx, not whatever _detectionIdx is at
+    settlement time.
+    """
+    _setup_player_with_csv(page)
+
+    # Override the extract route with a named clip so we can assert on it
+    page.route(
+        "**/clip-cutter/extract",
+        lambda r: r.fulfill(
+            status=200,
+            content_type="application/json",
+            body=json.dumps({
+                "avi_path": "/user-data/out/card0_clip.avi",
+                "csv_path": "/user-data/out/card0_clip.csv",
+                "start_frame_number": 100,
+                "end_frame_number": 900,
+            }),
+        ),
+    )
+
+    _inject_two_cards(page)
+
+    # Set up module state: detections array with two entries, open player on card 0
+    page.evaluate("""() => {
+        detections.length = 0;
+        detections.push(
+            { cv2_pos: 100, frame_number: 200, similarity: 0.9 },
+            { cv2_pos: 500, frame_number: 600, similarity: 0.8 }
+        );
+        _detectionIdx = 0;
+        _videoPath = '/user-data/test.avi';
+        // Make ep-extract visible and ep-rename-extract hidden (not-kept state)
+        document.getElementById('ep-extract').style.display = '';
+        document.getElementById('ep-extract').disabled = false;
+        document.getElementById('ep-rename-extract').style.display = 'none';
+        document.getElementById('player-panel').style.display = '';
+    }""")
+
+    # Click extract — response applies to card 0
+    page.click("#ep-extract")
+
+    # Wait for the card name to update (the fetch resolves and DOM is mutated)
+    expect(page.locator("#card-0 .result-name")).to_have_text(
+        "card0_clip.avi", timeout=5_000
+    )
+
+    # Card 1 must NOT have been touched
+    expect(page.locator("#card-1 .result-name")).to_have_text("VID_1.avi")
+
+    # Card 0 must have gained the 'kept' class
+    expect(page.locator("#card-0")).to_have_class(re.compile(r"\bkept\b"))
+
+    # detections[0] must be updated; detections[1] must be untouched
+    result = page.evaluate("""() => ({
+        status0: detections[0].status,
+        status1: detections[1].status,
+    })""")
+    assert result["status0"] == "kept", f"detections[0].status should be 'kept', got {result['status0']}"
+    assert result["status1"] != "kept", f"detections[1].status should not be 'kept', got {result['status1']}"
+
+
+def test_rename_extract_uses_captured_idx(page: "Page"):
+    """Rename-extract completion updates the originally-renamed card.
+
+    Integration test: put card 0 in a 'kept' state with an existing extract path,
+    then click 'Update name' and verify card 0's name is updated to the renamed
+    filename returned by the mock route.
+    """
+    _setup_player_with_csv(page)
+
+    # Register the rename route
+    page.route(
+        "**/clip-cutter/extract/rename",
+        lambda r: r.fulfill(
+            status=200,
+            content_type="application/json",
+            body=json.dumps({"avi_path": "/user-data/out/card0_renamed.avi"}),
+        ),
+    )
+
+    _inject_two_cards(page)
+
+    # Put card 0 in kept state with a prior extract path; show rename button
+    page.evaluate("""() => {
+        detections.length = 0;
+        detections.push(
+            { cv2_pos: 100, frame_number: 200, similarity: 0.9,
+              status: 'kept', extract_avi_path: '/user-data/out/card0_old.avi' },
+            { cv2_pos: 500, frame_number: 600, similarity: 0.8 }
+        );
+        _detectionIdx = 0;
+        _videoPath = '/user-data/test.avi';
+        document.getElementById('card-0').classList.add('kept');
+        // Show rename button, hide extract button (kept state)
+        document.getElementById('ep-extract').style.display = 'none';
+        document.getElementById('ep-rename-extract').style.display = '';
+        document.getElementById('ep-rename-extract').disabled = false;
+        document.getElementById('player-panel').style.display = '';
+    }""")
+
+    # Click rename-extract
+    page.click("#ep-rename-extract")
+
+    # Card 0's name should be updated to the renamed filename
+    expect(page.locator("#card-0 .result-name")).to_have_text(
+        "card0_renamed.avi", timeout=5_000
+    )
+
+    # Card 1 must be untouched
+    expect(page.locator("#card-1 .result-name")).to_have_text("VID_1.avi")
+
+    # detections[0].extract_avi_path must be updated
+    new_path = page.evaluate("detections[0].extract_avi_path")
+    assert new_path == "/user-data/out/card0_renamed.avi", (
+        f"detections[0].extract_avi_path should be updated, got: {new_path}"
+    )

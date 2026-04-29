@@ -1288,11 +1288,13 @@ document.addEventListener("DOMContentLoaded", () => {
   // Extract
   document.getElementById("ep-extract").addEventListener("click", async () => {
     if (!_videoPath) return;
+    const capturedIdx = _detectionIdx;
+    const capturedVideoPath = _videoPath;
     const start = parseInt(document.getElementById("ep-start").value, 10);
     const keyFrame = start + 200;
     const postfix = document.getElementById("ep-postfix").value.trim();
 
-    const body = { video_path: _videoPath, key_frame: keyFrame };
+    const body = { video_path: capturedVideoPath, key_frame: keyFrame };
     if (postfix) body.postfix = postfix;
 
     try {
@@ -1308,11 +1310,11 @@ document.addEventListener("DOMContentLoaded", () => {
       }
       const data = await resp.json();
       setStatus("Clip extracted");
-      if (_detectionIdx !== null && typeof detections !== "undefined" && detections[_detectionIdx]) {
-        detections[_detectionIdx].status = "kept";
-        detections[_detectionIdx].extract_avi_path = data.avi_path;
-        detections[_detectionIdx].extract_postfix = postfix || null;
-        const card = document.getElementById("card-" + _detectionIdx);
+      if (capturedIdx !== null && typeof detections !== "undefined" && detections[capturedIdx]) {
+        detections[capturedIdx].status = "kept";
+        detections[capturedIdx].extract_avi_path = data.avi_path;
+        detections[capturedIdx].extract_postfix = postfix || null;
+        const card = document.getElementById("card-" + capturedIdx);
         if (card) {
           card.classList.add("kept");
           card.querySelectorAll("button").forEach(b => { b.disabled = true; });
@@ -1321,12 +1323,14 @@ document.addEventListener("DOMContentLoaded", () => {
         }
         if (typeof saveDetections === "function") saveDetections();
       }
-      document.getElementById("ep-extract").style.display = "none";
-      document.getElementById("ep-rename-extract").style.display = "";
-      document.getElementById("ep-rename-extract").disabled = false;
-      document.getElementById("ep-delete-extract").style.display = "";
-      document.getElementById("ep-set-kf").disabled = true;
-      document.getElementById("ep-reject").disabled = true;
+      if (_detectionIdx === capturedIdx) {
+        document.getElementById("ep-extract").style.display = "none";
+        document.getElementById("ep-rename-extract").style.display = "";
+        document.getElementById("ep-rename-extract").disabled = false;
+        document.getElementById("ep-delete-extract").style.display = "";
+        document.getElementById("ep-set-kf").disabled = true;
+        document.getElementById("ep-reject").disabled = true;
+      }
     } catch (e) { setStatus("Network error: " + e.message); }
   });
 
@@ -1385,7 +1389,9 @@ document.addEventListener("DOMContentLoaded", () => {
   // Rename extract — apply current postfix to the extracted filename
   document.getElementById("ep-rename-extract").addEventListener("click", async () => {
     if (_detectionIdx === null || typeof detections === "undefined") return;
-    const det = detections[_detectionIdx];
+    const capturedIdx = _detectionIdx;
+    const capturedVideoPath = _videoPath;
+    const det = detections[capturedIdx];
     const aviPath = det?.extract_avi_path;
     if (!aviPath) { setStatus("No extract path recorded"); return; }
     const postfix = document.getElementById("ep-postfix").value.trim();
@@ -1403,7 +1409,7 @@ document.addEventListener("DOMContentLoaded", () => {
       const data = await resp.json();
       det.extract_avi_path = data.avi_path;
       det.extract_postfix = postfix || null;
-      const card = document.getElementById("card-" + _detectionIdx);
+      const card = document.getElementById("card-" + capturedIdx);
       if (card) {
         const nameEl = card.querySelector(".result-name");
         if (nameEl) nameEl.textContent = data.avi_path.split("/").pop();
