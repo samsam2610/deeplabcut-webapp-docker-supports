@@ -1,3 +1,5 @@
+import threading
+
 import numpy as np
 import pytest
 import sys
@@ -421,9 +423,6 @@ def test_find_template_candidates_clustering(mock_model, tiny_video):
         assert "frame_number" in c
         assert "similarity" in c
         assert "cluster_id" in c
-
-
-import threading
 
 
 @pytest.fixture

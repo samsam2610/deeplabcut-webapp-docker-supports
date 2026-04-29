@@ -64,6 +64,8 @@ def _get_dino_model_cuda1():
 
 def embed_frames_cuda1_batch(frames: list, batch_size: int = 256) -> np.ndarray:
     """Embed BGR numpy frames with DINOv2 on CUDA:1. Returns L2-normalised (N, 1024) float32."""
+    if not frames:
+        return np.zeros((0, 1024), dtype=np.float32)
     import torch
     model, transform = _get_dino_model_cuda1()
     device = next(model.parameters()).device
@@ -97,10 +99,10 @@ def rescan_forward_candidates(
     """
     from concurrent.futures import ThreadPoolExecutor
 
-    mean_emb = template_state.get("dino_mean_embedding") or template_state.get("mean_embedding")
-    if mean_emb is None:
+    mean_emb_raw = template_state.get("dino_mean_embedding")
+    if mean_emb_raw is None:
         return []
-    mean_emb = np.asarray(mean_emb, dtype=np.float32)
+    mean_emb = np.asarray(mean_emb_raw, dtype=np.float32)
     norm = np.linalg.norm(mean_emb)
     if norm > 0:
         mean_emb = mean_emb / norm
