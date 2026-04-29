@@ -32,6 +32,149 @@ _dino_model = None
 _dino_transform = None
 _dino_model_lock = threading.Lock()
 
+# Lazy-loaded DINOv2 singleton for CUDA:1 (used by rescan_forward_candidates)
+_dino_model_cuda1 = None
+_dino_transform_cuda1 = None
+_dino_model_cuda1_lock = threading.Lock()
+
+
+def _get_dino_model_cuda1():
+    global _dino_model_cuda1, _dino_transform_cuda1
+    if _dino_model_cuda1 is None:
+        with _dino_model_cuda1_lock:
+            if _dino_model_cuda1 is None:
+                import torch
+                import torchvision.transforms as T
+                n = torch.cuda.device_count()
+                device = torch.device("cuda:1" if n > 1 else ("cuda:0" if n > 0 else "cpu"))
+                model = torch.hub.load(
+                    "facebookresearch/dinov2", config.DINO_MODEL_NAME, pretrained=True
+                )
+                model.eval()
+                model = model.to(device)
+                _dino_transform_cuda1 = T.Compose([
+                    T.Resize(224, interpolation=T.InterpolationMode.BICUBIC),
+                    T.CenterCrop(224),
+                    T.ToTensor(),
+                    T.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
+                ])
+                _dino_model_cuda1 = model
+    return _dino_model_cuda1, _dino_transform_cuda1
+
+
+def embed_frames_cuda1_batch(frames: list, batch_size: int = 256) -> np.ndarray:
+    """Embed BGR numpy frames with DINOv2 on CUDA:1. Returns L2-normalised (N, 1024) float32."""
+    import torch
+    model, transform = _get_dino_model_cuda1()
+    device = next(model.parameters()).device
+    all_embs: list = []
+    for i in range(0, len(frames), batch_size):
+        batch = frames[i:i + batch_size]
+        tensors = torch.stack([
+            transform(Image.fromarray(cv2.cvtColor(f, cv2.COLOR_BGR2RGB)))
+            for f in batch
+        ]).to(device)
+        with torch.no_grad():
+            feats = model(tensors)
+        feats = feats.cpu().float().numpy()
+        norms = np.linalg.norm(feats, axis=1, keepdims=True).clip(min=1e-8)
+        all_embs.append(feats / norms)
+    return np.concatenate(all_embs, axis=0)
+
+
+def rescan_forward_candidates(
+    video_path: "str | Path",
+    candidates: list,
+    fine_window: int,
+    template_state: dict,
+    n_prefetch_threads: int = 12,
+    cancel_event: "threading.Event | None" = None,
+) -> list:
+    """Re-run fine scan for candidates using updated template.
+
+    candidates: list of {idx, frame_number} where frame_number is 1-based.
+    Returns list of {idx, new_frame_number, similarity}.
+    """
+    from concurrent.futures import ThreadPoolExecutor
+
+    mean_emb = template_state.get("dino_mean_embedding") or template_state.get("mean_embedding")
+    if mean_emb is None:
+        return []
+    mean_emb = np.asarray(mean_emb, dtype=np.float32)
+    norm = np.linalg.norm(mean_emb)
+    if norm > 0:
+        mean_emb = mean_emb / norm
+
+    # Build per-candidate windows of 0-based frame indices
+    windows = []
+    for cand in candidates:
+        kf0 = cand["frame_number"] - 1
+        lo = max(0, kf0 - fine_window)
+        hi = kf0 + fine_window
+        windows.append((cand, list(range(lo, hi + 1))))
+
+    all_tasks = [(ci, f0) for ci, (_, flist) in enumerate(windows) for f0 in flist]
+
+    if cancel_event and cancel_event.is_set():
+        return []
+
+    # Parallel frame prefetch (I/O bound)
+    frame_store: dict = {}
+
+    def _read(task):
+        ci, f0 = task
+        return ci, f0, read_frame(str(video_path), f0)
+
+    with ThreadPoolExecutor(max_workers=n_prefetch_threads) as pool:
+        for ci, f0, frame in pool.map(_read, all_tasks):
+            if frame is not None:
+                frame_store[(ci, f0)] = frame
+
+    if cancel_event and cancel_event.is_set():
+        return []
+
+    # Build ordered list for batch embed
+    ordered_frames: list = []
+    slice_map: list = []  # (ci, f0)
+    for ci, (_, flist) in enumerate(windows):
+        for f0 in flist:
+            frame = frame_store.get((ci, f0))
+            if frame is not None:
+                slice_map.append((ci, f0))
+                ordered_frames.append(frame)
+
+    if not ordered_frames:
+        return []
+
+    # Single large batch embed — saturates CUDA:1
+    embs = embed_frames_cuda1_batch(ordered_frames, batch_size=len(ordered_frames))
+
+    if cancel_event and cancel_event.is_set():
+        return []
+
+    # Group back per candidate
+    ci_to_pairs: dict = {}
+    for local_i, (ci, f0) in enumerate(slice_map):
+        ci_to_pairs.setdefault(ci, []).append((f0, embs[local_i]))
+
+    results = []
+    for ci, (cand, _) in enumerate(windows):
+        if cancel_event and cancel_event.is_set():
+            break
+        pairs = ci_to_pairs.get(ci, [])
+        if not pairs:
+            continue
+        fs, vecs = zip(*pairs)
+        sims = np.array([float(np.dot(mean_emb, v)) for v in vecs])
+        best = int(np.argmax(sims))
+        results.append({
+            "idx": cand["idx"],
+            "new_frame_number": fs[best] + 1,
+            "similarity": float(sims[best]),
+        })
+
+    return results
+
 
 def _get_dino_model():
     global _dino_model, _dino_transform
@@ -118,12 +261,12 @@ def embed_frame(frame_bgr: np.ndarray, crop: tuple | None = None) -> np.ndarray:
 
 
 def embed_frames_batch(
-    frames: list[np.ndarray], crop: tuple | None = None
+    frames: list[np.ndarray], crop: tuple | None = None, batch_size: int = 256
 ) -> np.ndarray:
     """Embed a list of BGR frames in one CLIP batch. Returns (N, D) float32."""
     pil_images = [_to_pil(f, crop) for f in frames]
     embs = _get_model().encode(
-        pil_images, convert_to_numpy=True, batch_size=64, show_progress_bar=False
+        pil_images, convert_to_numpy=True, batch_size=batch_size, show_progress_bar=False
     )
     embs = embs.astype(np.float32)
     norms = np.linalg.norm(embs, axis=1, keepdims=True)
@@ -208,7 +351,11 @@ def load_combined_template(template_dirs: list) -> dict:
     """
     clip_embs, dino_embs = [], []
     for d in template_dirs:
-        state_path = Path(d) / "template" / "template_state.json"
+        # Accept either clips_dir (parent of template/) or template/ itself
+        candidate = Path(d) / "template" / "template_state.json"
+        if not candidate.exists():
+            candidate = Path(d) / "template_state.json"
+        state_path = candidate
         state = load_template_state(state_path)
         if state["mean_embedding"] is not None:
             clip_embs.append(state["mean_embedding"])
@@ -905,12 +1052,16 @@ def find_template_candidates(
     cap.release()
     all_positions = np.arange(0, total_frames, stride, dtype=np.int64)
 
-    # Sensor-guided: restrict to covered windows
+    # Sensor-guided: use every covered frame (no stride filter) so the GPU
+    # sees the full density of sensor windows rather than just the few stride-
+    # aligned frames that happened to land inside a 50-frame burst.
     if csv_path is not None and Path(csv_path).exists():
         _, covered_set = find_sensor_triggers(csv_path, trigger_value, sensor_margin)
-        positions = np.array(
-            [p for p in all_positions if (int(p) + 1) in covered_set], dtype=np.int64
+        covered_0based = np.array(
+            sorted(f - 1 for f in covered_set if 0 <= f - 1 < total_frames),
+            dtype=np.int64,
         )
+        positions = covered_0based if len(covered_0based) > 0 else all_positions
     else:
         positions = all_positions
 
@@ -924,19 +1075,24 @@ def find_template_candidates(
     if phase_cb:
         phase_cb("coarse", 0, len(positions))
 
+    _SEEK_THRESHOLD = 30  # frames; seek instead of grab when gap exceeds this
+
     def read_batch(batch_positions):
         if len(batch_positions) == 0:
             return []
         vcap = cv2.VideoCapture(str(video_path))
-        vcap.set(cv2.CAP_PROP_POS_FRAMES, int(batch_positions[0]))
-        cur = int(batch_positions[0])
         frames = []
+        cur = -1
         try:
             for target in batch_positions:
                 target = int(target)
-                while cur < target:
-                    vcap.grab()
-                    cur += 1
+                if cur < 0 or (target - cur) > _SEEK_THRESHOLD:
+                    vcap.set(cv2.CAP_PROP_POS_FRAMES, target)
+                    cur = target
+                else:
+                    while cur < target:
+                        vcap.grab()
+                        cur += 1
                 ret, frame = vcap.read()
                 cur += 1
                 frames.append(frame if ret else np.zeros((64, 64, 3), dtype=np.uint8))
@@ -955,8 +1111,8 @@ def find_template_candidates(
             frames = future.result()
             next_start = batch_start + batch_size
             future = pool.submit(read_batch, positions[next_start: next_start + batch_size])
-            embs = embed_frames_batch(frames)          # (B, 512)
-            sims = (embs @ clip_matrix.T).max(axis=1) # (B,)
+            embs = embed_frames_batch(frames, batch_size=batch_size)  # (B, 512)
+            sims = (embs @ clip_matrix.T).max(axis=1)                # (B,)
             n = len(batch_pos)
             all_embs_chunks.append(embs[:n])
             all_sims_chunks.append(sims[:n])
@@ -1220,10 +1376,11 @@ def extract_clip(
     parent_csv_path: Path | str,
     key_frame_number: int,
     output_dir: Path | str,
+    postfix: str = "",
 ) -> dict:
     """
     Extract the 800-frame clip for a confirmed detection.
-    Writes: {output_dir}/{stem}_{start}_{end}.avi and matching .csv
+    Writes: {output_dir}/{stem}_{start}_{end}[_{postfix}].avi and matching .csv
     Returns dict with output paths and start/end frame numbers.
     key_frame_number is 1-based (matches CSV frame_number).
     start/end are clamped to [1, total_frames].
@@ -1243,6 +1400,10 @@ def extract_clip(
 
     stem = video_path.stem
     clip_stem = f"{stem}_{start_fn}_{end_fn}"
+    if postfix:
+        safe_postfix = "".join(c for c in postfix if c.isalnum() or c in "-_")[:64]
+        if safe_postfix:
+            clip_stem += f"_{safe_postfix}"
     avi_path = output_dir / f"{clip_stem}.avi"
     csv_path = output_dir / f"{clip_stem}.csv"
 

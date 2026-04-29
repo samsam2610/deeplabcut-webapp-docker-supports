@@ -421,3 +421,126 @@ def test_find_template_candidates_clustering(mock_model, tiny_video):
         assert "frame_number" in c
         assert "similarity" in c
         assert "cluster_id" in c
+
+
+import threading
+
+
+@pytest.fixture
+def mock_dino_cuda1(monkeypatch):
+    """Replace the CUDA:1 DINOv2 singleton with a deterministic fake."""
+    import processor
+    import numpy as np
+
+    class FakeDinoModel:
+        def __call__(self, tensors):
+            import torch
+            N = tensors.shape[0]
+            rng = np.random.default_rng(0)
+            arr = rng.random((N, 1024)).astype(np.float32)
+            norms = np.linalg.norm(arr, axis=1, keepdims=True).clip(min=1e-8)
+            arr = arr / norms
+            return torch.tensor(arr)
+
+        def parameters(self):
+            import torch
+            yield torch.tensor([0.0])  # device = cpu
+
+        def to(self, device):
+            return self
+
+    import torchvision.transforms as T
+    fake_transform = T.Compose([T.Resize(8), T.CenterCrop(8), T.ToTensor()])
+    monkeypatch.setattr(processor, "_dino_model_cuda1", FakeDinoModel())
+    monkeypatch.setattr(processor, "_dino_transform_cuda1", fake_transform)
+    return FakeDinoModel()
+
+
+def test_rescan_forward_candidates_returns_results(mock_dino_cuda1, tiny_video):
+    """Returns one result per candidate with valid frame_number and similarity."""
+    import processor
+    import numpy as np
+
+    template_state = {
+        "dino_mean_embedding": np.ones(1024, dtype=np.float32).tolist(),
+        "mean_embedding": None,
+        "frames": [],
+    }
+    candidates = [
+        {"idx": 3, "frame_number": 20},
+        {"idx": 4, "frame_number": 30},
+    ]
+    results = processor.rescan_forward_candidates(
+        video_path=str(tiny_video),
+        candidates=candidates,
+        fine_window=5,
+        template_state=template_state,
+    )
+    assert len(results) == 2
+    for r in results:
+        assert "idx" in r
+        assert "new_frame_number" in r
+        assert "similarity" in r
+        assert isinstance(r["new_frame_number"], int)
+        assert r["new_frame_number"] >= 1
+        assert 0.0 <= r["similarity"] <= 1.0
+
+
+def test_rescan_forward_candidates_respects_cancel(mock_dino_cuda1, tiny_video):
+    """Cancel event set before processing causes empty result."""
+    import processor
+    import numpy as np
+
+    template_state = {
+        "dino_mean_embedding": np.ones(1024, dtype=np.float32).tolist(),
+        "mean_embedding": None,
+        "frames": [],
+    }
+    candidates = [{"idx": 3, "frame_number": 20}]
+    cancel_ev = threading.Event()
+    cancel_ev.set()  # set before call
+    results = processor.rescan_forward_candidates(
+        video_path=str(tiny_video),
+        candidates=candidates,
+        fine_window=5,
+        template_state=template_state,
+        cancel_event=cancel_ev,
+    )
+    assert results == []
+
+
+def test_rescan_forward_candidates_empty_template(mock_dino_cuda1, tiny_video):
+    """Returns empty list when template has no mean embedding."""
+    import processor
+
+    template_state = {"dino_mean_embedding": None, "mean_embedding": None, "frames": []}
+    candidates = [{"idx": 0, "frame_number": 10}]
+    results = processor.rescan_forward_candidates(
+        video_path=str(tiny_video),
+        candidates=candidates,
+        fine_window=5,
+        template_state=template_state,
+    )
+    assert results == []
+
+
+def test_rescan_forward_candidates_idx_preserved(mock_dino_cuda1, tiny_video):
+    """Result idx values match the input candidate idx values."""
+    import processor
+    import numpy as np
+
+    template_state = {
+        "dino_mean_embedding": np.ones(1024, dtype=np.float32).tolist(),
+        "mean_embedding": None,
+        "frames": [],
+    }
+    candidates = [{"idx": 7, "frame_number": 15}, {"idx": 12, "frame_number": 25}]
+    results = processor.rescan_forward_candidates(
+        video_path=str(tiny_video),
+        candidates=candidates,
+        fine_window=3,
+        template_state=template_state,
+    )
+    result_idxs = [r["idx"] for r in results]
+    assert 7 in result_idxs
+    assert 12 in result_idxs
