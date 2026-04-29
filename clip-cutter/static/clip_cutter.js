@@ -1531,7 +1531,7 @@ function buildResultCard(d, idx) {
 
   // Attach event listeners (no onclick attributes with embedded data)
   card.querySelector(".keep-btn").addEventListener("click", () => keepDetection(idx));
-  card.querySelector(".reject-btn").addEventListener("click", () => rejectDetection(idx));
+  card.querySelector(".reject-btn").addEventListener("click", (e) => { e.stopPropagation(); rejectDetection(idx); });
   card.querySelector(".add-btn").addEventListener("click", () =>
     addToTemplate(d.video_path, d.frame_number)
   );

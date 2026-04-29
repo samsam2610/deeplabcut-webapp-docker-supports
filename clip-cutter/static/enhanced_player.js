@@ -231,6 +231,7 @@ async function _epLoop() {
 function _stop() {
   if (_timerId !== null) { clearTimeout(_timerId); _timerId = null; }
   _playing = false;
+  _busy = false;
   const fwd = document.getElementById("ep-play");
   const bwd = document.getElementById("ep-play-back");
   if (fwd) fwd.textContent = "▶";

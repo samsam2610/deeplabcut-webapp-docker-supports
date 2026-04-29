@@ -2062,3 +2062,85 @@ def test_browse_extract_consecutive_creates_two_entries(page: Page):
     source1 = page.evaluate("detections[1].source")
     assert source0 == "manual", f"first detection source wrong: {source0}"
     assert source1 == "manual", f"second detection source wrong: {source1}"
+
+
+def test_reject_in_browse_mode_does_not_trigger_ep_switch(page: Page):
+    """Clicking reject on a scan card while in browse mode must not call epSwitchDetection.
+
+    Regression: rejectDetection() synchronously disables buttons before its first
+    await; the click bubbled to the card handler, which saw the button as disabled
+    and called epSwitchDetection, corrupting browse mode.  Fix: reject click handler
+    calls stopPropagation() so the card-level handler never fires.
+    """
+    setup_routes(page, template_frames=_MOCK_FRAMES)
+    page.route("**/clip-cutter/video-info**", lambda r: r.fulfill(
+        status=200, content_type="application/json",
+        body=json.dumps({"frame_count": 1000})
+    ))
+    page.route("**/clip-cutter/sibling-camera", lambda r: r.fulfill(
+        status=200, content_type="application/json",
+        body=json.dumps({"sibling_video_path": None})
+    ))
+    page.route("**/clip-cutter/frame**", lambda r: r.fulfill(
+        status=200, content_type="image/jpeg",
+        body=base64.b64decode(_JPEG_B64)
+    ))
+    page.goto(f"{BASE_URL}/clip-cutter/")
+
+    # Open player in browse mode
+    page.evaluate("""() => {
+        selectedVideoPath = '/user-data/vid1.avi';
+        openPlayer({ mode: 'clip', videoPath: '/user-data/vid1.avi', unlocked: true });
+    }""")
+    page.wait_for_selector("#player-panel", state="visible")
+
+    # Scan to get candidate cards
+    page.locator(".browser-row:has(.badge-pending)").first.click()
+    page.locator("#scan-btn").click()
+    expect(page.locator(".result-card")).to_have_count(2, timeout=8_000)
+
+    # Reject first card — must not corrupt browse mode
+    cards = page.locator(".result-card")
+    cards.nth(0).locator(".reject-btn").click()
+
+    browse_mode_still_set = page.evaluate("typeof _browseMode !== 'undefined' ? _browseMode : null")
+    # _browseMode is module-private; verify indirectly: player panel stays visible
+    # (epSwitchDetection to a rejected detection would disable all buttons and leave
+    # the player in a broken state, but the panel itself stays open — so we check
+    # that the rejected card does NOT become active-preview, which would mean the
+    # card click handler fired)
+    active = page.locator(".result-card.active-preview").count()
+    assert active == 0, f"epSwitchDetection fired after reject (active-preview count={active})"
+    expect(cards.nth(0)).to_have_class(re.compile(r"rejected"))
+
+
+def test_stop_resets_busy_flag_so_player_reopens_cleanly(page: Page):
+    """After closing the player, reopening it must load a frame (not stay blank).
+
+    Regression: _stop() did not reset _busy, so if a frame fetch was in-flight
+    when the player was closed, the next openPlayer call would find _busy=true and
+    _epLoadFrame would return immediately, leaving the player showing a blank frame.
+    """
+    _setup_browse_routes(page)
+    page.goto(f"{BASE_URL}/clip-cutter/")
+
+    # Open player, then close it immediately (simulates in-flight fetch being cut off)
+    page.evaluate("""() => {
+        selectedVideoPath = '/user-data/vid1.avi';
+        openPlayer({ mode: 'clip', videoPath: '/user-data/vid1.avi', unlocked: true });
+        // Force _busy=true as if a frame load was in flight
+        _busy = true;
+    }""")
+    page.wait_for_selector("#player-panel", state="visible")
+
+    # Reopen player — _stop() must have reset _busy
+    page.evaluate("""() => {
+        openPlayer({ mode: 'clip', videoPath: '/user-data/vid1.avi', unlocked: true });
+    }""")
+    page.wait_for_selector("#player-panel", state="visible")
+
+    busy_after = page.evaluate("_busy")
+    # After openPlayer completes its initial frame load, _busy should be false
+    page.wait_for_function("!_busy", timeout=3000)
+    busy_final = page.evaluate("_busy")
+    assert not busy_final, "_busy stuck true after player reopen — frame never loaded"
