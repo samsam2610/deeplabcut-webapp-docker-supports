@@ -1417,6 +1417,8 @@ document.addEventListener("DOMContentLoaded", () => {
     if (typeof saveDetections === "function") saveDetections();
     _stop();
     document.getElementById("player-panel").style.display = "none";
+    const resList = document.getElementById("results-list");
+    if (resList) resList.style.paddingBottom = "0px";
   });
 
   // Drag handle — resize panel height by dragging the top border
