@@ -233,7 +233,7 @@ def browse():
                 has_config = (entry / "config.yaml").exists()
                 entries.append({"name": entry.name, "type": "dir", "has_config": has_config})
             elif entry.name == "config.yaml":
-                entries.append({"name": entry.name, "type": "yaml"})
+                entries.append({"name": entry.name, "type": "yaml", "has_config": True})
     except PermissionError:
         return jsonify({"error": "permission denied"}), 403
 
@@ -304,7 +304,9 @@ def get_frame():
     if request.headers.get("If-None-Match") == etag:
         return Response(status=304)
 
-    full_path = Path(proj) / video_path
+    full_path = (Path(proj) / video_path).resolve()
+    if not full_path.is_relative_to(Path(proj).resolve()):
+        return jsonify({"error": "video path escapes project root"}), 400
     try:
         data = viewer.get_frame_jpeg(str(full_path), n)
     except FileNotFoundError as e:
@@ -325,7 +327,9 @@ def get_video_info():
     video_path = request.args.get("video", "").strip()
     if not video_path or not proj:
         return jsonify({"error": "video and active project required"}), 400
-    full_path = Path(proj) / video_path
+    full_path = (Path(proj) / video_path).resolve()
+    if not full_path.is_relative_to(Path(proj).resolve()):
+        return jsonify({"error": "video path escapes project root"}), 400
     try:
         info = viewer.get_video_info(str(full_path))
     except FileNotFoundError as e:
@@ -414,7 +418,7 @@ def labeled_frames():
         proj = _active_project
     session_key = request.args.get("session", "").strip()
     if not session_key or not proj:
-        return jsonify({"frames": [], "count": 0})
+        return jsonify({"frames": [], "count": 0, "session_folder": None})
 
     labeled_dir = Path(proj) / "labeled-data" / session_key
     if not labeled_dir.is_dir():
