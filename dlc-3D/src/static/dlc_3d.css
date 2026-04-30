@@ -1,103 +1,233 @@
-    #dlc3d-root {
-      --bg: #0d1117; --panel: #161b22; --border: #30363d;
-      --text: #e6edf3; --text-dim: #8b949e; --accent: #58a6ff;
-      background: var(--bg); color: var(--text); font-family: system-ui, sans-serif;
-      display: flex; flex-direction: column; flex: 1; overflow: hidden; min-height: 0;
-    }
-    #dlc3d-root * { box-sizing: border-box; margin: 0; padding: 0; }
+/* dlc_3d.css — styles scoped to #dlc-3d-extract-card only */
 
-    /* ── Header ── */
-    #dlc3d-root header { background: var(--panel); border-bottom: 1px solid var(--border);
-             padding: .45rem 1rem; display: flex; align-items: center; gap: .75rem; flex-shrink: 0; }
-    #dlc3d-root header h1 { font-size: .92rem; font-weight: 600; white-space: nowrap; }
-    #dlc3d-root #project-path-display { font-size: .75rem; color: var(--text-dim); flex: 1;
-                             white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* Alias old var names used in player inline styles */
+#dlc-3d-extract-card {
+  --bg: var(--surface);
+  --panel: var(--surface-2);
+}
 
-    /* ── Buttons ── */
-    #dlc3d-root .btn { background: var(--panel); border: 1px solid var(--border); color: var(--text);
-           padding: .28rem .65rem; border-radius: 5px; cursor: pointer; font-size: .8rem;
-           white-space: nowrap; }
-    #dlc3d-root .btn:hover { border-color: var(--accent); }
-    #dlc3d-root .btn-primary { background: var(--accent); border-color: var(--accent); color: #000; font-weight: 600; }
-    #dlc3d-root .btn:disabled { opacity: .45; cursor: default; }
+/* ── Inner two-column layout ── */
+#dlc-3d-extract-card .dlc3d-layout {
+  display: flex;
+  gap: .5rem;
+  height: 420px;
+  overflow: hidden;
+  margin-top: .4rem;
+}
 
-    /* ── Main layout ── */
-    #dlc3d-root .main-layout { display: flex; flex: 1; overflow: hidden; }
+/* ── Session panel (left) ── */
+#dlc-3d-extract-card #dlc3d-session-panel {
+  width: 210px;
+  min-width: 140px;
+  border-right: 1px solid var(--border);
+  overflow-y: auto;
+  padding: .4rem;
+  display: flex;
+  flex-direction: column;
+  gap: .25rem;
+}
+#dlc-3d-extract-card #dlc3d-session-empty {
+  font-size: .75rem;
+  color: var(--text-dim);
+  padding: .5rem;
+}
+#dlc-3d-extract-card .session-group {
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  overflow: hidden;
+}
+#dlc-3d-extract-card .session-header {
+  font-size: .8rem;
+  font-weight: 600;
+  padding: .3rem .55rem;
+  background: var(--surface-2);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: .35rem;
+}
+#dlc-3d-extract-card .session-header:hover { background: var(--surface-3, #21262d); }
+#dlc-3d-extract-card .session-body { display: none; }
+#dlc-3d-extract-card .session-body.open { display: block; }
+#dlc-3d-extract-card .cam-row {
+  padding: .22rem .55rem .22rem 1.1rem;
+  font-size: .78rem;
+  color: var(--text-dim);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: .4rem;
+}
+#dlc-3d-extract-card .cam-row:hover { background: var(--surface-3, #21262d); color: var(--text); }
+#dlc-3d-extract-card .cam-row.active { background: #1f3a5c; color: var(--accent); }
+#dlc-3d-extract-card .clip-section { padding-left: 1.6rem; }
+#dlc-3d-extract-card .clip-header {
+  font-size: .72rem;
+  color: var(--text-dim);
+  padding: .15rem .4rem;
+  font-style: italic;
+}
+#dlc-3d-extract-card .clip-row {
+  padding: .18rem .4rem;
+  font-size: .75rem;
+  color: var(--text-dim);
+  cursor: pointer;
+  border-radius: 3px;
+}
+#dlc-3d-extract-card .clip-row:hover { background: var(--surface-3, #21262d); color: var(--text); }
+#dlc-3d-extract-card .clip-row.active { background: #1f3a5c; color: var(--accent); }
+#dlc-3d-extract-card .cam-badge {
+  font-size: .68rem;
+  background: var(--surface-3, #21262d);
+  border-radius: 3px;
+  padding: .05rem .3rem;
+  color: var(--text-dim);
+}
 
-    /* ── Session panel (left) ── */
-    #dlc3d-root #session-panel { width: 260px; min-width: 180px; border-right: 1px solid var(--border);
-                     overflow-y: auto; padding: .4rem; display: flex; flex-direction: column; gap: .25rem; }
-    #dlc3d-root #session-empty { font-size: .75rem; color: var(--text-dim); padding: .5rem; }
-    #dlc3d-root .session-group { border: 1px solid var(--border); border-radius: 5px; overflow: hidden; }
-    #dlc3d-root .session-header { font-size: .8rem; font-weight: 600; padding: .3rem .55rem;
-                      background: var(--panel); cursor: pointer; display: flex; align-items: center; gap: .35rem; }
-    #dlc3d-root .session-header:hover { background: #21262d; }
-    #dlc3d-root .session-body { display: none; }
-    #dlc3d-root .session-body.open { display: block; }
-    #dlc3d-root .cam-row { padding: .22rem .55rem .22rem 1.1rem; font-size: .78rem; color: var(--text-dim);
-               cursor: pointer; display: flex; align-items: center; gap: .4rem; }
-    #dlc3d-root .cam-row:hover { background: #21262d; color: var(--text); }
-    #dlc3d-root .cam-row.active { background: #1f3a5c; color: var(--accent); }
-    #dlc3d-root .clip-section { padding-left: 1.6rem; }
-    #dlc3d-root .clip-header { font-size: .72rem; color: var(--text-dim); padding: .15rem .4rem; font-style: italic; }
-    #dlc3d-root .clip-row { padding: .18rem .4rem; font-size: .75rem; color: var(--text-dim); cursor: pointer; border-radius: 3px; }
-    #dlc3d-root .clip-row:hover { background: #21262d; color: var(--text); }
-    #dlc3d-root .clip-row.active { background: #1f3a5c; color: var(--accent); }
-    #dlc3d-root .cam-badge { font-size: .68rem; background: #21262d; border-radius: 3px;
-                 padding: .05rem .3rem; color: var(--text-dim); }
+/* ── Player area (right) ── */
+#dlc-3d-extract-card #dlc3d-player-area {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  gap: .35rem;
+  min-width: 0;
+}
+#dlc-3d-extract-card #cam-displays {
+  display: flex;
+  gap: .6rem;
+  flex: 1;
+  min-height: 0;
+}
+#dlc-3d-extract-card .cam-wrap {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: .2rem;
+  min-width: 0;
+  min-height: 0;
+}
+#dlc-3d-extract-card .cam-label { font-size: .72rem; color: var(--text-dim); }
+#dlc-3d-extract-card .cam-frame-wrap {
+  flex: 1;
+  background: #000;
+  border-radius: 4px;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 0;
+}
+#dlc-3d-extract-card .cam-frame-wrap img {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  display: block;
+}
+#dlc-3d-extract-card #no-video-msg {
+  font-size: .8rem;
+  color: var(--text-dim);
+  text-align: center;
+  width: 100%;
+}
 
-    /* ── Player area (right) ── */
-    #dlc3d-root #player-area { flex: 1; display: flex; flex-direction: column; overflow: hidden;
-                   padding: .6rem; gap: .45rem; min-width: 0; }
-    #dlc3d-root #cam-displays { display: flex; gap: .6rem; flex: 1; min-height: 0; }
-    #dlc3d-root .cam-wrap { flex: 1; display: flex; flex-direction: column; gap: .2rem; min-width: 0; min-height: 0; }
-    #dlc3d-root .cam-label { font-size: .72rem; color: var(--text-dim); }
-    #dlc3d-root .cam-frame-wrap { flex: 1; background: #000; border-radius: 4px; overflow: hidden;
-                      display: flex; align-items: center; justify-content: center; min-height: 0; }
-    #dlc3d-root .cam-frame-wrap img { max-width: 100%; max-height: 100%; object-fit: contain; display: block; }
-    #dlc3d-root #no-video-msg { font-size: .8rem; color: var(--text-dim); text-align: center; width: 100%; }
+/* ── Controls ── */
+#dlc-3d-extract-card #controls {
+  display: flex;
+  flex-direction: column;
+  gap: .3rem;
+  flex-shrink: 0;
+}
+#dlc-3d-extract-card .ctrl-row {
+  display: flex;
+  align-items: center;
+  gap: .35rem;
+  flex-wrap: wrap;
+}
+#dlc-3d-extract-card #ep-seek {
+  flex: 1;
+  min-width: 80px;
+  accent-color: var(--accent);
+}
+#dlc-3d-extract-card .frame-info {
+  font-size: .75rem;
+  color: var(--text-dim);
+  white-space: nowrap;
+}
 
-    /* ── Controls ── */
-    #dlc3d-root #controls { display: flex; flex-direction: column; gap: .3rem; flex-shrink: 0; }
-    #dlc3d-root .ctrl-row { display: flex; align-items: center; gap: .35rem; flex-wrap: wrap; }
-    #dlc3d-root #ep-seek { flex: 1; min-width: 100px; accent-color: var(--accent); }
-    #dlc3d-root .frame-info { font-size: .75rem; color: var(--text-dim); white-space: nowrap; }
+/* ── Sync cam row ── */
+#dlc-3d-extract-card #sync-cam-row {
+  display: none;
+  align-items: center;
+  gap: .75rem;
+}
+#dlc-3d-extract-card label.toggle {
+  display: flex;
+  align-items: center;
+  gap: .3rem;
+  font-size: .78rem;
+  cursor: pointer;
+  color: var(--text-dim);
+}
+#dlc-3d-extract-card label.toggle input { accent-color: var(--accent); cursor: pointer; }
 
-    /* ── Sync cam row ── */
-    #dlc3d-root #sync-cam-row { display: none; align-items: center; gap: .75rem; }
-    #dlc3d-root label.toggle { display: flex; align-items: center; gap: .3rem; font-size: .78rem;
-                   cursor: pointer; color: var(--text-dim); }
-    #dlc3d-root label.toggle input { accent-color: var(--accent); cursor: pointer; }
+/* ── Labeled frame chips ── */
+#dlc-3d-extract-card .frame-chip {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  padding: .08rem .3rem;
+  font-size: .7rem;
+  white-space: nowrap;
+}
+#dlc-3d-extract-card .frame-chip.cam0 { border-color: #3fb950; color: #3fb950; }
+#dlc-3d-extract-card .frame-chip.cam1 { border-color: #58a6ff; color: #58a6ff; }
 
-    /* ── Extract status ── */
-    #dlc3d-root #extract-status { font-size: .75rem; color: var(--text-dim); min-height: 1.1em; flex-shrink: 0; }
-
-    /* ── Labeled frames ── */
-    #dlc3d-root #labeled-wrap { border-top: 1px solid var(--border); padding-top: .4rem; flex-shrink: 0; display: none; }
-    #dlc3d-root #labeled-header { font-size: .75rem; font-weight: 600; margin-bottom: .25rem; }
-    #dlc3d-root #labeled-list { font-size: .72rem; color: var(--text-dim); max-height: 90px;
-                    overflow-y: auto; display: flex; flex-wrap: wrap; gap: .2rem; }
-    #dlc3d-root .frame-chip { background: var(--panel); border: 1px solid var(--border); border-radius: 3px;
-                  padding: .08rem .3rem; font-size: .7rem; white-space: nowrap; }
-    #dlc3d-root .frame-chip.cam0 { border-color: #3fb950; color: #3fb950; }
-    #dlc3d-root .frame-chip.cam1 { border-color: #58a6ff; color: #58a6ff; }
-
-    /* ── Browser modal ── */
-    #dlc3d-root #browser-modal { display: none; position: fixed; inset: 0; background: rgba(0,0,0,.65);
-                     z-index: 200; align-items: center; justify-content: center; }
-    #dlc3d-root #browser-modal.open { display: flex; }
-    #dlc3d-root #browser-box { background: var(--panel); border: 1px solid var(--border); border-radius: 8px;
-                   width: 560px; max-height: 70vh; display: flex; flex-direction: column; }
-    #dlc3d-root #browser-box-header { padding: .55rem 1rem; border-bottom: 1px solid var(--border);
-                          display: flex; justify-content: space-between; align-items: center; }
-    #dlc3d-root #browser-box-header span { font-weight: 600; font-size: .85rem; }
-    #dlc3d-root #browser-path-bar { font-size: .72rem; color: var(--text-dim); padding: .25rem .75rem;
-                        border-bottom: 1px solid var(--border); }
-    #dlc3d-root #browser-list { flex: 1; overflow-y: auto; }
-    #dlc3d-root .browser-entry { padding: .32rem .75rem; font-size: .8rem; cursor: pointer;
-                     display: flex; align-items: center; gap: .4rem; }
-    #dlc3d-root .browser-entry:hover { background: #21262d; }
-    #dlc3d-root .browser-entry .entry-icon { font-size: .85rem; }
-    #dlc3d-root .browser-entry.has-config .entry-icon { color: #3fb950; }
-    #dlc3d-root .browser-entry.yaml { color: #3fb950; font-weight: 600; }
-    #dlc3d-root .browser-up { color: var(--text-dim); font-style: italic; }
+/* ── Browser modal ── */
+#dlc3d-browser-modal {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,.65);
+  z-index: 200;
+  align-items: center;
+  justify-content: center;
+}
+#dlc3d-browser-modal.open { display: flex; }
+#dlc3d-browser-box {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  width: 560px;
+  max-height: 70vh;
+  display: flex;
+  flex-direction: column;
+}
+#dlc3d-browser-box-header {
+  padding: .55rem 1rem;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+#dlc3d-browser-box-header span { font-weight: 600; font-size: .85rem; }
+#dlc3d-browser-path-bar {
+  font-size: .72rem;
+  color: var(--text-dim);
+  padding: .25rem .75rem;
+  border-bottom: 1px solid var(--border);
+}
+#dlc3d-browser-list { flex: 1; overflow-y: auto; }
+#dlc-3d-extract-card .browser-entry {
+  padding: .32rem .75rem;
+  font-size: .8rem;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: .4rem;
+}
+#dlc-3d-extract-card .browser-entry:hover { background: var(--surface-3, #21262d); }
+#dlc-3d-extract-card .browser-entry .entry-icon { font-size: .85rem; }
+#dlc-3d-extract-card .browser-entry.has-config .entry-icon { color: #3fb950; }
+#dlc-3d-extract-card .browser-entry.yaml { color: #3fb950; font-weight: 600; }
+#dlc-3d-extract-card .browser-up { color: var(--text-dim); font-style: italic; }
