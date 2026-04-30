@@ -4,6 +4,13 @@ import cv2
 import pandas as pd
 
 
+@pytest.fixture(autouse=True)
+def no_queue_worker(monkeypatch):
+    """Prevent background worker thread from starting in tests."""
+    import queue_manager
+    monkeypatch.setattr(queue_manager, "start_worker", lambda: None)
+
+
 @pytest.fixture
 def mock_model(monkeypatch):
     """Replace the CLIP model singleton with a deterministic fake."""

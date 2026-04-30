@@ -56,7 +56,11 @@ def reset_routes_state(monkeypatch, tmp_path):
     routes._batch_init_jobs.clear()
     routes._batch_scan_jobs.clear()
     routes._batch_template_scan_jobs.clear()
-    queue_manager._queue_state["items"] = []
+    with queue_manager._lock:
+        queue_manager._queue_state["items"] = []
+        queue_manager._last_enqueue_time = 0.0
+    queue_manager._process_now_flag.clear()
+    queue_manager._worker_event.clear()
     yield
     routes._state = {
         "frames": [],
@@ -70,7 +74,11 @@ def reset_routes_state(monkeypatch, tmp_path):
     routes._batch_init_jobs.clear()
     routes._batch_scan_jobs.clear()
     routes._batch_template_scan_jobs.clear()
-    queue_manager._queue_state["items"] = []
+    with queue_manager._lock:
+        queue_manager._queue_state["items"] = []
+        queue_manager._last_enqueue_time = 0.0
+    queue_manager._process_now_flag.clear()
+    queue_manager._worker_event.clear()
 
 
 def test_index_returns_200(client):

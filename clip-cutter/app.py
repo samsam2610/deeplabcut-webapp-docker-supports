@@ -1,11 +1,13 @@
 from flask import Flask
 from routes import bp
+import queue_manager
 
 
 def create_app() -> Flask:
     app = Flask(__name__)
     app.config["TEMPLATES_AUTO_RELOAD"] = True
     app.register_blueprint(bp)
+    queue_manager.start_worker()
     return app
 
 
