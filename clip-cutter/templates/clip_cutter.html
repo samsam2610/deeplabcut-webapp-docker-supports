@@ -250,6 +250,10 @@ header h1 { font-size: 15px; font-weight: 600; }
 .filter-btn { padding: 1px 7px; border-radius: 10px; border: 1px solid #30363d; background: transparent; color: #768390; font-size: 9px; cursor: pointer; }
 .filter-btn:hover { background: #30363d; border-color: #388bfd; }
 .filter-btn.active { background: #1f6feb; border-color: #1f6feb; color: #fff; }
+.btn-queue { background: transparent; color: #f0c040; border: 1px solid #6a4500; border-radius: 50%; width: 18px; height: 18px; padding: 0; font-size: 10px; cursor: pointer; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+.btn-queue:hover { background: #3d2b00; }
+.btn-queue.queued { background: #f0c040; color: #0d1117; border-color: #f0c040; }
+.btn-queue:disabled { opacity: 0.4; cursor: not-allowed; }
 #sim-filter { display: flex; align-items: center; gap: 3px; }
 #sim-filter .sim-label { font-size: 9px; color: #768390; white-space: nowrap; }
 #sim-slider { width: 70px; accent-color: #388bfd; cursor: pointer; }
@@ -834,6 +838,8 @@ header h1 { font-size: 15px; font-weight: 600; }
       <span class="section-label" style="font-size:9px;">Detections</span>
       <span id="results-count"></span>
       <button id="detections-browse-btn" disabled title="Open video viewer without scanning" style="font-size:9px;padding:1px 6px;background:#21262d;color:#768390;border:1px solid #30363d;border-radius:3px;cursor:not-allowed;">&#9654; Browse</button>
+      <button id="extract-queue-btn" style="display:none;font-size:9px;padding:1px 6px;background:#1f6feb;color:#fff;border:1px solid #1f6feb;border-radius:3px;cursor:pointer;" title="Extract all queued detections now">&#9203; Extract Queue (<span id="queue-pending-count">0</span>)</button>
+      <button id="queue-siblings-btn" style="display:none;font-size:9px;padding:1px 6px;background:#3d2b00;color:#f0c040;border:1px solid #6a4500;border-radius:3px;cursor:pointer;" title="Queue sibling clips for all extracted detections that lack one">&#9711; Queue missing siblings (<span id="queue-siblings-count">0</span>)</button>
       <div id="sim-filter">
         <span class="sim-label">&#8805;</span>
         <input type="range" id="sim-slider" min="0" max="1" step="0.01" value="0">
@@ -865,7 +871,7 @@ header h1 { font-size: 15px; font-weight: 600; }
           <tr><td>← / →</td><td>Step ±1 frame</td></tr>
           <tr><td>Shift+← / →</td><td>Step ±step size</td></tr>
           <tr><td>Shift+S</td><td>Set KF here</td></tr>
-          <tr><td>Shift+E</td><td>Extract clip</td></tr>
+          <tr><td>Shift+E</td><td>Extract Queue</td></tr>
           <tr><td colspan="2" class="ht-section">Candidate list</td></tr>
           <tr><td>Tab</td><td>Next candidate</td></tr>
           <tr><td>Shift+Tab</td><td>Previous candidate</td></tr>
@@ -893,6 +899,9 @@ header h1 { font-size: 15px; font-weight: 600; }
       </div>
       <label id="ep-sync-cam-label" title="Show same frame from sibling camera" style="display:none;">
         <input type="checkbox" id="ep-sync-cam"> sync cam
+      </label>
+      <label id="ep-extract-sibling-label" title="Also extract clip from sibling camera" style="display:none;font-size:9px;color:#cdd9e5;cursor:pointer;gap:4px;align-items:center;">
+        <input type="checkbox" id="ep-extract-sibling" checked> also extract sibling clip
       </label>
     </div>
 
@@ -1043,7 +1052,8 @@ header h1 { font-size: 15px; font-weight: 600; }
       </div>
     </div>
     <button class="player-btn ep-btn-green" id="ep-set-kf" style="display:none;">&#128204; Set KF</button>
-    <button class="player-btn ep-btn-blue" id="ep-extract">&#9986; Extract</button>
+    <button class="player-btn ep-btn-blue" id="ep-extract">&#9986; Extract Queue</button>
+    <button class="player-btn ep-btn-red" id="ep-remove-queue" style="display:none;">&#9711; Remove queue</button>
     <button class="player-btn ep-btn-green" id="ep-rename-extract" style="display:none;" title="Rename with current postfix">&#9998; Update name</button>
     <button class="player-btn ep-btn-red" id="ep-delete-extract" style="display:none;">&#128465; Delete extract</button>
     <button class="player-btn ep-btn-red" id="ep-reject" style="display:none;">&#10005; Reject</button>
