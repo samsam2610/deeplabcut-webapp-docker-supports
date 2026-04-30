@@ -16,8 +16,8 @@ import viewer
 
 bp = Blueprint(
     "dlc_3d", __name__, url_prefix="/dlc-3d",
-    template_folder="templates",
-    static_folder="static", static_url_path="/dlc-3d/static",
+    template_folder="../templates",
+    static_folder="../static", static_url_path="/static",
 )
 
 # ── Server state (single-user) ───────────────────────────────────────────────
