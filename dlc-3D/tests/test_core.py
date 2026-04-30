@@ -9,6 +9,7 @@ import pytest
 
 from dlc_3d_bp.routes import (
     _cam_index_from_stem,
+    _find_sibling_on_filesystem,
     _find_sibling_video,
     _load_or_scan_videos,
     _resolve_video_path,
@@ -299,3 +300,45 @@ def test_resolve_video_path_relative_within_project(tmp_path):
 def test_resolve_video_path_relative_escaping_project_returns_none(tmp_path):
     p = _resolve_video_path("../../etc/passwd", str(tmp_path))
     assert p is None
+
+
+# ── _find_sibling_on_filesystem ───────────────────────────────────────────────
+
+def test_find_sibling_on_filesystem_finds_cam1(tmp_path):
+    vid_dir = tmp_path / "videos"
+    vid_dir.mkdir()
+    cam0 = vid_dir / "surv1_cam0_20260123_121732_0.avi"
+    cam1 = vid_dir / "surv1_cam1_20260123_121732_0.avi"
+    cam0.write_bytes(b"")
+    cam1.write_bytes(b"")
+    result = _find_sibling_on_filesystem(str(cam0))
+    assert result == str(cam1)
+
+
+def test_find_sibling_on_filesystem_no_sibling(tmp_path):
+    vid_dir = tmp_path / "videos"
+    vid_dir.mkdir()
+    cam0 = vid_dir / "surv1_cam0_20260123_121732_0.avi"
+    cam0.write_bytes(b"")
+    result = _find_sibling_on_filesystem(str(cam0))
+    assert result is None
+
+
+def test_find_sibling_on_filesystem_no_pattern(tmp_path):
+    vid_dir = tmp_path / "videos"
+    vid_dir.mkdir()
+    f = vid_dir / "recording.avi"
+    f.write_bytes(b"")
+    result = _find_sibling_on_filesystem(str(f))
+    assert result is None
+
+
+def test_find_sibling_on_filesystem_ignores_same_cam(tmp_path):
+    vid_dir = tmp_path / "videos"
+    vid_dir.mkdir()
+    cam0a = vid_dir / "surv1_cam0_20260123_121732_0.avi"
+    cam0b = vid_dir / "surv1_cam0_20260123_999999_0.avi"
+    cam0a.write_bytes(b"")
+    cam0b.write_bytes(b"")
+    result = _find_sibling_on_filesystem(str(cam0a))
+    assert result is None

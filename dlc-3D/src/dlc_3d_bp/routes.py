@@ -169,6 +169,26 @@ def _find_sibling_video(video_rel: str, videos_json: dict) -> "str | None":
     return None
 
 
+def _find_sibling_on_filesystem(video_abs: str) -> "str | None":
+    """Find sibling camera video by scanning same directory on filesystem.
+
+    Works for any absolute path, not limited to the DLC project directory.
+    """
+    vp = Path(video_abs)
+    m = re.match(r'^(.+?)_cam(\d+)_(\d{8})', vp.stem)
+    if not m:
+        return None
+    prefix, date = m.group(1), m.group(3)
+    cam_idx = int(m.group(2))
+    for f in vp.parent.iterdir():
+        if f == vp or f.suffix.lower() not in (".avi", ".mp4"):
+            continue
+        m2 = re.match(r'^(.+?)_cam(\d+)_(\d{8})', f.stem)
+        if m2 and m2.group(1) == prefix and m2.group(3) == date and int(m2.group(2)) != cam_idx:
+            return str(f)
+    return None
+
+
 # ── Frame saving ──────────────────────────────────────────────────────────────
 
 def _save_single_frame(project_path: Path, video_rel: str, frame_number: int) -> dict:
@@ -199,9 +219,9 @@ def _save_single_frame(project_path: Path, video_rel: str, frame_number: int) ->
             return {"skipped": True, "frame_number": frame_number}
 
     # Read frame from video → PNG
-    video_path = (project_path / video_rel).resolve()
-    if not video_path.is_relative_to(project_path.resolve()):
-        raise ValueError(f"video_rel escapes project root: {video_rel!r}")
+    video_path = _resolve_video_path(video_rel, str(project_path))
+    if video_path is None:
+        raise ValueError(f"video path not allowed: {video_rel!r}")
     frame_jpeg = viewer.get_frame_jpeg(str(video_path), frame_number)
     nparr = np.frombuffer(frame_jpeg, np.uint8)
     img   = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
@@ -364,17 +384,20 @@ def get_video_info():
 def get_sibling_camera():
     with _state_lock:
         proj = _active_project
-    video_rel = request.args.get("video", "").strip()
-    if not video_rel or not proj:
+    video_path = request.args.get("video", "").strip()
+    if not video_path or not proj:
         return jsonify({"sibling_video_path": None})
+
+    sibling = _find_sibling_on_filesystem(video_path)
+    if sibling:
+        return jsonify({"sibling_video_path": sibling})
 
     vj_path = Path(proj) / "videos.json"
-    if not vj_path.exists():
-        return jsonify({"sibling_video_path": None})
-    with open(vj_path) as f:
-        videos_json = json.load(f)
-
-    sibling = _find_sibling_video(video_rel, videos_json)
+    sibling = None
+    if vj_path.exists():
+        with open(vj_path) as f:
+            videos_json = json.load(f)
+        sibling = _find_sibling_video(video_path, videos_json)
     return jsonify({"sibling_video_path": sibling})
 
 
