@@ -1,166 +1,75 @@
 /* dlc_3d.css — styles scoped to #dlc-3d-extract-card only */
 
-/* Override .card max-width so the two-camera player has enough horizontal space */
+/* Card fills full width */
 #dlc-3d-extract-card {
   max-width: none;
   width: 100%;
 }
 
-/* ── Inner two-column layout ── */
-#dlc-3d-extract-card .dlc3d-layout {
-  display: flex;
-  gap: .5rem;
-  height: 420px;
-  overflow: hidden;
-  margin-top: .4rem;
-}
-
-/* ── Session panel (left) ── */
-#dlc-3d-extract-card #dlc3d-session-panel {
-  width: 210px;
-  min-width: 140px;
-  border-right: 1px solid var(--border);
-  overflow-y: auto;
-  padding: .4rem;
-  display: flex;
-  flex-direction: column;
-  gap: .25rem;
-}
-#dlc-3d-extract-card #dlc3d-session-empty {
-  font-size: .75rem;
-  color: var(--text-dim);
-  padding: .5rem;
-}
-#dlc-3d-extract-card .session-group {
-  border: 1px solid var(--border);
-  border-radius: 5px;
-  overflow: hidden;
-}
-#dlc-3d-extract-card .session-header {
-  font-size: .8rem;
-  font-weight: 600;
-  padding: .3rem .55rem;
-  background: var(--surface-2);
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  gap: .35rem;
-}
-#dlc-3d-extract-card .session-header:hover { background: var(--surface-3, #222330); }
-#dlc-3d-extract-card .session-body { display: none; }
-#dlc-3d-extract-card .session-body.open { display: block; }
-#dlc-3d-extract-card .cam-row {
-  padding: .22rem .55rem .22rem 1.1rem;
+/* ── Session list ── */
+#dlc-3d-extract-card .dlc3d-session-header {
   font-size: .78rem;
+  font-weight: 600;
   color: var(--text-dim);
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  gap: .4rem;
+  padding: .3rem .4rem .15rem;
+  margin-top: .35rem;
+  letter-spacing: .02em;
+  text-transform: uppercase;
 }
-#dlc-3d-extract-card .cam-row:hover { background: var(--surface-3, #222330); color: var(--text); }
-#dlc-3d-extract-card .cam-row.active { background: #1f3a5c; color: var(--accent); }
-#dlc-3d-extract-card .clip-section { padding-left: 1.6rem; }
-#dlc-3d-extract-card .clip-header {
-  font-size: .72rem;
-  color: var(--text-dim);
-  padding: .15rem .4rem;
-  font-style: italic;
-}
-#dlc-3d-extract-card .clip-row {
-  padding: .18rem .4rem;
-  font-size: .75rem;
-  color: var(--text-dim);
-  cursor: pointer;
-  border-radius: 3px;
-}
-#dlc-3d-extract-card .clip-row:hover { background: var(--surface-3, #222330); color: var(--text); }
-#dlc-3d-extract-card .clip-row.active { background: #1f3a5c; color: var(--accent); }
-#dlc-3d-extract-card .cam-badge {
+#dlc-3d-extract-card .dlc3d-session-header:first-child { margin-top: 0; }
+
+#dlc-3d-extract-card .dlc3d-cam-badge {
   font-size: .68rem;
   background: var(--surface-3, #222330);
   border-radius: 3px;
   padding: .05rem .3rem;
   color: var(--text-dim);
+  flex-shrink: 0;
 }
 
-/* ── Player area (right) ── */
-#dlc-3d-extract-card #dlc3d-player-area {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-  gap: .35rem;
-  min-width: 0;
+#dlc-3d-extract-card .dlc3d-clip-item {
+  padding-left: 1.6rem;
 }
+
+/* ── Dual camera display ── */
 #dlc-3d-extract-card #cam-displays {
   display: flex;
-  gap: .6rem;
-  flex: 1;
-  min-height: 0;
+  gap: .5rem;
 }
+
 #dlc-3d-extract-card .cam-wrap {
   flex: 1;
-  display: flex;
-  flex-direction: column;
-  gap: .2rem;
   min-width: 0;
-  min-height: 0;
+  overflow: hidden;
 }
-#dlc-3d-extract-card .cam-label { font-size: .72rem; color: var(--text-dim); }
+
+#dlc-3d-extract-card .cam-label {
+  font-size: .72rem;
+  color: var(--text-dim);
+  margin-bottom: .2rem;
+}
+
 #dlc-3d-extract-card .cam-frame-wrap {
-  flex: 1;
   background: #000;
   border-radius: 4px;
   overflow: hidden;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  min-height: 0;
+  aspect-ratio: 16 / 9;
 }
+
 #dlc-3d-extract-card .cam-frame-wrap img {
-  max-width: 100%;
-  max-height: 100%;
-  object-fit: contain;
+  width: 100%;
   display: block;
+  height: auto;
 }
+
 #dlc-3d-extract-card #no-video-msg {
   font-size: .8rem;
   color: var(--text-dim);
   text-align: center;
-  width: 100%;
+  padding: 2rem 0;
 }
 
-/* ── Controls ── */
-#dlc-3d-extract-card #controls {
-  display: flex;
-  flex-direction: column;
-  gap: .3rem;
-  flex-shrink: 0;
-}
-#dlc-3d-extract-card .ctrl-row {
-  display: flex;
-  align-items: center;
-  gap: .35rem;
-  flex-wrap: wrap;
-}
-#dlc-3d-extract-card #ep-seek {
-  flex: 1;
-  min-width: 80px;
-  accent-color: var(--accent);
-}
-#dlc-3d-extract-card .frame-info {
-  font-size: .75rem;
-  color: var(--text-dim);
-  white-space: nowrap;
-}
-
-/* ── Sync cam row ── */
-#dlc-3d-extract-card #sync-cam-row {
-  display: none;
-  align-items: center;
-  gap: .75rem;
-}
+/* ── Sync cam row toggle ── */
 #dlc-3d-extract-card label.toggle {
   display: flex;
   align-items: center;
