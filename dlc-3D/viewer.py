@@ -8,6 +8,7 @@ import cv2
 _VCAP_MAX = 4
 _vcap_cache: OrderedDict = OrderedDict()
 _vcap_lock = threading.Lock()
+_POS_UNKNOWN = object()
 
 
 def get_video_info(video_path: str) -> dict:
@@ -40,7 +41,7 @@ def get_frame_jpeg(video_path: str, frame_number: int, quality: int = 80) -> byt
                         evicted["vcap"] = None
             _vcap_cache[vpath] = {
                 "vcap": None,
-                "pos": -1,
+                "pos": _POS_UNKNOWN,
                 "lock": threading.Lock(),
             }
         _vcap_cache.move_to_end(vpath)
@@ -49,15 +50,15 @@ def get_frame_jpeg(video_path: str, frame_number: int, quality: int = 80) -> byt
     with entry["lock"]:
         if entry["vcap"] is None or not entry["vcap"].isOpened():
             entry["vcap"] = cv2.VideoCapture(vpath)
-            entry["pos"] = -1
+            entry["pos"] = _POS_UNKNOWN
             if not entry["vcap"].isOpened():
                 raise FileNotFoundError(f"Cannot open video: {vpath}")
 
-        if frame_number != entry["pos"] + 1:
+        if entry["pos"] is _POS_UNKNOWN or frame_number != entry["pos"] + 1:
             entry["vcap"].set(cv2.CAP_PROP_POS_FRAMES, frame_number)
 
         ok, frame = entry["vcap"].read()
-        entry["pos"] = frame_number if ok else -1
+        entry["pos"] = frame_number if ok else _POS_UNKNOWN
 
     if not ok:
         raise ValueError(f"Cannot read frame {frame_number} from {vpath}")
