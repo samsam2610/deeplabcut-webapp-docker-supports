@@ -238,7 +238,29 @@ In `app.py`, after creating the Flask app, call `queue_manager.start_worker()` o
 
 ---
 
-## 8. What Does Not Change
+## 8. Legacy Sibling Extraction (Backfill)
+
+For detections that were already extracted (`status="kept"`) before the sibling-cam feature existed, two UI entry points allow retroactive sibling extraction.
+
+### 8.1 Per-card "Extract Sibling" button
+
+`buildResultCard()` renders a small `Extract Sibling` button on `kept` cards when:
+- The current video has a sibling (`_siblingVideoPath` is set), **and**
+- The detection does not have `sibling_extract_avi_path` set.
+
+Clicking it POSTs to `/clip-cutter/queue` with only the sibling video path (no primary item). On success the button is hidden and `sibling_extract_avi_path` is stored on the detection once the queue item completes.
+
+### 8.2 Bulk "Queue missing sibling clips" button
+
+In the detections bar, a `Queue missing siblings (N)` button appears when the current video has a sibling and at least one `kept` detection lacks `sibling_extract_avi_path`. Clicking it iterates all such detections and calls POST `/clip-cutter/queue` for each, queuing sibling-only items. The button label updates its count live. Only `status="kept"` detections are eligible — queued, pending, and rejected detections are ignored.
+
+### 8.3 Backend
+
+No new routes required. The existing POST `/clip-cutter/queue` accepts a sibling-only payload (omit the primary `video_path`, provide `sibling_video_path` as `video_path`). The queue manager treats it as a single-item job.
+
+---
+
+## 9. What Does Not Change
 
 - The `/extract` route remains for any direct-extract paths (browse mode manual extracts, which bypass the queue by design).
 - All existing detection statuses (`pending`, `kept`, `rejected`) continue to work as before.
