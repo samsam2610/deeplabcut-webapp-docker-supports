@@ -253,14 +253,19 @@ def test_save_frame_clip_path(tmp_path):
     assert (labeled_dir / result["saved"]).exists()
 
 
-def test_browse_returns_video_files(tmp_path):
+def test_browse_returns_video_files(tmp_path, monkeypatch):
     """browse() should include .avi and .mp4 files in entries."""
     from flask import Flask, request
     from flask.testing import FlaskClient
-    from dlc_3d_bp.routes import bp
+    from dlc_3d_bp import routes
+    import config
+
+    # Mock USER_DATA_ROOTS and _USER_DATA_ROOT to point to our test directory
+    monkeypatch.setattr(config, "USER_DATA_ROOTS", [tmp_path])
+    monkeypatch.setattr(routes, "_USER_DATA_ROOT", str(tmp_path))
 
     app = Flask(__name__)
-    app.register_blueprint(bp)
+    app.register_blueprint(routes.bp)
     client = app.test_client()
 
     videos_dir = tmp_path / "videos"

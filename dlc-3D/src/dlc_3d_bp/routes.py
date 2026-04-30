@@ -260,7 +260,9 @@ def index():
 def browse():
     path_str = request.args.get("path", "").strip()
     if path_str:
-        p = Path(path_str)
+        p = Path(path_str).resolve()
+        if not str(p).startswith(_USER_DATA_ROOT + "/") and str(p) != _USER_DATA_ROOT:
+            return jsonify({"error": "path not allowed"}), 403
     else:
         p = next((r for r in config.USER_DATA_ROOTS if r.is_dir()), Path("/"))
 
@@ -391,7 +393,7 @@ def get_sibling_camera():
         return jsonify({"sibling_video_path": None})
 
     sibling = _find_sibling_on_filesystem(video_path)
-    if sibling:
+    if sibling and str(Path(sibling).resolve()).startswith(_USER_DATA_ROOT + "/"):
         return jsonify({"sibling_video_path": sibling})
 
     sibling = None
