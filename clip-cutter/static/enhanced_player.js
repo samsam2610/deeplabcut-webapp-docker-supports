@@ -254,6 +254,15 @@ function _epUpdateSyncCamUI() {
   label.style.display = "";
   cb.checked = _syncCamEnabled;
   cam2.style.display = _syncCamEnabled ? "flex" : "none";
+
+  const siblingLabel = document.getElementById("ep-extract-sibling-label");
+  if (siblingLabel) {
+    siblingLabel.style.display = _syncCamEnabled ? "flex" : "none";
+    if (_syncCamEnabled) {
+      const siblingCb = document.getElementById("ep-extract-sibling");
+      if (siblingCb) siblingCb.checked = true;
+    }
+  }
 }
 
 async function _epLoadCam2Frame(n) {
@@ -956,10 +965,8 @@ function _epUpdateModeUI() {
     gotoKfBtn.style.display = "";
     document.getElementById("ep-lock-start").checked = !_unlocked;
 
-    const isFinished = _detectionIdx !== null &&
-      typeof detections !== "undefined" &&
-      detections[_detectionIdx] &&
-      (detections[_detectionIdx].status === "kept" || detections[_detectionIdx].status === "rejected");
+    const det = detections?.[_detectionIdx];
+    const isFinished = !!det && (det.status === "kept" || det.status === "rejected" || det.status === "queued");
     setKfBtn.disabled = isFinished;
     rejectBtn.disabled = isFinished;
     document.getElementById("ep-extract").disabled = isFinished;
@@ -999,8 +1006,11 @@ function _epInitExtractPanel(videoPath, keyFrame1Based) {
   // Show extract button or rename/delete buttons based on detection state
   const isKept = _mode === "clip" && _detectionIdx !== null &&
     typeof detections !== "undefined" && detections[_detectionIdx]?.status === "kept";
+  const isQueued = _mode === "clip" && _detectionIdx !== null &&
+    typeof detections !== "undefined" && detections[_detectionIdx]?.status === "queued";
   const hasPath = isKept && !!detections[_detectionIdx]?.extract_avi_path;
-  document.getElementById("ep-extract").style.display = isKept ? "none" : "";
+  document.getElementById("ep-extract").style.display = (isKept || isQueued) ? "none" : "";
+  document.getElementById("ep-remove-queue").style.display = isQueued ? "" : "none";
   document.getElementById("ep-rename-extract").style.display = isKept ? "" : "none";
   document.getElementById("ep-rename-extract").disabled = !hasPath;
   document.getElementById("ep-delete-extract").style.display = isKept ? "" : "none";
@@ -1622,7 +1632,7 @@ document.addEventListener("DOMContentLoaded", () => {
     warning.style.display = "";
   });
 
-  // Extract
+  // Extract Queue — adds detection to the sequential extract queue
   document.getElementById("ep-extract").addEventListener("click", async () => {
     if (!_videoPath) return;
     const capturedIdx = _detectionIdx;
@@ -1631,73 +1641,107 @@ document.addEventListener("DOMContentLoaded", () => {
     const keyFrame = start + 200;
     const postfix = document.getElementById("ep-postfix").value.trim();
 
-    const body = { video_path: capturedVideoPath, key_frame: keyFrame };
-    if (postfix) body.postfix = postfix;
+    const extractSibling = _siblingVideoPath
+      ? (document.getElementById("ep-extract-sibling")?.checked ?? true)
+      : false;
 
     try {
-      const resp = await fetch("/clip-cutter/extract", {
+      const resp = await fetch("/clip-cutter/queue", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
+        body: JSON.stringify({
+          video_path: capturedVideoPath,
+          key_frame: keyFrame,
+          postfix: postfix || "",
+          extract_sibling: extractSibling,
+          sibling_video_path: extractSibling ? _siblingVideoPath : undefined,
+        }),
       });
       if (!resp.ok) {
         const err = await resp.json().catch(() => ({ error: resp.statusText }));
-        setStatus("Extract error: " + err.error);
+        setStatus("Queue error: " + err.error);
         return;
       }
       const data = await resp.json();
-      setStatus("Clip extracted");
+      setStatus(`Queued for extraction (${data.pending_count} in queue)`);
+
       if (_browseMode) {
-        // Browse mode: always create a new manual detection entry
-        const kf = start + 200;
         const newDet = {
           video_path: capturedVideoPath,
-          frame_number: kf,
+          frame_number: keyFrame,
           similarity: 0,
           source: "manual",
-          status: "kept",
-          extract_avi_path: data.avi_path,
+          status: "queued",
           extract_postfix: postfix || null,
+          queue_item_id: data.ids[0],
+          sibling_queue_item_id: data.ids[1] || null,
         };
         if (typeof detections !== "undefined") {
           detections.push(newDet);
           const newIdx = detections.length - 1;
           if (typeof buildResultCard === "function") {
             const card = buildResultCard(newDet, newIdx);
-            card.classList.add("kept");
-            card.querySelectorAll("button").forEach(b => { b.disabled = true; });
+            card.classList.add("queued");
             document.getElementById("results-list").appendChild(card);
           }
           _detectionIdx = newIdx;
-          // Switch source filter to "all" so manual card is visible
           const allFilterBtn = document.querySelector('.filter-btn[data-filter="all"]');
           if (allFilterBtn) allFilterBtn.click();
           else if (typeof applyFilter === "function") applyFilter();
           if (typeof saveDetections === "function") saveDetections();
         }
-        // Keep Extract button enabled for next clip in browse session
       } else if (capturedIdx !== null && typeof detections !== "undefined" && detections[capturedIdx]) {
-        detections[capturedIdx].status = "kept";
-        detections[capturedIdx].extract_avi_path = data.avi_path;
+        detections[capturedIdx].status = "queued";
         detections[capturedIdx].extract_postfix = postfix || null;
+        detections[capturedIdx].queue_item_id = data.ids[0];
+        if (data.ids[1]) detections[capturedIdx].sibling_queue_item_id = data.ids[1];
         const card = document.getElementById("card-" + capturedIdx);
         if (card) {
-          card.classList.add("kept");
-          card.querySelectorAll("button").forEach(b => { b.disabled = true; });
-          const nameEl = card.querySelector(".result-name");
-          if (nameEl) nameEl.textContent = data.avi_path.split("/").pop();
+          card.classList.add("queued");
+          const qBtn = card.querySelector(".queue-btn");
+          if (qBtn) qBtn.classList.add("queued");
+          card.querySelectorAll(".keep-btn, .reject-btn").forEach(b => { b.disabled = true; });
         }
         if (typeof saveDetections === "function") saveDetections();
         if (_detectionIdx === capturedIdx) {
           document.getElementById("ep-extract").style.display = "none";
-          document.getElementById("ep-rename-extract").style.display = "";
-          document.getElementById("ep-rename-extract").disabled = false;
-          document.getElementById("ep-delete-extract").style.display = "";
+          document.getElementById("ep-remove-queue").style.display = "";
           document.getElementById("ep-set-kf").disabled = true;
           document.getElementById("ep-reject").disabled = true;
         }
       }
-    } catch (e) { setStatus("Network error: " + e.message); }
+    } catch (err) {
+      setStatus("Network error: " + err.message);
+    }
+  });
+
+  // Remove queue
+  document.getElementById("ep-remove-queue").addEventListener("click", async () => {
+    if (_detectionIdx === null || typeof detections === "undefined") return;
+    const d = detections[_detectionIdx];
+    const itemId = d?.queue_item_id;
+    if (!itemId) return;
+    try {
+      await fetch(`/clip-cutter/queue/${encodeURIComponent(itemId)}`, { method: "DELETE" });
+      d.status = "pending";
+      delete d.queue_item_id;
+      delete d.sibling_queue_item_id;
+      document.getElementById("ep-remove-queue").style.display = "none";
+      document.getElementById("ep-extract").style.display = "";
+      document.getElementById("ep-set-kf").disabled = false;
+      document.getElementById("ep-reject").disabled = false;
+      const card = document.getElementById("card-" + _detectionIdx);
+      if (card) {
+        card.classList.remove("queued");
+        const qBtn = card.querySelector(".queue-btn");
+        if (qBtn) qBtn.classList.remove("queued");
+        card.querySelectorAll(".keep-btn, .reject-btn, .queue-btn").forEach(b => { b.disabled = false; });
+      }
+      setStatus("Removed from queue");
+      if (typeof saveDetections === "function") saveDetections();
+    } catch (err) {
+      setStatus("Network error: " + err.message);
+    }
   });
 
   // Delete extract
