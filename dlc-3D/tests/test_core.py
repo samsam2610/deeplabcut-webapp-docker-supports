@@ -7,7 +7,7 @@ import cv2
 import numpy as np
 import pytest
 
-from routes import (
+from dlc_3d_bp.routes import (
     _cam_index_from_stem,
     _find_sibling_video,
     _load_or_scan_videos,
@@ -220,7 +220,7 @@ def test_save_frame_cam_order_independent(tmp_path):
 # ── _load_or_scan_videos ──────────────────────────────────────────────────────
 
 def test_load_or_scan_creates_json_cache(tmp_path):
-    from routes import _load_or_scan_videos
+    from dlc_3d_bp.routes import _load_or_scan_videos
     proj = _fake_project(tmp_path)
     data = _load_or_scan_videos(proj)
     assert (proj / "videos.json").exists()
@@ -229,7 +229,7 @@ def test_load_or_scan_creates_json_cache(tmp_path):
 
 
 def test_load_or_scan_reads_existing_json(tmp_path):
-    from routes import _load_or_scan_videos
+    from dlc_3d_bp.routes import _load_or_scan_videos
     proj = _fake_project(tmp_path)
     # First call creates cache
     _load_or_scan_videos(proj)
