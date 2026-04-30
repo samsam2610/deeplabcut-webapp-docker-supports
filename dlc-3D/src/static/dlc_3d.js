@@ -181,6 +181,9 @@ async function _selectVideo(videoRel) {
     el.classList.toggle("active", el.dataset.videoRel === videoRel);
   });
 
+  const empty = document.getElementById("dlc3d-session-empty");
+  if (empty) empty.style.display = "none";
+
   document.getElementById("dlc3d-player-section").style.display = "";
 
   const camIdx = videoRel.match(/_cam(\d+)_/)?.[1] ?? "?";
