@@ -10,6 +10,7 @@ import pytest
 from routes import (
     _cam_index_from_stem,
     _find_sibling_video,
+    _load_or_scan_videos,
     _save_single_frame,
     _scan_videos,
     _session_key_from_stem,
@@ -214,3 +215,37 @@ def test_save_frame_cam_order_independent(tmp_path):
     _save_single_frame(proj, "videos/surv1_cam0_20260123_121732_0_trig1.avi", 7)
     r_cam1 = _save_single_frame(proj, "videos/surv1_cam1_20260123_121732_0_trig1.avi", 3)
     assert r_cam1["saved"] == "img_cam1_0000_00003.png"
+
+
+# ── _load_or_scan_videos ──────────────────────────────────────────────────────
+
+def test_load_or_scan_creates_json_cache(tmp_path):
+    from routes import _load_or_scan_videos
+    proj = _fake_project(tmp_path)
+    data = _load_or_scan_videos(proj)
+    assert (proj / "videos.json").exists()
+    assert "sessions" in data
+    assert "surv1_20260123" in data["sessions"]
+
+
+def test_load_or_scan_reads_existing_json(tmp_path):
+    from routes import _load_or_scan_videos
+    proj = _fake_project(tmp_path)
+    # First call creates cache
+    _load_or_scan_videos(proj)
+    # Add a new video — should NOT appear because cache is used
+    new_stem = "surv2_cam0_20260201_080000_0_trig1"
+    _make_video(proj / "videos" / f"{new_stem}.avi", frames=5)
+    data2 = _load_or_scan_videos(proj)
+    assert "surv2_20260201" not in data2.get("sessions", {})
+
+
+def test_save_frame_clip_path(tmp_path):
+    proj = _fake_project(tmp_path, clips=True)
+    sessions = _scan_videos(proj)
+    clip_path = sessions["surv1_20260123"]["cam0"]["clips"][0]
+    result = _save_single_frame(proj, clip_path, 3)
+    assert "saved" in result
+    assert result["saved"].startswith("img_cam0_")
+    labeled_dir = proj / "labeled-data" / "surv1_20260123"
+    assert (labeled_dir / result["saved"]).exists()

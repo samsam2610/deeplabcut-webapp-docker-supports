@@ -29,7 +29,7 @@ _state_lock = threading.Lock()
 
 _SESSION_RE = re.compile(r'^(.+?)_cam\d+_(\d{8})')
 _CAM_RE     = re.compile(r'_cam(\d+)_')
-_FRAME_RE   = re.compile(r'^img_cam(\d)_(\d{4})_(\d+)\.png$')
+_FRAME_RE   = re.compile(r'^img_cam(\d+)_(\d{4})_(\d+)\.png$')
 
 
 def _session_key_from_stem(stem: str) -> "str | None":
@@ -178,7 +178,9 @@ def _save_single_frame(project_path: Path, video_rel: str, frame_number: int) ->
             return {"skipped": True, "frame_number": frame_number}
 
     # Read frame from video → PNG
-    video_path = project_path / video_rel
+    video_path = (project_path / video_rel).resolve()
+    if not video_path.is_relative_to(project_path.resolve()):
+        raise ValueError(f"video_rel escapes project root: {video_rel!r}")
     frame_jpeg = viewer.get_frame_jpeg(str(video_path), frame_number)
     nparr = np.frombuffer(frame_jpeg, np.uint8)
     img   = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
