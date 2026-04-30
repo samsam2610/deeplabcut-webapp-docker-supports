@@ -1,117 +1,13 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>DLC 3D Extractor</title>
-  <style>
-    :root {
-      --bg: #0d1117; --panel: #161b22; --border: #30363d;
-      --text: #e6edf3; --text-dim: #8b949e; --accent: #58a6ff;
-    }
-    * { box-sizing: border-box; margin: 0; padding: 0; }
-    body { background: var(--bg); color: var(--text); font-family: system-ui, sans-serif;
-           height: 100vh; display: flex; flex-direction: column; overflow: hidden; }
+{% extends "base.html" %}
 
-    /* ── Header ── */
-    header { background: var(--panel); border-bottom: 1px solid var(--border);
-             padding: .45rem 1rem; display: flex; align-items: center; gap: .75rem; flex-shrink: 0; }
-    header h1 { font-size: .92rem; font-weight: 600; white-space: nowrap; }
-    #project-path-display { font-size: .75rem; color: var(--text-dim); flex: 1;
-                             white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+{% block title %}DLC-3D Extractor{% endblock %}
 
-    /* ── Buttons ── */
-    .btn { background: var(--panel); border: 1px solid var(--border); color: var(--text);
-           padding: .28rem .65rem; border-radius: 5px; cursor: pointer; font-size: .8rem;
-           white-space: nowrap; }
-    .btn:hover { border-color: var(--accent); }
-    .btn-primary { background: var(--accent); border-color: var(--accent); color: #000; font-weight: 600; }
-    .btn:disabled { opacity: .45; cursor: default; }
+{% block extra_head %}
+<link rel="stylesheet" href="{{ url_for('dlc_3d.static', filename='dlc_3d.css') }}">
+{% endblock %}
 
-    /* ── Main layout ── */
-    .main-layout { display: flex; flex: 1; overflow: hidden; }
-
-    /* ── Session panel (left) ── */
-    #session-panel { width: 260px; min-width: 180px; border-right: 1px solid var(--border);
-                     overflow-y: auto; padding: .4rem; display: flex; flex-direction: column; gap: .25rem; }
-    #session-empty { font-size: .75rem; color: var(--text-dim); padding: .5rem; }
-    .session-group { border: 1px solid var(--border); border-radius: 5px; overflow: hidden; }
-    .session-header { font-size: .8rem; font-weight: 600; padding: .3rem .55rem;
-                      background: var(--panel); cursor: pointer; display: flex; align-items: center; gap: .35rem; }
-    .session-header:hover { background: #21262d; }
-    .session-body { display: none; }
-    .session-body.open { display: block; }
-    .cam-row { padding: .22rem .55rem .22rem 1.1rem; font-size: .78rem; color: var(--text-dim);
-               cursor: pointer; display: flex; align-items: center; gap: .4rem; }
-    .cam-row:hover { background: #21262d; color: var(--text); }
-    .cam-row.active { background: #1f3a5c; color: var(--accent); }
-    .clip-section { padding-left: 1.6rem; }
-    .clip-header { font-size: .72rem; color: var(--text-dim); padding: .15rem .4rem; font-style: italic; }
-    .clip-row { padding: .18rem .4rem; font-size: .75rem; color: var(--text-dim); cursor: pointer; border-radius: 3px; }
-    .clip-row:hover { background: #21262d; color: var(--text); }
-    .clip-row.active { background: #1f3a5c; color: var(--accent); }
-    .cam-badge { font-size: .68rem; background: #21262d; border-radius: 3px;
-                 padding: .05rem .3rem; color: var(--text-dim); }
-
-    /* ── Player area (right) ── */
-    #player-area { flex: 1; display: flex; flex-direction: column; overflow: hidden;
-                   padding: .6rem; gap: .45rem; min-width: 0; }
-    #cam-displays { display: flex; gap: .6rem; flex: 1; min-height: 0; }
-    .cam-wrap { flex: 1; display: flex; flex-direction: column; gap: .2rem; min-width: 0; min-height: 0; }
-    .cam-label { font-size: .72rem; color: var(--text-dim); }
-    .cam-frame-wrap { flex: 1; background: #000; border-radius: 4px; overflow: hidden;
-                      display: flex; align-items: center; justify-content: center; min-height: 0; }
-    .cam-frame-wrap img { max-width: 100%; max-height: 100%; object-fit: contain; display: block; }
-    #no-video-msg { font-size: .8rem; color: var(--text-dim); text-align: center; width: 100%; }
-
-    /* ── Controls ── */
-    #controls { display: flex; flex-direction: column; gap: .3rem; flex-shrink: 0; }
-    .ctrl-row { display: flex; align-items: center; gap: .35rem; flex-wrap: wrap; }
-    #ep-seek { flex: 1; min-width: 100px; accent-color: var(--accent); }
-    .frame-info { font-size: .75rem; color: var(--text-dim); white-space: nowrap; }
-
-    /* ── Sync cam row ── */
-    #sync-cam-row { display: none; align-items: center; gap: .75rem; }
-    label.toggle { display: flex; align-items: center; gap: .3rem; font-size: .78rem;
-                   cursor: pointer; color: var(--text-dim); }
-    label.toggle input { accent-color: var(--accent); cursor: pointer; }
-
-    /* ── Extract status ── */
-    #extract-status { font-size: .75rem; color: var(--text-dim); min-height: 1.1em; flex-shrink: 0; }
-
-    /* ── Labeled frames ── */
-    #labeled-wrap { border-top: 1px solid var(--border); padding-top: .4rem; flex-shrink: 0; display: none; }
-    #labeled-header { font-size: .75rem; font-weight: 600; margin-bottom: .25rem; }
-    #labeled-list { font-size: .72rem; color: var(--text-dim); max-height: 90px;
-                    overflow-y: auto; display: flex; flex-wrap: wrap; gap: .2rem; }
-    .frame-chip { background: var(--panel); border: 1px solid var(--border); border-radius: 3px;
-                  padding: .08rem .3rem; font-size: .7rem; white-space: nowrap; }
-    .frame-chip.cam0 { border-color: #3fb950; color: #3fb950; }
-    .frame-chip.cam1 { border-color: #58a6ff; color: #58a6ff; }
-
-    /* ── Browser modal ── */
-    #browser-modal { display: none; position: fixed; inset: 0; background: rgba(0,0,0,.65);
-                     z-index: 200; align-items: center; justify-content: center; }
-    #browser-modal.open { display: flex; }
-    #browser-box { background: var(--panel); border: 1px solid var(--border); border-radius: 8px;
-                   width: 560px; max-height: 70vh; display: flex; flex-direction: column; }
-    #browser-box-header { padding: .55rem 1rem; border-bottom: 1px solid var(--border);
-                          display: flex; justify-content: space-between; align-items: center; }
-    #browser-box-header span { font-weight: 600; font-size: .85rem; }
-    #browser-path-bar { font-size: .72rem; color: var(--text-dim); padding: .25rem .75rem;
-                        border-bottom: 1px solid var(--border); }
-    #browser-list { flex: 1; overflow-y: auto; }
-    .browser-entry { padding: .32rem .75rem; font-size: .8rem; cursor: pointer;
-                     display: flex; align-items: center; gap: .4rem; }
-    .browser-entry:hover { background: #21262d; }
-    .browser-entry .entry-icon { font-size: .85rem; }
-    .browser-entry.has-config .entry-icon { color: #3fb950; }
-    .browser-entry.yaml { color: #3fb950; font-weight: 600; }
-    .browser-up { color: var(--text-dim); font-style: italic; }
-  </style>
-</head>
-<body>
-  <!-- Header -->
+{% block content %}
+  <!-- Header bar (project open / rescan) -->
   <header>
     <h1>DLC 3D Extractor</h1>
     <button class="btn" id="btn-open-project">Open Project</button>
@@ -197,8 +93,10 @@
       <div id="browser-list"></div>
     </div>
   </div>
+{% endblock %}
 
-  <script type="module" src="/dlc-3d/static/enhanced_player.js"></script>
-  <script type="module" src="/dlc-3d/static/dlc_3d.js"></script>
-</body>
-</html>
+{% block scripts %}
+{{ super() }}
+<script type="module" src="{{ url_for('dlc_3d.static', filename='enhanced_player.js') }}"></script>
+<script type="module" src="{{ url_for('dlc_3d.static', filename='dlc_3d.js') }}"></script>
+{% endblock %}
