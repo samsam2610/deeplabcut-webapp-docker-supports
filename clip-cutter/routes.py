@@ -444,7 +444,8 @@ def _run_batch_scan_inner(job_id: str, template_dirs: list, video_paths: list, p
                 )
             for d in detections:
                 d["status"] = "pending"
-                d["video_path"] = video_path  # ensure each detection carries its video
+                d["source"] = "global_library"
+                d["video_path"] = video_path  # needed for queue worker lookup
             results.append({"video": video_path, "detections": detections})
         except Exception as exc:
             import traceback
