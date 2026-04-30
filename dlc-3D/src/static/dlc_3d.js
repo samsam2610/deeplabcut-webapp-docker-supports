@@ -9,6 +9,7 @@ let _projectPath   = null;
 let _sessions      = {};
 let _activeSession = null;
 let _activeVideo   = null;
+let _loadToken     = 0;
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -63,6 +64,7 @@ function _closeCard() {
 // ── Project loading ───────────────────────────────────────────────────────────
 
 async function _loadProject(path) {
+  const token = ++_loadToken;
   _setStatus("Loading project…");
   let data;
   try {
@@ -74,6 +76,8 @@ async function _loadProject(path) {
     data = await resp.json();
     if (!resp.ok) { _setStatus(data.error || "Failed to load project"); return; }
   } catch (e) { _setStatus("Network error: " + e.message); return; }
+
+  if (token !== _loadToken) return;
 
   _projectPath = data.project_path;
   _sessions    = data.sessions || {};
