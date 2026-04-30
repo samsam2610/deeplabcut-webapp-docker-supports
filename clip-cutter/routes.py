@@ -13,6 +13,7 @@ from flask import Blueprint, Response, jsonify, render_template, request, stream
 
 import config
 import processor
+import queue_manager
 import viewer
 
 bp = Blueprint(
@@ -376,6 +377,17 @@ def batch_init_stream():
 
 
 def _run_batch_scan(job_id: str, template_dirs: list, video_paths: list, params: dict):
+    try:
+        _run_batch_scan_inner(job_id, template_dirs, video_paths, params)
+    except Exception as exc:
+        import traceback
+        traceback.print_exc()
+        with _batch_scan_jobs_lock:
+            _batch_scan_jobs[job_id]["phase"] = "error"
+            _batch_scan_jobs[job_id]["error"] = str(exc)
+
+
+def _run_batch_scan_inner(job_id: str, template_dirs: list, video_paths: list, params: dict):
     stride        = params.get("stride",        config.SCAN_STRIDE)
     threshold     = params.get("threshold",     config.SIMILARITY_THRESHOLD)
     min_spacing   = params.get("min_spacing",   config.MIN_PEAK_SPACING)
@@ -432,9 +444,11 @@ def _run_batch_scan(job_id: str, template_dirs: list, video_paths: list, params:
                 )
             for d in detections:
                 d["status"] = "pending"
-                d["source"] = "global_library"
+                d["video_path"] = video_path  # ensure each detection carries its video
             results.append({"video": video_path, "detections": detections})
         except Exception as exc:
+            import traceback
+            traceback.print_exc()
             results.append({"video": video_path, "error": str(exc), "detections": []})
 
     with _batch_scan_jobs_lock:
@@ -499,6 +513,17 @@ def cancel_batch_scan(job_id):
 
 
 def _run_batch_template_scan(job_id: str, template_dirs: list, video_paths: list, params: dict):
+    try:
+        _run_batch_template_scan_inner(job_id, template_dirs, video_paths, params)
+    except Exception as exc:
+        import traceback
+        traceback.print_exc()
+        with _batch_template_scan_jobs_lock:
+            _batch_template_scan_jobs[job_id]["phase"] = "error"
+            _batch_template_scan_jobs[job_id]["error"] = str(exc)
+
+
+def _run_batch_template_scan_inner(job_id: str, template_dirs: list, video_paths: list, params: dict):
     stride        = params.get("stride",        config.SCAN_STRIDE)
     threshold     = params.get("threshold",     config.SIMILARITY_THRESHOLD)
     n_clusters    = params.get("n_clusters",    10)
@@ -550,6 +575,8 @@ def _run_batch_template_scan(job_id: str, template_dirs: list, video_paths: list
                 "embeddings": result["embeddings"],  # ndarray — stays in memory
             })
         except Exception as exc:
+            import traceback
+            traceback.print_exc()
             per_video.append({
                 "video_path": video_path,
                 "candidates": [],
@@ -560,7 +587,8 @@ def _run_batch_template_scan(job_id: str, template_dirs: list, video_paths: list
 
     # Build serialisable results for SSE (exclude embeddings ndarray)
     sse_results = [
-        {"video_path": v["video_path"], "candidates": v["candidates"]}
+        {"video_path": v["video_path"], "candidates": v["candidates"],
+         "error": v.get("error")}
         for v in per_video
     ]
     with _batch_template_scan_jobs_lock:
@@ -695,6 +723,7 @@ def batch_template_scan_recluster(job_id):
 
 @bp.route("/template-frame-add", methods=["POST"])
 def template_frame_add():
+    global _state
     body         = request.get_json(force=True) or {}
     video_path   = body.get("video_path",   "").strip()
     frame_number = body.get("frame_number")
@@ -717,6 +746,12 @@ def template_frame_add():
 
     state = processor.load_template_state(state_path)
     state = processor.add_frame_to_template(state, video_path, int(frame_number), state_path)
+
+    # Keep the active in-memory template in sync if this is the current video's template
+    active_path = _template_path()
+    if active_path is not None and Path(state_path).resolve() == active_path.resolve():
+        _state = state
+
     return jsonify({"count": len(state["frames"])})
 
 
@@ -1236,6 +1271,65 @@ def get_video_info():
     except FileNotFoundError as e:
         return jsonify({"error": str(e)}), 404
     return jsonify(info)
+
+
+# ── Extract queue ─────────────────────────────────────────────────────────────
+
+@bp.route("/queue")
+def get_queue():
+    return jsonify(queue_manager.get_status())
+
+
+@bp.route("/queue", methods=["POST"])
+def add_to_queue():
+    body = request.get_json(force=True) or {}
+    video_path = (body.get("video_path") or "").strip()
+    key_frame = body.get("key_frame")
+    if not video_path or key_frame is None:
+        return jsonify({"error": "video_path and key_frame required"}), 400
+    postfix = (body.get("postfix") or "").strip()
+    extract_sibling = bool(body.get("extract_sibling", False))
+    sibling_video_path = (body.get("sibling_video_path") or "").strip() or None
+
+    ids = queue_manager.add(
+        video_path, int(key_frame), postfix,
+        sibling_video_path=sibling_video_path,
+        extract_sibling=extract_sibling,
+    )
+    return jsonify({"ids": ids, "pending_count": queue_manager.get_status()["pending_count"]})
+
+
+@bp.route("/queue/<item_id>", methods=["DELETE"])
+def remove_from_queue(item_id: str):
+    removed = queue_manager.remove(item_id)
+    if not removed:
+        return jsonify({"error": "item not found or not pending"}), 404
+    return jsonify({"ok": True})
+
+
+@bp.route("/queue/process", methods=["POST"])
+def trigger_queue_process():
+    queue_manager.process_now()
+    return jsonify({"ok": True})
+
+
+@bp.route("/queue/stream")
+def queue_stream():
+    def generate():
+        last = None
+        while True:
+            current = queue_manager.get_status()
+            snapshot = json.dumps(current)
+            if snapshot != last:
+                yield f"data: {snapshot}\n\n"
+                last = snapshot
+            time.sleep(0.5)
+
+    return Response(
+        stream_with_context(generate()),
+        mimetype="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
 
 
 # ── Rescan-forward ────────────────────────────────────────────────────────────

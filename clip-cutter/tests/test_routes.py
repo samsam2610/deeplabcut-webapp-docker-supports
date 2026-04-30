@@ -35,9 +35,15 @@ def client(tmp_path, monkeypatch):
 
 
 @pytest.fixture(autouse=True)
-def reset_routes_state():
+def reset_routes_state(monkeypatch, tmp_path):
     """Reset global route state between tests."""
     import routes
+    import queue_manager
+    import config
+
+    # Redirect queue persistence to a temp file so tests don't hit /user-data
+    monkeypatch.setattr(config, "QUEUE_PATH", tmp_path / "queue.json")
+
     routes._state = {
         "frames": [],
         "mean_embedding": None,
@@ -50,6 +56,7 @@ def reset_routes_state():
     routes._batch_init_jobs.clear()
     routes._batch_scan_jobs.clear()
     routes._batch_template_scan_jobs.clear()
+    queue_manager._queue_state["items"] = []
     yield
     routes._state = {
         "frames": [],
@@ -63,6 +70,7 @@ def reset_routes_state():
     routes._batch_init_jobs.clear()
     routes._batch_scan_jobs.clear()
     routes._batch_template_scan_jobs.clear()
+    queue_manager._queue_state["items"] = []
 
 
 def test_index_returns_200(client):
@@ -830,3 +838,77 @@ def test_rescan_forward_cancel_unknown_job(client):
     """Cancel endpoint returns 404 for unknown job_id."""
     resp = client.post("/clip-cutter/rescan-forward/nonexistent/cancel")
     assert resp.status_code == 404
+
+
+# ── Queue routes ──────────────────────────────────────────────────────────────
+
+def test_queue_get_empty(client):
+    resp = client.get("/clip-cutter/queue")
+    assert resp.status_code == 200
+    data = resp.get_json()
+    assert data["pending_count"] == 0
+    assert data["items"] == []
+
+
+def test_queue_post_adds_item(client, tmp_path):
+    (tmp_path / "cam0.avi").touch()
+    resp = client.post("/clip-cutter/queue", json={
+        "video_path": str(tmp_path / "cam0.avi"),
+        "key_frame": 200,
+        "postfix": "ok",
+    })
+    assert resp.status_code == 200
+    data = resp.get_json()
+    assert len(data["ids"]) == 1
+    assert data["pending_count"] == 1
+
+
+def test_queue_post_with_sibling_adds_two_items(client, tmp_path):
+    (tmp_path / "cam0.avi").touch()
+    (tmp_path / "cam1.avi").touch()
+    resp = client.post("/clip-cutter/queue", json={
+        "video_path": str(tmp_path / "cam0.avi"),
+        "key_frame": 200,
+        "extract_sibling": True,
+        "sibling_video_path": str(tmp_path / "cam1.avi"),
+    })
+    assert resp.status_code == 200
+    assert len(resp.get_json()["ids"]) == 2
+
+
+def test_queue_post_missing_video_path_returns_400(client):
+    resp = client.post("/clip-cutter/queue", json={"key_frame": 200})
+    assert resp.status_code == 400
+
+
+def test_queue_post_missing_key_frame_returns_400(client, tmp_path):
+    (tmp_path / "cam0.avi").touch()
+    resp = client.post("/clip-cutter/queue", json={
+        "video_path": str(tmp_path / "cam0.avi"),
+    })
+    assert resp.status_code == 400
+
+
+def test_queue_delete_removes_item(client, tmp_path):
+    (tmp_path / "cam0.avi").touch()
+    post_resp = client.post("/clip-cutter/queue", json={
+        "video_path": str(tmp_path / "cam0.avi"),
+        "key_frame": 200,
+    })
+    item_id = post_resp.get_json()["ids"][0]
+    del_resp = client.delete(f"/clip-cutter/queue/{item_id}")
+    assert del_resp.status_code == 200
+    assert del_resp.get_json()["ok"] is True
+    status = client.get("/clip-cutter/queue").get_json()
+    assert status["pending_count"] == 0
+
+
+def test_queue_delete_unknown_id_returns_404(client):
+    resp = client.delete("/clip-cutter/queue/no-such-id")
+    assert resp.status_code == 404
+
+
+def test_queue_process_returns_ok(client):
+    resp = client.post("/clip-cutter/queue/process")
+    assert resp.status_code == 200
+    assert resp.get_json()["ok"] is True
