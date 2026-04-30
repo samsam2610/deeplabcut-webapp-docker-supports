@@ -79,7 +79,7 @@ async function _epLoadFrame(n) {
     const prevSrc = img.src;
     await new Promise((resolve, reject) => {
       img.onload  = () => { if (prevSrc.startsWith("blob:")) URL.revokeObjectURL(prevSrc); resolve(); };
-      img.onerror = () => reject(new Error("frame load failed"));
+      img.onerror = () => { URL.revokeObjectURL(blobUrl); reject(new Error("frame load failed")); };
       img.src = blobUrl;
     });
     _epUpdateDisplay();
@@ -249,14 +249,14 @@ document.addEventListener("DOMContentLoaded", () => {
       e.preventDefault();
       if (_playing) { _stop(); }
       else { _playing = true; document.getElementById("ep-play").textContent = "⏸"; _epLoop(); }
-    } else if (e.key === "ArrowRight") {
-      e.preventDefault(); _stop(); _epLoadFrame(_currentFrame + _stepSize);
-    } else if (e.key === "ArrowLeft") {
-      e.preventDefault(); _stop(); _epLoadFrame(_currentFrame - _stepSize);
     } else if (e.key === "ArrowRight" && e.shiftKey) {
       e.preventDefault(); _stop(); _epLoadFrame(_currentFrame + 1);
     } else if (e.key === "ArrowLeft" && e.shiftKey) {
       e.preventDefault(); _stop(); _epLoadFrame(_currentFrame - 1);
+    } else if (e.key === "ArrowRight") {
+      e.preventDefault(); _stop(); _epLoadFrame(_currentFrame + _stepSize);
+    } else if (e.key === "ArrowLeft") {
+      e.preventDefault(); _stop(); _epLoadFrame(_currentFrame - _stepSize);
     }
   });
 });
