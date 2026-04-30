@@ -13,6 +13,8 @@ let _libSensorMode = "clip_only";   // "clip_only" | "sensor+clip"
 let _templateScanJobId = null;
 let _libBatchScanEs = null;
 let _libBatchScanJobId = null;
+let _queueEs = null;
+let _siblingVideoPath = null;  // set when select-video returns sibling_video_path
 
 function esc(s) {
   const d = document.createElement("div");
@@ -32,6 +34,222 @@ function applyFilter() {
       (currentFilter === "clip_only" && src === "clip_only");
     card.style.display = sourceOk && sim >= threshold ? "" : "none";
   });
+}
+
+// ── Extract queue ─────────────────────────────────────────────────────────────
+
+function _connectQueueStream() {
+  if (_queueEs) { _queueEs.close(); _queueEs = null; }
+  _queueEs = new EventSource("/clip-cutter/queue/stream");
+  _queueEs.onmessage = (e) => {
+    const status = JSON.parse(e.data);
+    _applyQueueStatus(status);
+  };
+  _queueEs.onerror = () => {
+    if (_queueEs) { _queueEs.close(); _queueEs = null; }
+    setTimeout(_connectQueueStream, 5000);
+  };
+}
+
+function _applyQueueStatus(status) {
+  const pendingCount = status.pending_count || 0;
+  const btn = document.getElementById("extract-queue-btn");
+  const countEl = document.getElementById("queue-pending-count");
+  if (btn) { btn.style.display = pendingCount > 0 ? "" : "none"; }
+  if (countEl) countEl.textContent = String(pendingCount);
+
+  (status.items || []).forEach(item => {
+    if (item.status === "done" && item.avi_path) {
+      _onQueueItemDone(item);
+    } else if (item.status === "error") {
+      _onQueueItemError(item);
+    }
+  });
+
+  _updateSiblingBackfillBtn();
+}
+
+function _onQueueItemDone(item) {
+  const idx = detections.findIndex(d => d.queue_item_id === item.id);
+  if (idx === -1) return;
+  const d = detections[idx];
+  if (d.status === "kept") return;
+  d.status = "kept";
+  d.extract_avi_path = item.avi_path;
+  const card = document.getElementById(`card-${idx}`);
+  if (card) {
+    card.classList.add("kept");
+    card.classList.remove("queued");
+    card.querySelectorAll("button").forEach(b => { b.disabled = true; });
+    const nameEl = card.querySelector(".result-name");
+    if (nameEl) nameEl.textContent = item.avi_path.split("/").pop();
+    _renderSiblingExtractBtn(card, idx);
+  }
+  saveDetections();
+}
+
+function _onQueueItemError(item) {
+  const idx = detections.findIndex(d => d.queue_item_id === item.id);
+  if (idx === -1) return;
+  const card = document.getElementById(`card-${idx}`);
+  if (!card) return;
+  const errEl = card.querySelector(".queue-error") || document.createElement("span");
+  errEl.className = "queue-error";
+  errEl.style.cssText = "font-size:8px;color:#f85149;margin-left:4px;";
+  errEl.textContent = "⚠ " + (item.error || "extraction error");
+  if (!card.querySelector(".queue-error")) {
+    card.querySelector(".result-meta")?.appendChild(errEl);
+  }
+}
+
+async function _queueDetection(idx) {
+  const d = detections[idx];
+  const postfix = (d.extract_postfix || "");
+  const extractSibling = _siblingVideoPath
+    ? (document.getElementById("ep-extract-sibling")?.checked ?? true)
+    : false;
+
+  try {
+    const resp = await fetch("/clip-cutter/queue", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        video_path: d.video_path,
+        key_frame: d.frame_number,
+        postfix,
+        extract_sibling: extractSibling,
+        sibling_video_path: extractSibling ? _siblingVideoPath : undefined,
+      }),
+    });
+    if (!resp.ok) { setStatus("Queue error"); return; }
+    const data = await resp.json();
+    detections[idx].status = "queued";
+    detections[idx].queue_item_id = data.ids[0];
+    if (data.ids[1]) detections[idx].sibling_queue_item_id = data.ids[1];
+    const card = document.getElementById(`card-${idx}`);
+    if (card) {
+      const qBtn = card.querySelector(".queue-btn");
+      if (qBtn) qBtn.classList.add("queued");
+      card.classList.add("queued");
+    }
+    setStatus(`Detection queued for extraction (${data.pending_count} in queue)`);
+    saveDetections();
+  } catch (err) {
+    setStatus("Network error: " + err.message);
+  }
+}
+
+async function _unqueueDetection(idx) {
+  const d = detections[idx];
+  const itemId = d.queue_item_id;
+  if (!itemId) return;
+  try {
+    const resp = await fetch(`/clip-cutter/queue/${encodeURIComponent(itemId)}`, {
+      method: "DELETE",
+    });
+    if (!resp.ok && resp.status !== 404) { setStatus("Remove queue error"); return; }
+    detections[idx].status = "pending";
+    delete detections[idx].queue_item_id;
+    delete detections[idx].sibling_queue_item_id;
+    const card = document.getElementById(`card-${idx}`);
+    if (card) {
+      const qBtn = card.querySelector(".queue-btn");
+      if (qBtn) qBtn.classList.remove("queued");
+      card.classList.remove("queued");
+    }
+    setStatus("Removed from queue");
+    saveDetections();
+  } catch (err) {
+    setStatus("Network error: " + err.message);
+  }
+}
+
+function _updateSiblingBackfillBtn() {
+  if (!_siblingVideoPath) {
+    const btn = document.getElementById("queue-siblings-btn");
+    if (btn) btn.style.display = "none";
+    return;
+  }
+  const eligible = detections.filter(d =>
+    d.status === "kept" && d.extract_avi_path && !d.sibling_extract_avi_path
+  );
+  const btn = document.getElementById("queue-siblings-btn");
+  const countEl = document.getElementById("queue-siblings-count");
+  if (btn) btn.style.display = eligible.length > 0 ? "" : "none";
+  if (countEl) countEl.textContent = String(eligible.length);
+}
+
+async function _queueMissingSiblings() {
+  if (!_siblingVideoPath) return;
+  const eligible = detections.filter(d =>
+    d.status === "kept" && d.extract_avi_path && !d.sibling_extract_avi_path
+  );
+  if (eligible.length === 0) return;
+  setStatus(`Queuing sibling clips for ${eligible.length} detection(s)…`);
+  let queued = 0;
+  for (const d of eligible) {
+    try {
+      const resp = await fetch("/clip-cutter/queue", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          video_path: _siblingVideoPath,
+          key_frame: d.frame_number,
+          postfix: d.extract_postfix || "",
+        }),
+      });
+      if (resp.ok) {
+        const data = await resp.json();
+        d.sibling_queue_item_id = data.ids[0];
+        queued++;
+      }
+    } catch { /* continue */ }
+  }
+  setStatus(`${queued} sibling clip(s) queued for extraction`);
+  saveDetections();
+  _updateSiblingBackfillBtn();
+}
+
+function _renderSiblingExtractBtn(card, idx) {
+  if (!_siblingVideoPath) return;
+  const d = detections[idx];
+  if (d.status !== "kept" || d.sibling_extract_avi_path) return;
+  if (card.querySelector(".sibling-extract-btn")) return;
+  const btn = document.createElement("button");
+  btn.className = "player-btn sibling-extract-btn";
+  btn.style.cssText = "font-size:8px;padding:1px 5px;color:#f0c040;border-color:#6a4500;";
+  btn.textContent = "Extract Sibling";
+  btn.title = "Queue sibling camera clip";
+  btn.addEventListener("click", async () => {
+    btn.disabled = true;
+    try {
+      const resp = await fetch("/clip-cutter/queue", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          video_path: _siblingVideoPath,
+          key_frame: d.frame_number,
+          postfix: d.extract_postfix || "",
+        }),
+      });
+      if (resp.ok) {
+        const data = await resp.json();
+        d.sibling_queue_item_id = data.ids[0];
+        btn.textContent = "Sibling queued";
+        setStatus("Sibling clip queued");
+        saveDetections();
+        _updateSiblingBackfillBtn();
+      } else {
+        btn.disabled = false;
+        setStatus("Error queuing sibling clip");
+      }
+    } catch (err) {
+      btn.disabled = false;
+      setStatus("Network error: " + err.message);
+    }
+  });
+  const meta = card.querySelector(".result-meta");
+  if (meta) meta.appendChild(btn);
 }
 
 // ── Global libraries ──────────────────────────────────────────────────────────
@@ -662,6 +880,7 @@ function _reconnectActiveJob() {
 // ── Boot ─────────────────────────────────────────────────────────────────────
 
 document.addEventListener("DOMContentLoaded", () => {
+  _connectQueueStream();
   loadTemplate();
   const _savedPath = (() => { try { return localStorage.getItem("cc-browser-path"); } catch { return null; } })();
   loadFolder(_savedPath || null).then(() => _reconnectActiveJob());
@@ -964,6 +1183,12 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   });
 
+  document.getElementById("extract-queue-btn")?.addEventListener("click", () => {
+    fetch("/clip-cutter/queue/process", { method: "POST" }).catch(() => {});
+  });
+
+  document.getElementById("queue-siblings-btn")?.addEventListener("click", _queueMissingSiblings);
+
 });
 
 // ── Template bank ─────────────────────────────────────────────────────────────
@@ -1244,6 +1469,10 @@ async function selectVideo(videoPath, stem, parent) {
     return;
   }
 
+  const selectData = await selectResp.json();
+  _siblingVideoPath = selectData.sibling_video_path || null;
+  _updateSiblingBackfillBtn();
+
   document.getElementById("scan-btn").disabled = false;
   const browseBtn = document.getElementById("detections-browse-btn");
   if (browseBtn) { browseBtn.disabled = false; browseBtn.style.cursor = "pointer"; }
@@ -1282,6 +1511,7 @@ async function loadSavedDetections(videoPath) {
     const data = await resp.json();
     detections.length = 0;
     renderDetections(data.detections);
+    _updateSiblingBackfillBtn();
     applyFilter();
     return true;
   } catch {
@@ -1498,6 +1728,7 @@ function buildResultCard(d, idx) {
         <div style="flex:1;min-width:0;"></div>
         <span class="ep-conflict-badge"></span>
         <button class="btn-sm btn-green keep-btn" style="padding:1px 5px;font-size:9px;">&#10003;</button>
+        <button class="btn-queue queue-btn" title="Add to extract queue">&#9711;</button>
         <button class="btn-sm btn-red reject-btn" style="padding:1px 5px;font-size:9px;">&#10007;</button>
         <button class="btn-sm btn-blue add-btn" style="padding:1px 5px;font-size:9px;">+Tpl</button>
       </div>
@@ -1535,6 +1766,26 @@ function buildResultCard(d, idx) {
   card.querySelector(".add-btn").addEventListener("click", () =>
     addToTemplate(d.video_path, d.frame_number)
   );
+
+  const qBtn = card.querySelector(".queue-btn");
+  if (qBtn) {
+    if (d.status === "queued") {
+      qBtn.classList.add("queued");
+      card.classList.add("queued");
+    }
+    qBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      if (qBtn.classList.contains("queued") || d.status === "queued") {
+        _unqueueDetection(idx);
+      } else {
+        _queueDetection(idx);
+      }
+    });
+  }
+
+  if (d.status === "kept" && d.extract_avi_path) {
+    _renderSiblingExtractBtn(card, idx);
+  }
 
   card.addEventListener("click", (e) => {
     if (e.target.closest("button:not([disabled])")) return;
