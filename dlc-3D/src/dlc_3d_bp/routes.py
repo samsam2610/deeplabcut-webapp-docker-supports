@@ -175,6 +175,8 @@ def _find_sibling_on_filesystem(video_abs: str) -> "str | None":
     Works for any absolute path, not limited to the DLC project directory.
     """
     vp = Path(video_abs)
+    if not vp.is_absolute():
+        return None
     m = re.match(r'^(.+?)_cam(\d+)_(\d{8})', vp.stem)
     if not m:
         return None
@@ -392,12 +394,13 @@ def get_sibling_camera():
     if sibling:
         return jsonify({"sibling_video_path": sibling})
 
-    vj_path = Path(proj) / "videos.json"
     sibling = None
-    if vj_path.exists():
-        with open(vj_path) as f:
-            videos_json = json.load(f)
-        sibling = _find_sibling_video(video_path, videos_json)
+    if not video_path.startswith("/"):
+        vj_path = Path(proj) / "videos.json"
+        if vj_path.exists():
+            with open(vj_path) as f:
+                videos_json = json.load(f)
+            sibling = _find_sibling_video(video_path, videos_json)
     return jsonify({"sibling_video_path": sibling})
 
 
