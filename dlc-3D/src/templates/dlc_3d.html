@@ -7,94 +7,27 @@
 {% endblock %}
 
 {% block content %}
-<div id="dlc3d-root">
-  <!-- Header bar (project open / rescan) -->
-  <header>
-    <h1>DLC 3D Extractor</h1>
-    <button class="btn" id="btn-open-project">Open Project</button>
-    <span id="project-path-display">No project loaded</span>
-    <button class="btn" id="btn-rescan" style="display:none">↺ Rescan</button>
-  </header>
+  {% include "partials/session_dlc_bar.html" %}
+  {% include "partials/session_anipose_bar.html" %}
 
-  <div class="main-layout">
-    <!-- Left: session browser -->
-    <div id="session-panel">
-      <div id="session-empty">Open a DLC project to begin.</div>
-    </div>
-
-    <!-- Right: player area -->
-    <div id="player-area">
-      <div id="cam-displays">
-        <div class="cam-wrap" id="cam1-wrap">
-          <div class="cam-label" id="cam1-label">Primary camera</div>
-          <div class="cam-frame-wrap" id="cam1-frame-wrap">
-            <img id="ep-frame" src="" alt="" style="display:none">
-            <span id="no-video-msg">Select a video or clip from the left panel.</span>
-          </div>
-        </div>
-        <div class="cam-wrap" id="ep-cam2-wrap" style="display:none">
-          <div class="cam-label" id="cam2-label">Sibling camera</div>
-          <div class="cam-frame-wrap">
-            <img id="ep-cam2-frame" src="" alt="">
-          </div>
-        </div>
-      </div>
-
-      <div id="controls">
-        <!-- Seek row -->
-        <div class="ctrl-row">
-          <input type="range" id="ep-seek" value="0" min="0" max="0">
-          <span class="frame-info">
-            Frame <span id="ep-frame-num">—</span> / <span id="ep-frame-total">—</span>
-          </span>
-        </div>
-        <!-- Playback row -->
-        <div class="ctrl-row">
-          <button class="btn" id="ep-skip-start" title="Jump to start">⏮</button>
-          <button class="btn" id="ep-step-back" title="Step back">◀</button>
-          <button class="btn" id="ep-play" title="Play / pause">▶</button>
-          <button class="btn" id="ep-step-fwd" title="Step forward">▶</button>
-          <button class="btn" id="ep-skip-end" title="Jump to end">⏭</button>
-          <label style="font-size:.75rem;color:var(--text-dim)">
-            Skip <input type="number" id="ep-step" value="10" min="1" max="9999"
-              style="width:3.2rem;background:var(--bg);border:1px solid var(--border);
-                     color:var(--text);padding:.18rem .28rem;border-radius:3px;font-size:.78rem">
-          </label>
-          <button class="btn btn-primary" id="ep-extract-btn" disabled>Extract Frame</button>
-        </div>
-        <!-- Sync cam row -->
-        <div class="ctrl-row" id="sync-cam-row">
-          <label class="toggle">
-            <input type="checkbox" id="ep-sync-cam"> Sync Cam
-          </label>
-          <label class="toggle" id="ep-extract-sibling-label" style="display:none">
-            <input type="checkbox" id="ep-extract-sibling" checked> Extract Sibling
-          </label>
-        </div>
-      </div>
-
-      <div id="extract-status"></div>
-
-      <!-- Labeled frames for current session -->
-      <div id="labeled-wrap">
-        <div id="labeled-header">Extracted frames: <span id="labeled-count">0</span></div>
-        <div id="labeled-list"></div>
-      </div>
-    </div>
-  </div>
-
-  <!-- Filesystem browser modal -->
-  <div id="browser-modal">
-    <div id="browser-box">
-      <div id="browser-box-header">
-        <span>Open DLC Project</span>
-        <button class="btn" id="browser-close">✕</button>
-      </div>
-      <div id="browser-path-bar">/</div>
-      <div id="browser-list"></div>
-    </div>
-  </div>
-</div>
+  <!-- ─── Main card grid ──────────────────────────────────────── -->
+  <main class="cards">
+    {% include "partials/card_dlc_project.html" %}
+    {% include "partials/card_3d_extract.html" %}
+    {% include "partials/card_frame_labeler.html" %}
+    {% include "partials/card_training_dataset.html" %}
+    {% include "partials/card_train_network.html" %}
+    {% include "partials/card_analyze.html" %}
+    {% include "partials/card_viewer.html" %}
+    {% include "partials/card_annotator.html" %}
+    {% include "partials/card_gpu_monitor.html" %}
+    {% include "partials/card_dlc_config.html" %}
+    {% include "partials/card_custom_script.html" %}
+    {% include "partials/card_project_explorer.html" %}
+    {% include "partials/card_session_actions.html" %}
+    {% include "partials/card_config_editor.html" %}
+    {% include "partials/card_admin.html" %}
+  </main>
 {% endblock %}
 
 {% block scripts %}
