@@ -96,13 +96,9 @@ Regex: `^(.+?)_cam\d+_(\d{8})`
 
 ### Calibration
 
-On the **first frame save** into a session folder, the server auto-detects and copies `calibration.toml` into `labeled-data/{session}/calibration.toml`. Search order (first match wins):
+On the **first frame save** into a session folder, the server copies `<project>/videos/calibration.toml` → `labeled-data/{session}/calibration.toml`.
 
-1. `<project>/calibration.toml`
-2. `<project>/calibration/calibration.toml`
-3. `<project>/videos/calibration.toml`
-
-If none found, the copy is skipped silently — the extract still succeeds and the user can place the file manually later. Subsequent saves into the same session folder skip the copy (file already present).
+This location is guaranteed by the user: whenever a session has multi-camera siblings, `calibration.toml` always lives in the `videos/` directory (clips are one level below it, so the parent is the same `videos/` folder). Subsequent saves into the same session folder skip the copy (file already present).
 
 ---
 
@@ -163,7 +159,7 @@ Server-side: given primary video path, look up `videos.json` for the same sessio
 5. Duplicate check: if any file matches `img_cam{N}_????_{frame_number:05d}.png`, return `{"skipped": true}`.
 6. Decode base64 JPEG → PNG via OpenCV → write `img_cam{N}_{order:04d}_{frame_number:05d}.png`.
 7. If `extract_sibling=true`: repeat steps 3–6 for sibling video + sibling frame data.
-8. On first save into `labeled_dir` (no existing PNGs): auto-detect `calibration.toml` by searching `<project>/calibration.toml`, then `<project>/calibration/calibration.toml`, then `<project>/videos/calibration.toml`; copy first match to `labeled_dir/calibration.toml`. Skip silently if none found.
+8. On first save into `labeled_dir` (no existing PNGs): copy `<project>/videos/calibration.toml` → `labeled_dir/calibration.toml`. Skip silently if the source file is absent.
 9. Return saved filenames and session folder path.
 
 ### Frame naming
