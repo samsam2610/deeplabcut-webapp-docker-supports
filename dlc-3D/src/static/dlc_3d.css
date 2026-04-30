@@ -80,6 +80,9 @@
 }
 #dlc-3d-extract-card label.toggle input { accent-color: var(--accent); cursor: pointer; }
 
+/* ── Seek slider ── */
+#dlc-3d-extract-card .fe-seek { width: 100%; }
+
 /* ── Labeled frame chips ── */
 #dlc-3d-extract-card .frame-chip {
   background: var(--surface-2);
