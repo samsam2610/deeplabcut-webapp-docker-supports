@@ -4,7 +4,7 @@
       background: var(--bg); color: var(--text); font-family: system-ui, sans-serif;
       display: flex; flex-direction: column; flex: 1; overflow: hidden; min-height: 0;
     }
-    * { box-sizing: border-box; margin: 0; padding: 0; }
+    #dlc3d-root * { box-sizing: border-box; margin: 0; padding: 0; }
 
     /* ── Header ── */
     #dlc3d-root header { background: var(--panel); border-bottom: 1px solid var(--border);
@@ -65,9 +65,9 @@
 
     /* ── Sync cam row ── */
     #sync-cam-row { display: none; align-items: center; gap: .75rem; }
-    label.toggle { display: flex; align-items: center; gap: .3rem; font-size: .78rem;
+    #dlc3d-root label.toggle { display: flex; align-items: center; gap: .3rem; font-size: .78rem;
                    cursor: pointer; color: var(--text-dim); }
-    label.toggle input { accent-color: var(--accent); cursor: pointer; }
+    #dlc3d-root label.toggle input { accent-color: var(--accent); cursor: pointer; }
 
     /* ── Extract status ── */
     #extract-status { font-size: .75rem; color: var(--text-dim); min-height: 1.1em; flex-shrink: 0; }
