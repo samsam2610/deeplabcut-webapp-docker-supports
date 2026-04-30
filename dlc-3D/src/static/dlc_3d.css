@@ -1,9 +1,6 @@
 /* dlc_3d.css — styles scoped to #dlc-3d-extract-card only */
 
-/* Card fills full width */
 #dlc-3d-extract-card {
-  max-width: none;
-  width: 100%;
 }
 
 /* ── Dual camera display ── */
