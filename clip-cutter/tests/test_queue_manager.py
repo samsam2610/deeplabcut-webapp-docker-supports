@@ -170,7 +170,8 @@ def test_process_now_extracts_item(tmp_path, monkeypatch):
     # Wait up to 3s for the item to be processed
     deadline = time.time() + 3
     while time.time() < deadline:
-        if queue_manager.get_status()["pending_count"] == 0:
+        items = queue_manager.get_status()["items"]
+        if items and items[0]["status"] in ("done", "error"):
             break
         time.sleep(0.05)
 
