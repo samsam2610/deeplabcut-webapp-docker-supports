@@ -22,12 +22,38 @@ function _camColorClass(filename) {
   return m ? `cam${m[1]}` : "";
 }
 
+// ── Extractor reset ───────────────────────────────────────────────────────────
+
+function _resetExtractorUI() {
+  _projectPath   = null;
+  _sessions      = {};
+  _activeVideo   = null;
+  _activeSession = null;
+
+  document.getElementById("dlc3d-player-section").style.display = "none";
+  const list = document.getElementById("dlc3d-video-list");
+  list.innerHTML     = "";
+  list.style.display = "none";
+  const empty = document.getElementById("dlc3d-session-empty");
+  if (empty) { empty.style.display = ""; empty.textContent = "Load a project to see sessions."; }
+  document.getElementById("dlc3d-project-path").textContent = "No project loaded";
+  document.getElementById("dlc3d-btn-rescan").style.display = "none";
+  _setStatus("");
+  const labeledWrap = document.getElementById("labeled-wrap");
+  if (labeledWrap) labeledWrap.style.display = "none";
+}
+
 // ── Card open / close ─────────────────────────────────────────────────────────
 
 function _openCard() {
   document.querySelectorAll(".card:not(#dlc-3d-extract-card)").forEach(c => c.classList.add("hidden"));
   document.getElementById("dlc-3d-extract-card").classList.remove("hidden");
   document.getElementById("dlc-3d-extract-card").scrollIntoView({ behavior: "smooth", block: "nearest" });
+
+  if (!_projectPath) {
+    const activePath = document.getElementById("dlc-active-path")?.textContent.trim();
+    if (activePath) _loadProject(activePath);
+  }
 }
 
 function _closeCard() {
@@ -346,4 +372,13 @@ document.addEventListener("DOMContentLoaded", () => {
   });
 
   document.getElementById("ep-extract-btn")?.addEventListener("click", _extractFrame);
+
+  const activePathEl = document.getElementById("dlc-active-path");
+  if (activePathEl) {
+    new MutationObserver(() => {
+      const newPath = activePathEl.textContent.trim();
+      _resetExtractorUI();
+      if (newPath) _loadProject(newPath);
+    }).observe(activePathEl, { childList: true, characterData: true, subtree: true });
+  }
 });
