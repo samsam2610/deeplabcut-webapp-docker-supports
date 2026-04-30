@@ -255,8 +255,7 @@ def test_save_frame_clip_path(tmp_path):
 
 def test_browse_returns_video_files(tmp_path, monkeypatch):
     """browse() should include .avi and .mp4 files in entries."""
-    from flask import Flask, request
-    from flask.testing import FlaskClient
+    from flask import Flask
     from dlc_3d_bp import routes
     import config
 
