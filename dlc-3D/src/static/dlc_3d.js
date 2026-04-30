@@ -23,8 +23,8 @@ function _camColorClass(filename) {
   return m ? `cam${m[1]}` : "";
 }
 
-function _sessionKeyFromVideoRel(videoRel) {
-  const parts = videoRel.split("/");
+function _sessionKeyFromVideoPath(videoPath) {
+  const parts = videoPath.split("/");
   // Try filename stem first
   let stem = parts[parts.length - 1].replace(/\.[^.]+$/, "");
   let m = stem.match(/^(.+?)_cam\d+_(\d{8})/);
@@ -51,10 +51,10 @@ function _resetExtractorUI() {
   if (browser) { browser.innerHTML = ""; browser.style.display = "none"; }
   const empty = document.getElementById("dlc3d-session-empty");
   if (empty) { empty.style.display = ""; empty.textContent = "Load a DLC project via \"Manage DLC Project\"."; }
-  const display = document.getElementById("dlc3d-project-display");
-  if (display) display.textContent = "—";
   const browseBtn = document.getElementById("dlc3d-browse-btn");
   if (browseBtn) browseBtn.style.display = "none";
+  const pathInput = document.getElementById("dlc3d-path-input");
+  if (pathInput) { pathInput.style.display = "none"; pathInput.value = ""; }
   _setStatus("");
   const labeledWrap = document.getElementById("labeled-wrap");
   if (labeledWrap) labeledWrap.style.display = "none";
@@ -94,7 +94,6 @@ async function _loadProject(path) {
   if (token !== _loadToken) return;
 
   _projectPath = data.project_path;
-  document.getElementById("dlc3d-project-display").textContent = _projectPath;
   document.getElementById("dlc3d-browse-btn").style.display = "";
   _setStatus("");
 }
@@ -128,6 +127,8 @@ async function _browseDir(path) {
   }
 
   _browserCurrentPath = data.path;
+  const pathInput = document.getElementById("dlc3d-path-input");
+  if (pathInput) pathInput.value = data.path;
   browser.innerHTML = "";
 
   if (data.parent) {
@@ -156,9 +157,9 @@ async function _browseDir(path) {
       row.addEventListener("click", () => _browseDir(_browserCurrentPath + "/" + entry.name));
     } else if (entry.type === "file") {
       icon.textContent = "🎬 ";
-      row.dataset.videoRel = (_browserCurrentPath + "/" + entry.name).slice(_projectPath.length + 1);
+      row.dataset.videoPath = _browserCurrentPath + "/" + entry.name;
       row.append(icon, name);
-      row.addEventListener("click", () => _selectVideo(row.dataset.videoRel));
+      row.addEventListener("click", () => _selectVideo(row.dataset.videoPath));
     } else {
       continue;
     }
@@ -175,12 +176,12 @@ async function _browseDir(path) {
 
 // ── Video selection ───────────────────────────────────────────────────────────
 
-async function _selectVideo(videoRel) {
-  _activeVideo   = videoRel;
-  _activeSession = _sessionKeyFromVideoRel(videoRel);
+async function _selectVideo(videoPath) {
+  _activeVideo   = videoPath;
+  _activeSession = _sessionKeyFromVideoPath(videoPath);
 
   document.querySelectorAll("#dlc3d-file-browser .fe-video-item").forEach(el => {
-    el.classList.toggle("active", el.dataset.videoRel === videoRel);
+    el.classList.toggle("active", el.dataset.videoPath === videoPath);
   });
 
   const empty = document.getElementById("dlc3d-session-empty");
@@ -189,14 +190,17 @@ async function _selectVideo(videoRel) {
   const browser = document.getElementById("dlc3d-file-browser");
   if (browser) browser.style.display = "none";
 
+  const pathInput = document.getElementById("dlc3d-path-input");
+  if (pathInput) pathInput.style.display = "none";
+
   document.getElementById("dlc3d-player-section").style.display = "";
 
-  const camIdx = videoRel.match(/_cam(\d+)_/)?.[1] ?? "?";
+  const camIdx = videoPath.match(/_cam(\d+)_/)?.[1] ?? "?";
   document.getElementById("cam1-label").textContent = `Camera ${camIdx} (primary)`;
 
   let siblingPath = null;
   try {
-    const sr = await fetch(`/dlc-3d/sibling-camera?video=${encodeURIComponent(videoRel)}`);
+    const sr = await fetch(`/dlc-3d/sibling-camera?video=${encodeURIComponent(videoPath)}`);
     if (sr.ok) {
       const sd = await sr.json();
       siblingPath = sd.sibling_video_path || null;
@@ -209,7 +213,7 @@ async function _selectVideo(videoRel) {
   }
 
   _setStatus("");
-  await openPlayer(videoRel, siblingPath);
+  await openPlayer(videoPath, siblingPath);
   _refreshLabeledFrames();
 }
 
@@ -301,13 +305,23 @@ document.addEventListener("DOMContentLoaded", () => {
   document.getElementById("ep-extract-btn")?.addEventListener("click", _extractFrame);
 
   document.getElementById("dlc3d-browse-btn")?.addEventListener("click", () => {
-    const browser = document.getElementById("dlc3d-file-browser");
+    const browser   = document.getElementById("dlc3d-file-browser");
+    const pathInput = document.getElementById("dlc3d-path-input");
     if (browser.style.display === "none") {
-      _browseDir(_projectPath);
+      pathInput.style.display = "";
+      _browseDir(_browserCurrentPath || _projectPath);
     } else {
       browser.style.display = "none";
+      pathInput.style.display = "none";
       const empty = document.getElementById("dlc3d-session-empty");
       if (empty) empty.style.display = "";
+    }
+  });
+
+  document.getElementById("dlc3d-path-input")?.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") {
+      const v = e.target.value.trim();
+      if (v) _browseDir(v);
     }
   });
 
