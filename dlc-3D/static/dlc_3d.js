@@ -75,6 +75,7 @@ function _renderSessions() {
       // Raw video row
       const camRow = document.createElement("div");
       camRow.className = "cam-row";
+      camRow.dataset.videoRel = camData.avi;
       camRow.innerHTML = `<span class="cam-badge">${camKey}</span><span>${camData.avi.split("/").pop()}</span>`;
       camRow.addEventListener("click", () => _selectVideo(camData.avi, sessionKey));
       body.appendChild(camRow);
@@ -90,6 +91,7 @@ function _renderSessions() {
         for (const clipPath of camData.clips) {
           const clipRow = document.createElement("div");
           clipRow.className = "clip-row";
+          clipRow.dataset.videoRel = clipPath;
           clipRow.textContent = clipPath.split("/").pop();
           clipRow.addEventListener("click", () => _selectVideo(clipPath, sessionKey));
           clipSection.appendChild(clipRow);
@@ -115,9 +117,8 @@ async function _selectVideo(videoRel, sessionKey) {
   _activeSession = sessionKey;
 
   // Highlight active row
-  document.querySelectorAll(".cam-row, .clip-row").forEach(el => el.classList.remove("active"));
   document.querySelectorAll(".cam-row, .clip-row").forEach(el => {
-    if (el.textContent.trim().includes(videoRel.split("/").pop())) el.classList.add("active");
+    el.classList.toggle("active", el.dataset.videoRel === videoRel);
   });
 
   // Update cam label
@@ -155,7 +156,10 @@ async function _extractFrame() {
     ? (document.getElementById("ep-extract-sibling")?.checked ?? true)
     : false;
 
-  if (!primaryVideo || primaryFrame === null || !_projectPath) return;
+  if (!primaryVideo || primaryFrame == null || !_projectPath) {
+    if (!_projectPath) _setStatus("No project loaded.");
+    return;
+  }
 
   const extractBtn = document.getElementById("ep-extract-btn");
   if (extractBtn) extractBtn.disabled = true;
@@ -250,7 +254,12 @@ async function _browserNavigate(path) {
     const row = document.createElement("div");
     if (entry.type === "dir") {
       row.className = "browser-entry" + (entry.has_config ? " has-config" : "");
-      row.innerHTML = `<span class="entry-icon">${entry.has_config ? "📂" : "📁"}</span>${entry.name}`;
+      const iconEl = document.createElement("span");
+      iconEl.className = "entry-icon";
+      iconEl.textContent = entry.has_config ? "📂" : "📁";
+      const nameEl = document.createElement("span");
+      nameEl.textContent = entry.name;
+      row.append(iconEl, nameEl);
       row.addEventListener("click", () => _browserNavigate(_browserCurrentPath + "/" + entry.name));
       if (entry.has_config) {
         const selectBtn = document.createElement("button");
@@ -266,7 +275,12 @@ async function _browserNavigate(path) {
       }
     } else if (entry.type === "yaml") {
       row.className = "browser-entry yaml";
-      row.innerHTML = `<span class="entry-icon">✓</span>${entry.name}`;
+      const iconEl2 = document.createElement("span");
+      iconEl2.className = "entry-icon";
+      iconEl2.textContent = "✓";
+      const nameEl2 = document.createElement("span");
+      nameEl2.textContent = entry.name;
+      row.append(iconEl2, nameEl2);
       row.addEventListener("click", () => {
         _closeBrowser();
         _loadProject(_browserCurrentPath);
