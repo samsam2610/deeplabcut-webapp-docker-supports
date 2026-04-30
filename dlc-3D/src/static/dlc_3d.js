@@ -114,7 +114,10 @@ async function _browseDir(path) {
     const resp = await fetch(url);
     data = await resp.json();
     if (!resp.ok) {
-      browser.innerHTML = `<span style="font-size:.8rem;color:var(--text-dim)">${data.error || "Browse error"}</span>`;
+      const errMsg = document.createElement("span");
+      errMsg.style.cssText = "font-size:.8rem;color:var(--text-dim)";
+      errMsg.textContent = data.error || "Browse error";
+      browser.replaceChildren(errMsg);
       return;
     }
   } catch (e) {
@@ -153,10 +156,7 @@ async function _browseDir(path) {
       icon.textContent = "🎬 ";
       row.dataset.videoRel = (_browserCurrentPath + "/" + entry.name).slice(_projectPath.length + 1);
       row.append(icon, name);
-      row.addEventListener("click", () => {
-        const rel = (_browserCurrentPath + "/" + entry.name).slice(_projectPath.length + 1);
-        _selectVideo(rel);
-      });
+      row.addEventListener("click", () => _selectVideo(row.dataset.videoRel));
     } else {
       continue;
     }
