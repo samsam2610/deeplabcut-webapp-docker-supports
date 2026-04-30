@@ -6,31 +6,6 @@
   width: 100%;
 }
 
-/* ── Session list ── */
-#dlc-3d-extract-card .dlc3d-session-header {
-  font-size: .78rem;
-  font-weight: 600;
-  color: var(--text-dim);
-  padding: .3rem .4rem .15rem;
-  margin-top: .35rem;
-  letter-spacing: .02em;
-  text-transform: uppercase;
-}
-#dlc-3d-extract-card .dlc3d-session-header:first-child { margin-top: 0; }
-
-#dlc-3d-extract-card .dlc3d-cam-badge {
-  font-size: .68rem;
-  background: var(--surface-3, #222330);
-  border-radius: 3px;
-  padding: .05rem .3rem;
-  color: var(--text-dim);
-  flex-shrink: 0;
-}
-
-#dlc-3d-extract-card .dlc3d-clip-item {
-  padding-left: 1.6rem;
-}
-
 /* ── Dual camera display ── */
 #dlc-3d-extract-card #cam-displays {
   display: flex;
@@ -95,52 +70,3 @@
 }
 #dlc-3d-extract-card .frame-chip.cam0 { border-color: #3fb950; color: #3fb950; }
 #dlc-3d-extract-card .frame-chip.cam1 { border-color: #58a6ff; color: #58a6ff; }
-
-/* ── Browser modal ── */
-#dlc-3d-extract-card #dlc3d-browser-modal {
-  display: none;
-  position: fixed;
-  inset: 0;
-  background: rgba(0,0,0,.65);
-  z-index: 200;
-  align-items: center;
-  justify-content: center;
-}
-#dlc-3d-extract-card #dlc3d-browser-modal.open { display: flex; }
-#dlc-3d-extract-card #dlc3d-browser-box {
-  background: var(--surface-2);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  width: 560px;
-  max-height: 70vh;
-  display: flex;
-  flex-direction: column;
-}
-#dlc-3d-extract-card #dlc3d-browser-box-header {
-  padding: .55rem 1rem;
-  border-bottom: 1px solid var(--border);
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-}
-#dlc-3d-extract-card #dlc3d-browser-box-header span { font-weight: 600; font-size: .85rem; }
-#dlc-3d-extract-card #dlc3d-browser-path-bar {
-  font-size: .72rem;
-  color: var(--text-dim);
-  padding: .25rem .75rem;
-  border-bottom: 1px solid var(--border);
-}
-#dlc-3d-extract-card #dlc3d-browser-list { flex: 1; overflow-y: auto; }
-#dlc-3d-extract-card .browser-entry {
-  padding: .32rem .75rem;
-  font-size: .8rem;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  gap: .4rem;
-}
-#dlc-3d-extract-card .browser-entry:hover { background: var(--surface-3, #222330); }
-#dlc-3d-extract-card .browser-entry .entry-icon { font-size: .85rem; }
-#dlc-3d-extract-card .browser-entry.has-config .entry-icon { color: #3fb950; }
-#dlc-3d-extract-card .browser-entry.yaml { color: #3fb950; font-weight: 600; }
-#dlc-3d-extract-card .browser-up { color: var(--text-dim); font-style: italic; }

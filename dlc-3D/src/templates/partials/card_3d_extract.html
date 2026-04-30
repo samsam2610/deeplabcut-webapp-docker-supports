@@ -7,26 +7,23 @@
           Close
         </button>
       </div>
-      <p class="subtitle">Select a sync-cam video pair, navigate frame-by-frame, and save paired frames into <code style="font-family:var(--mono);font-size:.78rem;background:var(--surface);border:1px solid var(--border);border-radius:3px;padding:.05rem .3rem">labeled-data/</code>.</p>
+      <p class="subtitle">Browse the project's video folder, select a sync-cam video, navigate frame-by-frame, and save paired frames into <code style="font-family:var(--mono);font-size:.78rem;background:var(--surface);border:1px solid var(--border);border-radius:3px;padding:.05rem .3rem">labeled-data/</code>.</p>
 
       <!-- ── Source section ── -->
       <div id="dlc3d-source-section">
-        <label style="display:block;font-size:.82rem;font-weight:500;margin-bottom:.5rem">DLC Project</label>
-        <div style="display:flex;align-items:center;gap:.5rem;margin-bottom:.8rem">
-          <button class="btn-sm" id="dlc3d-btn-open-project">Browse Server</button>
-          <span id="dlc3d-project-path"
-            style="flex:1;font-size:.78rem;color:var(--text-dim);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">
-            No project loaded
-          </span>
-          <button class="btn-sm" id="dlc3d-btn-rescan" style="display:none">↺ Rescan</button>
+        <div style="font-size:.75rem;color:var(--text-dim);margin-bottom:.35rem">
+          Project: <span id="dlc3d-project-display" style="color:var(--text)">—</span>
         </div>
-
-        <!-- Session / camera list — uses main webapp fe-video-list styles -->
-        <div id="dlc3d-video-list" class="fe-video-list" style="display:none"></div>
-        <p id="dlc3d-session-empty" class="explorer-empty">Load a project to see sessions.</p>
+        <!-- Inline file browser (auto-opens when project loads) -->
+        <div id="dlc3d-file-browser" class="fe-video-list"
+          style="display:none;max-height:220px;overflow-y:auto;margin-bottom:.5rem">
+        </div>
+        <p id="dlc3d-session-empty" class="explorer-empty">
+          Load a DLC project via "Manage DLC Project".
+        </p>
       </div>
 
-      <!-- ── Player section (shown after a camera row is clicked) ── -->
+      <!-- ── Player section (shown after a video is clicked) ── -->
       <div id="dlc3d-player-section" style="display:none;margin-top:.75rem">
 
         <!-- Dual cameras side-by-side -->
@@ -35,7 +32,7 @@
             <div class="cam-label" id="cam1-label">Primary camera</div>
             <div class="cam-frame-wrap" id="cam1-frame-wrap">
               <img id="ep-frame" src="" alt="" style="display:none;width:100%">
-              <span id="no-video-msg">Select a camera from the list above.</span>
+              <span id="no-video-msg">Select a video from the list above.</span>
             </div>
           </div>
           <div class="cam-wrap" id="ep-cam2-wrap" style="display:none">
@@ -46,7 +43,7 @@
           </div>
         </div>
 
-        <!-- Controls row — uses main webapp fe-controls / fe-ctrl-btn styles -->
+        <!-- Controls row -->
         <div class="fe-controls">
           <button id="ep-skip-start" class="btn-sm fe-ctrl-btn" title="Jump to start">⏮</button>
           <button id="ep-step-back"  class="btn-sm fe-ctrl-btn" title="Step back N frames">◀◀</button>
@@ -61,10 +58,10 @@
           <span class="fe-frame-counter">Frame <span id="ep-frame-num">—</span> / <span id="ep-frame-total">—</span></span>
         </div>
 
-        <!-- Seek slider — uses main webapp fe-seek style -->
+        <!-- Seek slider -->
         <input type="range" id="ep-seek" class="fe-seek" min="0" max="0" value="0">
 
-        <!-- Sync cam row — display managed by enhanced_player.js via id="sync-cam-row" -->
+        <!-- Sync cam row -->
         <div id="sync-cam-row" style="display:none;align-items:center;gap:1rem;margin:.4rem 0;font-size:.78rem">
           <label class="toggle">
             <input type="checkbox" id="ep-sync-cam"> Sync Cam
@@ -99,16 +96,4 @@
         </div>
 
       </div><!-- /dlc3d-player-section -->
-
-      <!-- Filesystem browser modal (fixed overlay) -->
-      <div id="dlc3d-browser-modal">
-        <div id="dlc3d-browser-box">
-          <div id="dlc3d-browser-box-header">
-            <span>Open DLC Project</span>
-            <button class="btn-sm" id="dlc3d-browser-close">✕</button>
-          </div>
-          <div id="dlc3d-browser-path-bar">/</div>
-          <div id="dlc3d-browser-list"></div>
-        </div>
-      </div>
     </section>
