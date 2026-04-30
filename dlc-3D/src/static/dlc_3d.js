@@ -100,18 +100,28 @@ function _renderSessions() {
 function _makeVideoItem(videoRel, sessionKey, camBadgeText, isClip) {
   const item = document.createElement("div");
   item.className = "fe-video-item" + (isClip ? " dlc3d-clip-item" : "");
-  item.dataset.videoRel  = videoRel;
+  item.dataset.videoRel   = videoRel;
   item.dataset.sessionKey = sessionKey;
 
   const videoSvg = `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2"/></svg>`;
   const clipSvg  = `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7z"/><polyline points="14 2 14 8 20 8"/></svg>`;
 
-  const badgeHtml = camBadgeText
-    ? `<span class="dlc3d-cam-badge">${camBadgeText}</span>`
-    : "";
-  const nameHtml = `<span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${videoRel.split("/").pop()}</span>`;
+  const iconEl = document.createElement("span");
+  iconEl.innerHTML = isClip ? clipSvg : videoSvg;
+  item.appendChild(iconEl);
 
-  item.innerHTML = (isClip ? clipSvg : videoSvg) + badgeHtml + nameHtml;
+  if (camBadgeText) {
+    const badge = document.createElement("span");
+    badge.className = "dlc3d-cam-badge";
+    badge.textContent = camBadgeText;
+    item.appendChild(badge);
+  }
+
+  const nameSpan = document.createElement("span");
+  nameSpan.style.cssText = "flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap";
+  nameSpan.textContent = videoRel.split("/").pop();
+  item.appendChild(nameSpan);
+
   item.addEventListener("click", () => _selectVideo(videoRel, sessionKey));
   return item;
 }
