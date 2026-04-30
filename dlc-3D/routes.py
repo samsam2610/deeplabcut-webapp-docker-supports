@@ -202,3 +202,227 @@ def _save_single_frame(project_path: Path, video_rel: str, frame_number: int) ->
             shutil.copy2(calib_src, calib_dest)
 
     return {"saved": fname, "order": order + 1}
+
+
+# ── UI ────────────────────────────────────────────────────────────────────────
+
+@bp.route("/")
+def index():
+    return render_template("dlc_3d.html")
+
+
+# ── Filesystem browser ────────────────────────────────────────────────────────
+
+@bp.route("/browse")
+def browse():
+    path_str = request.args.get("path", "").strip()
+    if path_str:
+        p = Path(path_str)
+    else:
+        p = next((r for r in config.USER_DATA_ROOTS if r.is_dir()), Path("/"))
+
+    if not p.is_dir():
+        return jsonify({"error": "not a directory"}), 400
+
+    entries = []
+    try:
+        for entry in sorted(p.iterdir(), key=lambda e: e.name.lower()):
+            if entry.name.startswith(".") or entry.name.startswith("@"):
+                continue
+            if entry.is_dir():
+                has_config = (entry / "config.yaml").exists()
+                entries.append({"name": entry.name, "type": "dir", "has_config": has_config})
+            elif entry.name == "config.yaml":
+                entries.append({"name": entry.name, "type": "yaml"})
+    except PermissionError:
+        return jsonify({"error": "permission denied"}), 403
+
+    parent = str(p.parent) if str(p.parent) != str(p) else None
+    return jsonify({"path": str(p), "parent": parent, "entries": entries})
+
+
+# ── Project ───────────────────────────────────────────────────────────────────
+
+@bp.route("/project", methods=["POST"])
+def set_project():
+    """Set active project by config.yaml path or project directory path."""
+    global _active_project
+    body = request.get_json(force=True) or {}
+    path_str = (body.get("path") or "").strip()
+    if not path_str:
+        return jsonify({"error": "path required"}), 400
+
+    p = Path(path_str)
+    if p.name == "config.yaml":
+        p = p.parent
+    if not (p / "config.yaml").exists():
+        return jsonify({"error": "config.yaml not found at that path"}), 404
+
+    with _state_lock:
+        _active_project = str(p)
+
+    data = _load_or_scan_videos(p)
+    return jsonify({"project_path": str(p), "sessions": data.get("sessions", {})})
+
+
+@bp.route("/project/rescan", methods=["POST"])
+def rescan_project():
+    with _state_lock:
+        proj = _active_project
+    if not proj:
+        return jsonify({"error": "no active project"}), 400
+    data = _rescan_and_save(Path(proj))
+    return jsonify({"sessions": data.get("sessions", {})})
+
+
+@bp.route("/project/sessions")
+def get_sessions():
+    with _state_lock:
+        proj = _active_project
+    if not proj:
+        return jsonify({"sessions": {}})
+    data = _load_or_scan_videos(Path(proj))
+    return jsonify({"sessions": data.get("sessions", {})})
+
+
+# ── Video / frame serving ─────────────────────────────────────────────────────
+
+@bp.route("/frame")
+def get_frame():
+    with _state_lock:
+        proj = _active_project
+    video_path = request.args.get("video", "").strip()
+    n_str      = request.args.get("n", "").strip()
+    if not video_path or not n_str or not proj:
+        return jsonify({"error": "video, n, and active project required"}), 400
+    try:
+        n = int(n_str)
+    except ValueError:
+        return jsonify({"error": "n must be an integer"}), 400
+
+    etag = f'"dlc3d-{video_path}-{n}"'
+    if request.headers.get("If-None-Match") == etag:
+        return Response(status=304)
+
+    full_path = Path(proj) / video_path
+    try:
+        data = viewer.get_frame_jpeg(str(full_path), n)
+    except FileNotFoundError as e:
+        return jsonify({"error": str(e)}), 404
+    except (ValueError, RuntimeError) as e:
+        return jsonify({"error": str(e)}), 400
+
+    resp = Response(data, mimetype="image/jpeg")
+    resp.headers["ETag"] = etag
+    resp.headers["Cache-Control"] = "private, max-age=3600"
+    return resp
+
+
+@bp.route("/video-info")
+def get_video_info():
+    with _state_lock:
+        proj = _active_project
+    video_path = request.args.get("video", "").strip()
+    if not video_path or not proj:
+        return jsonify({"error": "video and active project required"}), 400
+    full_path = Path(proj) / video_path
+    try:
+        info = viewer.get_video_info(str(full_path))
+    except FileNotFoundError as e:
+        return jsonify({"error": str(e)}), 404
+    return jsonify(info)
+
+
+@bp.route("/sibling-camera")
+def get_sibling_camera():
+    with _state_lock:
+        proj = _active_project
+    video_rel = request.args.get("video", "").strip()
+    if not video_rel or not proj:
+        return jsonify({"sibling_video_path": None})
+
+    vj_path = Path(proj) / "videos.json"
+    if not vj_path.exists():
+        return jsonify({"sibling_video_path": None})
+    with open(vj_path) as f:
+        videos_json = json.load(f)
+
+    sibling = _find_sibling_video(video_rel, videos_json)
+    return jsonify({"sibling_video_path": sibling})
+
+
+# ── Frame extraction ──────────────────────────────────────────────────────────
+
+@bp.route("/save-frame", methods=["POST"])
+def save_frame():
+    with _state_lock:
+        proj = _active_project
+    if not proj:
+        return jsonify({"error": "no active project"}), 400
+
+    body             = request.get_json(force=True) or {}
+    primary_video    = (body.get("primary_video")    or "").strip()
+    primary_frame    = body.get("primary_frame_number")
+    extract_sibling  = bool(body.get("extract_sibling", False))
+    sibling_video    = (body.get("sibling_video")    or "").strip()
+    sibling_frame    = body.get("sibling_frame_number")
+
+    if not primary_video or primary_frame is None:
+        return jsonify({"error": "primary_video and primary_frame_number required"}), 400
+
+    project_path = Path(proj)
+    saved = []
+    skipped = []
+
+    try:
+        r = _save_single_frame(project_path, primary_video, int(primary_frame))
+        if r.get("skipped"):
+            skipped.append(r)
+        else:
+            saved.append(r["saved"])
+    except (ValueError, RuntimeError, FileNotFoundError) as e:
+        return jsonify({"error": str(e)}), 400
+
+    if extract_sibling and sibling_video and sibling_frame is not None:
+        try:
+            r2 = _save_single_frame(project_path, sibling_video, int(sibling_frame))
+            if r2.get("skipped"):
+                skipped.append(r2)
+            else:
+                saved.append(r2["saved"])
+        except (ValueError, RuntimeError, FileNotFoundError) as e:
+            return jsonify({"error": f"sibling save failed: {e}"}), 400
+
+    stem = Path(primary_video).stem
+    parent_name = Path(primary_video).parent.name
+    if _session_key_from_stem(parent_name) is not None:
+        stem = parent_name
+    session_key = _session_key_from_stem(stem) or stem
+
+    return jsonify({
+        "saved":          saved,
+        "skipped":        skipped,
+        "session_folder": f"labeled-data/{session_key}",
+    }), 201 if saved else 200
+
+
+# ── Labeled frames ────────────────────────────────────────────────────────────
+
+@bp.route("/labeled-frames")
+def labeled_frames():
+    with _state_lock:
+        proj = _active_project
+    session_key = request.args.get("session", "").strip()
+    if not session_key or not proj:
+        return jsonify({"frames": [], "count": 0})
+
+    labeled_dir = Path(proj) / "labeled-data" / session_key
+    if not labeled_dir.is_dir():
+        return jsonify({"frames": [], "count": 0, "session_folder": f"labeled-data/{session_key}"})
+
+    frames = sorted(f.name for f in labeled_dir.glob("img_cam*.png"))
+    return jsonify({
+        "frames":         frames,
+        "count":          len(frames),
+        "session_folder": f"labeled-data/{session_key}",
+    })
