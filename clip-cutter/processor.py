@@ -32,10 +32,14 @@ _dino_model = None
 _dino_transform = None
 _dino_model_lock = threading.Lock()
 
-# Lazy-loaded DINOv2 singleton for CUDA:1 (used by rescan_forward_candidates)
+# Lazy-loaded DINOv2 singleton for rescan (used by rescan_forward_candidates)
+# Inside the container, cuda:0 = RTX PRO 6000 Blackwell (the high-compute GPU for this workload).
+# RESCAN_DEVICE env var overrides, defaulting to cuda:0.
 _dino_model_cuda1 = None
 _dino_transform_cuda1 = None
 _dino_model_cuda1_lock = threading.Lock()
+
+_RESCAN_DEVICE = os.environ.get("CLIP_CUTTER_RESCAN_DEVICE", "cuda:0")
 
 
 def _get_dino_model_cuda1():
@@ -45,8 +49,10 @@ def _get_dino_model_cuda1():
             if _dino_model_cuda1 is None:
                 import torch
                 import torchvision.transforms as T
-                n = torch.cuda.device_count()
-                device = torch.device("cuda:1" if n > 1 else ("cuda:0" if n > 0 else "cpu"))
+                if _RESCAN_DEVICE.startswith("cuda") and not torch.cuda.is_available():
+                    device = torch.device("cpu")
+                else:
+                    device = torch.device(_RESCAN_DEVICE)
                 model = torch.hub.load(
                     "facebookresearch/dinov2", config.DINO_MODEL_NAME, pretrained=True
                 )

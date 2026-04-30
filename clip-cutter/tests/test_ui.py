@@ -154,6 +154,22 @@ def setup_routes(page: Page, *, template_frames=None, init_count=19) -> None:
             "end_frame_number": 21567,
         })
 
+    def on_queue_stream(route: Route):
+        # Return a single SSE event and close — tests don't need live queue updates.
+        route.fulfill(
+            status=200,
+            content_type="text/event-stream",
+            body='data: {"items": [], "pending_count": 0, "processing": false}\n\n',
+        )
+
+    def on_queue(route: Route):
+        if route.request.method == "POST":
+            _json(route, {"ids": ["mock-queue-id-1"], "pending_count": 1, "processing": True})
+        elif route.request.method == "DELETE":
+            _json(route, {"ok": True})
+        else:
+            _json(route, {"items": [], "pending_count": 0, "processing": False})
+
     # Order matters: more-specific patterns first
     page.route("**/clip-cutter/template/init/status", on_template_init_status)
     page.route("**/clip-cutter/template/init", on_template_init)
@@ -166,6 +182,8 @@ def setup_routes(page: Page, *, template_frames=None, init_count=19) -> None:
     page.route("**/clip-cutter/scan/stream*", on_scan_stream)
     page.route("**/clip-cutter/scan", on_scan_start)
     page.route("**/clip-cutter/extract", on_extract)
+    page.route("**/clip-cutter/queue/stream", on_queue_stream)
+    page.route("**/clip-cutter/queue**", on_queue)
 
 
 # ── Tests ─────────────────────────────────────────────────────────────────────
@@ -1596,33 +1614,17 @@ def _inject_two_cards(page: "Page") -> None:
 
 
 def test_extract_uses_captured_idx_not_current(page: "Page"):
-    """Extract completion updates the originally-extracted card even if navigation happened.
+    """Queue action uses the originally-targeted card even if _detectionIdx drifts.
 
-    Integration test: click extract on card 0, verify card 0's name is updated
-    (not a corrupted card-1 or nothing).  The mock response routes to the card
-    identified by the captured _detectionIdx, not whatever _detectionIdx is at
-    settlement time.
+    Integration test: click 'Extract Queue' on card 0, verify card 0 gets the
+    'queued' class and detections[0].status is 'queued'. Card 1 must be untouched.
+    The capturedIdx captured at click time (not _detectionIdx at response time)
+    determines which card is updated.
     """
     _setup_player_with_csv(page)
-
-    # Override the extract route with a named clip so we can assert on it
-    page.route(
-        "**/clip-cutter/extract",
-        lambda r: r.fulfill(
-            status=200,
-            content_type="application/json",
-            body=json.dumps({
-                "avi_path": "/user-data/out/card0_clip.avi",
-                "csv_path": "/user-data/out/card0_clip.csv",
-                "start_frame_number": 100,
-                "end_frame_number": 900,
-            }),
-        ),
-    )
-
     _inject_two_cards(page)
 
-    # Set up module state: detections array with two entries, open player on card 0
+    # Set up module state: two detections, player open on card 0
     page.evaluate("""() => {
         detections.length = 0;
         detections.push(
@@ -1631,34 +1633,28 @@ def test_extract_uses_captured_idx_not_current(page: "Page"):
         );
         _detectionIdx = 0;
         _videoPath = '/user-data/test.avi';
-        // Make ep-extract visible and ep-rename-extract hidden (not-kept state)
         document.getElementById('ep-extract').style.display = '';
         document.getElementById('ep-extract').disabled = false;
         document.getElementById('ep-rename-extract').style.display = 'none';
         document.getElementById('player-panel').style.display = '';
     }""")
 
-    # Click extract — response applies to card 0
+    # Click "Extract Queue" — queues card 0
     page.click("#ep-extract")
 
-    # Wait for the card name to update (the fetch resolves and DOM is mutated)
-    expect(page.locator("#card-0 .result-name")).to_have_text(
-        "card0_clip.avi", timeout=5_000
-    )
+    # Card 0 must gain the 'queued' class
+    expect(page.locator("#card-0")).to_have_class(re.compile(r"\bqueued\b"), timeout=5_000)
 
     # Card 1 must NOT have been touched
-    expect(page.locator("#card-1 .result-name")).to_have_text("VID_1.avi")
+    expect(page.locator("#card-1")).not_to_have_class(re.compile(r"\bqueued\b"))
 
-    # Card 0 must have gained the 'kept' class
-    expect(page.locator("#card-0")).to_have_class(re.compile(r"\bkept\b"))
-
-    # detections[0] must be updated; detections[1] must be untouched
+    # detections[0] must be queued; detections[1] must be untouched
     result = page.evaluate("""() => ({
         status0: detections[0].status,
         status1: detections[1].status,
     })""")
-    assert result["status0"] == "kept", f"detections[0].status should be 'kept', got {result['status0']}"
-    assert result["status1"] != "kept", f"detections[1].status should not be 'kept', got {result['status1']}"
+    assert result["status0"] == "queued", f"detections[0].status should be 'queued', got {result['status0']}"
+    assert result["status1"] != "queued", f"detections[1].status should not be 'queued', got {result['status1']}"
 
 
 def test_rename_extract_uses_captured_idx(page: "Page"):
@@ -2044,7 +2040,7 @@ def _setup_browse_routes(page: Page):
 
 
 def test_browse_extract_creates_new_detection_card(page: Page):
-    """Extracting in browse mode must append a new result card with source=manual."""
+    """Queueing in browse mode must append a new result card with source=manual, status=queued."""
     _setup_browse_routes(page)
     page.goto(f"{BASE_URL}/clip-cutter/")
     page.evaluate("""() => {
@@ -2057,8 +2053,12 @@ def test_browse_extract_creates_new_detection_card(page: Page):
     page.wait_for_function("detections.length > 0", timeout=3000)
     card_count = page.locator(".result-card").count()
     assert card_count == initial_count + 1, f"expected 1 new card, got {card_count - initial_count}"
-    source = page.evaluate("detections[detections.length - 1].source")
-    assert source == "manual", f"new detection source should be 'manual', got {source}"
+    last_det = page.evaluate("""() => ({
+        source: detections[detections.length - 1].source,
+        status: detections[detections.length - 1].status,
+    })""")
+    assert last_det["source"] == "manual", f"new detection source should be 'manual', got {last_det['source']}"
+    assert last_det["status"] == "queued", f"new detection status should be 'queued', got {last_det['status']}"
 
 
 def test_browse_extract_switches_filter_to_all(page: Page):

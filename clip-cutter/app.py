@@ -15,4 +15,4 @@ if __name__ == "__main__":
     import os
     port = int(os.environ.get("CLIP_CUTTER_PORT", 5002))
     debug = os.environ.get("FLASK_DEBUG", "0") == "1"
-    create_app().run(host="0.0.0.0", port=port, debug=debug)
+    create_app().run(host="0.0.0.0", port=port, debug=debug, threaded=True)

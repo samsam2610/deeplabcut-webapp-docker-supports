@@ -14,7 +14,7 @@ let _templateScanJobId = null;
 let _libBatchScanEs = null;
 let _libBatchScanJobId = null;
 let _queueEs = null;
-let _siblingVideoPath = null;  // set when select-video returns sibling_video_path
+// _siblingVideoPath is declared in enhanced_player.js (shared page scope)
 
 function esc(s) {
   const d = document.createElement("div");
