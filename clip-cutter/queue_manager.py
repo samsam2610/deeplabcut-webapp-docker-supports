@@ -213,9 +213,9 @@ def _worker_loop() -> None:
 
 def start_worker() -> None:
     """Start the background worker thread once at app startup."""
+    for t in threading.enumerate():
+        if t.name == "queue-worker" and t.is_alive():
+            return  # already running
     _load()
     _stop_event.clear()
     threading.Thread(target=_worker_loop, daemon=True, name="queue-worker").start()
-
-
-_load()

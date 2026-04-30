@@ -12,13 +12,24 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 def reset_qm(tmp_path, monkeypatch):
     import config
     import queue_manager
+    import importlib
 
     monkeypatch.setattr(config, "QUEUE_PATH", tmp_path / "queue.json")
     monkeypatch.setattr(config, "DETECTIONS_DIR", tmp_path / "detections")
 
     # Reset all module-level state
-    import importlib
     importlib.reload(queue_manager)
+    # Load queue state from disk (was previously done by bare _load() at module level)
+    queue_manager._load()
+
+    # Monkeypatch reload to also call _load() since we removed the bare _load() call
+    original_reload = importlib.reload
+    def reload_with_load(module):
+        result = original_reload(module)
+        if module is queue_manager:
+            queue_manager._load()
+        return result
+    monkeypatch.setattr(importlib, "reload", reload_with_load)
 
     yield
 
