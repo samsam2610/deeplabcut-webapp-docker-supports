@@ -249,6 +249,8 @@ function _epUpdateSyncCamUI() {
     cb.checked = false;
     _syncCamEnabled = false;
     cam2.style.display = "none";
+    const siblingLabelEl = document.getElementById("ep-extract-sibling-label");
+    if (siblingLabelEl) siblingLabelEl.style.display = "none";
     return;
   }
   label.style.display = "";
@@ -1728,6 +1730,7 @@ document.addEventListener("DOMContentLoaded", () => {
       delete d.sibling_queue_item_id;
       document.getElementById("ep-remove-queue").style.display = "none";
       document.getElementById("ep-extract").style.display = "";
+      document.getElementById("ep-extract").disabled = false;
       document.getElementById("ep-set-kf").disabled = false;
       document.getElementById("ep-reject").disabled = false;
       const card = document.getElementById("card-" + _detectionIdx);
