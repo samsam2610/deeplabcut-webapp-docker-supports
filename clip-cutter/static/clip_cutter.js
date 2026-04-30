@@ -171,7 +171,8 @@ function _updateSiblingBackfillBtn() {
     return;
   }
   const eligible = detections.filter(d =>
-    d.status === "kept" && d.extract_avi_path && !d.sibling_extract_avi_path
+    d.status === "kept" && d.extract_avi_path &&
+    !d.sibling_extract_avi_path && !d.sibling_queue_item_id
   );
   const btn = document.getElementById("queue-siblings-btn");
   const countEl = document.getElementById("queue-siblings-count");
@@ -181,8 +182,11 @@ function _updateSiblingBackfillBtn() {
 
 async function _queueMissingSiblings() {
   if (!_siblingVideoPath) return;
+  const btn = document.getElementById("queue-siblings-btn");
+  if (btn) btn.disabled = true;
   const eligible = detections.filter(d =>
-    d.status === "kept" && d.extract_avi_path && !d.sibling_extract_avi_path
+    d.status === "kept" && d.extract_avi_path &&
+    !d.sibling_extract_avi_path && !d.sibling_queue_item_id
   );
   if (eligible.length === 0) return;
   setStatus(`Queuing sibling clips for ${eligible.length} detection(s)…`);
@@ -207,6 +211,7 @@ async function _queueMissingSiblings() {
   }
   setStatus(`${queued} sibling clip(s) queued for extraction`);
   saveDetections();
+  if (btn) btn.disabled = false;
   _updateSiblingBackfillBtn();
 }
 
@@ -1697,6 +1702,9 @@ function renderDetections(dets) {
     } else if (d.status === "rejected") {
       card.classList.add("rejected");
       card.querySelectorAll("button").forEach((b) => (b.disabled = true));
+    } else if (d.status === "queued") {
+      card.classList.add("queued");
+      card.querySelectorAll(".keep-btn, .reject-btn").forEach((b) => (b.disabled = true));
     }
     list.appendChild(card);
   });
