@@ -11,6 +11,7 @@ from dlc_3d_bp.routes import (
     _cam_index_from_stem,
     _find_sibling_video,
     _load_or_scan_videos,
+    _resolve_video_path,
     _save_single_frame,
     _scan_videos,
     _session_key_from_stem,
@@ -276,3 +277,25 @@ def test_browse_returns_video_files(tmp_path):
     assert types["surv1_cam1_20260123_121732.avi"] == "file"
     assert types["clip.mp4"] == "file"
     assert "readme.txt" not in types
+
+
+# ── _resolve_video_path ───────────────────────────────────────────────────────
+
+def test_resolve_video_path_absolute_within_user_data():
+    p = _resolve_video_path("/user-data/Parra-Data/videos/foo.avi", "/user-data/proj")
+    assert p == Path("/user-data/Parra-Data/videos/foo.avi")
+
+
+def test_resolve_video_path_absolute_outside_user_data_returns_none():
+    p = _resolve_video_path("/etc/passwd", "/user-data/proj")
+    assert p is None
+
+
+def test_resolve_video_path_relative_within_project(tmp_path):
+    p = _resolve_video_path("videos/foo.avi", str(tmp_path))
+    assert p == (tmp_path / "videos/foo.avi").resolve()
+
+
+def test_resolve_video_path_relative_escaping_project_returns_none(tmp_path):
+    p = _resolve_video_path("../../etc/passwd", str(tmp_path))
+    assert p is None

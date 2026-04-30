@@ -31,6 +31,27 @@ _SESSION_RE = re.compile(r'^(.+?)_cam\d+_(\d{8})')
 _CAM_RE     = re.compile(r'_cam(\d+)_')
 _FRAME_RE   = re.compile(r'^img_cam(\d+)_(\d{4})_(\d+)\.png$')
 
+# ── Path security ─────────────────────────────────────────────────────────────
+
+_USER_DATA_ROOT = "/user-data"
+
+
+def _resolve_video_path(video_path: str, proj: str) -> "Path | None":
+    """Return resolved absolute Path for video_path, or None if disallowed.
+
+    Absolute paths must be within /user-data/.
+    Relative paths must stay within the project directory.
+    """
+    if video_path.startswith("/"):
+        p = Path(video_path).resolve()
+        if not str(p).startswith(_USER_DATA_ROOT + "/"):
+            return None
+        return p
+    p = (Path(proj) / video_path).resolve()
+    if not p.is_relative_to(Path(proj).resolve()):
+        return None
+    return p
+
 
 def _session_key_from_stem(stem: str) -> "str | None":
     """'surv1_cam0_20260123_...' → 'surv1_20260123'. None if no match."""
@@ -306,9 +327,9 @@ def get_frame():
     if request.headers.get("If-None-Match") == etag:
         return Response(status=304)
 
-    full_path = (Path(proj) / video_path).resolve()
-    if not full_path.is_relative_to(Path(proj).resolve()):
-        return jsonify({"error": "video path escapes project root"}), 400
+    full_path = _resolve_video_path(video_path, proj)
+    if full_path is None:
+        return jsonify({"error": "video path not allowed"}), 400
     try:
         data = viewer.get_frame_jpeg(str(full_path), n)
     except FileNotFoundError as e:
@@ -329,9 +350,9 @@ def get_video_info():
     video_path = request.args.get("video", "").strip()
     if not video_path or not proj:
         return jsonify({"error": "video and active project required"}), 400
-    full_path = (Path(proj) / video_path).resolve()
-    if not full_path.is_relative_to(Path(proj).resolve()):
-        return jsonify({"error": "video path escapes project root"}), 400
+    full_path = _resolve_video_path(video_path, proj)
+    if full_path is None:
+        return jsonify({"error": "video path not allowed"}), 400
     try:
         info = viewer.get_video_info(str(full_path))
     except FileNotFoundError as e:
