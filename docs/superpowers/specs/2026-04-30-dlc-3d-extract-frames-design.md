@@ -96,7 +96,13 @@ Regex: `^(.+?)_cam\d+_(\d{8})`
 
 ### Calibration
 
-`calibration.toml` ends up at `labeled-data/{session}/calibration.toml`. It is not auto-copied — the user places it there manually (or via a future upload route). The extract-frames flow does not require it to be present; its absence is silently ignored. The file is listed alongside frames when the session folder is browsed via `/dlc-3d/labeled-frames`.
+On the **first frame save** into a session folder, the server auto-detects and copies `calibration.toml` into `labeled-data/{session}/calibration.toml`. Search order (first match wins):
+
+1. `<project>/calibration.toml`
+2. `<project>/calibration/calibration.toml`
+3. `<project>/videos/calibration.toml`
+
+If none found, the copy is skipped silently — the extract still succeeds and the user can place the file manually later. Subsequent saves into the same session folder skip the copy (file already present).
 
 ---
 
@@ -157,7 +163,8 @@ Server-side: given primary video path, look up `videos.json` for the same sessio
 5. Duplicate check: if any file matches `img_cam{N}_????_{frame_number:05d}.png`, return `{"skipped": true}`.
 6. Decode base64 JPEG → PNG via OpenCV → write `img_cam{N}_{order:04d}_{frame_number:05d}.png`.
 7. If `extract_sibling=true`: repeat steps 3–6 for sibling video + sibling frame data.
-8. Return saved filenames and session folder path.
+8. On first save into `labeled_dir` (no existing PNGs): auto-detect `calibration.toml` by searching `<project>/calibration.toml`, then `<project>/calibration/calibration.toml`, then `<project>/videos/calibration.toml`; copy first match to `labeled_dir/calibration.toml`. Skip silently if none found.
+9. Return saved filenames and session folder path.
 
 ### Frame naming
 
