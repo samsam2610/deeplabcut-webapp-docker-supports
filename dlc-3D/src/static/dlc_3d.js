@@ -53,6 +53,8 @@ function _resetExtractorUI() {
   if (empty) { empty.style.display = ""; empty.textContent = "Load a DLC project via \"Manage DLC Project\"."; }
   const display = document.getElementById("dlc3d-project-display");
   if (display) display.textContent = "—";
+  const browseBtn = document.getElementById("dlc3d-browse-btn");
+  if (browseBtn) browseBtn.style.display = "none";
   _setStatus("");
   const labeledWrap = document.getElementById("labeled-wrap");
   if (labeledWrap) labeledWrap.style.display = "none";
@@ -93,8 +95,8 @@ async function _loadProject(path) {
 
   _projectPath = data.project_path;
   document.getElementById("dlc3d-project-display").textContent = _projectPath;
+  document.getElementById("dlc3d-browse-btn").style.display = "";
   _setStatus("");
-  _browseDir(_projectPath + "/videos");
 }
 
 // ── Inline file browser ───────────────────────────────────────────────────────
@@ -183,6 +185,9 @@ async function _selectVideo(videoRel) {
 
   const empty = document.getElementById("dlc3d-session-empty");
   if (empty) empty.style.display = "none";
+
+  const browser = document.getElementById("dlc3d-file-browser");
+  if (browser) browser.style.display = "none";
 
   document.getElementById("dlc3d-player-section").style.display = "";
 
@@ -294,6 +299,17 @@ document.addEventListener("DOMContentLoaded", () => {
   document.getElementById("btn-open-frame-extractor")?.addEventListener("click", _openCard);
   document.getElementById("btn-close-3d-extract")?.addEventListener("click", _closeCard);
   document.getElementById("ep-extract-btn")?.addEventListener("click", _extractFrame);
+
+  document.getElementById("dlc3d-browse-btn")?.addEventListener("click", () => {
+    const browser = document.getElementById("dlc3d-file-browser");
+    if (browser.style.display === "none") {
+      _browseDir(_projectPath);
+    } else {
+      browser.style.display = "none";
+      const empty = document.getElementById("dlc3d-session-empty");
+      if (empty) empty.style.display = "";
+    }
+  });
 
   const activePathEl = document.getElementById("dlc-active-path");
   if (activePathEl) {
