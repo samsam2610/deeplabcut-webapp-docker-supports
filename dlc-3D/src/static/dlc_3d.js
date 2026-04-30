@@ -30,6 +30,7 @@ function _openCard() {
 
 function _closeCard() {
   document.getElementById("dlc-3d-extract-card").classList.add("hidden");
+  document.querySelectorAll(".card:not(#dlc-3d-extract-card)").forEach(c => c.classList.remove("hidden"));
 }
 
 // ── Project loading ───────────────────────────────────────────────────────────
@@ -331,6 +332,7 @@ document.addEventListener("DOMContentLoaded", () => {
     try {
       const resp = await fetch("/dlc-3d/project/rescan", { method: "POST" });
       const data = await resp.json();
+      if (!resp.ok) { _setStatus(data.error || "Rescan failed"); return; }
       _sessions = data.sessions || {};
       _renderSessions();
       _setStatus("Rescan complete.");
