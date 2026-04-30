@@ -1,4 +1,5 @@
     <section class="card dlc-theme hidden" id="dlc-3d-extract-card">
+      <!-- Card header -->
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:.3rem">
         <h2>3D Frame Extractor</h2>
         <button class="btn-sm" id="btn-close-3d-extract" title="Close 3D extractor">
@@ -8,91 +9,98 @@
       </div>
       <p class="subtitle">Select a sync-cam video pair, navigate frame-by-frame, and save paired frames into <code style="font-family:var(--mono);font-size:.78rem;background:var(--surface);border:1px solid var(--border);border-radius:3px;padding:.05rem .3rem">labeled-data/</code>.</p>
 
-      <!-- Project picker row — always visible inside card -->
-      <div id="dlc3d-project-row" style="display:flex;align-items:center;gap:.5rem;margin:.6rem 0">
-        <button class="btn-sm" id="dlc3d-btn-open-project">Browse Server</button>
-        <span id="dlc3d-project-path"
-          style="flex:1;font-size:.78rem;color:var(--text-dim);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">
-          No project loaded
-        </span>
-        <button class="btn-sm" id="dlc3d-btn-rescan" style="display:none">↺ Rescan</button>
+      <!-- ── Source section ── -->
+      <div id="dlc3d-source-section">
+        <label style="display:block;font-size:.82rem;font-weight:500;margin-bottom:.5rem">DLC Project</label>
+        <div style="display:flex;align-items:center;gap:.5rem;margin-bottom:.8rem">
+          <button class="btn-sm" id="dlc3d-btn-open-project">Browse Server</button>
+          <span id="dlc3d-project-path"
+            style="flex:1;font-size:.78rem;color:var(--text-dim);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">
+            No project loaded
+          </span>
+          <button class="btn-sm" id="dlc3d-btn-rescan" style="display:none">↺ Rescan</button>
+        </div>
+
+        <!-- Session / camera list — uses main webapp fe-video-list styles -->
+        <div id="dlc3d-video-list" class="fe-video-list" style="display:none"></div>
+        <p id="dlc3d-session-empty" class="explorer-empty">Load a project to see sessions.</p>
       </div>
 
-      <!-- Player section — hidden until project loaded -->
-      <div id="dlc3d-player-section" style="display:none">
-        <div class="dlc3d-layout">
+      <!-- ── Player section (shown after a camera row is clicked) ── -->
+      <div id="dlc3d-player-section" style="display:none;margin-top:.75rem">
 
-          <!-- Left: session browser -->
-          <div id="dlc3d-session-panel">
-            <div id="dlc3d-session-empty">Open a DLC project to begin.</div>
+        <!-- Dual cameras side-by-side -->
+        <div id="cam-displays" style="display:flex;gap:.6rem;margin-bottom:.5rem">
+          <div class="cam-wrap" id="cam1-wrap" style="flex:1;min-width:0">
+            <div class="cam-label" id="cam1-label">Primary camera</div>
+            <div class="cam-frame-wrap" id="cam1-frame-wrap">
+              <img id="ep-frame" src="" alt="" style="display:none;width:100%">
+              <span id="no-video-msg">Select a camera from the list above.</span>
+            </div>
           </div>
-
-          <!-- Right: sync-cam player -->
-          <div id="dlc3d-player-area">
-            <div id="cam-displays">
-              <div class="cam-wrap" id="cam1-wrap">
-                <div class="cam-label" id="cam1-label">Primary camera</div>
-                <div class="cam-frame-wrap" id="cam1-frame-wrap">
-                  <img id="ep-frame" src="" alt="" style="display:none">
-                  <span id="no-video-msg">Select a video or clip from the left panel.</span>
-                </div>
-              </div>
-              <div class="cam-wrap" id="ep-cam2-wrap" style="display:none">
-                <div class="cam-label" id="cam2-label">Sibling camera</div>
-                <div class="cam-frame-wrap">
-                  <img id="ep-cam2-frame" src="" alt="">
-                </div>
-              </div>
+          <div class="cam-wrap" id="ep-cam2-wrap" style="flex:1;min-width:0;display:none">
+            <div class="cam-label" id="cam2-label">Sibling camera</div>
+            <div class="cam-frame-wrap">
+              <img id="ep-cam2-frame" src="" alt="" style="width:100%">
             </div>
+          </div>
+        </div>
 
-            <div id="controls">
-              <!-- Seek row -->
-              <div class="ctrl-row">
-                <input type="range" id="ep-seek" value="0" min="0" max="0">
-                <span class="frame-info">
-                  Frame <span id="ep-frame-num">—</span> / <span id="ep-frame-total">—</span>
-                </span>
-              </div>
-              <!-- Playback row -->
-              <div class="ctrl-row">
-                <button class="btn-sm" id="ep-skip-start" title="Jump to start">⏮</button>
-                <button class="btn-sm" id="ep-step-back" title="Step back">◀</button>
-                <button class="btn-sm" id="ep-play" title="Play / pause">▶</button>
-                <button class="btn-sm" id="ep-step-fwd" title="Step forward">▶</button>
-                <button class="btn-sm" id="ep-skip-end" title="Jump to end">⏭</button>
-                <label style="font-size:.75rem;color:var(--text-dim)">
-                  Skip <input type="number" id="ep-step" value="10" min="1" max="9999"
-                    style="width:3.2rem;background:var(--surface);border:1px solid var(--border);
-                           color:var(--text);padding:.18rem .28rem;border-radius:3px;font-size:.78rem">
-                </label>
-                <button class="btn-sm btn-create" id="ep-extract-btn" disabled>Extract Frame</button>
-              </div>
-              <!-- Sync cam row -->
-              <div class="ctrl-row" id="sync-cam-row">
-                <label class="toggle">
-                  <input type="checkbox" id="ep-sync-cam"> Sync Cam
-                </label>
-                <label class="toggle" id="ep-extract-sibling-label" style="display:none">
-                  <input type="checkbox" id="ep-extract-sibling" checked> Extract Sibling
-                </label>
-              </div>
-            </div>
+        <!-- Controls row — uses main webapp fe-controls / fe-ctrl-btn styles -->
+        <div class="fe-controls">
+          <button id="ep-skip-start" class="btn-sm fe-ctrl-btn" title="Jump to start">⏮</button>
+          <button id="ep-step-back"  class="btn-sm fe-ctrl-btn" title="Step back N frames">◀◀</button>
+          <button id="ep-play"       class="btn-sm fe-ctrl-btn" title="Play / pause">▶</button>
+          <button id="ep-step-fwd"   class="btn-sm fe-ctrl-btn" title="Step forward N frames">▶▶</button>
+          <button id="ep-skip-end"   class="btn-sm fe-ctrl-btn" title="Jump to end">⏭</button>
+          <input type="number" id="ep-step" value="10" min="1" max="9999"
+            title="Skip N frames"
+            style="width:4rem;text-align:center;font-family:var(--mono);font-size:.78rem;
+                   padding:.18rem .3rem;background:var(--surface-2);border:1px solid var(--border);
+                   border-radius:5px;color:var(--text)">
+          <span class="fe-frame-counter">Frame <span id="ep-frame-num">—</span> / <span id="ep-frame-total">—</span></span>
+        </div>
 
-            <div id="extract-status" style="font-size:.75rem;color:var(--text-dim);min-height:1.1em"></div>
+        <!-- Seek slider — uses main webapp fe-seek style -->
+        <input type="range" id="ep-seek" class="fe-seek" min="0" max="0" value="0">
 
-            <!-- Labeled frames for current session -->
-            <div id="labeled-wrap" style="display:none;border-top:1px solid var(--border);padding-top:.4rem;margin-top:.3rem">
-              <div id="labeled-header" style="font-size:.75rem;font-weight:600;margin-bottom:.25rem">
-                Extracted frames: <span id="labeled-count">0</span>
-              </div>
-              <div id="labeled-list" style="font-size:.72rem;color:var(--text-dim);max-height:90px;overflow-y:auto;display:flex;flex-wrap:wrap;gap:.2rem"></div>
-            </div>
-          </div><!-- /dlc3d-player-area -->
+        <!-- Sync cam row — display managed by enhanced_player.js via id="sync-cam-row" -->
+        <div id="sync-cam-row" style="display:none;align-items:center;gap:1rem;margin:.4rem 0;font-size:.78rem">
+          <label class="toggle">
+            <input type="checkbox" id="ep-sync-cam"> Sync Cam
+          </label>
+          <label class="toggle" id="ep-extract-sibling-label" style="display:none">
+            <input type="checkbox" id="ep-extract-sibling" checked> Extract Sibling
+          </label>
+        </div>
 
-        </div><!-- /dlc3d-layout -->
+        <!-- Extract section -->
+        <div style="display:flex;flex-direction:column;gap:.5rem;margin-top:.75rem">
+          <div style="display:flex;align-items:center;gap:.8rem">
+            <button id="ep-extract-btn" class="btn-sm btn-create" disabled
+              style="flex:1;justify-content:center;padding:.5rem 1rem">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="12" cy="12" r="4"/></svg>
+              Extract Frame
+            </button>
+            <span id="extract-count" class="fe-extract-count">0 frames saved</span>
+          </div>
+        </div>
+
+        <!-- Status line -->
+        <span id="extract-status" class="fe-extract-status"></span>
+
+        <!-- Labeled frames chip list -->
+        <div id="labeled-wrap" style="display:none;border-top:1px solid var(--border);padding-top:.4rem;margin-top:.4rem">
+          <div id="labeled-header" style="font-size:.75rem;font-weight:600;margin-bottom:.25rem">
+            Extracted frames: <span id="labeled-count">0</span>
+          </div>
+          <div id="labeled-list"
+            style="font-size:.72rem;color:var(--text-dim);max-height:90px;overflow-y:auto;display:flex;flex-wrap:wrap;gap:.2rem"></div>
+        </div>
+
       </div><!-- /dlc3d-player-section -->
 
-      <!-- Filesystem browser modal -->
+      <!-- Filesystem browser modal (fixed overlay) -->
       <div id="dlc3d-browser-modal">
         <div id="dlc3d-browser-box">
           <div id="dlc3d-browser-box-header">
