@@ -249,3 +249,30 @@ def test_save_frame_clip_path(tmp_path):
     assert result["saved"].startswith("img_cam0_")
     labeled_dir = proj / "labeled-data" / "surv1_20260123"
     assert (labeled_dir / result["saved"]).exists()
+
+
+def test_browse_returns_video_files(tmp_path):
+    """browse() should include .avi and .mp4 files in entries."""
+    from flask import Flask, request
+    from flask.testing import FlaskClient
+    from dlc_3d_bp.routes import bp
+
+    app = Flask(__name__)
+    app.register_blueprint(bp)
+    client = app.test_client()
+
+    videos_dir = tmp_path / "videos"
+    videos_dir.mkdir()
+    (videos_dir / "surv1_cam0_20260123_121732.avi").write_bytes(b"")
+    (videos_dir / "surv1_cam1_20260123_121732.avi").write_bytes(b"")
+    (videos_dir / "clip.mp4").write_bytes(b"")
+    (videos_dir / "readme.txt").write_bytes(b"")  # should NOT appear
+
+    resp = client.get(f"/dlc-3d/browse?path={videos_dir}")
+    assert resp.status_code == 200
+    data = resp.get_json()
+    types = {e["name"]: e["type"] for e in data["entries"]}
+    assert types["surv1_cam0_20260123_121732.avi"] == "file"
+    assert types["surv1_cam1_20260123_121732.avi"] == "file"
+    assert types["clip.mp4"] == "file"
+    assert "readme.txt" not in types

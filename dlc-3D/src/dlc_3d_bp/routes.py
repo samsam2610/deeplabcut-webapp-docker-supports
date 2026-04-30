@@ -234,6 +234,8 @@ def browse():
                 entries.append({"name": entry.name, "type": "dir", "has_config": has_config})
             elif entry.name == "config.yaml":
                 entries.append({"name": entry.name, "type": "yaml", "has_config": True})
+            elif entry.is_file() and entry.suffix.lower() in (".avi", ".mp4"):
+                entries.append({"name": entry.name, "type": "file"})
     except PermissionError:
         return jsonify({"error": "permission denied"}), 403
 
