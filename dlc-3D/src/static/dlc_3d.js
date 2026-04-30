@@ -7,8 +7,8 @@ import { openPlayer, getCurrentFrame, getVideoPath, getSiblingPath, isSyncCamEna
 
 let _projectPath   = null;
 let _sessions      = {};
-let _activeSession = null;  // session key e.g. "surv1_20260123"
-let _activeVideo   = null;  // relative path of currently loaded video
+let _activeSession = null;
+let _activeVideo   = null;
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -19,6 +19,17 @@ function _setStatus(msg) {
 function _camColorClass(filename) {
   const m = filename.match(/img_cam(\d)_/);
   return m ? `cam${m[1]}` : "";
+}
+
+// ── Card open / close ─────────────────────────────────────────────────────────
+
+function _openCard() {
+  document.querySelectorAll(".card:not(#dlc-3d-extract-card)").forEach(c => c.classList.add("hidden"));
+  document.getElementById("dlc-3d-extract-card").classList.remove("hidden");
+}
+
+function _closeCard() {
+  document.getElementById("dlc-3d-extract-card").classList.add("hidden");
 }
 
 // ── Project loading ───────────────────────────────────────────────────────────
@@ -39,8 +50,9 @@ async function _loadProject(path) {
   _projectPath = data.project_path;
   _sessions    = data.sessions || {};
 
-  document.getElementById("project-path-display").textContent = _projectPath;
-  document.getElementById("btn-rescan").style.display = "";
+  document.getElementById("dlc3d-project-path").textContent = _projectPath;
+  document.getElementById("dlc3d-btn-rescan").style.display = "";
+  document.getElementById("dlc3d-player-section").style.display = "";
   _setStatus("");
   _renderSessions();
 }
@@ -48,8 +60,8 @@ async function _loadProject(path) {
 // ── Session browser rendering ─────────────────────────────────────────────────
 
 function _renderSessions() {
-  const panel = document.getElementById("session-panel");
-  const empty = document.getElementById("session-empty");
+  const panel = document.getElementById("dlc3d-session-panel");
+  const empty = document.getElementById("dlc3d-session-empty");
 
   if (!_sessions || Object.keys(_sessions).length === 0) {
     panel.innerHTML = "";
@@ -72,7 +84,6 @@ function _renderSessions() {
     body.className = "session-body";
 
     for (const [camKey, camData] of Object.entries(cams).sort()) {
-      // Raw video row
       const camRow = document.createElement("div");
       camRow.className = "cam-row";
       camRow.dataset.videoRel = camData.avi;
@@ -80,7 +91,6 @@ function _renderSessions() {
       camRow.addEventListener("click", () => _selectVideo(camData.avi, sessionKey));
       body.appendChild(camRow);
 
-      // Clips section
       if (camData.clips && camData.clips.length > 0) {
         const clipSection = document.createElement("div");
         clipSection.className = "clip-section";
@@ -116,16 +126,13 @@ async function _selectVideo(videoRel, sessionKey) {
   _activeVideo   = videoRel;
   _activeSession = sessionKey;
 
-  // Highlight active row
   document.querySelectorAll(".cam-row, .clip-row").forEach(el => {
     el.classList.toggle("active", el.dataset.videoRel === videoRel);
   });
 
-  // Update cam label
   const camIdx = videoRel.match(/_cam(\d+)_/)?.[1] ?? "?";
   document.getElementById("cam1-label").textContent = `Camera ${camIdx} (primary)`;
 
-  // Fetch sibling path
   let siblingPath = null;
   try {
     const sr = await fetch(`/dlc-3d/sibling-camera?video=${encodeURIComponent(videoRel)}`);
@@ -135,7 +142,6 @@ async function _selectVideo(videoRel, sessionKey) {
     }
   } catch (e) { console.warn("[dlc_3d] sibling-camera fetch failed:", e); }
 
-  // Update sibling cam label
   if (siblingPath) {
     const sibCamIdx = siblingPath.match(/_cam(\d+)_/)?.[1] ?? "?";
     document.getElementById("cam2-label").textContent = `Camera ${sibCamIdx} (sibling)`;
@@ -149,9 +155,9 @@ async function _selectVideo(videoRel, sessionKey) {
 // ── Extract ───────────────────────────────────────────────────────────────────
 
 async function _extractFrame() {
-  const primaryVideo  = getVideoPath();
-  const primaryFrame  = getCurrentFrame();
-  const siblingPath   = getSiblingPath();
+  const primaryVideo   = getVideoPath();
+  const primaryFrame   = getCurrentFrame();
+  const siblingPath    = getSiblingPath();
   const extractSibling = isSyncCamEnabled()
     ? (document.getElementById("ep-extract-sibling")?.checked ?? true)
     : false;
@@ -172,7 +178,7 @@ async function _extractFrame() {
   };
   if (extractSibling && siblingPath) {
     body.sibling_video        = siblingPath;
-    body.sibling_frame_number = primaryFrame;  // same frame number
+    body.sibling_frame_number = primaryFrame;
   }
 
   let data;
@@ -237,9 +243,9 @@ async function _browserNavigate(path) {
   } catch (e) { alert("Network error: " + e.message); return; }
 
   _browserCurrentPath = data.path;
-  document.getElementById("browser-path-bar").textContent = data.path;
+  document.getElementById("dlc3d-browser-path-bar").textContent = data.path;
 
-  const list = document.getElementById("browser-list");
+  const list = document.getElementById("dlc3d-browser-list");
   list.innerHTML = "";
 
   if (data.parent) {
@@ -263,7 +269,7 @@ async function _browserNavigate(path) {
       row.addEventListener("click", () => _browserNavigate(_browserCurrentPath + "/" + entry.name));
       if (entry.has_config) {
         const selectBtn = document.createElement("button");
-        selectBtn.className = "btn";
+        selectBtn.className = "btn-sm";
         selectBtn.style.cssText = "margin-left:auto;font-size:.7rem;padding:.15rem .4rem";
         selectBtn.textContent = "Select";
         selectBtn.addEventListener("click", (e) => {
@@ -291,24 +297,36 @@ async function _browserNavigate(path) {
 }
 
 function _openBrowser() {
-  document.getElementById("browser-modal").classList.add("open");
+  document.getElementById("dlc3d-browser-modal").classList.add("open");
   _browserNavigate(null);
 }
 
 function _closeBrowser() {
-  document.getElementById("browser-modal").classList.remove("open");
+  document.getElementById("dlc3d-browser-modal").classList.remove("open");
 }
 
 // ── Init ──────────────────────────────────────────────────────────────────────
 
 document.addEventListener("DOMContentLoaded", () => {
-  document.getElementById("btn-open-project").addEventListener("click", _openBrowser);
-  document.getElementById("browser-close").addEventListener("click", _closeBrowser);
-  document.getElementById("browser-modal").addEventListener("click", (e) => {
-    if (e.target === document.getElementById("browser-modal")) _closeBrowser();
+  // Inject "3D Frame Extractor" button into DLC session bar
+  const dlcBarBtns = document.querySelector("#dlc-bar .session-btns");
+  if (dlcBarBtns) {
+    const btn = document.createElement("button");
+    btn.className = "btn-sm btn-create";
+    btn.id = "btn-open-3d-extract";
+    btn.innerHTML = `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="12" cy="12" r="4"/></svg> 3D Frame Extractor`;
+    dlcBarBtns.appendChild(btn);
+    btn.addEventListener("click", _openCard);
+  }
+
+  document.getElementById("btn-close-3d-extract")?.addEventListener("click", _closeCard);
+  document.getElementById("dlc3d-btn-open-project")?.addEventListener("click", _openBrowser);
+  document.getElementById("dlc3d-browser-close")?.addEventListener("click", _closeBrowser);
+  document.getElementById("dlc3d-browser-modal")?.addEventListener("click", (e) => {
+    if (e.target === document.getElementById("dlc3d-browser-modal")) _closeBrowser();
   });
 
-  document.getElementById("btn-rescan")?.addEventListener("click", async () => {
+  document.getElementById("dlc3d-btn-rescan")?.addEventListener("click", async () => {
     _setStatus("Rescanning…");
     try {
       const resp = await fetch("/dlc-3d/project/rescan", { method: "POST" });
@@ -319,5 +337,5 @@ document.addEventListener("DOMContentLoaded", () => {
     } catch (e) { _setStatus("Rescan failed: " + e.message); }
   });
 
-  document.getElementById("ep-extract-btn").addEventListener("click", _extractFrame);
+  document.getElementById("ep-extract-btn")?.addEventListener("click", _extractFrame);
 });
