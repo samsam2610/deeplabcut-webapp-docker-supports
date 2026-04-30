@@ -1,0 +1,262 @@
+// enhanced_player.js — simplified video player for dlc-3D module.
+// Public API: openPlayer(videoPath, siblingPath), getCurrentFrame(), getVideoPath(), getSiblingPath(), isSyncCamEnabled()
+
+"use strict";
+
+const _EP_FPS = 15;
+
+let _videoPath     = null;
+let _frameCount    = 0;
+let _currentFrame  = 0;
+let _stepSize      = 10;
+let _playing       = false;
+let _playDir       = 1;
+let _busy          = false;
+let _timerId       = null;
+let _syncCamEnabled   = false;
+let _siblingVideoPath = null;
+
+// ── Public API ────────────────────────────────────────────────────────────────
+
+export function getVideoPath()     { return _videoPath; }
+export function getCurrentFrame()  { return _currentFrame; }
+export function getSiblingPath()   { return _siblingVideoPath; }
+export function isSyncCamEnabled() { return _syncCamEnabled; }
+
+export async function openPlayer(videoPath, siblingPath) {
+  _stop();
+  _videoPath        = videoPath;
+  _siblingVideoPath = siblingPath || null;
+  _syncCamEnabled   = false;
+  _currentFrame     = 0;
+  _stepSize         = 10;
+
+  const stepEl = document.getElementById("ep-step");
+  if (stepEl) stepEl.value = 10;
+
+  // Show primary frame area
+  const noMsg = document.getElementById("no-video-msg");
+  const epFrame = document.getElementById("ep-frame");
+  if (noMsg)    noMsg.style.display = "none";
+  if (epFrame)  epFrame.style.display = "";
+
+  // Fetch frame count
+  let frameCount = 0;
+  try {
+    const resp = await fetch(`/dlc-3d/video-info?video=${encodeURIComponent(videoPath)}`);
+    if (!resp.ok) { _setStatus("Cannot load video info"); return; }
+    const info = await resp.json();
+    frameCount = info.frame_count;
+  } catch (e) { _setStatus("Network error: " + e.message); return; }
+
+  _frameCount = frameCount;
+
+  const seekEl = document.getElementById("ep-seek");
+  if (seekEl) { seekEl.min = 0; seekEl.max = frameCount - 1; seekEl.value = 0; }
+
+  _epUpdateSyncCamUI();
+
+  const extractBtn = document.getElementById("ep-extract-btn");
+  if (extractBtn) extractBtn.disabled = false;
+
+  await _epLoadFrame(0);
+}
+
+// ── Frame loading ─────────────────────────────────────────────────────────────
+
+async function _epLoadFrame(n) {
+  if (_busy || !_videoPath) return;
+  _busy = true;
+  n = Math.max(0, Math.min(n, _frameCount - 1));
+  const prev = _currentFrame;
+  _currentFrame = n;
+  try {
+    const resp = await fetch(`/dlc-3d/frame?video=${encodeURIComponent(_videoPath)}&n=${n}`);
+    if (!resp.ok) { _currentFrame = prev; return; }
+    const blob   = await resp.blob();
+    const blobUrl = URL.createObjectURL(blob);
+    const img    = document.getElementById("ep-frame");
+    const prevSrc = img.src;
+    await new Promise((resolve, reject) => {
+      img.onload  = () => { if (prevSrc.startsWith("blob:")) URL.revokeObjectURL(prevSrc); resolve(); };
+      img.onerror = () => reject(new Error("frame load failed"));
+      img.src = blobUrl;
+    });
+    _epUpdateDisplay();
+    _epLoadCam2Frame(n);
+    // Prefetch next frame
+    if (n < _frameCount - 1) {
+      new Image().src = `/dlc-3d/frame?video=${encodeURIComponent(_videoPath)}&n=${n + 1}`;
+    }
+  } catch (e) {
+    console.warn("[enhanced_player] frame load error:", e.message);
+  } finally {
+    _busy = false;
+  }
+}
+
+// ── Cam2 (sibling) ────────────────────────────────────────────────────────────
+
+async function _epLoadCam2Frame(n) {
+  if (!_syncCamEnabled || !_siblingVideoPath) return;
+  try {
+    const resp = await fetch(`/dlc-3d/frame?video=${encodeURIComponent(_siblingVideoPath)}&n=${n}`);
+    if (!resp.ok) return;
+    const blob    = await resp.blob();
+    const blobUrl = URL.createObjectURL(blob);
+    const img     = document.getElementById("ep-cam2-frame");
+    const prevSrc = img.src;
+    img.onload  = () => { if (prevSrc && prevSrc.startsWith("blob:")) URL.revokeObjectURL(prevSrc); };
+    img.onerror = () => URL.revokeObjectURL(blobUrl);
+    img.src = blobUrl;
+  } catch (e) {
+    console.warn("[enhanced_player] cam2 load error:", e.message);
+  }
+}
+
+// ── Sync cam UI ───────────────────────────────────────────────────────────────
+
+function _epUpdateSyncCamUI() {
+  const syncRow    = document.getElementById("sync-cam-row");
+  const syncCb     = document.getElementById("ep-sync-cam");
+  const cam2Wrap   = document.getElementById("ep-cam2-wrap");
+  const siblingLbl = document.getElementById("ep-extract-sibling-label");
+
+  if (!_siblingVideoPath) {
+    if (syncRow)  syncRow.style.display = "none";
+    if (syncCb)   syncCb.checked = false;
+    if (cam2Wrap) cam2Wrap.style.display = "none";
+    if (siblingLbl) siblingLbl.style.display = "none";
+    _syncCamEnabled = false;
+    return;
+  }
+
+  if (syncRow) syncRow.style.display = "flex";
+  if (syncCb)  syncCb.checked = _syncCamEnabled;
+  if (cam2Wrap) cam2Wrap.style.display = _syncCamEnabled ? "flex" : "none";
+  if (siblingLbl) {
+    siblingLbl.style.display = _syncCamEnabled ? "flex" : "none";
+    if (_syncCamEnabled) {
+      const cb = document.getElementById("ep-extract-sibling");
+      if (cb) cb.checked = true;
+    }
+  }
+}
+
+// ── Display ───────────────────────────────────────────────────────────────────
+
+function _epUpdateDisplay() {
+  const numEl   = document.getElementById("ep-frame-num");
+  const totalEl = document.getElementById("ep-frame-total");
+  const seekEl  = document.getElementById("ep-seek");
+  if (numEl)   numEl.textContent   = _currentFrame + 1;
+  if (totalEl) totalEl.textContent = _frameCount;
+  if (seekEl)  seekEl.value        = _currentFrame;
+}
+
+// ── Playback ──────────────────────────────────────────────────────────────────
+
+async function _epLoop() {
+  if (!_playing) return;
+  if (_busy) { _timerId = setTimeout(_epLoop, Math.round(1000 / _EP_FPS)); return; }
+  let next = _currentFrame + _playDir;
+  if (next >= _frameCount) next = 0;
+  if (next < 0) next = _frameCount - 1;
+  const t0 = performance.now();
+  await _epLoadFrame(next);
+  if (!_playing) return;
+  const delay = Math.max(0, Math.round(1000 / _EP_FPS) - (performance.now() - t0));
+  _timerId = setTimeout(_epLoop, delay);
+}
+
+function _stop() {
+  if (_timerId !== null) { clearTimeout(_timerId); _timerId = null; }
+  _playing = false;
+  _busy    = false;
+  const playBtn = document.getElementById("ep-play");
+  if (playBtn) playBtn.textContent = "▶";
+}
+
+function _setStatus(msg) {
+  const el = document.getElementById("extract-status");
+  if (el) el.textContent = msg;
+}
+
+// ── Event wiring (runs once DOM is ready) ─────────────────────────────────────
+
+document.addEventListener("DOMContentLoaded", () => {
+  // Seek bar
+  document.getElementById("ep-seek")?.addEventListener("input", (e) => {
+    _stop();
+    _epLoadFrame(parseInt(e.target.value, 10));
+  });
+
+  // Play
+  document.getElementById("ep-play")?.addEventListener("click", () => {
+    if (!_videoPath) return;
+    if (_playing) {
+      _stop();
+    } else {
+      _playing = true;
+      document.getElementById("ep-play").textContent = "⏸";
+      _epLoop();
+    }
+  });
+
+  // Step back / forward
+  document.getElementById("ep-step-back")?.addEventListener("click", () => {
+    if (!_videoPath) return;
+    _stop();
+    const s = parseInt(document.getElementById("ep-step")?.value || "10", 10);
+    _epLoadFrame(_currentFrame - s);
+  });
+  document.getElementById("ep-step-fwd")?.addEventListener("click", () => {
+    if (!_videoPath) return;
+    _stop();
+    const s = parseInt(document.getElementById("ep-step")?.value || "10", 10);
+    _epLoadFrame(_currentFrame + s);
+  });
+
+  // Skip to start / end
+  document.getElementById("ep-skip-start")?.addEventListener("click", () => {
+    if (!_videoPath) return;
+    _stop(); _epLoadFrame(0);
+  });
+  document.getElementById("ep-skip-end")?.addEventListener("click", () => {
+    if (!_videoPath) return;
+    _stop(); _epLoadFrame(_frameCount - 1);
+  });
+
+  // Sync cam checkbox
+  document.getElementById("ep-sync-cam")?.addEventListener("change", (e) => {
+    _syncCamEnabled = e.target.checked;
+    _epUpdateSyncCamUI();
+    if (_syncCamEnabled) _epLoadCam2Frame(_currentFrame);
+  });
+
+  // Step size input — sync to module var
+  document.getElementById("ep-step")?.addEventListener("change", (e) => {
+    _stepSize = Math.max(1, parseInt(e.target.value, 10) || 10);
+  });
+
+  // Keyboard shortcuts (hover-free — active whenever no text input focused)
+  document.addEventListener("keydown", (e) => {
+    if (!_videoPath) return;
+    const tag = (e.target || {}).tagName || "";
+    if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
+
+    if (e.key === " " && !e.shiftKey) {
+      e.preventDefault();
+      if (_playing) { _stop(); }
+      else { _playing = true; document.getElementById("ep-play").textContent = "⏸"; _epLoop(); }
+    } else if (e.key === "ArrowRight") {
+      e.preventDefault(); _stop(); _epLoadFrame(_currentFrame + _stepSize);
+    } else if (e.key === "ArrowLeft") {
+      e.preventDefault(); _stop(); _epLoadFrame(_currentFrame - _stepSize);
+    } else if (e.key === "ArrowRight" && e.shiftKey) {
+      e.preventDefault(); _stop(); _epLoadFrame(_currentFrame + 1);
+    } else if (e.key === "ArrowLeft" && e.shiftKey) {
+      e.preventDefault(); _stop(); _epLoadFrame(_currentFrame - 1);
+    }
+  });
+});
