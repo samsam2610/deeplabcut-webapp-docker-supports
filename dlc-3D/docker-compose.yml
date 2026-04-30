@@ -1,0 +1,23 @@
+services:
+  dlc-3d:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: dlc-3d:latest
+    ports:
+      - "5050:5050"
+    volumes:
+      - /home/sam/data-disk/Parra-Data:/user-data/Parra-Data/Disk
+      - /home/sam/synology/Parra-Lab-Data:/user-data/Parra-Data/Cloud
+      - /home/sam/data-mount-dir:/user-data/Martin-Data/USB
+      - /home/sam/Parra-Lab-Data-NAS:/user-data/NAS-Data-Share
+      - ./app.py:/app/app.py
+      - ./config.py:/app/config.py
+      - ./routes.py:/app/routes.py
+      - ./viewer.py:/app/viewer.py
+      - ./templates:/app/templates
+      - ./static:/app/static
+    environment:
+      - DLC_3D_PORT=5050
+      - FLASK_DEBUG=0
+    restart: unless-stopped
