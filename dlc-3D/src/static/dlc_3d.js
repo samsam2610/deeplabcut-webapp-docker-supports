@@ -5,10 +5,11 @@ import { openPlayer, getCurrentFrame, getVideoPath, getSiblingPath, isSyncCamEna
 
 // ── State ─────────────────────────────────────────────────────────────────────
 
-let _projectPath   = null;
-let _sessions      = {};
-let _activeSession = null;
-let _activeVideo   = null;
+let _projectPath      = null;
+let _sessions         = {};
+let _activeSession    = null;
+let _activeVideo      = null;
+let _cardsWereVisible = null;
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -24,13 +25,22 @@ function _camColorClass(filename) {
 // ── Card open / close ─────────────────────────────────────────────────────────
 
 function _openCard() {
-  document.querySelectorAll(".card:not(#dlc-3d-extract-card)").forEach(c => c.classList.add("hidden"));
+  const allOtherCards = document.querySelectorAll(".card:not(#dlc-3d-extract-card)");
+  _cardsWereVisible = new Set(
+    [...allOtherCards].filter(c => !c.classList.contains("hidden")).map(c => c.id)
+  );
+  allOtherCards.forEach(c => c.classList.add("hidden"));
   document.getElementById("dlc-3d-extract-card").classList.remove("hidden");
 }
 
 function _closeCard() {
   document.getElementById("dlc-3d-extract-card").classList.add("hidden");
-  document.querySelectorAll(".card:not(#dlc-3d-extract-card)").forEach(c => c.classList.remove("hidden"));
+  if (_cardsWereVisible) {
+    document.querySelectorAll(".card:not(#dlc-3d-extract-card)").forEach(c => {
+      c.classList.toggle("hidden", !_cardsWereVisible.has(c.id));
+    });
+    _cardsWereVisible = null;
+  }
 }
 
 // ── Project loading ───────────────────────────────────────────────────────────

@@ -1,9 +1,9 @@
 /* dlc_3d.css — styles scoped to #dlc-3d-extract-card only */
 
-/* Alias old var names used in player inline styles */
+/* Override .card max-width so the two-camera player has enough horizontal space */
 #dlc-3d-extract-card {
-  --bg: var(--surface);
-  --panel: var(--surface-2);
+  max-width: none;
+  width: 100%;
 }
 
 /* ── Inner two-column layout ── */
