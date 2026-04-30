@@ -308,11 +308,11 @@ document.addEventListener("DOMContentLoaded", () => {
     const browser   = document.getElementById("dlc3d-file-browser");
     const pathInput = document.getElementById("dlc3d-path-input");
     if (browser.style.display === "none") {
-      pathInput.style.display = "";
+      if (pathInput) pathInput.style.display = "";
       _browseDir(_browserCurrentPath || _projectPath);
     } else {
       browser.style.display = "none";
-      pathInput.style.display = "none";
+      if (pathInput) pathInput.style.display = "none";
       const empty = document.getElementById("dlc3d-session-empty");
       if (empty) empty.style.display = "";
     }
