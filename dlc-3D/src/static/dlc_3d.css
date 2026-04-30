@@ -35,6 +35,7 @@
 #dlc-3d-extract-card #cam-displays {
   display: flex;
   gap: .5rem;
+  margin-bottom: .5rem;
 }
 
 #dlc-3d-extract-card .cam-wrap {
