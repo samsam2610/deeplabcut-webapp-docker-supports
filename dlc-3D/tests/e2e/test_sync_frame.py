@@ -1,10 +1,14 @@
 """e2e tests for Sync Frame — groups A (Visibility), B (Initial state),
-C (Sync ON transition), D (Focus switching).
+C (Sync ON transition), D (Focus switching), E (Lock-step navigation),
+F (Marker placement), G (Shared display controls), H (Save round-trip),
+I (Clear Frame), J (Sync OFF transition), K (Window resize),
+L (Refresh), M (Non-regression).
 
 Fixture dependency: om2_fixture_present (conftest.py) probes the main webapp's
 /dlc/project/labeled-frames endpoint and skips the whole module if the session
 OM-2_20260424 is absent or has fewer than 2 cameras.
 """
+import os
 import re
 import pytest
 from playwright.sync_api import Page, expect
@@ -306,3 +310,174 @@ def test_g4_show_names_toggle_updates_state(page: Page):
     page.locator("#fl3d-show-names").click()
     after = page.evaluate("window.__fl3d.showNames")
     assert after != before
+
+
+# ---------- Group H: Save round-trip ----------
+
+@pytest.mark.skipif(os.environ.get("FL3D_E2E_WRITE") != "1",
+                    reason="Destructive write test; set FL3D_E2E_WRITE=1 to enable.")
+def test_h1_h2_h3_save_persists_multi_cam_dirty(page: Page, base_url):
+    page.locator("#fl3d-sync-frame").check()
+    page.wait_for_function("window.__fl3d.syncOn === true")
+    bp = _select_first_chip(page)
+    primary = page.evaluate("window.__fl3d.primaryCam")
+    cams = page.eval_on_selector_all(
+        "#fl3d-canvas-row .fl3d-tile", "tiles => tiles.map(t => +t.dataset.cam)"
+    )
+    sibling = next(c for c in cams if c != primary)
+    sibling_tile = page.locator(f'#fl3d-canvas-row .fl3d-tile[data-cam="{sibling}"]')
+    if sibling_tile.locator(".fl3d-tile-empty:not(.hidden)").count() > 0:
+        pytest.skip("sibling empty for current frame_number — pick another fixture frame")
+
+    primary_fname = page.eval_on_selector(
+        "#fl3d-canvas-row .fl3d-tile.focused", "t => t.dataset.fname"
+    )
+    sibling_fname = sibling_tile.evaluate("t => t.dataset.fname")
+
+    _click_canvas_center(page, primary)
+    sibling_tile.click()
+    _click_canvas_center(page, sibling)
+
+    page.wait_for_function(
+        f"window.__fl3d.dirtyFrames.includes('{primary_fname}') && "
+        f"window.__fl3d.dirtyFrames.includes('{sibling_fname}')"
+    )
+
+    page.locator("#fl3d-btn-save").click()
+    page.wait_for_function("window.__fl3d.dirtyFrames.length === 0", timeout=10000)
+
+    page.reload()
+    page.locator("#btn-open-frame-labeler").click()
+    page.locator("#fl3d-stem-select").select_option(SESSION)
+    page.wait_for_function("document.querySelector('#fl3d-canvas-row .fl3d-tile')?.dataset?.fname")
+    page.locator("#fl3d-sync-frame").check()
+    page.wait_for_function("window.__fl3d.syncOn === true")
+    for _ in range(500):
+        cur = page.eval_on_selector_all(
+            "#fl3d-canvas-row .fl3d-tile", "ts => ts.map(t => t.dataset.fname)"
+        )
+        if primary_fname in cur and sibling_fname in cur:
+            break
+        page.locator("#fl3d-btn-next").click()
+    p_pt = page.evaluate(f"window.__fl3d.labels['{primary_fname}']?.['{bp}']")
+    s_pt = page.evaluate(f"window.__fl3d.labels['{sibling_fname}']?.['{bp}']")
+    assert p_pt is not None and s_pt is not None
+
+    page.evaluate(
+        f"window.__fl3d.labels['{primary_fname}']['{bp}'] = null;"
+        f"window.__fl3d.labels['{sibling_fname}']['{bp}'] = null;"
+    )
+    page.locator("#fl3d-btn-save").click()
+
+
+# ---------- Group I: Clear Frame ----------
+
+def test_i1_clear_frame_focused_tile_only(page: Page):
+    page.locator("#fl3d-sync-frame").check()
+    page.wait_for_function("window.__fl3d.syncOn === true")
+    bp = _select_first_chip(page)
+    primary = page.evaluate("window.__fl3d.primaryCam")
+    cams = page.eval_on_selector_all(
+        "#fl3d-canvas-row .fl3d-tile", "tiles => tiles.map(t => +t.dataset.cam)"
+    )
+    sibling = next(c for c in cams if c != primary)
+    sibling_tile = page.locator(f'#fl3d-canvas-row .fl3d-tile[data-cam="{sibling}"]')
+    if sibling_tile.locator(".fl3d-tile-empty:not(.hidden)").count() > 0:
+        pytest.skip("sibling empty for current frame_number")
+    primary_fname = page.eval_on_selector("#fl3d-canvas-row .fl3d-tile.focused", "t => t.dataset.fname")
+    sibling_fname = sibling_tile.evaluate("t => t.dataset.fname")
+    _click_canvas_center(page, primary)
+    sibling_tile.click()
+    _click_canvas_center(page, sibling)
+    page.locator(f'#fl3d-canvas-row .fl3d-tile[data-cam="{primary}"]').click()
+    page.locator("#fl3d-btn-clear-frame").dblclick()
+    p_pt = page.evaluate(f"window.__fl3d.labels['{primary_fname}']?.['{bp}']")
+    s_pt = page.evaluate(f"window.__fl3d.labels['{sibling_fname}']?.['{bp}']")
+    # Note: Task 10 uses `delete _flLabels[fname]`, so labels[fname] becomes undefined → JS undefined → Python None
+    assert p_pt is None
+    assert s_pt is not None  # sibling untouched
+
+
+# ---------- Group J: Sync OFF transition ----------
+
+def test_j1_sync_off_preserves_focused_cam(page: Page):
+    page.locator("#fl3d-sync-frame").check()
+    page.wait_for_function("window.__fl3d.syncOn === true")
+    primary = page.evaluate("window.__fl3d.primaryCam")
+    cams = page.eval_on_selector_all(
+        "#fl3d-canvas-row .fl3d-tile", "tiles => tiles.map(t => +t.dataset.cam)"
+    )
+    other = next(c for c in cams if c != primary)
+    page.locator(f'#fl3d-canvas-row .fl3d-tile[data-cam="{other}"]').click()
+    fname_at_toggle = page.eval_on_selector(
+        "#fl3d-canvas-row .fl3d-tile.focused", "t => t.dataset.fname"
+    )
+    page.locator("#fl3d-sync-frame").uncheck()
+    page.wait_for_function("window.__fl3d.syncOn === false")
+    tiles = page.locator("#fl3d-canvas-row .fl3d-tile")
+    assert tiles.count() == 1
+    sole_cam = tiles.first.evaluate("t => +t.dataset.cam")
+    assert sole_cam == other
+    sole_fname = tiles.first.evaluate("t => t.dataset.fname")
+    assert sole_fname == fname_at_toggle
+
+
+# ---------- Group K: Window resize ----------
+
+def test_k1_shrink_viewport_no_horizontal_scrollbar(page: Page):
+    page.locator("#fl3d-sync-frame").check()
+    page.wait_for_function("window.__fl3d.syncOn === true")
+    page.set_viewport_size({"width": 800, "height": 720})
+    page.wait_for_timeout(150)
+    has_scroll = page.evaluate(
+        "document.documentElement.scrollWidth > document.documentElement.clientWidth"
+    )
+    assert not has_scroll
+
+def test_k2_grow_viewport_tiles_fit(page: Page):
+    page.locator("#fl3d-sync-frame").check()
+    page.wait_for_function("window.__fl3d.syncOn === true")
+    page.set_viewport_size({"width": 1600, "height": 900})
+    page.wait_for_timeout(150)
+    tile_w = page.eval_on_selector(
+        "#fl3d-canvas-row .fl3d-tile.focused", "t => t.getBoundingClientRect().width"
+    )
+    assert tile_w > 200
+
+
+# ---------- Group L: Refresh rebuilds pair map ----------
+
+def test_l1_refresh_preserves_sync_state(page: Page):
+    page.locator("#fl3d-sync-frame").check()
+    page.wait_for_function("window.__fl3d.syncOn === true")
+    pair_size_before = page.evaluate("window.__fl3d.pairMapSize")
+    focused_before = page.evaluate("window.__fl3d.focusedCam")
+    page.locator("#fl3d-refresh-btn").click()
+    page.wait_for_function("document.querySelector('#fl3d-canvas-row .fl3d-tile')?.dataset?.fname")
+    pair_size_after = page.evaluate("window.__fl3d.pairMapSize")
+    focused_after = page.evaluate("window.__fl3d.focusedCam")
+    assert pair_size_after == pair_size_before
+    assert focused_after == focused_before
+
+
+# ---------- Group M: Non-regression ----------
+
+def test_m1_ml_panel_toggle_still_works(page: Page):
+    cb = page.locator("#fl3d-ml-checkbox")
+    assert cb.is_visible()
+    cb.click()
+    expect(page.locator("#fl3d-ml-opts")).not_to_have_class(_focused_class_re_for("hidden"))
+    cb.click()
+    expect(page.locator("#fl3d-ml-opts")).to_have_class(_focused_class_re_for("hidden"))
+
+def test_m2_tap_panel_toggle_still_works(page: Page):
+    cb = page.locator("#fl3d-tap-checkbox")
+    assert cb.is_visible()
+    cb.click()
+    expect(page.locator("#fl3d-tap-opts")).not_to_have_class(_focused_class_re_for("hidden"))
+    cb.click()
+    expect(page.locator("#fl3d-tap-opts")).to_have_class(_focused_class_re_for("hidden"))
+
+
+def _focused_class_re_for(token: str):
+    return re.compile(rf"\b{token}\b")
