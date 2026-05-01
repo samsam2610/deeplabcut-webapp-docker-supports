@@ -16,6 +16,7 @@ let _looping        = true;
 let _activePresetIdx = null;
 let _busy           = false;
 let _timerId        = null;
+let _cursorOverViewer = false;
 let _syncCamEnabled   = false;
 let _siblingVideoPath = null;
 
@@ -530,24 +531,24 @@ document.addEventListener("DOMContentLoaded", () => {
     if (pct) pct.textContent = `${v}%`;
   });
 
-  // Keyboard shortcuts (hover-free — active whenever no text input focused)
+  const camDispEl = document.getElementById("cam-displays");
+  if (camDispEl) {
+    camDispEl.addEventListener("mouseenter", () => { _cursorOverViewer = true;  });
+    camDispEl.addEventListener("mouseleave", () => { _cursorOverViewer = false; });
+  }
+
+  // Keyboard shortcuts (hover-gated)
   document.addEventListener("keydown", (e) => {
     if (!_videoPath) return;
+    if (!_cursorOverViewer) return;
     const tag = (e.target || {}).tagName || "";
     if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
 
-    if (e.key === " " && !e.shiftKey) {
-      e.preventDefault();
-      if (_playing) { _stop(); }
-      else { _playing = true; document.getElementById("ep-play").textContent = "⏸"; _epLoop(); }
-    } else if (e.key === "ArrowRight" && e.shiftKey) {
-      e.preventDefault(); _stop(); _epLoadFrame(_currentFrame + 1);
-    } else if (e.key === "ArrowLeft" && e.shiftKey) {
-      e.preventDefault(); _stop(); _epLoadFrame(_currentFrame - 1);
-    } else if (e.key === "ArrowRight") {
-      e.preventDefault(); _stop(); _epLoadFrame(_currentFrame + _stepSize);
-    } else if (e.key === "ArrowLeft") {
-      e.preventDefault(); _stop(); _epLoadFrame(_currentFrame - _stepSize);
-    }
+    if (e.key === " " && !e.shiftKey) { e.preventDefault(); _epPlayDir(+1); return; }
+    if (e.key === " " &&  e.shiftKey) { e.preventDefault(); _epPlayDir(-1); return; }
+    if (e.key === "ArrowLeft"  && !e.shiftKey) { e.preventDefault(); _stop(); _epLoadFrame(_currentFrame - 1);          return; }
+    if (e.key === "ArrowRight" && !e.shiftKey) { e.preventDefault(); _stop(); _epLoadFrame(_currentFrame + 1);          return; }
+    if (e.key === "ArrowLeft"  &&  e.shiftKey) { e.preventDefault(); _stop(); _epLoadFrame(_currentFrame - _stepSize);  return; }
+    if (e.key === "ArrowRight" &&  e.shiftKey) { e.preventDefault(); _stop(); _epLoadFrame(_currentFrame + _stepSize);  return; }
   });
 });
