@@ -51,8 +51,8 @@ function _resetExtractorUI() {
   if (browser) { browser.innerHTML = ""; browser.style.display = "none"; }
   const empty = document.getElementById("dlc3d-session-empty");
   if (empty) { empty.style.display = ""; empty.textContent = "Load a DLC project via \"Manage DLC Project\"."; }
-  const browseBtn = document.getElementById("dlc3d-browse-btn");
-  if (browseBtn) browseBtn.style.display = "none";
+  const browseRow = document.getElementById("dlc3d-browse-row");
+  if (browseRow) browseRow.style.display = "none";
   const pathInput = document.getElementById("dlc3d-path-input");
   if (pathInput) { pathInput.style.display = "none"; pathInput.value = ""; }
   _setStatus("");
@@ -94,7 +94,8 @@ async function _loadProject(path) {
   if (token !== _loadToken) return;
 
   _projectPath = data.project_path;
-  document.getElementById("dlc3d-browse-btn").style.display = "";
+  const browseRow = document.getElementById("dlc3d-browse-row");
+  if (browseRow) browseRow.style.display = "flex";
   _setStatus("");
 }
 

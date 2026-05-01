@@ -11,10 +11,11 @@
 
       <!-- ── Source section ── -->
       <div id="dlc3d-source-section">
-        <div style="display:flex;align-items:center;gap:.4rem;margin-bottom:.35rem">
+        <div id="dlc3d-browse-row"
+             style="display:none;align-items:center;gap:.4rem;margin-bottom:.35rem">
           <button id="dlc3d-browse-btn" class="btn-sm btn-server-pick"
-                  style="display:none;flex-shrink:0" title="Browse files">Browse</button>
-          <input id="dlc3d-path-input" type="text"
+                  style="flex-shrink:0" title="Browse files">Browse</button>
+          <input id="dlc3d-path-input" type="text" autocomplete="off"
                  style="display:none;flex:1;font-size:.72rem;font-family:var(--mono);
                         padding:.2rem .4rem;background:var(--surface-2);
                         border:1px solid var(--border);border-radius:4px;color:var(--text);
