@@ -1218,6 +1218,18 @@ export { FL3D_FRAME_RE, buildPairMap } from './pair_map.mjs';
     }
 
     function _flDraw() {
+      // In sync mode, the global _flImg is stale (sync nav updates each tile's
+      // _fl3dImg per-tile, not the global) and the focused tile may not be the
+      // primary one. Painting _flImg on flCanvas here corrupts the primary tile
+      // (wrong frame + sibling's markers when sibling is focused). Redraw the
+      // focused tile from its own image instead — that route uses tile._fl3dImg.
+      if (_fl3dSyncOn) {
+        const focused = document.querySelector("#fl3d-canvas-row .fl3d-tile.focused");
+        if (focused && focused.dataset.fname) {
+          _fl3dDrawTileMarkers(focused, focused.dataset.fname);
+        }
+        return;
+      }
       if (!_flImgLoaded) return;
       flCtx.clearRect(0, 0, flCanvas.width, flCanvas.height);
       flCtx.drawImage(_flImg, 0, 0, flCanvas.width, flCanvas.height);
@@ -1511,9 +1523,17 @@ export { FL3D_FRAME_RE, buildPairMap } from './pair_map.mjs';
           if (e.key === "d") x += step;
           if (e.key === "w") y -= step;
           if (e.key === "s") y += step;
-          // Clamp to image dimensions
-          x = Math.max(0, Math.min(x, _flImg.naturalWidth  - 1));
-          y = Math.max(0, Math.min(y, _flImg.naturalHeight - 1));
+          // Clamp to the focused tile's image dimensions (in sync mode the
+          // sibling's image may differ from the global _flImg).
+          let _clampImg = _flImg;
+          if (_fl3dSyncOn) {
+            const focused = document.querySelector("#fl3d-canvas-row .fl3d-tile.focused");
+            if (focused && focused._fl3dImg && focused._fl3dImg.naturalWidth) {
+              _clampImg = focused._fl3dImg;
+            }
+          }
+          x = Math.max(0, Math.min(x, _clampImg.naturalWidth  - 1));
+          y = Math.max(0, Math.min(y, _clampImg.naturalHeight - 1));
           _flLabels[fname][_flSelectedBp] = [x, y];
           _fl3dDirtyFrames.add(fname);
           _flDirty = true;

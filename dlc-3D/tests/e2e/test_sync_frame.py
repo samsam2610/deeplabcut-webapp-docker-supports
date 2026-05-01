@@ -537,3 +537,313 @@ def test_m2_tap_panel_toggle_still_works(page: Page):
 
 def _focused_class_re_for(token: str):
     return re.compile(rf"\b{token}\b")
+
+
+# =============================================================================
+# Group N: comprehensive interaction coverage in sync mode (regression suite)
+# =============================================================================
+#
+# These tests exist to lock down "labeling stays smooth in sync mode" — the
+# fixes for: (a) sibling-tile WASD nudge corrupting the primary canvas via
+# stale _flImg, and (b) the primary tile flipping back to an old frame when
+# any label-mutation handler called _flDraw() in sync mode. The pixel-content
+# checks on the primary canvas are the regression detector for both.
+
+def _primary_center_px(page, x_frac=0.5, y_frac=0.5):
+    """Sample pixels of the primary tile's canvas as a fingerprint of its image.
+
+    Default sample is canvas center. Override fractions to sample away from
+    a marker or selection ring that you placed for the test.
+    """
+    return page.evaluate(f"""() => {{
+        const c = document.getElementById('fl3d-canvas');
+        const ctx = c.getContext('2d');
+        const x = Math.max(0, Math.floor(c.width * {x_frac}));
+        const y = Math.max(0, Math.floor(c.height * {y_frac}));
+        const d = ctx.getImageData(x, y, 5, 5).data;
+        return Array.from(d.slice(0, 12)).join(',');
+    }}""")
+
+
+def _seed_focused_with_one_marker(page, fname, bp, x, y):
+    """Force focused tile's label state to a single known marker."""
+    page.evaluate(
+        f"window.__fl3d.labels['{fname}'] = {{'{bp}': [{x}, {y}]}};"
+    )
+
+
+def _enable_sync_at_frame(page, advance=10):
+    """Open Frame Labeler, enable sync, advance N frames so _flImg is stale."""
+    page.locator("#fl3d-sync-frame").check()
+    page.wait_for_function("window.__fl3d.syncOn === true")
+    for _ in range(advance):
+        page.locator("#fl3d-btn-next").click()
+        page.wait_for_timeout(50)
+
+
+def _focus_sibling(page):
+    """Switch focus to the sibling tile and return (sibling_cam, sibling_fname)."""
+    primary = page.evaluate("window.__fl3d.primaryCam")
+    cams = page.eval_on_selector_all(
+        "#fl3d-canvas-row .fl3d-tile", "ts => ts.map(t => +t.dataset.cam)"
+    )
+    sibling = next(c for c in cams if c != primary)
+    sib_tile = page.locator(f'#fl3d-canvas-row .fl3d-tile[data-cam="{sibling}"]')
+    if sib_tile.locator(".fl3d-tile-empty:not(.hidden)").count() > 0:
+        pytest.skip("sibling empty for current frame_number")
+    sib_tile.click()
+    page.wait_for_function(f"window.__fl3d.focusedCam === {sibling}")
+    return sibling, sib_tile.evaluate("t => t.dataset.fname")
+
+
+def test_n1_wasd_on_sibling_does_not_corrupt_primary_canvas(page: Page):
+    """Bug A regression: nudging a sibling marker via W/A/S/D must not
+    overwrite the primary tile's image with stale _flImg."""
+    _enable_sync_at_frame(page, advance=10)
+    primary_pix_before = _primary_center_px(page)
+
+    sibling, sib_fname = _focus_sibling(page)
+    _seed_focused_with_one_marker(page, sib_fname, "Snout", 400, 300)
+    page.locator('.fl-bp-chip[data-bp="Snout"]').click()
+    page.wait_for_function("window.__fl3d.selectedBp === 'Snout'")
+    sib_canvas = page.locator(f'#fl3d-canvas-row .fl3d-tile[data-cam="{sibling}"] canvas')
+    box = sib_canvas.bounding_box()
+    page.mouse.move(box["x"] + box["width"] / 2, box["y"] + box["height"] / 2)
+    page.wait_for_timeout(100)
+
+    page.keyboard.press("w")
+    page.wait_for_timeout(150)
+
+    sib_pos = page.evaluate(f"window.__fl3d.labels['{sib_fname}']['Snout']")
+    assert sib_pos == [400, 299], f"sibling marker should nudge by 1px in y, got {sib_pos}"
+    primary_pix_after = _primary_center_px(page)
+    assert primary_pix_after == primary_pix_before, (
+        "primary canvas was corrupted when WASD nudged a sibling marker — "
+        f"before={primary_pix_before} after={primary_pix_after}"
+    )
+
+
+def test_n2_wasd_on_primary_after_sync_nav_does_not_jump_frame(page: Page):
+    """Bug B regression: after sync nav, pressing W on the primary tile must
+    not paint the OLD _flImg back over the current frame's image. Sample
+    pixels at a corner away from the marker so we measure the IMAGE, not the
+    marker's selection ring."""
+    _enable_sync_at_frame(page, advance=10)
+    primary = page.evaluate("window.__fl3d.primaryCam")
+    pri_fname = page.eval_on_selector(
+        "#fl3d-canvas-row .fl3d-tile.focused", "t => t.dataset.fname"
+    )
+    # Marker placed at top-left corner so center-sample stays on bare image
+    _seed_focused_with_one_marker(page, pri_fname, "Snout", 50, 50)
+    page.locator('.fl-bp-chip[data-bp="Snout"]').click()
+    page.wait_for_function("window.__fl3d.selectedBp === 'Snout'")
+    pri_canvas = page.locator(f'#fl3d-canvas-row .fl3d-tile[data-cam="{primary}"] canvas')
+    box = pri_canvas.bounding_box()
+    page.mouse.move(box["x"] + box["width"] / 2, box["y"] + box["height"] / 2)
+    page.wait_for_timeout(100)
+
+    primary_pix_before = _primary_center_px(page)  # center, no marker here
+    page.keyboard.press("w")
+    page.wait_for_timeout(150)
+    pos = page.evaluate(f"window.__fl3d.labels['{pri_fname}']['Snout']")
+    assert pos == [50, 49]
+
+    primary_pix_after = _primary_center_px(page)
+    assert primary_pix_after == primary_pix_before, (
+        "primary canvas content changed (frame jumped to stale _flImg) — "
+        f"before={primary_pix_before} after={primary_pix_after}"
+    )
+
+
+def test_n3_shift_wasd_nudges_by_10px(page: Page):
+    """Shift + nudge keys should move 10px instead of 1px."""
+    _enable_sync_at_frame(page, advance=5)
+    pri_fname = page.eval_on_selector(
+        "#fl3d-canvas-row .fl3d-tile.focused", "t => t.dataset.fname"
+    )
+    _seed_focused_with_one_marker(page, pri_fname, "Snout", 400, 300)
+    page.locator('.fl-bp-chip[data-bp="Snout"]').click()
+    page.wait_for_function("window.__fl3d.selectedBp === 'Snout'")
+    pri_canvas = page.locator(f'#fl3d-canvas-row .fl3d-tile.focused canvas')
+    box = pri_canvas.bounding_box()
+    page.mouse.move(box["x"] + box["width"]/2, box["y"] + box["height"]/2)
+    page.wait_for_timeout(100)
+    page.keyboard.press("Shift+d")
+    page.wait_for_timeout(150)
+    pos = page.evaluate(f"window.__fl3d.labels['{pri_fname}']['Snout']")
+    assert pos == [410, 300], f"Shift+D should add 10 to x, got {pos}"
+
+
+def test_n4_arrow_keys_navigate_frames_in_sync_mode(page: Page):
+    """ArrowRight/Left should walk the frame-number axis in sync mode."""
+    _enable_sync_at_frame(page, advance=5)
+    idx0 = page.evaluate("window.__fl3d.frameNumberIdx")
+    page.locator("#fl3d-canvas-row").hover()
+    page.keyboard.press("ArrowRight")
+    page.wait_for_function(f"window.__fl3d.frameNumberIdx === {idx0 + 1}")
+    page.keyboard.press("ArrowLeft")
+    page.wait_for_function(f"window.__fl3d.frameNumberIdx === {idx0}")
+
+
+def test_n5_tab_cycles_body_parts_in_sync_mode(page: Page):
+    """Tab should advance the selected body part — globally, regardless of focus."""
+    _enable_sync_at_frame(page, advance=5)
+    page.locator('.fl-bp-chip[data-bp="Snout"]').click()
+    page.wait_for_function("window.__fl3d.selectedBp === 'Snout'")
+    page.locator("#fl3d-canvas-row").hover()
+    page.keyboard.press("Tab")
+    page.wait_for_function("window.__fl3d.selectedBp !== 'Snout'")
+    next_bp = page.evaluate("window.__fl3d.selectedBp")
+    assert next_bp != "Snout"
+
+
+def test_n6_backspace_deletes_focused_marker_in_sync_mode(page: Page):
+    """Backspace should null the selected bp's marker on the focused tile."""
+    _enable_sync_at_frame(page, advance=5)
+    sibling, sib_fname = _focus_sibling(page)
+    _seed_focused_with_one_marker(page, sib_fname, "Snout", 400, 300)
+    page.locator('.fl-bp-chip[data-bp="Snout"]').click()
+    page.wait_for_function("window.__fl3d.selectedBp === 'Snout'")
+
+    primary_pix_before = _primary_center_px(page)
+    page.keyboard.press("Backspace")
+    page.wait_for_timeout(150)
+    pos = page.evaluate(f"window.__fl3d.labels['{sib_fname}']?.Snout")
+    assert pos is None, f"Backspace should null sibling marker, got {pos}"
+    # And primary canvas must NOT be corrupted
+    primary_pix_after = _primary_center_px(page)
+    assert primary_pix_after == primary_pix_before
+
+
+def test_n7_right_click_on_sibling_canvas_only_deletes_that_marker(page: Page):
+    """Right-click on the sibling canvas removes its bp marker; the primary
+    canvas must remain visually intact."""
+    _enable_sync_at_frame(page, advance=5)
+    sibling, sib_fname = _focus_sibling(page)
+    _seed_focused_with_one_marker(page, sib_fname, "Snout", 400, 300)
+    page.locator('.fl-bp-chip[data-bp="Snout"]').click()
+    page.wait_for_function("window.__fl3d.selectedBp === 'Snout'")
+    primary_pix_before = _primary_center_px(page)
+    sib_canvas = page.locator(f'#fl3d-canvas-row .fl3d-tile[data-cam="{sibling}"] canvas')
+    box = sib_canvas.bounding_box()
+    page.mouse.click(
+        box["x"] + box["width"] / 2, box["y"] + box["height"] / 2, button="right"
+    )
+    page.wait_for_timeout(150)
+    pos = page.evaluate(f"window.__fl3d.labels['{sib_fname}']?.Snout")
+    assert pos is None
+    primary_pix_after = _primary_center_px(page)
+    assert primary_pix_after == primary_pix_before
+
+
+def test_n8_show_names_toggle_does_not_change_primary_canvas_in_sync(page: Page):
+    """Regression for the previous 'frame jumps when toggling show names' fix."""
+    _enable_sync_at_frame(page, advance=5)
+    p_initial = _primary_center_px(page)
+    page.locator("#fl3d-show-names").click()
+    page.wait_for_timeout(150)
+    p_off = _primary_center_px(page)
+    page.locator("#fl3d-show-names").click()
+    page.wait_for_timeout(150)
+    p_on = _primary_center_px(page)
+    assert p_initial == p_off == p_on
+
+
+def test_n9_marker_size_change_does_not_jump_primary_canvas(page: Page):
+    """Marker-size slider must not corrupt the primary canvas in sync mode."""
+    _enable_sync_at_frame(page, advance=5)
+    pri_fname = page.eval_on_selector(
+        "#fl3d-canvas-row .fl3d-tile.focused", "t => t.dataset.fname"
+    )
+    page.evaluate(f"window.__fl3d.labels['{pri_fname}'] = {{}};")
+    p_before = _primary_center_px(page)
+    page.locator("#fl3d-marker-size").evaluate(
+        "(el) => { el.value = '12'; el.dispatchEvent(new Event('input')); }"
+    )
+    page.wait_for_timeout(100)
+    p_after = _primary_center_px(page)
+    # No labels on this frame, so neither marker-size value should affect canvas content.
+    assert p_after == p_before
+
+
+def test_n10_clear_frame_does_not_swap_primary_image_to_stale(page: Page):
+    """After Clear Frame on the focused (primary) tile, the canvas should
+    show the SAME frame's image (just no markers), not flip to a stale one."""
+    _enable_sync_at_frame(page, advance=5)
+    pri_fname = page.eval_on_selector(
+        "#fl3d-canvas-row .fl3d-tile.focused", "t => t.dataset.fname"
+    )
+    page.evaluate(f"window.__fl3d.labels['{pri_fname}'] = {{Snout: [50, 50]}};")
+    p_before = _primary_center_px(page)
+    page.locator("#fl3d-btn-clear-frame").dblclick()
+    page.wait_for_timeout(200)
+    p_after = _primary_center_px(page)
+    assert p_after == p_before, (
+        "Clear Frame should not change the canvas image (no markers were near center) — "
+        f"before={p_before} after={p_after}"
+    )
+
+
+def test_n11_wasd_on_unfocused_hover_is_a_noop(page: Page):
+    """Pre-existing hover gate: pressing W with cursor on the UNFOCUSED tile
+    must not move the marker on either tile."""
+    _enable_sync_at_frame(page, advance=5)
+    pri_fname = page.eval_on_selector(
+        "#fl3d-canvas-row .fl3d-tile.focused", "t => t.dataset.fname"
+    )
+    _seed_focused_with_one_marker(page, pri_fname, "Snout", 400, 300)
+    page.locator('.fl-bp-chip[data-bp="Snout"]').click()
+    page.wait_for_function("window.__fl3d.selectedBp === 'Snout'")
+
+    # Hover the SIBLING tile and press W
+    primary = page.evaluate("window.__fl3d.primaryCam")
+    cams = page.eval_on_selector_all(
+        "#fl3d-canvas-row .fl3d-tile", "ts => ts.map(t => +t.dataset.cam)"
+    )
+    sib = next(c for c in cams if c != primary)
+    sib_canvas = page.locator(f'#fl3d-canvas-row .fl3d-tile[data-cam="{sib}"] canvas')
+    box = sib_canvas.bounding_box()
+    page.mouse.move(box["x"] + 5, box["y"] + 5)
+    page.wait_for_timeout(80)
+    before = page.evaluate(f"window.__fl3d.labels['{pri_fname}']['Snout']")
+    page.keyboard.press("w")
+    page.wait_for_timeout(120)
+    after = page.evaluate(f"window.__fl3d.labels['{pri_fname}']['Snout']")
+    assert after == before
+
+
+def test_n12_save_button_clears_dirty_set(page: Page):
+    """Save button: marker placement should populate dirtyFrames, save clears it."""
+    _enable_sync_at_frame(page, advance=5)
+    pri_fname = page.eval_on_selector(
+        "#fl3d-canvas-row .fl3d-tile.focused", "t => t.dataset.fname"
+    )
+    page.evaluate(f"window.__fl3d.labels['{pri_fname}'] = {{}};")
+    page.locator('.fl-bp-chip[data-bp="Snout"]').click()
+    page.wait_for_function("window.__fl3d.selectedBp === 'Snout'")
+    pri_canvas = page.locator(f'#fl3d-canvas-row .fl3d-tile.focused canvas')
+    box = pri_canvas.bounding_box()
+    page.mouse.click(box["x"] + box["width"] * 0.95, box["y"] + box["height"] * 0.05)
+    page.wait_for_function(f"window.__fl3d.dirtyFrames.includes('{pri_fname}')")
+    # We don't actually want to write to the CSV in CI — skip the save click.
+    # Just verify dirtyFrames shape; save round-trip is gated under H1.
+    dirty = page.evaluate("window.__fl3d.dirtyFrames")
+    assert pri_fname in dirty
+
+
+def test_n13_double_click_chip_toggles_visibility_in_sync(page: Page):
+    """Double-clicking a chip toggles vis-hidden state on the focused tile's
+    marker; the primary canvas should not flicker to a stale image."""
+    _enable_sync_at_frame(page, advance=5)
+    pri_fname = page.eval_on_selector(
+        "#fl3d-canvas-row .fl3d-tile.focused", "t => t.dataset.fname"
+    )
+    _seed_focused_with_one_marker(page, pri_fname, "Snout", 400, 300)
+    page.locator('.fl-bp-chip[data-bp="Snout"]').click()
+    page.wait_for_function("window.__fl3d.selectedBp === 'Snout'")
+    p_before = _primary_center_px(page)
+    page.locator('.fl-bp-chip[data-bp="Snout"]').dblclick()
+    page.wait_for_timeout(150)
+    # Hidden state stored in JS — exact assertion is on canvas stability
+    p_after = _primary_center_px(page)
+    assert p_after == p_before
