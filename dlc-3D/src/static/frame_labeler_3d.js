@@ -1,5 +1,6 @@
 "use strict";
 import { _populateGpuSelect } from '/static/js/training.js';
+import { buildPairMap, FL3D_FRAME_RE } from './pair_map.mjs';
 export { FL3D_FRAME_RE, buildPairMap } from './pair_map.mjs';
 
 (function initFl3d() {
@@ -95,6 +96,12 @@ export { FL3D_FRAME_RE, buildPairMap } from './pair_map.mjs';
     let _flHoverBp        = null;   // bodypart marker the cursor is near
     let _flZoom           = 100;
     let _flHidden         = {};  // {frame_name: {bp: bool}} — visibility-toggled markers  // percent of container width (100 = fit to card)
+
+    // ── Sync-frame state (Task 4 scaffold — no sync behavior yet) ──
+    let _fl3dPairMap      = new Map();
+    let _fl3dCamSet       = [];
+    let _fl3dFrameNumbers = [];
+    let _fl3dPrimaryCam   = 0;
 
     // Machine labeling state (persists across folder changes)
     let _flMlPollTimer   = null;
@@ -707,6 +714,17 @@ export { FL3D_FRAME_RE, buildPairMap } from './pair_map.mjs';
       _flFrameIdx  = 0;
       _flDirty     = false;
 
+      // Build pair map and surface cam set for sync-frame UI
+      const _fl3dPairBuild = buildPairMap(_flFrames);
+      _fl3dPairMap      = _fl3dPairBuild.pairMap;
+      _fl3dCamSet       = _fl3dPairBuild.camSet;
+      _fl3dFrameNumbers = _fl3dPairBuild.frameNumbers;
+
+      const syncLbl = document.getElementById("fl3d-sync-frame-label");
+      if (syncLbl) {
+        syncLbl.style.display = _fl3dCamSet.length >= 2 ? "flex" : "none";
+      }
+
       // Fetch existing labels
       try {
         const res  = await fetch(`/dlc/project/labels/${encodeURIComponent(stem)}`);
@@ -849,6 +867,24 @@ export { FL3D_FRAME_RE, buildPairMap } from './pair_map.mjs';
       const fname = _flFrames[idx];
       flFrameInfo.textContent = `Frame ${idx + 1} / ${_flFrames.length}`;
       flFrameName.textContent = fname;
+
+      // Mirror current frame onto the primary tile attributes for tests/assertions
+      const _flCurrentTile = document.querySelector('.fl3d-tile');
+      if (_flCurrentTile) {
+        const m = FL3D_FRAME_RE.exec(fname);
+        if (m) {
+          _flCurrentTile.dataset.cam   = m[1];
+          _flCurrentTile.dataset.fname = fname;
+          flCanvas.dataset.cam         = m[1];
+          flCanvas.dataset.fname       = fname;
+          const lbl = document.getElementById("fl3d-tile-label-primary");
+          if (lbl) lbl.textContent = `cam${m[1]}`;
+        } else {
+          // Non-conforming filename (single-cam project) — clear cam-specific attrs
+          _flCurrentTile.dataset.fname = fname;
+          flCanvas.dataset.fname = fname;
+        }
+      }
 
       _flUpdateBpChipStatus();
       _flUpdateLabelCount();

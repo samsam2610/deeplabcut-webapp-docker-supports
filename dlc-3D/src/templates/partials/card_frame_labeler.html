@@ -232,6 +232,10 @@
             <input type="range" id="fl3d-marker-size" min="1" max="24" value="4" style="width:80px;accent-color:var(--accent)">
             <span id="fl3d-marker-size-val" style="min-width:1.4rem;text-align:right;color:var(--text)">4</span>
           </label>
+          <label id="fl3d-sync-frame-label" style="display:none;align-items:center;gap:.45rem;font-size:.78rem;color:var(--text-dim);cursor:pointer;user-select:none">
+            <input type="checkbox" id="fl3d-sync-frame" style="accent-color:var(--accent)">
+            Sync Frame
+          </label>
           <label style="display:flex;align-items:center;gap:.45rem;font-size:.78rem;color:var(--text-dim);cursor:pointer;user-select:none">
             <input type="checkbox" id="fl3d-show-names" checked style="accent-color:var(--accent)">
             Show names
@@ -239,9 +243,13 @@
         </div>
 
         <!-- Labeling canvas -->
-        <div class="fl3d-canvas-wrap">
-          <canvas id="fl3d-canvas"></canvas>
-          <p class="fl3d-canvas-empty hidden" id="fl3d-canvas-loading">Loading frame…</p>
+        <div class="fl3d-canvas-row" id="fl3d-canvas-row">
+          <div class="fl3d-tile focused" data-cam="" data-fname="">
+            <div class="fl3d-tile-label" id="fl3d-tile-label-primary"></div>
+            <canvas id="fl3d-canvas" class="fl3d-tile-canvas" data-cam="" data-fname=""></canvas>
+            <div class="fl3d-tile-empty hidden" id="fl3d-tile-empty-primary"></div>
+            <p class="fl3d-canvas-empty hidden" id="fl3d-canvas-loading">Loading frame…</p>
+          </div>
         </div>
 
         <!-- Body-part selector (napari-style chip list) -->
