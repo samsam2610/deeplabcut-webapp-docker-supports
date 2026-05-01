@@ -645,6 +645,19 @@ export { FL3D_FRAME_RE, buildPairMap } from './pair_map.mjs';
       if (_flImgLoaded) { _flFitCanvas(); _flDraw(); }
     });
 
+    // Wire primary tile's size slider once. Sibling-tile sliders are wired in _fl3dRenderTile.
+    const _flPrimaryTile = document.querySelector("#fl3d-canvas-row .fl3d-tile:not(.fl3d-tile-sibling)");
+    if (_flPrimaryTile) _fl3dWireTileSizeSlider(_flPrimaryTile);
+
+    // Equalize button: reset all per-tile weights to 100.
+    const flEqualizeBtn = document.getElementById("fl3d-equalize-btn");
+    flEqualizeBtn.addEventListener("click", () => {
+      document.querySelectorAll("#fl3d-canvas-row .fl3d-tile").forEach(t => {
+        _fl3dResetTileWeight(t);
+        if (t.dataset.fname) _fl3dDrawTileMarkers(t, t.dataset.fname);
+      });
+    });
+
     flMarkerSizeInput.addEventListener("input", () => {
       _flMarkerRadius = parseInt(flMarkerSizeInput.value, 10);
       flMarkerSizeVal.textContent = _flMarkerRadius;
@@ -1245,6 +1258,29 @@ export { FL3D_FRAME_RE, buildPairMap } from './pair_map.mjs';
       row.style.width = targetRowW + "px";
       const extra = targetRowW - baseW;
       row.style.marginLeft = extra > 0 ? `-${extra / 2}px` : "";
+    }
+
+    function _fl3dWireTileSizeSlider(tile) {
+      const slider = tile.querySelector(".fl3d-tile-size");
+      const val    = tile.querySelector(".fl3d-tile-size-val");
+      if (!slider || slider.dataset.wired === "1") return;
+      slider.dataset.wired = "1";
+      slider.addEventListener("input", () => {
+        const w = parseInt(slider.value, 10);
+        tile.dataset.weight = String(w);
+        tile.style.flexGrow = String(w);
+        val.textContent = w + "%";
+        if (tile.dataset.fname) _fl3dDrawTileMarkers(tile, tile.dataset.fname);
+      });
+    }
+
+    function _fl3dResetTileWeight(tile) {
+      const slider = tile.querySelector(".fl3d-tile-size");
+      const val    = tile.querySelector(".fl3d-tile-size-val");
+      tile.dataset.weight = "100";
+      tile.style.flexGrow = "100";
+      if (slider) slider.value = "100";
+      if (val) val.textContent = "100%";
     }
 
     // Re-fit whenever the card width changes (window resize, layout shifts)
