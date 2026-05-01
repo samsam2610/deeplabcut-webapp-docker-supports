@@ -1365,11 +1365,16 @@ export { FL3D_FRAME_RE, buildPairMap } from './pair_map.mjs';
     function _flClearFrame() {
       const fname = _fl3dActiveFname();
       if (!fname) return;
-      if (!_flLabels[fname]) _flLabels[fname] = {};
-      _flBodyparts.forEach(bp => { _flLabels[fname][bp] = null; });
+      delete _flLabels[fname];
       delete _flHidden[fname];
+      _fl3dDirtyFrames.add(fname);
       _flDirty = true;
-      _flDraw();
+      if (_fl3dSyncOn) {
+        const tile = document.querySelector(`#fl3d-canvas-row .fl3d-tile.focused`);
+        if (tile) _fl3dDrawTileMarkers(tile, fname);
+      } else {
+        _flDraw();
+      }
       _flUpdateBpChipStatus();
       _flUpdateLabelCount();
     }
