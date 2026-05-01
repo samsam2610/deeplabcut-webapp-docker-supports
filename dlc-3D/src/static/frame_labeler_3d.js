@@ -97,11 +97,16 @@ export { FL3D_FRAME_RE, buildPairMap } from './pair_map.mjs';
     let _flZoom           = 100;
     let _flHidden         = {};  // {frame_name: {bp: bool}} — visibility-toggled markers  // percent of container width (100 = fit to card)
 
-    // ── Sync-frame state (Task 4 scaffold — no sync behavior yet) ──
+    // ── Sync-frame state ─────────────────────────────────────────
     let _fl3dPairMap      = new Map();
     let _fl3dCamSet       = [];
     let _fl3dFrameNumbers = [];
     let _fl3dPrimaryCam   = 0;
+    let _fl3dSyncOn        = false;
+    let _fl3dFocusedCam    = 0;
+    let _fl3dHoveredCam    = null;
+    let _fl3dFrameNumIdx   = 0;
+    let _fl3dDirtyFrames   = new Set();
 
     // Machine labeling state (persists across folder changes)
     let _flMlPollTimer   = null;
@@ -651,6 +656,33 @@ export { FL3D_FRAME_RE, buildPairMap } from './pair_map.mjs';
       _flDraw();
     });
 
+    document.getElementById("fl3d-sync-frame").addEventListener("change", (e) => {
+      if (e.target.checked) {
+        if (_fl3dCamSet.length < 2) {
+          e.target.checked = false;
+          flStemStatus.textContent = "Sync Frame needs at least 2 cams in this folder.";
+          return;
+        }
+        // Determine current cam + frame from current fname
+        const fname = _flFrames[_flFrameIdx];
+        const m = FL3D_FRAME_RE.exec(fname || "");
+        if (!m) { e.target.checked = false; return; }
+        _fl3dPrimaryCam = +m[1];
+        _fl3dFocusedCam = _fl3dPrimaryCam;
+        const currentFrameNum = +m[3];
+        _fl3dFrameNumIdx = _fl3dFrameNumbers.indexOf(currentFrameNum);
+        if (_fl3dFrameNumIdx < 0) _fl3dFrameNumIdx = 0;
+        _fl3dSyncOn = true;
+        _fl3dSyncRenderRow(_fl3dFrameNumbers[_fl3dFrameNumIdx]);
+      } else {
+        _fl3dSyncOn = false;
+        // Remove sibling tiles
+        document.querySelectorAll("#fl3d-canvas-row .fl3d-tile-sibling").forEach(t => t.remove());
+        // Re-fit primary canvas back to single-tile width
+        if (_flImgLoaded) { _flFitCanvas(); _flDraw(); }
+      }
+    });
+
     // ── Load bodyparts + stems ───────────────────────────────────
     async function _flLoad() {
       try {
@@ -907,6 +939,115 @@ export { FL3D_FRAME_RE, buildPairMap } from './pair_map.mjs';
         flCanvasLoading.classList.remove("hidden");
       };
       img.src = `/dlc/project/frame-image/${encodeURIComponent(_flVideoStem)}/${encodeURIComponent(fname)}`;
+    }
+
+    // ── Sync-frame helpers ────────────────────────────────────────
+    function _fl3dSyncRenderRow(currentFrameNum) {
+      const row = document.getElementById("fl3d-canvas-row");
+      if (!row) return;
+
+      // Remove any sibling tiles (keep only the primary tile, which always exists)
+      Array.from(row.querySelectorAll(".fl3d-tile.fl3d-tile-sibling"))
+        .forEach(el => el.remove());
+
+      // Lookup tiles for this frame number
+      const entries = _fl3dPairMap.get(currentFrameNum) || [];
+      const byCam   = new Map(entries.map(e => [e.cam, e]));
+
+      // Update primary tile (cam = primaryCam)
+      const primaryTile = row.querySelector(".fl3d-tile:not(.fl3d-tile-sibling)");
+      _fl3dRenderTile(primaryTile, _fl3dPrimaryCam, byCam.get(_fl3dPrimaryCam) || null, currentFrameNum);
+
+      // Append sibling tiles for every other cam in camSet
+      for (const cam of _fl3dCamSet) {
+        if (cam === _fl3dPrimaryCam) continue;
+        const tile = document.createElement("div");
+        tile.className = "fl3d-tile fl3d-tile-sibling";
+        tile.dataset.cam = String(cam);
+        tile.innerHTML = `
+          <div class="fl3d-tile-label">cam${cam}</div>
+          <canvas class="fl3d-tile-canvas" data-cam="${cam}"></canvas>
+          <div class="fl3d-tile-empty hidden"></div>
+        `;
+        row.appendChild(tile);
+        _fl3dRenderTile(tile, cam, byCam.get(cam) || null, currentFrameNum);
+      }
+
+      _fl3dApplyFocusClass();
+    }
+
+    function _fl3dRenderTile(tile, cam, entry, frameNum) {
+      const canvas = tile.querySelector(".fl3d-tile-canvas");
+      const empty  = tile.querySelector(".fl3d-tile-empty");
+      const label  = tile.querySelector(".fl3d-tile-label");
+      if (label) label.textContent = `cam${cam}`;
+
+      if (!entry) {
+        canvas.style.display = "none";
+        empty.classList.remove("hidden");
+        empty.textContent = `No frame extracted for cam${cam} @ ${String(frameNum).padStart(5, "0")}`;
+        tile.dataset.fname = "";
+        canvas.dataset.fname = "";
+        canvas.dataset.cam   = String(cam);
+        return;
+      }
+
+      canvas.style.display = "";
+      empty.classList.add("hidden");
+      tile.dataset.fname   = entry.fname;
+      canvas.dataset.fname = entry.fname;
+      canvas.dataset.cam   = String(cam);
+
+      // Load image and draw into this tile's canvas
+      const img = new Image();
+      img.onload = () => {
+        canvas.width  = img.naturalWidth;   // intrinsic; CSS scales to width:100%
+        canvas.height = img.naturalHeight;
+        const ctx = canvas.getContext("2d");
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        ctx.drawImage(img, 0, 0);
+        _fl3dDrawTileMarkers(tile, entry.fname);
+      };
+      img.src = `/dlc/project/frame-image/${encodeURIComponent(_flVideoStem)}/${encodeURIComponent(entry.fname)}`;
+
+      // Stash the image on the tile for re-draw on marker-size / show-names changes
+      tile._fl3dImg = img;
+    }
+
+    function _fl3dDrawTileMarkers(tile, fname) {
+      const canvas = tile.querySelector(".fl3d-tile-canvas");
+      const ctx    = canvas.getContext("2d");
+      const labels = _flLabels[fname] || {};
+      const r      = _flMarkerRadius;
+      const sx     = 1, sy = 1;  // canvas is at native pixel size; CSS handles display scaling
+      _flBodyparts.forEach((bp, i) => {
+        const pt = labels[bp];
+        if (!pt) return;
+        if (_flHidden[fname] && _flHidden[fname][bp]) return;
+        const cx = pt[0] * sx, cy = pt[1] * sy;
+        const color = _flColor(i);
+        if (bp === _flSelectedBp && tile.classList.contains("focused")) {
+          ctx.beginPath(); ctx.arc(cx, cy, r + 3.5, 0, Math.PI * 2);
+          ctx.strokeStyle = "rgba(255,255,255,0.85)"; ctx.lineWidth = 2; ctx.stroke();
+        }
+        ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2);
+        ctx.fillStyle = color; ctx.fill();
+        ctx.strokeStyle = "rgba(0,0,0,0.55)"; ctx.lineWidth = 1.2; ctx.stroke();
+        if (_flShowNames) {
+          ctx.font = "bold 11px 'JetBrains Mono', monospace";
+          ctx.fillStyle = "rgba(12,13,16,.65)";
+          const tw = ctx.measureText(bp).width;
+          ctx.fillRect(cx + r + 2, cy - 7, tw + 6, 14);
+          ctx.fillStyle = color;
+          ctx.fillText(bp, cx + r + 5, cy + 4);
+        }
+      });
+    }
+
+    function _fl3dApplyFocusClass() {
+      document.querySelectorAll("#fl3d-canvas-row .fl3d-tile").forEach(t => {
+        t.classList.toggle("focused", +t.dataset.cam === _fl3dFocusedCam);
+      });
     }
 
     function _flFitCanvas() {
@@ -1372,6 +1513,28 @@ export { FL3D_FRAME_RE, buildPairMap } from './pair_map.mjs';
         _flFitCanvas();
         _flDraw();
       }
+    });
+
+    window.__fl3d = new Proxy({}, {
+      get(_, prop) {
+        const map = {
+          syncOn:        _fl3dSyncOn,
+          focusedCam:    _fl3dFocusedCam,
+          primaryCam:    _fl3dPrimaryCam,
+          hoveredCam:    _fl3dHoveredCam,
+          camSet:        _fl3dCamSet,
+          pairMapSize:   _fl3dPairMap ? _fl3dPairMap.size : 0,
+          frameNumberIdx:_fl3dFrameNumIdx,
+          frameNumbers:  _fl3dFrameNumbers,
+          selectedBp:    _flSelectedBp,
+          markerRadius:  _flMarkerRadius,
+          showNames:     _flShowNames,
+          zoom:          _flZoom,
+          labels:        _flLabels,
+          dirtyFrames:   Array.from(_fl3dDirtyFrames || []),
+        };
+        return map[prop];
+      },
     });
 
 })(); // end initFl3d
