@@ -59,6 +59,13 @@ export async function openPlayer(videoPath, siblingPath) {
   const extractBtn = document.getElementById("ep-extract-btn");
   if (extractBtn) extractBtn.disabled = false;
 
+  const zoomEl  = document.getElementById("ep-zoom-3d");
+  const zoomPct = document.getElementById("ep-zoom-3d-pct");
+  const camDisp = document.getElementById("cam-displays");
+  if (zoomEl)  zoomEl.value = 100;
+  if (zoomPct) zoomPct.textContent = "100%";
+  if (camDisp) camDisp.style.transform = "";
+
   await _epLoadFrame(0);
 }
 
@@ -237,6 +244,16 @@ document.addEventListener("DOMContentLoaded", () => {
   // Step size input — sync to module var
   document.getElementById("ep-step")?.addEventListener("change", (e) => {
     _stepSize = Math.max(1, parseInt(e.target.value, 10) || 10);
+  });
+
+  // Zoom slider
+  document.getElementById("ep-zoom-3d")?.addEventListener("input", (e) => {
+    const v       = parseInt(e.target.value, 10);
+    const camDisp = document.getElementById("cam-displays");
+    const pct     = document.getElementById("ep-zoom-3d-pct");
+    if (camDisp) camDisp.style.transform       = v === 100 ? "" : `scale(${v / 100})`;
+    if (camDisp) camDisp.style.transformOrigin = "center top";
+    if (pct)     pct.textContent               = `${v}%`;
   });
 
   // Keyboard shortcuts (hover-free — active whenever no text input focused)

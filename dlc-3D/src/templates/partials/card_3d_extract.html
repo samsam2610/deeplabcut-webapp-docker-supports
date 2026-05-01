@@ -68,6 +68,16 @@
         <!-- Seek slider -->
         <input type="range" id="ep-seek" class="fe-seek" min="0" max="0" value="0">
 
+        <!-- Zoom controls -->
+        <div style="display:flex;align-items:center;gap:.5rem;margin:.25rem 0">
+          <span style="font-size:.72rem;color:var(--text-dim);flex-shrink:0">Zoom</span>
+          <input type="range" id="ep-zoom-3d" min="50" max="300" step="10" value="100"
+                 style="flex:1;accent-color:var(--accent)">
+          <span id="ep-zoom-3d-pct"
+                style="font-family:var(--mono);font-size:.72rem;color:var(--text-dim);
+                       width:3rem;text-align:right;flex-shrink:0">100%</span>
+        </div>
+
         <!-- Sync cam row -->
         <div id="sync-cam-row" style="display:none;align-items:center;gap:1rem;margin:.4rem 0;font-size:.78rem">
           <label class="toggle">
