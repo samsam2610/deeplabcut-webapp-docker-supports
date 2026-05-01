@@ -142,6 +142,30 @@
             </button>
             <span id="extract-count" class="fe-extract-count">0 frames saved</span>
           </div>
+          <div style="display:flex;align-items:center;gap:.6rem">
+            <label style="display:flex;flex-direction:column;gap:.2rem;font-size:.78rem;color:var(--text-dim);flex-shrink:0">
+              Count
+              <input type="number" id="ep-batch-count" min="2" value="10"
+                     style="width:4rem;text-align:center;font-family:var(--mono);font-size:.78rem;
+                            padding:.18rem .3rem;background:var(--surface-2);border:1px solid var(--border);
+                            border-radius:5px;color:var(--text)">
+            </label>
+            <label style="display:flex;flex-direction:column;gap:.2rem;font-size:.78rem;color:var(--text-dim);flex-shrink:0">
+              Step
+              <input type="number" id="ep-batch-step" min="1" value="1"
+                     style="width:4rem;text-align:center;font-family:var(--mono);font-size:.78rem;
+                            padding:.18rem .3rem;background:var(--surface-2);border:1px solid var(--border);
+                            border-radius:5px;color:var(--text)">
+            </label>
+            <button id="ep-batch-extract-btn" class="btn-sm btn-create" disabled
+                    style="flex:1;justify-content:center;padding:.5rem 1rem;align-self:flex-end">
+              Extract Batch
+            </button>
+            <button id="ep-batch-stop-btn" class="btn-sm btn-danger hidden"
+                    style="flex-shrink:0;padding:.5rem .9rem;align-self:flex-end">
+              Stop
+            </button>
+          </div>
         </div>
 
         <!-- Status line -->
