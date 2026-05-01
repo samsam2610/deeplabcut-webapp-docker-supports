@@ -685,6 +685,7 @@ export { FL3D_FRAME_RE, buildPairMap } from './pair_map.mjs';
     });
 
     document.getElementById("fl3d-sync-frame").addEventListener("change", (e) => {
+      const row = document.getElementById("fl3d-canvas-row");
       if (e.target.checked) {
         if (_fl3dCamSet.length < 2) {
           e.target.checked = false;
@@ -701,12 +702,31 @@ export { FL3D_FRAME_RE, buildPairMap } from './pair_map.mjs';
         _fl3dFrameNumIdx = _fl3dFrameNumbers.indexOf(currentFrameNum);
         if (_fl3dFrameNumIdx < 0) _fl3dFrameNumIdx = 0;
         _fl3dSyncOn = true;
+        // Sync ON: bump global slider max to 500, reveal per-tile sliders + equalize.
+        flZoomInput.max = "500";
+        row.classList.add("sync-on");
+        flEqualizeBtn.classList.remove("hidden");
+        // Reset primary tile's weight for a clean state on each sync ON.
+        const primaryTile = row.querySelector(".fl3d-tile:not(.fl3d-tile-sibling)");
+        if (primaryTile) _fl3dResetTileWeight(primaryTile);
         _flShowFrame(_fl3dFrameNumIdx);
       } else {
         // Capture focused fname while sync is still on
         const focusedFname = _fl3dActiveFname();
         _fl3dSyncOn = false;
-        document.querySelectorAll("#fl3d-canvas-row .fl3d-tile-sibling").forEach(t => t.remove());
+        row.querySelectorAll(".fl3d-tile-sibling").forEach(t => t.remove());
+        // Sync OFF: cap global slider at 300, hide per-tile sliders + equalize, clamp value.
+        flZoomInput.max = "300";
+        if (parseInt(flZoomInput.value, 10) > 300) {
+          flZoomInput.value = "300";
+          _flZoom = 300;
+          flZoomVal.textContent = "300 %";
+        }
+        row.classList.remove("sync-on");
+        flEqualizeBtn.classList.add("hidden");
+        // Reset primary tile's weight so single-tile mode is unaffected.
+        const primaryTile = row.querySelector(".fl3d-tile:not(.fl3d-tile-sibling)");
+        if (primaryTile) _fl3dResetTileWeight(primaryTile);
         const idx = _flFrames.indexOf(focusedFname);
         if (idx >= 0) _flFrameIdx = idx;
         _flShowFrame(_flFrameIdx);
@@ -1015,8 +1035,13 @@ export { FL3D_FRAME_RE, buildPairMap } from './pair_map.mjs';
         const tile = document.createElement("div");
         tile.className = "fl3d-tile fl3d-tile-sibling";
         tile.dataset.cam = String(cam);
+        tile.dataset.weight = "100";
         tile.innerHTML = `
-          <div class="fl3d-tile-label">cam${cam}</div>
+          <div class="fl3d-tile-header">
+            <span class="fl3d-tile-label">cam${cam}</span>
+            <input type="range" class="fl3d-tile-size" min="50" max="300" step="25" value="100">
+            <span class="fl3d-tile-size-val">100%</span>
+          </div>
           <canvas class="fl3d-tile-canvas" data-cam="${cam}"></canvas>
           <div class="fl3d-tile-empty hidden"></div>
         `;
@@ -1068,6 +1093,8 @@ export { FL3D_FRAME_RE, buildPairMap } from './pair_map.mjs';
       // Only attach to sibling tiles; the primary tile's listeners are attached
       // once at startup above to prevent accumulation across re-renders.
       if (tile.classList.contains("fl3d-tile-sibling")) {
+        // Per-tile size slider — sibling header was just (re)built, wire its input listener
+        _fl3dWireTileSizeSlider(tile);
         // Hover tracking
         tile.addEventListener("mouseenter", () => { _fl3dHoveredCam = +tile.dataset.cam; });
         tile.addEventListener("mouseleave", () => {
