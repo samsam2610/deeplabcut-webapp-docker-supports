@@ -170,10 +170,10 @@ function _epNavByChip(dir) {
   let target = null;
   if (dir < 0) {
     target = [...matches].filter(r => Number(r.frame_number) < cur1)
-      .sort((a, b) => b.frame_number - a.frame_number)[0];
+      .sort((a, b) => Number(b.frame_number) - Number(a.frame_number))[0];
   } else {
     target = matches.filter(r => Number(r.frame_number) > cur1)
-      .sort((a, b) => a.frame_number - b.frame_number)[0];
+      .sort((a, b) => Number(a.frame_number) - Number(b.frame_number))[0];
   }
   if (target) { _stop(); _epLoadFrame(Number(target.frame_number) - 1); }
 }
