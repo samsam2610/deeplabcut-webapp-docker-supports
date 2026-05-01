@@ -1036,6 +1036,7 @@ export { FL3D_FRAME_RE, buildPairMap } from './pair_map.mjs';
         tile.className = "fl3d-tile fl3d-tile-sibling";
         tile.dataset.cam = String(cam);
         tile.dataset.weight = "100";
+        tile.style.flexGrow = "100";
         tile.innerHTML = `
           <div class="fl3d-tile-header">
             <span class="fl3d-tile-label">cam${cam}</span>

@@ -191,11 +191,13 @@ def test_f1_click_focused_tile_at_300pct_places_marker(page: Page):
         "(el) => { el.value = '300'; el.dispatchEvent(new Event('input')); }"
     )
 
-    # Click center of focused canvas
     canvas = primary.locator("canvas.fl3d-tile-canvas")
     box = canvas.bounding_box()
     assert box
-    page.mouse.click(box["x"] + box["width"] / 2, box["y"] + box["height"] / 2)
+    # Click ~10% from top-left — labels (body parts) are typically in the
+    # central region of the frame, so a corner click is unlikely to overlap
+    # an existing marker (which would select it instead of placing a new one).
+    page.mouse.click(box["x"] + box["width"] * 0.1, box["y"] + box["height"] * 0.1)
 
     primary_fname = primary.evaluate("t => t.dataset.fname")
     page.wait_for_function(
