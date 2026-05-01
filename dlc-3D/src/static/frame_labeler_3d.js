@@ -348,7 +348,7 @@ export { FL3D_FRAME_RE, buildPairMap } from './pair_map.mjs';
 
     // Update the per-frame badge + confirm button for the current frame
     function _flTapUpdateFrameStatus() {
-      const fname = _flFrames[_flFrameIdx];
+      const fname = _fl3dActiveFname();
       if (!fname || !flTapCheckbox.checked) {
         flTapFrameBadge.classList.add("hidden");
         flTapConfirmBtn.classList.add("hidden");
@@ -397,7 +397,7 @@ export { FL3D_FRAME_RE, buildPairMap } from './pair_map.mjs';
 
     // Confirm / unconfirm current frame as anchor
     flTapConfirmBtn.addEventListener("click", async () => {
-      const fname = _flFrames[_flFrameIdx];
+      const fname = _fl3dActiveFname();
       if (!fname || !_flVideoStem) return;
       try {
         const res  = await fetch("/dlc/project/tapnet-confirm-frame", {
@@ -1050,6 +1050,29 @@ export { FL3D_FRAME_RE, buildPairMap } from './pair_map.mjs';
       });
     }
 
+    document.getElementById("fl3d-canvas-row").addEventListener("click", (e) => {
+      const tile = e.target.closest(".fl3d-tile");
+      if (!tile) return;
+      const cam = +tile.dataset.cam;
+      if (Number.isNaN(cam)) return;
+      if (cam === _fl3dFocusedCam) return;  // no-op if already focused
+      _fl3dFocusedCam = cam;
+      _fl3dApplyFocusClass();
+      // Re-draw all tiles so the selection ring on the focused tile updates
+      document.querySelectorAll("#fl3d-canvas-row .fl3d-tile").forEach(t => {
+        if (t._fl3dImg && t.dataset.fname) _fl3dDrawTileMarkers(t, t.dataset.fname);
+      });
+      // Also refresh chip status / label count from focused tile's frame
+      _flUpdateBpChipStatus();
+      _flUpdateLabelCount();
+    });
+
+    function _fl3dActiveFname() {
+      if (!_fl3dSyncOn) return _flFrames[_flFrameIdx];
+      const tile = document.querySelector(`#fl3d-canvas-row .fl3d-tile.focused`);
+      return tile ? (tile.dataset.fname || "") : _flFrames[_flFrameIdx];
+    }
+
     function _flFitCanvas() {
       const wrap = flCanvas.parentElement;
       const cs   = getComputedStyle(flCard);
@@ -1091,7 +1114,7 @@ export { FL3D_FRAME_RE, buildPairMap } from './pair_map.mjs';
       flCtx.clearRect(0, 0, flCanvas.width, flCanvas.height);
       flCtx.drawImage(_flImg, 0, 0, flCanvas.width, flCanvas.height);
 
-      const fname       = _flFrames[_flFrameIdx];
+      const fname       = _fl3dActiveFname();
       const frameLabels = _flLabels[fname] || {};
       const scaleX      = flCanvas.width  / _flImg.naturalWidth;
       const scaleY      = flCanvas.height / _flImg.naturalHeight;
@@ -1159,7 +1182,7 @@ export { FL3D_FRAME_RE, buildPairMap } from './pair_map.mjs';
       const rect = flCanvas.getBoundingClientRect();
       const cx   = e.clientX - rect.left;
       const cy   = e.clientY - rect.top;
-      const fname = _flFrames[_flFrameIdx];
+      const fname = _fl3dActiveFname();
 
       // Click near an existing marker → select it
       const hit = _flHitTest(cx, cy, fname);
@@ -1193,7 +1216,7 @@ export { FL3D_FRAME_RE, buildPairMap } from './pair_map.mjs';
       const rect  = flCanvas.getBoundingClientRect();
       const cx    = e.clientX - rect.left;
       const cy    = e.clientY - rect.top;
-      const fname = _flFrames[_flFrameIdx];
+      const fname = _fl3dActiveFname();
       const found = _flHitTest(cx, cy, fname);
       if (found !== _flHoverBp) {
         _flHoverBp = found;
@@ -1210,7 +1233,7 @@ export { FL3D_FRAME_RE, buildPairMap } from './pair_map.mjs';
     });
 
     function _flRemoveBpLabel(bp) {
-      const fname = _flFrames[_flFrameIdx];
+      const fname = _fl3dActiveFname();
       if (!fname || !_flLabels[fname]) return;
       _flLabels[fname][bp] = null;
       // Also clear hidden state when marker is deleted
@@ -1222,7 +1245,7 @@ export { FL3D_FRAME_RE, buildPairMap } from './pair_map.mjs';
     }
 
     function _flToggleVisibility(bp) {
-      const fname = _flFrames[_flFrameIdx];
+      const fname = _fl3dActiveFname();
       if (!fname) return;
       if (!_flHidden[fname]) _flHidden[fname] = {};
       _flHidden[fname][bp] = !_flHidden[fname][bp];
@@ -1232,7 +1255,7 @@ export { FL3D_FRAME_RE, buildPairMap } from './pair_map.mjs';
 
     // Clear all body-part markers on the currently displayed frame
     function _flClearFrame() {
-      const fname = _flFrames[_flFrameIdx];
+      const fname = _fl3dActiveFname();
       if (!fname) return;
       if (!_flLabels[fname]) _flLabels[fname] = {};
       _flBodyparts.forEach(bp => { _flLabels[fname][bp] = null; });
@@ -1252,7 +1275,7 @@ export { FL3D_FRAME_RE, buildPairMap } from './pair_map.mjs';
 
     document.getElementById("fl3d-btn-delete-frame").addEventListener("dblclick", async e => {
       e.preventDefault();
-      const fname = _flFrames[_flFrameIdx];
+      const fname = _fl3dActiveFname();
       if (!_flVideoStem || !fname) return;
 
       const btn = e.currentTarget;
@@ -1296,7 +1319,7 @@ export { FL3D_FRAME_RE, buildPairMap } from './pair_map.mjs';
 
     // Auto-advance to the next unlabeled body part (napari behavior)
     function _flAutoAdvanceBp() {
-      const fname       = _flFrames[_flFrameIdx];
+      const fname       = _fl3dActiveFname();
       const frameLabels = _flLabels[fname] || {};
       const cur         = _flBodyparts.indexOf(_flSelectedBp);
       for (let i = 1; i <= _flBodyparts.length; i++) {
@@ -1309,7 +1332,7 @@ export { FL3D_FRAME_RE, buildPairMap } from './pair_map.mjs';
 
     // ── Chip status updates ──────────────────────────────────────
     function _flUpdateBpChipStatus() {
-      const fname       = _flFrames[_flFrameIdx];
+      const fname       = _fl3dActiveFname();
       const frameLabels = _flLabels[fname] || {};
       flBodypartList.querySelectorAll(".fl-bp-chip").forEach(c => {
         const bp = c.dataset.bp;
@@ -1339,7 +1362,7 @@ export { FL3D_FRAME_RE, buildPairMap } from './pair_map.mjs';
       // and the current frame already has a point placed for the active body part.
       const _wasdKeys = ["a", "d", "w", "s"];
       if (_wasdKeys.includes(e.key) && _flCursorInCanvas && _flSelectedBp && _flVideoStem) {
-        const fname = _flFrames[_flFrameIdx];
+        const fname = _fl3dActiveFname();
         const pt    = fname && _flLabels[fname] && _flLabels[fname][_flSelectedBp];
         if (pt && pt[0] !== null) {
           e.preventDefault();
