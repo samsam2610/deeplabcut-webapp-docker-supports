@@ -64,7 +64,7 @@ export async function openPlayer(videoPath, siblingPath) {
   const camDisp = document.getElementById("cam-displays");
   if (zoomEl)  zoomEl.value = 100;
   if (zoomPct) zoomPct.textContent = "100%";
-  if (camDisp) { camDisp.style.transform = ""; camDisp.style.transformOrigin = ""; }
+  if (camDisp) camDisp.style.transform = "";
 
   await _epLoadFrame(0);
 }
