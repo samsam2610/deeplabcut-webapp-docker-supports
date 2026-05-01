@@ -968,6 +968,76 @@ def test_p4_cursor_remains_crosshair_after_frame_switch(page: Page):
     assert cursor_post == "crosshair", f"post-switch cursor should stay crosshair on empty area, got '{cursor_post}'"
 
 
+def test_p6_sibling_click_on_marker_selects_does_not_overwrite(page: Page):
+    """User report: in sync mode, clicking a marker on the sibling tile
+    overwrote it (no hit-test) and triggered _flAutoAdvanceBp to jump frames.
+    Sibling click handler must mirror primary: hit-test first, select on hit."""
+    _enable_sync_at_frame(page, advance=5)
+    primary = page.evaluate("window.__fl3d.primaryCam")
+    cams = page.eval_on_selector_all("#fl3d-canvas-row .fl3d-tile", "ts => ts.map(t => +t.dataset.cam)")
+    sibling_cam = next(c for c in cams if c != primary)
+    sib_tile = page.locator(f'#fl3d-canvas-row .fl3d-tile[data-cam="{sibling_cam}"]')
+    if sib_tile.locator(".fl3d-tile-empty:not(.hidden)").count() > 0:
+        pytest.skip("sibling empty for current frame_number")
+    sib_tile.click()
+    page.wait_for_function(f"window.__fl3d.focusedCam === {sibling_cam}")
+    sib_fname = sib_tile.evaluate("t => t.dataset.fname")
+    page.evaluate(f"window.__fl3d.labels['{sib_fname}'] = {{Snout: [400, 300]}};")
+    page.locator('.fl-bp-chip[data-bp="Wrist"]').click()
+    page.wait_for_function("window.__fl3d.selectedBp === 'Wrist'")
+    sib_canvas = page.locator(f'#fl3d-canvas-row .fl3d-tile[data-cam="{sibling_cam}"] canvas')
+    box = sib_canvas.bounding_box()
+    dims = page.evaluate(f"""(() => {{
+        const c = document.querySelector('#fl3d-canvas-row .fl3d-tile[data-cam="{sibling_cam}"] canvas');
+        const r = c.getBoundingClientRect();
+        return {{bw: c.width, dw: r.width, bh: c.height, dh: r.height}};
+    }})()""")
+    sx = dims["bw"] / dims["dw"]
+    sy = dims["bh"] / dims["dh"]
+    page.mouse.click(box["x"] + 400 / sx, box["y"] + 300 / sy)
+    page.wait_for_timeout(200)
+    assert page.evaluate("window.__fl3d.selectedBp") == "Snout"
+    assert page.evaluate(f"window.__fl3d.labels['{sib_fname}']?.Snout") == [400, 300]
+
+
+def test_p7_sibling_cursor_pointer_over_marker(page: Page):
+    """Sibling tile's CSS sets cursor: pointer for tile focus affordance.
+    On the canvas, cursor must be hover-aware: pointer over a marker,
+    crosshair over empty area when bp selected."""
+    _enable_sync_at_frame(page, advance=5)
+    primary = page.evaluate("window.__fl3d.primaryCam")
+    cams = page.eval_on_selector_all("#fl3d-canvas-row .fl3d-tile", "ts => ts.map(t => +t.dataset.cam)")
+    sibling_cam = next(c for c in cams if c != primary)
+    sib_tile = page.locator(f'#fl3d-canvas-row .fl3d-tile[data-cam="{sibling_cam}"]')
+    if sib_tile.locator(".fl3d-tile-empty:not(.hidden)").count() > 0:
+        pytest.skip("sibling empty")
+    sib_tile.click()
+    page.wait_for_function(f"window.__fl3d.focusedCam === {sibling_cam}")
+    sib_fname = sib_tile.evaluate("t => t.dataset.fname")
+    page.evaluate(f"window.__fl3d.labels['{sib_fname}'] = {{Snout: [400, 300]}};")
+    page.locator('.fl-bp-chip[data-bp="Snout"]').click()
+    page.wait_for_function("window.__fl3d.selectedBp === 'Snout'")
+    sib_canvas = page.locator(f'#fl3d-canvas-row .fl3d-tile[data-cam="{sibling_cam}"] canvas')
+    box = sib_canvas.bounding_box()
+    dims = page.evaluate(f"""(() => {{
+        const c = document.querySelector('#fl3d-canvas-row .fl3d-tile[data-cam="{sibling_cam}"] canvas');
+        const r = c.getBoundingClientRect();
+        return {{bw: c.width, dw: r.width, bh: c.height, dh: r.height}};
+    }})()""")
+    sx = dims["bw"] / dims["dw"]
+    sy = dims["bh"] / dims["dh"]
+    # Over marker
+    page.mouse.move(box["x"] + 400 / sx, box["y"] + 300 / sy)
+    page.wait_for_timeout(120)
+    cursor = page.evaluate(f"""getComputedStyle(document.querySelector('#fl3d-canvas-row .fl3d-tile[data-cam="{sibling_cam}"] canvas')).cursor""")
+    assert cursor == "pointer", f"sibling marker cursor should be pointer, got {cursor}"
+    # Over empty corner
+    page.mouse.move(box["x"] + 10, box["y"] + 10)
+    page.wait_for_timeout(120)
+    cursor = page.evaluate(f"""getComputedStyle(document.querySelector('#fl3d-canvas-row .fl3d-tile[data-cam="{sibling_cam}"] canvas')).cursor""")
+    assert cursor == "crosshair", f"sibling empty cursor should be crosshair, got {cursor}"
+
+
 def test_p5_zoom_does_not_break_primary_click_targeting(page: Page):
     """Verify rect-based scaling also handles zoom != 100% correctly (the
     OLD math was actually broken for sync OFF zoom>100% too)."""

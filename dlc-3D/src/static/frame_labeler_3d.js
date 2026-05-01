@@ -1056,16 +1056,23 @@ export { FL3D_FRAME_RE, buildPairMap } from './pair_map.mjs';
           if (_fl3dHoveredCam === +tile.dataset.cam) _fl3dHoveredCam = null;
         });
 
-        // Click → place marker on focused tile
+        // Click → hit-test (select existing marker) or place marker on focused tile
         canvas.addEventListener("click", (e) => {
           if (!tile.dataset.fname) return;  // empty placeholder, no-op
           if (+tile.dataset.cam !== _fl3dFocusedCam) return;  // only focused tile accepts input
-          const rect = canvas.getBoundingClientRect();
-          const sx = canvas.width  / rect.width;
-          const sy = canvas.height / rect.height;
-          const cx = (e.clientX - rect.left) * sx;
-          const cy = (e.clientY - rect.top)  * sy;
           const fname = tile.dataset.fname;
+          const { x: cx, y: cy, scale } = _fl3dCanvasClickToImage(canvas, e);
+          // Select-on-marker mirrors primary canvas behavior: hit-test first,
+          // and if a marker is under the cursor, select that bp instead of
+          // overwriting it.
+          const hit = _flHitTest(cx, cy, fname, scale);
+          if (hit) {
+            _flSelectBp(hit);
+            // Sync mode: restore crosshair on this tile's canvas after select
+            // (mousemove will refine to "pointer" on next motion).
+            canvas.style.cursor = "crosshair";
+            return;
+          }
           if (!_flSelectedBp) return;
           if (!_flLabels[fname]) _flLabels[fname] = {};
           _flLabels[fname][_flSelectedBp] = [cx, cy];
@@ -1075,6 +1082,21 @@ export { FL3D_FRAME_RE, buildPairMap } from './pair_map.mjs';
           _flUpdateBpChipStatus();
           _flUpdateLabelCount();
           _flAutoAdvanceBp();
+        });
+
+        // Mousemove → cursor state on sibling canvas (was previously inheriting
+        // the parent tile's CSS `cursor: pointer` regardless of marker presence,
+        // making it impossible to know if a click would select or overwrite).
+        canvas.addEventListener("mousemove", (e) => {
+          if (!tile.dataset.fname) return;
+          const { x: cx, y: cy, scale } = _fl3dCanvasClickToImage(canvas, e);
+          const hit = _flHitTest(cx, cy, tile.dataset.fname, scale);
+          canvas.style.cursor = hit
+            ? "pointer"
+            : (_flSelectedBp && +tile.dataset.cam === _fl3dFocusedCam ? "crosshair" : "default");
+        });
+        canvas.addEventListener("mouseleave", () => {
+          canvas.style.cursor = "";  // fall back to .fl3d-tile { cursor: pointer }
         });
 
         // Right-click → remove marker on focused tile
@@ -1280,19 +1302,22 @@ export { FL3D_FRAME_RE, buildPairMap } from './pair_map.mjs';
     }
 
     // ── Canvas interaction ───────────────────────────────────────
-    // Compute the click→drawing-buffer scale for the primary canvas. In sync
-    // mode the buffer is set to image natural dimensions while CSS displays at
-    // parent width, so buffer != display. Rect-based scale handles both modes
-    // (sync OFF zoom>100% had the same issue with the old _flImg-based math).
-    function _fl3dPrimaryClickToImage(e) {
-      const rect = flCanvas.getBoundingClientRect();
-      const sx = rect.width  > 0 ? flCanvas.width  / rect.width  : 1;
-      const sy = rect.height > 0 ? flCanvas.height / rect.height : 1;
+    // Compute the click→drawing-buffer scale for any canvas. In sync mode the
+    // buffer is set to image natural dimensions while CSS displays at parent
+    // width, so buffer != display. Rect-based scale handles both modes (sync
+    // OFF zoom>100% had the same issue with the old _flImg-based math).
+    function _fl3dCanvasClickToImage(canvas, e) {
+      const rect = canvas.getBoundingClientRect();
+      const sx = rect.width  > 0 ? canvas.width  / rect.width  : 1;
+      const sy = rect.height > 0 ? canvas.height / rect.height : 1;
       return {
         x: (e.clientX - rect.left) * sx,
         y: (e.clientY - rect.top)  * sy,
         scale: Math.max(sx, sy),
       };
+    }
+    function _fl3dPrimaryClickToImage(e) {
+      return _fl3dCanvasClickToImage(flCanvas, e);
     }
 
     // _flHitTest expects image-space coords (cx, cy in canvas drawing-buffer
