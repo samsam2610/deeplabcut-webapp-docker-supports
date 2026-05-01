@@ -648,21 +648,26 @@ export { FL3D_FRAME_RE, buildPairMap } from './pair_map.mjs';
     flMarkerSizeInput.addEventListener("input", () => {
       _flMarkerRadius = parseInt(flMarkerSizeInput.value, 10);
       flMarkerSizeVal.textContent = _flMarkerRadius;
-      _flDraw();
+      // In sync mode, _flDraw paints stale _flImg onto the primary tile's
+      // canvas (sync nav updates each tile's _fl3dImg but not the global).
+      // Defer fully to per-tile redraws, which use tile._fl3dImg correctly.
       if (_fl3dSyncOn) {
         document.querySelectorAll("#fl3d-canvas-row .fl3d-tile").forEach(t => {
           if (t.dataset.fname) _fl3dDrawTileMarkers(t, t.dataset.fname);
         });
+      } else {
+        _flDraw();
       }
     });
 
     flShowNamesInput.addEventListener("change", () => {
       _flShowNames = flShowNamesInput.checked;
-      _flDraw();
       if (_fl3dSyncOn) {
         document.querySelectorAll("#fl3d-canvas-row .fl3d-tile").forEach(t => {
           if (t.dataset.fname) _fl3dDrawTileMarkers(t, t.dataset.fname);
         });
+      } else {
+        _flDraw();
       }
     });
 
@@ -1093,6 +1098,15 @@ export { FL3D_FRAME_RE, buildPairMap } from './pair_map.mjs';
     function _fl3dDrawTileMarkers(tile, fname) {
       const canvas = tile.querySelector(".fl3d-tile-canvas");
       const ctx    = canvas.getContext("2d");
+      // Re-paint the tile's own image first so toggling display controls
+      // (show-names, marker-size) doesn't accumulate stale labels on top of
+      // the canvas, and so the primary tile isn't overwritten by a stale
+      // global _flImg that _flDraw might have used. Each tile owns its image
+      // via tile._fl3dImg (set in _fl3dRenderTile).
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      if (tile._fl3dImg && tile._fl3dImg.complete && tile._fl3dImg.naturalWidth > 0) {
+        ctx.drawImage(tile._fl3dImg, 0, 0, canvas.width, canvas.height);
+      }
       const labels = _flLabels[fname] || {};
       const r      = _flMarkerRadius;
       const sx     = 1, sy = 1;  // canvas is at native pixel size; CSS handles display scaling
