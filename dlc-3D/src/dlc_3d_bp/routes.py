@@ -245,6 +245,7 @@ def _save_single_frame(project_path: Path, video_rel: str, frame_number: int) ->
     # a session folder was populated by an earlier buggy run that didn't
     # copy calibration.toml — destination check prevents redundant work.
     calib_dest = labeled_dir / "calibration.toml"
+    calibration_copied = False
     if not calib_dest.exists():
         calib_candidates = [video_path.parent / "calibration.toml"]
         if _session_key_from_stem(video_path.parent.name) is not None:
@@ -252,9 +253,10 @@ def _save_single_frame(project_path: Path, video_rel: str, frame_number: int) ->
         for calib_src in calib_candidates:
             if calib_src.exists():
                 shutil.copy2(calib_src, calib_dest)
+                calibration_copied = True
                 break
 
-    return {"saved": fname, "order": order + 1}
+    return {"saved": fname, "order": order + 1, "calibration_copied": calibration_copied}
 
 
 # ── UI ────────────────────────────────────────────────────────────────────────
@@ -450,6 +452,7 @@ def save_frame():
     project_path = Path(proj)
     saved = []
     skipped = []
+    calibration_copied = False
 
     try:
         r = _save_single_frame(project_path, primary_video, int(primary_frame))
@@ -457,6 +460,8 @@ def save_frame():
             skipped.append(r)
         else:
             saved.append(r["saved"])
+        if r.get("calibration_copied"):
+            calibration_copied = True
     except (ValueError, RuntimeError, FileNotFoundError) as e:
         return jsonify({"error": str(e)}), 400
 
@@ -467,6 +472,8 @@ def save_frame():
                 skipped.append(r2)
             else:
                 saved.append(r2["saved"])
+            if r2.get("calibration_copied"):
+                calibration_copied = True
         except (ValueError, RuntimeError, FileNotFoundError) as e:
             return jsonify({"error": f"sibling save failed: {e}"}), 400
 
@@ -477,9 +484,10 @@ def save_frame():
     session_key = _session_key_from_stem(stem) or stem
 
     return jsonify({
-        "saved":          saved,
-        "skipped":        skipped,
-        "session_folder": f"labeled-data/{session_key}",
+        "saved":              saved,
+        "skipped":            skipped,
+        "calibration_copied": calibration_copied,
+        "session_folder":     f"labeled-data/{session_key}",
     }), 201 if saved else 200
 
 

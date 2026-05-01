@@ -280,6 +280,7 @@ async function _extractBatch() {
   _setBatchUIRunning(true);
 
   let saved = 0, skipped = 0, aborted = false, errored = false;
+  let calibrationCopied = false;
   for (let i = 0; i < count; i++) {
     if (_batchStopRequested) { aborted = true; break; }
     const targetFrame = startFrame + i * step;
@@ -303,6 +304,7 @@ async function _extractBatch() {
       if (resp.ok) {
         saved   += (data.saved   || []).length;
         skipped += (data.skipped || []).length;
+        if (data.calibration_copied) calibrationCopied = true;
       } else {
         _setStatus(`Server error at frame ${targetFrame}: ${data.error || resp.status}`);
         errored = true;
@@ -320,9 +322,10 @@ async function _extractBatch() {
   if (!errored) {
     const sibTag    = siblingExtracted ? " (×2 sibling)" : "";
     const clampTag  = clamped ? ` (clamped from ${requested})` : "";
+    const calibTag  = calibrationCopied ? " — calibration.toml copied" : "";
     _setStatus(aborted
-      ? `Stopped — saved ${saved}${sibTag}, skipped ${skipped}${clampTag}`
-      : `Done — saved ${saved}${sibTag}, skipped ${skipped}${clampTag}`);
+      ? `Stopped — saved ${saved}${sibTag}, skipped ${skipped}${clampTag}${calibTag}`
+      : `Done — saved ${saved}${sibTag}, skipped ${skipped}${clampTag}${calibTag}`);
   }
   _refreshLabeledFrames();
 }
@@ -366,10 +369,11 @@ async function _extractFrame() {
   } catch (e) { _setStatus("Network error: " + e.message); return; }
   finally { if (extractBtn) extractBtn.disabled = false; }
 
+  const calibTag = data.calibration_copied ? " — calibration.toml copied" : "";
   if (data.saved && data.saved.length > 0) {
-    _setStatus(`Saved: ${data.saved.join(", ")}`);
+    _setStatus(`Saved: ${data.saved.join(", ")}${calibTag}`);
   } else if (data.skipped && data.skipped.length > 0) {
-    _setStatus(`Frame ${primaryFrame} already extracted — skipped.`);
+    _setStatus(`Frame ${primaryFrame} already extracted — skipped.${calibTag}`);
   }
   _refreshLabeledFrames();
 }
