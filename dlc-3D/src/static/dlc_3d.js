@@ -214,12 +214,14 @@ async function _selectVideo(videoPath) {
   const camIdx = videoPath.match(/_cam(\d+)_/)?.[1] ?? "?";
   document.getElementById("cam1-label").textContent = `Camera ${camIdx} (primary)`;
 
-  let siblingPath = null;
+  let siblingPath        = null;
+  let calibrationExists  = false;
   try {
     const sr = await fetch(`/dlc-3d/sibling-camera?video=${encodeURIComponent(videoPath)}`);
     if (sr.ok) {
       const sd = await sr.json();
-      siblingPath = sd.sibling_video_path || null;
+      siblingPath        = sd.sibling_video_path || null;
+      calibrationExists  = !!sd.calibration_exists;
     }
   } catch (e) { console.warn("[dlc_3d] sibling-camera fetch failed:", e); }
 
@@ -229,7 +231,7 @@ async function _selectVideo(videoPath) {
   }
 
   _setStatus("");
-  await openPlayer(videoPath, siblingPath);
+  await openPlayer(videoPath, siblingPath, calibrationExists);
   _refreshLabeledFrames();
 }
 

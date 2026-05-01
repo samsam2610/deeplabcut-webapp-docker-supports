@@ -504,3 +504,58 @@ def test_save_frame_copies_calibration_from_clip_grandparent(tmp_path, monkeypat
     routes._save_single_frame(proj, str(clip), 3)
 
     assert (proj / "labeled-data" / "surv1_20260123" / "calibration.toml").is_file()
+
+
+# ── /sibling-camera calibration reporting ────────────────────────────────────
+
+def test_sibling_camera_reports_calibration_exists(tmp_path, monkeypatch):
+    """When calibration.toml is present in the recording folder, the
+    /sibling-camera response reports calibration_exists=True."""
+    from flask import Flask
+    import config
+    from dlc_3d_bp import routes
+    monkeypatch.setattr(config, "USER_DATA_ROOTS", [tmp_path])
+    monkeypatch.setattr(routes, "_USER_DATA_ROOT", str(tmp_path))
+
+    rec_dir = tmp_path / "recordings"
+    rec_dir.mkdir()
+    (rec_dir / "calibration.toml").write_text("[cam_0]\n")
+    cam0 = rec_dir / "surv1_cam0_20260123_121732_0.avi"
+    cam1 = rec_dir / "surv1_cam1_20260123_121732_0.avi"
+    cam0.write_bytes(b"")
+    cam1.write_bytes(b"")
+
+    app = Flask(__name__)
+    app.register_blueprint(routes.bp)
+    client = app.test_client()
+
+    resp = client.get(f"/dlc-3d/sibling-camera?video={cam0}")
+    assert resp.status_code == 200
+    data = resp.get_json()
+    assert data["sibling_video_path"] == str(cam1)
+    assert data["calibration_exists"] is True
+
+
+def test_sibling_camera_reports_calibration_missing(tmp_path, monkeypatch):
+    """When calibration.toml is absent, calibration_exists=False."""
+    from flask import Flask
+    import config
+    from dlc_3d_bp import routes
+    monkeypatch.setattr(config, "USER_DATA_ROOTS", [tmp_path])
+    monkeypatch.setattr(routes, "_USER_DATA_ROOT", str(tmp_path))
+
+    rec_dir = tmp_path / "recordings"
+    rec_dir.mkdir()
+    cam0 = rec_dir / "surv1_cam0_20260123_121732_0.avi"
+    cam1 = rec_dir / "surv1_cam1_20260123_121732_0.avi"
+    cam0.write_bytes(b"")
+    cam1.write_bytes(b"")
+
+    app = Flask(__name__)
+    app.register_blueprint(routes.bp)
+    client = app.test_client()
+
+    resp = client.get(f"/dlc-3d/sibling-camera?video={cam0}")
+    assert resp.status_code == 200
+    data = resp.get_json()
+    assert data["calibration_exists"] is False

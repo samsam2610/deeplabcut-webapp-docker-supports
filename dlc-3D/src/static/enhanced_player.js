@@ -17,8 +17,9 @@ let _activePresetIdx = null;
 let _busy           = false;
 let _timerId        = null;
 let _cursorOverViewer = false;
-let _syncCamEnabled   = false;
-let _siblingVideoPath = null;
+let _syncCamEnabled    = false;
+let _siblingVideoPath  = null;
+let _calibrationExists = false;
 
 let _csvRows           = [];
 let _epStatusColorMap  = {};
@@ -193,11 +194,12 @@ export async function epLoadFrameAt(n) {
   await _epLoadFrame(n);
 }
 
-export async function openPlayer(videoPath, siblingPath) {
+export async function openPlayer(videoPath, siblingPath, calibrationExists = false) {
   _stop();
-  _videoPath        = videoPath;
-  _siblingVideoPath = siblingPath || null;
-  _syncCamEnabled   = false;
+  _videoPath         = videoPath;
+  _siblingVideoPath  = siblingPath || null;
+  _calibrationExists = !!calibrationExists;
+  _syncCamEnabled    = false;
   _currentFrame     = 0;
   _stepSize         = 10;
   _playDir          = 1;
@@ -515,6 +517,14 @@ document.addEventListener("DOMContentLoaded", () => {
 
   // Sync cam checkbox
   document.getElementById("ep-sync-cam")?.addEventListener("change", (e) => {
+    if (e.target.checked && !_calibrationExists) {
+      e.target.checked = false;
+      const status = document.getElementById("extract-status");
+      if (status) {
+        status.textContent = "Cannot enable Sync Cam: calibration.toml not found in recording folder.";
+      }
+      return;
+    }
     _syncCamEnabled = e.target.checked;
     _epUpdateSyncCamUI();
     if (_syncCamEnabled) _epLoadCam2Frame(_currentFrame);

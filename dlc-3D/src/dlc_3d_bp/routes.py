@@ -397,21 +397,33 @@ def get_sibling_camera():
     with _state_lock:
         proj = _active_project
     video_path = request.args.get("video", "").strip()
-    if not video_path or not proj:
-        return jsonify({"sibling_video_path": None})
+    if not video_path:
+        return jsonify({"sibling_video_path": None, "calibration_exists": False})
 
+    # ── Sibling lookup ──
     sibling = _find_sibling_on_filesystem(video_path)
-    if sibling and str(Path(sibling).resolve()).startswith(_USER_DATA_ROOT + "/"):
-        return jsonify({"sibling_video_path": sibling})
+    if not (sibling and str(Path(sibling).resolve()).startswith(_USER_DATA_ROOT + "/")):
+        sibling = None
+        if proj and not video_path.startswith("/"):
+            vj_path = Path(proj) / "videos.json"
+            if vj_path.exists():
+                with open(vj_path) as f:
+                    videos_json = json.load(f)
+                sibling = _find_sibling_video(video_path, videos_json)
 
-    sibling = None
-    if not video_path.startswith("/"):
-        vj_path = Path(proj) / "videos.json"
-        if vj_path.exists():
-            with open(vj_path) as f:
-                videos_json = json.load(f)
-            sibling = _find_sibling_video(video_path, videos_json)
-    return jsonify({"sibling_video_path": sibling})
+    # ── Calibration check (same priority as _save_single_frame) ──
+    resolved = _resolve_video_path(video_path, proj or _USER_DATA_ROOT)
+    calibration_exists = False
+    if resolved is not None:
+        candidates = [resolved.parent / "calibration.toml"]
+        if _session_key_from_stem(resolved.parent.name) is not None:
+            candidates.append(resolved.parent.parent / "calibration.toml")
+        calibration_exists = any(p.is_file() for p in candidates)
+
+    return jsonify({
+        "sibling_video_path": sibling,
+        "calibration_exists": calibration_exists,
+    })
 
 
 # ── Frame extraction ──────────────────────────────────────────────────────────
