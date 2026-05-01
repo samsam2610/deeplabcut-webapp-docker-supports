@@ -1280,18 +1280,35 @@ export { FL3D_FRAME_RE, buildPairMap } from './pair_map.mjs';
     }
 
     // ── Canvas interaction ───────────────────────────────────────
-    function _flHitTest(cx, cy, fname) {
+    // Compute the click→drawing-buffer scale for the primary canvas. In sync
+    // mode the buffer is set to image natural dimensions while CSS displays at
+    // parent width, so buffer != display. Rect-based scale handles both modes
+    // (sync OFF zoom>100% had the same issue with the old _flImg-based math).
+    function _fl3dPrimaryClickToImage(e) {
+      const rect = flCanvas.getBoundingClientRect();
+      const sx = rect.width  > 0 ? flCanvas.width  / rect.width  : 1;
+      const sy = rect.height > 0 ? flCanvas.height / rect.height : 1;
+      return {
+        x: (e.clientX - rect.left) * sx,
+        y: (e.clientY - rect.top)  * sy,
+        scale: Math.max(sx, sy),
+      };
+    }
+
+    // _flHitTest expects image-space coords (cx, cy in canvas drawing-buffer
+    // px). hitScale lets the caller widen the hit radius proportionally to the
+    // CSS→buffer scale so the user's click tolerance stays roughly constant in
+    // CSS pixels regardless of zoom or sync-mode display shrinkage.
+    function _flHitTest(cx, cy, fname, hitScale) {
       const frameLabels = _flLabels[fname] || {};
-      const scaleX = flCanvas.width  / _flImg.naturalWidth;
-      const scaleY = flCanvas.height / _flImg.naturalHeight;
-      const hitR   = _flMarkerRadius + 6;
+      const hitR = (_flMarkerRadius + 6) * (hitScale || 1);
       let hit = null;
       _flBodyparts.forEach(bp => {
         const pt = frameLabels[bp];
         if (!pt) return;
         if (_flHidden[fname] && _flHidden[fname][bp]) return;
-        const dx = pt[0] * scaleX - cx;
-        const dy = pt[1] * scaleY - cy;
+        const dx = pt[0] - cx;
+        const dy = pt[1] - cy;
         if (Math.sqrt(dx * dx + dy * dy) <= hitR) hit = bp;
       });
       return hit;
@@ -1299,24 +1316,20 @@ export { FL3D_FRAME_RE, buildPairMap } from './pair_map.mjs';
 
     flCanvas.addEventListener("click", e => {
       if (!_flImgLoaded || !_flVideoStem) return;
-      const rect = flCanvas.getBoundingClientRect();
-      const cx   = e.clientX - rect.left;
-      const cy   = e.clientY - rect.top;
       const fname = _fl3dActiveFname();
+      const { x: cx, y: cy, scale } = _fl3dPrimaryClickToImage(e);
 
       // Click near an existing marker → select it
-      const hit = _flHitTest(cx, cy, fname);
+      const hit = _flHitTest(cx, cy, fname, scale);
       if (hit) {
         _flSelectBp(hit);
         return;
       }
 
-      // Click on empty space → place point for selected bp
+      // Click on empty space → place point for selected bp (image-space coords)
       if (!_flSelectedBp) return;
-      const scaleX = flCanvas.width  / _flImg.naturalWidth;
-      const scaleY = flCanvas.height / _flImg.naturalHeight;
       if (!_flLabels[fname]) _flLabels[fname] = {};
-      _flLabels[fname][_flSelectedBp] = [cx / scaleX, cy / scaleY];
+      _flLabels[fname][_flSelectedBp] = [cx, cy];
       _fl3dDirtyFrames.add(fname);
       _flDirty = true;
       _flDraw();
@@ -1334,11 +1347,9 @@ export { FL3D_FRAME_RE, buildPairMap } from './pair_map.mjs';
 
     flCanvas.addEventListener("mousemove", e => {
       if (!_flImgLoaded) return;
-      const rect  = flCanvas.getBoundingClientRect();
-      const cx    = e.clientX - rect.left;
-      const cy    = e.clientY - rect.top;
       const fname = _fl3dActiveFname();
-      const found = _flHitTest(cx, cy, fname);
+      const { x: cx, y: cy, scale } = _fl3dPrimaryClickToImage(e);
+      const found = _flHitTest(cx, cy, fname, scale);
       if (found !== _flHoverBp) {
         _flHoverBp = found;
         _flDraw();

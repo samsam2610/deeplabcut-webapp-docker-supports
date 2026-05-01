@@ -847,3 +847,144 @@ def test_n13_double_click_chip_toggles_visibility_in_sync(page: Page):
     # Hidden state stored in JS — exact assertion is on canvas stability
     p_after = _primary_center_px(page)
     assert p_after == p_before
+
+
+# =============================================================================
+# Group P: primary-canvas pointer math (post focus-swap regression)
+# =============================================================================
+#
+# In sync mode the primary canvas's drawing buffer is set to the image's
+# natural size while CSS displays the canvas at the tile's flex width — the
+# old click/mousemove/_flHitTest math used `flCanvas.width / _flImg.naturalWidth`
+# (≈1) which produced drastically wrong coords (off by hundreds of pixels)
+# after focus swapped sibling→primary. These tests pin the new rect-based
+# scaling so:
+#   - clicking the visual center of the canvas places the marker at image
+#     center (within sub-pixel rounding tolerance)
+#   - hovering an existing marker turns the cursor into "pointer"
+#   - cursor stays "crosshair" over empty pixels even after frame nav
+
+def _primary_canvas_dims(page):
+    return page.evaluate("""() => {
+        const c = document.getElementById('fl3d-canvas');
+        const r = c.getBoundingClientRect();
+        return {bw: c.width, bh: c.height, dw: r.width, dh: r.height};
+    }""")
+
+
+def _focus_swap_then_back(page):
+    primary = page.evaluate("window.__fl3d.primaryCam")
+    cams = page.eval_on_selector_all("#fl3d-canvas-row .fl3d-tile", "ts => ts.map(t => +t.dataset.cam)")
+    sibling = next(c for c in cams if c != primary)
+    page.locator(f'#fl3d-canvas-row .fl3d-tile[data-cam="{sibling}"]').click()
+    page.wait_for_function(f"window.__fl3d.focusedCam === {sibling}")
+    page.locator(f'#fl3d-canvas-row .fl3d-tile[data-cam="{primary}"] .fl3d-tile-label').click()
+    page.wait_for_function(f"window.__fl3d.focusedCam === {primary}")
+    return primary
+
+
+def test_p1_primary_click_lands_at_image_space_center(page: Page):
+    _enable_sync_at_frame(page, advance=5)
+    primary = _focus_swap_then_back(page)
+    pri_fname = page.eval_on_selector("#fl3d-canvas-row .fl3d-tile.focused", "t => t.dataset.fname")
+    page.evaluate(f"window.__fl3d.labels['{pri_fname}'] = {{}};")
+    page.locator('.fl-bp-chip[data-bp="Snout"]').click()
+    page.wait_for_function("window.__fl3d.selectedBp === 'Snout'")
+    pri_canvas = page.locator(f'#fl3d-canvas-row .fl3d-tile[data-cam="{primary}"] canvas')
+    box = pri_canvas.bounding_box()
+    page.mouse.click(box["x"] + box["width"] / 2, box["y"] + box["height"] / 2)
+    page.wait_for_timeout(200)
+    pos = page.evaluate(f"window.__fl3d.labels['{pri_fname}']['Snout']")
+    dims = _primary_canvas_dims(page)
+    expected = (dims["bw"] / 2, dims["bh"] / 2)
+    # Sub-pixel rounding tolerance: rect float arithmetic ± 5 image-space px
+    assert abs(pos[0] - expected[0]) < 5, (
+        f"marker landed at x={pos[0]:.1f}, expected ~{expected[0]} (off by "
+        f"{abs(pos[0] - expected[0]):.1f} image-px)"
+    )
+    assert abs(pos[1] - expected[1]) < 5, (
+        f"marker landed at y={pos[1]:.1f}, expected ~{expected[1]}"
+    )
+
+
+def test_p2_hovering_existing_marker_shows_pointer_cursor(page: Page):
+    _enable_sync_at_frame(page, advance=5)
+    primary = _focus_swap_then_back(page)
+    pri_fname = page.eval_on_selector("#fl3d-canvas-row .fl3d-tile.focused", "t => t.dataset.fname")
+    page.evaluate(f"window.__fl3d.labels['{pri_fname}'] = {{Snout: [400, 300]}};")
+    page.locator('.fl-bp-chip[data-bp="Snout"]').click()
+    page.wait_for_function("window.__fl3d.selectedBp === 'Snout'")
+    pri_canvas = page.locator(f'#fl3d-canvas-row .fl3d-tile[data-cam="{primary}"] canvas')
+    box = pri_canvas.bounding_box()
+    dims = _primary_canvas_dims(page)
+    sx = dims["bw"] / dims["dw"]
+    sy = dims["bh"] / dims["dh"]
+    # Move cursor to the marker (image-space (400,300) → CSS px)
+    page.mouse.move(box["x"] + 400 / sx, box["y"] + 300 / sy)
+    page.wait_for_timeout(150)
+    cursor = page.evaluate("getComputedStyle(document.getElementById('fl3d-canvas')).cursor")
+    assert cursor == "pointer", f"cursor over marker should be 'pointer', got '{cursor}'"
+
+
+def test_p3_clicking_existing_marker_selects_it(page: Page):
+    _enable_sync_at_frame(page, advance=5)
+    primary = _focus_swap_then_back(page)
+    pri_fname = page.eval_on_selector("#fl3d-canvas-row .fl3d-tile.focused", "t => t.dataset.fname")
+    page.evaluate(f"window.__fl3d.labels['{pri_fname}'] = {{Snout: [400, 300], Wrist: [200, 150]}};")
+    # Select Wrist via chip first
+    page.locator('.fl-bp-chip[data-bp="Wrist"]').click()
+    page.wait_for_function("window.__fl3d.selectedBp === 'Wrist'")
+    # Click on Snout's marker on canvas — selection should switch to Snout
+    pri_canvas = page.locator(f'#fl3d-canvas-row .fl3d-tile[data-cam="{primary}"] canvas')
+    box = pri_canvas.bounding_box()
+    dims = _primary_canvas_dims(page)
+    sx = dims["bw"] / dims["dw"]
+    sy = dims["bh"] / dims["dh"]
+    page.mouse.click(box["x"] + 400 / sx, box["y"] + 300 / sy)
+    page.wait_for_timeout(150)
+    sel = page.evaluate("window.__fl3d.selectedBp")
+    assert sel == "Snout", f"clicking on Snout marker should re-select Snout, got {sel}"
+
+
+def test_p4_cursor_remains_crosshair_after_frame_switch(page: Page):
+    _enable_sync_at_frame(page, advance=5)
+    primary = _focus_swap_then_back(page)
+    page.locator('.fl-bp-chip[data-bp="Snout"]').click()
+    page.wait_for_function("window.__fl3d.selectedBp === 'Snout'")
+    pri_canvas = page.locator(f'#fl3d-canvas-row .fl3d-tile[data-cam="{primary}"] canvas')
+    box = pri_canvas.bounding_box()
+    # Move cursor to top-left empty area (no marker there)
+    page.mouse.move(box["x"] + 20, box["y"] + 20)
+    page.wait_for_timeout(120)
+    cursor_pre = page.evaluate("getComputedStyle(document.getElementById('fl3d-canvas')).cursor")
+    assert cursor_pre == "crosshair", f"pre-switch cursor should be crosshair, got '{cursor_pre}'"
+    # Switch frame and re-trigger mousemove on same empty area
+    page.locator("#fl3d-btn-next").click()
+    page.wait_for_timeout(200)
+    page.mouse.move(box["x"] + 20, box["y"] + 20)
+    page.wait_for_timeout(120)
+    cursor_post = page.evaluate("getComputedStyle(document.getElementById('fl3d-canvas')).cursor")
+    # New frame has CSV-pre-loaded labels but NOT at (20,20) corner
+    assert cursor_post == "crosshair", f"post-switch cursor should stay crosshair on empty area, got '{cursor_post}'"
+
+
+def test_p5_zoom_does_not_break_primary_click_targeting(page: Page):
+    """Verify rect-based scaling also handles zoom != 100% correctly (the
+    OLD math was actually broken for sync OFF zoom>100% too)."""
+    _enable_sync_at_frame(page, advance=5)
+    primary = _focus_swap_then_back(page)
+    pri_fname = page.eval_on_selector("#fl3d-canvas-row .fl3d-tile.focused", "t => t.dataset.fname")
+    page.evaluate(f"window.__fl3d.labels['{pri_fname}'] = {{}};")
+    page.locator('.fl-bp-chip[data-bp="Snout"]').click()
+    page.wait_for_function("window.__fl3d.selectedBp === 'Snout'")
+    page.locator("#fl3d-zoom").evaluate("(el) => { el.value = '200'; el.dispatchEvent(new Event('input')); }")
+    page.wait_for_timeout(150)
+    pri_canvas = page.locator(f'#fl3d-canvas-row .fl3d-tile[data-cam="{primary}"] canvas')
+    box = pri_canvas.bounding_box()
+    page.mouse.click(box["x"] + box["width"] / 2, box["y"] + box["height"] / 2)
+    page.wait_for_timeout(200)
+    pos = page.evaluate(f"window.__fl3d.labels['{pri_fname}']['Snout']")
+    dims = _primary_canvas_dims(page)
+    expected = (dims["bw"] / 2, dims["bh"] / 2)
+    assert abs(pos[0] - expected[0]) < 5
+    assert abs(pos[1] - expected[1]) < 5
