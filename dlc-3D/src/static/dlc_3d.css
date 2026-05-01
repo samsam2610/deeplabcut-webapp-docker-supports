@@ -11,6 +11,33 @@
   margin-bottom: .5rem;
   aspect-ratio: 16 / 9;
   align-items: stretch;
+  position: relative;
+}
+
+#dlc-3d-extract-card #ep-zoom-controls {
+  position: absolute;
+  top: 4px;
+  right: 6px;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 10px;
+  color: var(--text-dim);
+  background: rgba(0, 0, 0, 0.5);
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+
+#dlc-3d-extract-card #ep-zoom-controls input {
+  width: 60px;
+  accent-color: var(--accent);
+}
+
+#dlc-3d-extract-card #ep-zoom-controls #ep-zoom-3d-pct {
+  font-family: var(--mono);
+  min-width: 2.5rem;
+  text-align: right;
 }
 
 #dlc-3d-extract-card .cam-wrap {

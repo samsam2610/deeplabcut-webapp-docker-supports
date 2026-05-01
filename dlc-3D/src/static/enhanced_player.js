@@ -64,7 +64,7 @@ export async function openPlayer(videoPath, siblingPath) {
   const camDisp = document.getElementById("cam-displays");
   if (zoomEl)  zoomEl.value = 100;
   if (zoomPct) zoomPct.textContent = "100%";
-  if (camDisp) camDisp.style.transform = "";
+  if (camDisp) { camDisp.style.width = ""; camDisp.style.marginLeft = ""; }
 
   await _epLoadFrame(0);
 }
@@ -247,13 +247,15 @@ document.addEventListener("DOMContentLoaded", () => {
   });
 
   // Zoom slider
-  const _zoomCamDisp = document.getElementById("cam-displays");
-  if (_zoomCamDisp) _zoomCamDisp.style.transformOrigin = "center top";
   document.getElementById("ep-zoom-3d")?.addEventListener("input", (e) => {
-    const v   = parseInt(e.target.value, 10);
-    const pct = document.getElementById("ep-zoom-3d-pct");
-    if (_zoomCamDisp) _zoomCamDisp.style.transform = v === 100 ? "" : `scale(${v / 100})`;
-    if (pct)          pct.textContent               = `${v}%`;
+    const v       = parseInt(e.target.value, 10);
+    const camDisp = document.getElementById("cam-displays");
+    const pct     = document.getElementById("ep-zoom-3d-pct");
+    if (camDisp) {
+      camDisp.style.width      = v === 100 ? "" : `${v}%`;
+      camDisp.style.marginLeft = v === 100 ? "" : `${(100 - v) / 2}%`;
+    }
+    if (pct) pct.textContent = `${v}%`;
   });
 
   // Keyboard shortcuts (hover-free — active whenever no text input focused)
