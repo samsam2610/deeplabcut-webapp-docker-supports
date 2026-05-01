@@ -894,6 +894,11 @@ export { FL3D_FRAME_RE, buildPairMap } from './pair_map.mjs';
       flBodypartList.querySelectorAll(".fl-bp-chip").forEach(c => {
         c.classList.toggle("active", c.dataset.bp === bp);
       });
+      // Repaint immediately so the white selection ring appears without
+      // waiting for the user to nudge the cursor. _flDraw is sync-aware:
+      // in sync mode it redraws the focused tile (which is the one whose
+      // ring we want to update); in single-canvas it redraws flCanvas.
+      _flDraw();
     }
 
     // ── Silent auto-save (fire-and-forget) ──────────────────────
@@ -1084,19 +1089,27 @@ export { FL3D_FRAME_RE, buildPairMap } from './pair_map.mjs';
           _flAutoAdvanceBp();
         });
 
-        // Mousemove → cursor state on sibling canvas (was previously inheriting
-        // the parent tile's CSS `cursor: pointer` regardless of marker presence,
-        // making it impossible to know if a click would select or overwrite).
+        // Mousemove → cursor state + hover-bp tracking on sibling canvas.
+        // Setting _flHoverBp + redrawing this tile pops the marker's name as
+        // a tooltip (mirrors main webapp's flCanvas hover behavior).
         canvas.addEventListener("mousemove", (e) => {
           if (!tile.dataset.fname) return;
           const { x: cx, y: cy, scale } = _fl3dCanvasClickToImage(canvas, e);
           const hit = _flHitTest(cx, cy, tile.dataset.fname, scale);
+          if (hit !== _flHoverBp) {
+            _flHoverBp = hit;
+            _fl3dDrawTileMarkers(tile, tile.dataset.fname);
+          }
           canvas.style.cursor = hit
             ? "pointer"
             : (_flSelectedBp && +tile.dataset.cam === _fl3dFocusedCam ? "crosshair" : "default");
         });
         canvas.addEventListener("mouseleave", () => {
           canvas.style.cursor = "";  // fall back to .fl3d-tile { cursor: pointer }
+          if (_flHoverBp) {
+            _flHoverBp = null;
+            if (tile.dataset.fname) _fl3dDrawTileMarkers(tile, tile.dataset.fname);
+          }
         });
 
         // Right-click → remove marker on focused tile
@@ -1145,7 +1158,9 @@ export { FL3D_FRAME_RE, buildPairMap } from './pair_map.mjs';
         ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2);
         ctx.fillStyle = color; ctx.fill();
         ctx.strokeStyle = "rgba(0,0,0,0.55)"; ctx.lineWidth = 1.2; ctx.stroke();
-        if (_flShowNames) {
+        // Show name if global "Show names" is on, OR if cursor is hovering
+        // this specific marker (matches main webapp tooltip behavior).
+        if (_flShowNames || bp === _flHoverBp) {
           ctx.font = "bold 11px 'JetBrains Mono', monospace";
           ctx.fillStyle = "rgba(12,13,16,.65)";
           const tw = ctx.measureText(bp).width;

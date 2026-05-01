@@ -833,20 +833,25 @@ def test_n12_save_button_clears_dirty_set(page: Page):
 
 def test_n13_double_click_chip_toggles_visibility_in_sync(page: Page):
     """Double-clicking a chip toggles vis-hidden state on the focused tile's
-    marker; the primary canvas should not flicker to a stale image."""
+    marker. Sample pixels at a corner away from the marker — a visibility
+    toggle DOES change pixels at the marker location (intentionally), but
+    the rest of the image must remain stable (no stale-frame flicker)."""
     _enable_sync_at_frame(page, advance=5)
     pri_fname = page.eval_on_selector(
         "#fl3d-canvas-row .fl3d-tile.focused", "t => t.dataset.fname"
     )
-    _seed_focused_with_one_marker(page, pri_fname, "Snout", 400, 300)
+    # Marker placed off-center so corner samples don't catch the marker pixels.
+    _seed_focused_with_one_marker(page, pri_fname, "Snout", 50, 50)
     page.locator('.fl-bp-chip[data-bp="Snout"]').click()
     page.wait_for_function("window.__fl3d.selectedBp === 'Snout'")
-    p_before = _primary_center_px(page)
+    p_before = _primary_center_px(page)  # canvas center, no marker here
     page.locator('.fl-bp-chip[data-bp="Snout"]').dblclick()
     page.wait_for_timeout(150)
-    # Hidden state stored in JS — exact assertion is on canvas stability
     p_after = _primary_center_px(page)
-    assert p_after == p_before
+    assert p_after == p_before, (
+        "primary canvas image (away from marker) must stay stable across "
+        f"chip dblclick — before={p_before} after={p_after}"
+    )
 
 
 # =============================================================================
@@ -1036,6 +1041,102 @@ def test_p7_sibling_cursor_pointer_over_marker(page: Page):
     page.wait_for_timeout(120)
     cursor = page.evaluate(f"""getComputedStyle(document.querySelector('#fl3d-canvas-row .fl3d-tile[data-cam="{sibling_cam}"] canvas')).cursor""")
     assert cursor == "crosshair", f"sibling empty cursor should be crosshair, got {cursor}"
+
+
+def test_p8_chip_click_immediately_paints_selection_ring(page: Page):
+    """User report: 'choosing a marker by selecting the chip doesn't draw a
+    white circle indicating selection on the frame.' _flSelectBp must trigger
+    a redraw so the ring appears without requiring a cursor nudge."""
+    _enable_sync_at_frame(page, advance=5)
+    primary = page.evaluate("window.__fl3d.primaryCam")
+    cams = page.eval_on_selector_all("#fl3d-canvas-row .fl3d-tile", "ts => ts.map(t => +t.dataset.cam)")
+    sib_cam = next(c for c in cams if c != primary)
+    sib_tile = page.locator(f'#fl3d-canvas-row .fl3d-tile[data-cam="{sib_cam}"]')
+    if sib_tile.locator(".fl3d-tile-empty:not(.hidden)").count() > 0:
+        pytest.skip("sibling empty")
+    sib_tile.click()
+    page.wait_for_function(f"window.__fl3d.focusedCam === {sib_cam}")
+    sib_fname = sib_tile.evaluate("t => t.dataset.fname")
+    page.evaluate(f"window.__fl3d.labels['{sib_fname}'] = {{Snout: [400, 300]}};")
+    # Pick a non-Snout chip first, then move cursor far off-canvas (no hover state).
+    page.locator('.fl-bp-chip[data-bp="Wrist"]').click()
+    page.wait_for_function("window.__fl3d.selectedBp === 'Wrist'")
+    page.mouse.move(0, 0)
+    page.wait_for_timeout(200)
+    sib_canvas_sel = f'#fl3d-canvas-row .fl3d-tile[data-cam="{sib_cam}"] canvas'
+    # Sample on the ring perimeter (radius ≈7.5 from marker center)
+    def px(x, y):
+        return page.evaluate(f"""(() => {{
+            const c = document.querySelector('{sib_canvas_sel}');
+            const ctx = c.getContext('2d');
+            return Array.from(ctx.getImageData({x}, {y}, 1, 1).data.slice(0, 3)).join(',');
+        }})()""")
+    px_pre = [px(400 + dx, 300 + dy) for dx, dy in [(8,0),(0,8),(-8,0),(0,-8),(6,6)]]
+    page.locator('.fl-bp-chip[data-bp="Snout"]').click()
+    page.wait_for_function("window.__fl3d.selectedBp === 'Snout'")
+    page.wait_for_timeout(200)
+    px_post = [px(400 + dx, 300 + dy) for dx, dy in [(8,0),(0,8),(-8,0),(0,-8),(6,6)]]
+    # At least one perimeter pixel must change (the ring's white stroke is
+    # rgba(255,255,255,0.85) ≈ 218 over typical dark backgrounds).
+    diffs = sum(1 for a, b in zip(px_pre, px_post) if a != b)
+    assert diffs >= 1, (
+        f"selection ring should have appeared on sibling after chip click "
+        f"(pixels unchanged at all 5 perimeter sample points)\n"
+        f"  before: {px_pre}\n  after:  {px_post}"
+    )
+
+
+def test_p9_hover_marker_shows_name_tooltip(page: Page):
+    """User report: 'hover cursor over marker doesn't show its name.'
+    _fl3dDrawTileMarkers must honor _flHoverBp the way the main webapp's
+    _flDraw does. Sibling mousemove must update _flHoverBp + redraw."""
+    _enable_sync_at_frame(page, advance=5)
+    primary = page.evaluate("window.__fl3d.primaryCam")
+    cams = page.eval_on_selector_all("#fl3d-canvas-row .fl3d-tile", "ts => ts.map(t => +t.dataset.cam)")
+    sib_cam = next(c for c in cams if c != primary)
+    sib_tile = page.locator(f'#fl3d-canvas-row .fl3d-tile[data-cam="{sib_cam}"]')
+    if sib_tile.locator(".fl3d-tile-empty:not(.hidden)").count() > 0:
+        pytest.skip("sibling empty")
+    sib_tile.click()
+    page.wait_for_function(f"window.__fl3d.focusedCam === {sib_cam}")
+    sib_fname = sib_tile.evaluate("t => t.dataset.fname")
+    page.evaluate(f"window.__fl3d.labels['{sib_fname}'] = {{Snout: [400, 300]}};")
+    # Make sure show-names is OFF so the only way for a name to appear is via hover.
+    if page.evaluate("window.__fl3d.showNames"):
+        page.locator("#fl3d-show-names").click()
+        page.wait_for_function("window.__fl3d.showNames === false")
+    sib_canvas = page.locator(f'#fl3d-canvas-row .fl3d-tile[data-cam="{sib_cam}"] canvas')
+    box = sib_canvas.bounding_box()
+    dims = page.evaluate(f"""(() => {{
+        const c = document.querySelector('#fl3d-canvas-row .fl3d-tile[data-cam="{sib_cam}"] canvas');
+        const r = c.getBoundingClientRect();
+        return {{bw: c.width, dw: r.width, bh: c.height, dh: r.height}};
+    }})()""")
+    sx = dims["bw"] / dims["dw"]
+    sy = dims["bh"] / dims["dh"]
+    sib_canvas_sel = f'#fl3d-canvas-row .fl3d-tile[data-cam="{sib_cam}"] canvas'
+    # Sample inside the name-backdrop area drawn at (cx+r+2, cy-7) with width tw+6, height 14
+    # For "Snout" at marker (400,300) with r=4: backdrop ~= (406,293)..(442,307)
+    def px(x, y):
+        return page.evaluate(f"""(() => {{
+            const c = document.querySelector('{sib_canvas_sel}');
+            const ctx = c.getContext('2d');
+            const d = ctx.getImageData({x}, {y}, 4, 4).data;
+            return Array.from(d.slice(0, 12)).join(',');
+        }})()""")
+    # Move cursor away (no hover) — sample baseline
+    page.mouse.move(0, 0)
+    page.wait_for_timeout(200)
+    px_no_hover = [px(420, 297), px(425, 300), px(415, 295)]
+    # Hover ON the marker
+    page.mouse.move(box["x"] + 400 / sx, box["y"] + 300 / sy)
+    page.wait_for_timeout(250)
+    px_hover = [px(420, 297), px(425, 300), px(415, 295)]
+    diffs = sum(1 for a, b in zip(px_no_hover, px_hover) if a != b)
+    assert diffs >= 1, (
+        f"name tooltip should have appeared on hover (no pixels in backdrop "
+        f"area changed)\n  no-hover: {px_no_hover}\n  hover: {px_hover}"
+    )
 
 
 def test_p5_zoom_does_not_break_primary_click_targeting(page: Page):
