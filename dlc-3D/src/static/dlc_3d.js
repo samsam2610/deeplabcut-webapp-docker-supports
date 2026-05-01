@@ -10,6 +10,7 @@ let _activeSession      = null;
 let _activeVideo        = null;
 let _loadToken          = 0;
 let _browserCurrentPath = null;
+let _browserParentPath  = null;
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -55,6 +56,9 @@ function _resetExtractorUI() {
   if (browseRow) browseRow.style.display = "none";
   const pathInput = document.getElementById("dlc3d-path-input");
   if (pathInput) { pathInput.style.display = "none"; pathInput.value = ""; }
+  const upBtn = document.getElementById("dlc3d-browse-up");
+  if (upBtn) upBtn.style.display = "none";
+  _browserParentPath = null;
   _setStatus("");
   const labeledWrap = document.getElementById("labeled-wrap");
   if (labeledWrap) labeledWrap.style.display = "none";
@@ -128,38 +132,41 @@ async function _browseDir(path) {
   }
 
   _browserCurrentPath = data.path;
+  _browserParentPath  = data.parent || null;
   const pathInput = document.getElementById("dlc3d-path-input");
   if (pathInput) pathInput.value = data.path;
+  const upBtn = document.getElementById("dlc3d-browse-up");
+  if (upBtn) upBtn.disabled = !_browserParentPath;
   browser.innerHTML = "";
-
-  if (data.parent) {
-    const upRow = document.createElement("div");
-    upRow.className = "fe-video-item";
-    const upSpan = document.createElement("span");
-    upSpan.textContent = "↑  ..";
-    upSpan.style.cssText = "color:var(--text-dim);font-style:italic";
-    upRow.appendChild(upSpan);
-    upRow.addEventListener("click", () => _browseDir(data.parent));
-    browser.appendChild(upRow);
-  }
 
   for (const entry of data.entries || []) {
     const row = document.createElement("div");
     row.className = "fe-video-item";
-
-    const icon = document.createElement("span");
-    const name = document.createElement("span");
-    name.style.cssText = "flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap";
-    name.textContent = entry.name;
+    row.style.cursor = "pointer";
 
     if (entry.type === "dir") {
-      icon.textContent = "📁 ";
-      row.append(icon, name);
+      row.innerHTML = `
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+             stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0">
+          <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
+        </svg>
+        <span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${entry.name}/</span>`;
       row.addEventListener("click", () => _browseDir(_browserCurrentPath + "/" + entry.name));
     } else if (entry.type === "file") {
-      icon.textContent = "🎬 ";
       row.dataset.videoPath = _browserCurrentPath + "/" + entry.name;
-      row.append(icon, name);
+      row.innerHTML = `
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+             stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0">
+          <rect x="2" y="2" width="20" height="20" rx="2.18" ry="2.18"/>
+          <line x1="7" y1="2" x2="7" y2="22"/>
+          <line x1="17" y1="2" x2="17" y2="22"/>
+          <line x1="2" y1="12" x2="22" y2="12"/>
+          <line x1="2" y1="7" x2="7" y2="7"/>
+          <line x1="2" y1="17" x2="7" y2="17"/>
+          <line x1="17" y1="17" x2="22" y2="17"/>
+          <line x1="17" y1="7" x2="22" y2="7"/>
+        </svg>
+        <span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${entry.name}</span>`;
       row.addEventListener("click", () => _selectVideo(row.dataset.videoPath));
     } else {
       continue;
@@ -193,6 +200,8 @@ async function _selectVideo(videoPath) {
 
   const pathInput = document.getElementById("dlc3d-path-input");
   if (pathInput) pathInput.style.display = "none";
+  const upBtn = document.getElementById("dlc3d-browse-up");
+  if (upBtn) upBtn.style.display = "none";
 
   document.getElementById("dlc3d-player-section").style.display = "";
 
@@ -308,12 +317,15 @@ document.addEventListener("DOMContentLoaded", () => {
   document.getElementById("dlc3d-browse-btn")?.addEventListener("click", () => {
     const browser   = document.getElementById("dlc3d-file-browser");
     const pathInput = document.getElementById("dlc3d-path-input");
+    const upBtn     = document.getElementById("dlc3d-browse-up");
     if (browser.style.display === "none") {
       if (pathInput) pathInput.style.display = "";
+      if (upBtn)     upBtn.style.display     = "";
       _browseDir(_browserCurrentPath || _projectPath);
     } else {
       browser.style.display = "none";
       if (pathInput) pathInput.style.display = "none";
+      if (upBtn)     upBtn.style.display     = "none";
       const empty = document.getElementById("dlc3d-session-empty");
       if (empty) empty.style.display = "";
     }
@@ -324,6 +336,10 @@ document.addEventListener("DOMContentLoaded", () => {
       const v = e.target.value.trim();
       if (v) _browseDir(v);
     }
+  });
+
+  document.getElementById("dlc3d-browse-up")?.addEventListener("click", () => {
+    if (_browserParentPath) _browseDir(_browserParentPath);
   });
 
   const activePathEl = document.getElementById("dlc-active-path");
