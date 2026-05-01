@@ -203,3 +203,50 @@ def test_f1_click_focused_tile_at_300pct_places_marker(page: Page):
     page.wait_for_function(
         f"window.__fl3d.dirtyFrames.includes('{primary_fname}')"
     )
+
+
+# ---------- Group G: Sibling weight persists across frame nav ----------
+
+def test_g1_sibling_weight_persists_across_frame_nav(page: Page):
+    _enable_sync(page)
+    sibling = page.locator("#fl3d-canvas-row .fl3d-tile.fl3d-tile-sibling").first
+    sibling_cam = sibling.evaluate("t => t.dataset.cam")
+    sibling.locator(".fl3d-tile-size").evaluate(
+        "(el) => { el.value = '250'; el.dispatchEvent(new Event('input')); }"
+    )
+
+    before_idx = page.evaluate("window.__fl3d.frameNumberIdx")
+    page.locator("#fl3d-btn-next").click()
+    page.wait_for_function(f"window.__fl3d.frameNumberIdx > {before_idx}")
+
+    sibling_after = page.locator(
+        f'#fl3d-canvas-row .fl3d-tile.fl3d-tile-sibling[data-cam="{sibling_cam}"]'
+    )
+    weight     = sibling_after.evaluate("t => parseInt(t.style.flexGrow || '100', 10)")
+    slider_val = int(sibling_after.locator(".fl3d-tile-size").evaluate("e => e.value"))
+    label_text = sibling_after.locator(".fl3d-tile-size-val").inner_text().strip()
+
+    assert weight == 250, f"expected flex-grow 250 after frame nav, got {weight}"
+    assert slider_val == 250, f"expected slider value 250, got {slider_val}"
+    assert label_text == "250%", f"expected label '250%', got {label_text!r}"
+
+
+def test_g2_primary_weight_persists_across_frame_nav(page: Page):
+    """Regression guard: primary tile is preserved across renders, so its weight
+    should survive frame nav even before the sibling-stash fix. Locks in that
+    behavior so future refactors don't break it."""
+    _enable_sync(page)
+    primary = page.locator("#fl3d-canvas-row .fl3d-tile.focused")
+    primary.locator(".fl3d-tile-size").evaluate(
+        "(el) => { el.value = '175'; el.dispatchEvent(new Event('input')); }"
+    )
+
+    before_idx = page.evaluate("window.__fl3d.frameNumberIdx")
+    page.locator("#fl3d-btn-next").click()
+    page.wait_for_function(f"window.__fl3d.frameNumberIdx > {before_idx}")
+
+    weight = page.eval_on_selector(
+        "#fl3d-canvas-row .fl3d-tile:not(.fl3d-tile-sibling)",
+        "t => parseInt(t.style.flexGrow || '100', 10)",
+    )
+    assert weight == 175, f"expected primary flex-grow 175 after frame nav, got {weight}"

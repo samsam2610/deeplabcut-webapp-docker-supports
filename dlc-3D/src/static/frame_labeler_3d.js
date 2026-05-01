@@ -1017,6 +1017,13 @@ export { FL3D_FRAME_RE, buildPairMap } from './pair_map.mjs';
       const row = document.getElementById("fl3d-canvas-row");
       if (!row) return;
 
+      // Stash per-cam sibling weights so user-set sizing survives frame nav.
+      // (Primary tile is preserved across renders so its weight is naturally retained.)
+      const _siblingWeights = new Map();
+      row.querySelectorAll(".fl3d-tile.fl3d-tile-sibling").forEach(el => {
+        _siblingWeights.set(+el.dataset.cam, parseInt(el.dataset.weight || "100", 10));
+      });
+
       // Remove any sibling tiles (keep only the primary tile, which always exists)
       Array.from(row.querySelectorAll(".fl3d-tile.fl3d-tile-sibling"))
         .forEach(el => el.remove());
@@ -1035,13 +1042,14 @@ export { FL3D_FRAME_RE, buildPairMap } from './pair_map.mjs';
         const tile = document.createElement("div");
         tile.className = "fl3d-tile fl3d-tile-sibling";
         tile.dataset.cam = String(cam);
-        tile.dataset.weight = "100";
-        tile.style.flexGrow = "100";
+        const _w = _siblingWeights.has(cam) ? _siblingWeights.get(cam) : 100;
+        tile.dataset.weight = String(_w);
+        tile.style.flexGrow = String(_w);
         tile.innerHTML = `
           <div class="fl3d-tile-header">
             <span class="fl3d-tile-label">cam${cam}</span>
-            <input type="range" class="fl3d-tile-size" min="50" max="300" step="25" value="100">
-            <span class="fl3d-tile-size-val">100%</span>
+            <input type="range" class="fl3d-tile-size" min="50" max="300" step="25" value="${_w}">
+            <span class="fl3d-tile-size-val">${_w}%</span>
           </div>
           <canvas class="fl3d-tile-canvas" data-cam="${cam}"></canvas>
           <div class="fl3d-tile-empty hidden"></div>
