@@ -238,19 +238,21 @@ def _save_single_frame(project_path: Path, video_rel: str, frame_number: int) ->
     fname = f"img_cam{cam_idx}_{order:04d}_{frame_number:05d}.png"
     (labeled_dir / fname).write_bytes(png_buf.tobytes())
 
-    # Copy calibration.toml on first save. Source priority:
+    # Copy calibration.toml if missing at destination. Source priority:
     #   1. video's own parent folder
     #   2. grandparent folder when video is inside a clip subfolder
-    if order == 0:
-        calib_dest = labeled_dir / "calibration.toml"
-        if not calib_dest.exists():
-            calib_candidates = [video_path.parent / "calibration.toml"]
-            if _session_key_from_stem(video_path.parent.name) is not None:
-                calib_candidates.append(video_path.parent.parent / "calibration.toml")
-            for calib_src in calib_candidates:
-                if calib_src.exists():
-                    shutil.copy2(calib_src, calib_dest)
-                    break
+    # Runs on every save (not just the first) so it self-heals when
+    # a session folder was populated by an earlier buggy run that didn't
+    # copy calibration.toml — destination check prevents redundant work.
+    calib_dest = labeled_dir / "calibration.toml"
+    if not calib_dest.exists():
+        calib_candidates = [video_path.parent / "calibration.toml"]
+        if _session_key_from_stem(video_path.parent.name) is not None:
+            calib_candidates.append(video_path.parent.parent / "calibration.toml")
+        for calib_src in calib_candidates:
+            if calib_src.exists():
+                shutil.copy2(calib_src, calib_dest)
+                break
 
     return {"saved": fname, "order": order + 1}
 

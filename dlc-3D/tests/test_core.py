@@ -506,6 +506,19 @@ def test_save_frame_copies_calibration_from_clip_grandparent(tmp_path, monkeypat
     assert (proj / "labeled-data" / "surv1_20260123" / "calibration.toml").is_file()
 
 
+def test_save_frame_self_heals_missing_calibration_after_prior_extracts(tmp_path):
+    """If earlier saves left the session folder without calibration.toml
+    (e.g. due to a prior buggy version), the next save still copies it."""
+    proj = _fake_project(tmp_path)
+    _save_single_frame(proj, "videos/surv1_cam0_20260123_121732_0_trig1.avi", 3)
+    dest = proj / "labeled-data" / "surv1_20260123" / "calibration.toml"
+    assert dest.is_file()
+    dest.unlink()  # simulate a previous buggy extract that didn't copy calibration
+    assert not dest.exists()
+    _save_single_frame(proj, "videos/surv1_cam0_20260123_121732_0_trig1.avi", 7)
+    assert dest.is_file()
+
+
 # ── /sibling-camera calibration reporting ────────────────────────────────────
 
 def test_sibling_camera_reports_calibration_exists(tmp_path, monkeypatch):
