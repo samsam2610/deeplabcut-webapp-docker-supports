@@ -104,6 +104,80 @@ function _epUpdateBarsVisibility() {
   if (nw) nw.style.display = hasNote   ? "" : "none";
 }
 
+function _epRebuildChips() {
+  const statusRow = document.getElementById("ep-status-chips");
+  const noteRow   = document.getElementById("ep-note-chips");
+  if (statusRow) statusRow.innerHTML = "";
+  if (noteRow)   noteRow.innerHTML   = "";
+
+  const buildChip = (type, val, color, container, activeSet) => {
+    const btn = document.createElement("button");
+    btn.className = "ep-chip";
+    btn.dataset.type = type;
+    btn.dataset.val  = val;
+    btn.style.background = color;
+    btn.textContent = val;
+    btn.addEventListener("click", () => _epOnChipClick(type, val, btn, activeSet));
+    container.appendChild(btn);
+  };
+
+  if (statusRow) {
+    Object.entries(_epStatusColorMap).forEach(([val, color]) =>
+      buildChip("status", val, color, statusRow, _epActiveStatus));
+  }
+  if (noteRow) {
+    Object.entries(_epNoteColorMap).forEach(([val, color]) =>
+      buildChip("note", val, color, noteRow, _epActiveNote));
+  }
+  _epUpdateNavButtonsEnabled();
+}
+
+function _epOnChipClick(type, val, btnEl, activeSet) {
+  const wasActive = !!(_epActiveChip && _epActiveChip.type === type && _epActiveChip.val === val);
+  if (wasActive) {
+    _epActiveChip = null;
+    activeSet.delete(val);
+    btnEl.classList.remove("active");
+  } else {
+    if (_epActiveChip) {
+      const otherSet = _epActiveChip.type === "status" ? _epActiveStatus : _epActiveNote;
+      otherSet.delete(_epActiveChip.val);
+      const prev = document.querySelector(`.ep-chip[data-type="${_epActiveChip.type}"][data-val="${CSS.escape(_epActiveChip.val)}"]`);
+      if (prev) prev.classList.remove("active");
+    }
+    _epActiveChip = { type, val };
+    activeSet.add(val);
+    btnEl.classList.add("active");
+  }
+  _epUpdateNavButtonsEnabled();
+  _epRedrawAllCanvases();
+}
+
+function _epUpdateNavButtonsEnabled() {
+  const enabled = !!_epActiveChip;
+  ["ep-status-prev", "ep-status-next", "ep-note-prev", "ep-note-next"].forEach(id => {
+    const b = document.getElementById(id);
+    if (b) b.disabled = !enabled;
+  });
+}
+
+function _epNavByChip(dir) {
+  if (!_epActiveChip || !_csvRows.length) return;
+  const { type, val } = _epActiveChip;
+  const field = type === "status" ? "frame_line_status" : "note";
+  const cur1  = _currentFrame + 1;
+  const matches = _csvRows.filter(r => r[field] === val);
+  let target = null;
+  if (dir < 0) {
+    target = [...matches].filter(r => Number(r.frame_number) < cur1)
+      .sort((a, b) => b.frame_number - a.frame_number)[0];
+  } else {
+    target = matches.filter(r => Number(r.frame_number) > cur1)
+      .sort((a, b) => a.frame_number - b.frame_number)[0];
+  }
+  if (target) { _stop(); _epLoadFrame(Number(target.frame_number) - 1); }
+}
+
 // ── Public API ────────────────────────────────────────────────────────────────
 
 export function getVideoPath()     { return _videoPath; }
@@ -143,6 +217,7 @@ export async function openPlayer(videoPath, siblingPath) {
   if (seekEl) { seekEl.min = 0; seekEl.max = frameCount - 1; seekEl.value = 0; }
 
   await _epLoadCsv(videoPath);
+  _epRebuildChips();
   _epUpdateBarsVisibility();
   _epRedrawAllCanvases();
 
@@ -283,6 +358,19 @@ function _setStatus(msg) {
   if (el) el.textContent = msg;
 }
 
+function _epWireCanvasClick(canvasId) {
+  const canvas = document.getElementById(canvasId);
+  if (!canvas) return;
+  canvas.addEventListener("click", (e) => {
+    if (_frameCount <= 1) return;
+    const rect = canvas.getBoundingClientRect();
+    const x    = e.clientX - rect.left;
+    const frac = Math.max(0, Math.min(1, x / rect.width));
+    const target = Math.round(frac * (_frameCount - 1));
+    _stop(); _epLoadFrame(target);
+  });
+}
+
 // ── Event wiring (runs once DOM is ready) ─────────────────────────────────────
 
 document.addEventListener("DOMContentLoaded", () => {
@@ -294,6 +382,18 @@ document.addEventListener("DOMContentLoaded", () => {
       _resizeRaf = null;
     });
   });
+
+  // Chip prev/next navigation
+  ["ep-status-prev", "ep-note-prev"].forEach(id => {
+    document.getElementById(id)?.addEventListener("click", () => _epNavByChip(-1));
+  });
+  ["ep-status-next", "ep-note-next"].forEach(id => {
+    document.getElementById(id)?.addEventListener("click", () => _epNavByChip(+1));
+  });
+
+  // Canvas click → jump to frame
+  _epWireCanvasClick("ep-status-canvas");
+  _epWireCanvasClick("ep-note-canvas");
 
   // Seek bar
   document.getElementById("ep-seek")?.addEventListener("input", (e) => {
