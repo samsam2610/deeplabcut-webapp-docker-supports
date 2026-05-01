@@ -649,11 +649,21 @@ export { FL3D_FRAME_RE, buildPairMap } from './pair_map.mjs';
       _flMarkerRadius = parseInt(flMarkerSizeInput.value, 10);
       flMarkerSizeVal.textContent = _flMarkerRadius;
       _flDraw();
+      if (_fl3dSyncOn) {
+        document.querySelectorAll("#fl3d-canvas-row .fl3d-tile").forEach(t => {
+          if (t.dataset.fname) _fl3dDrawTileMarkers(t, t.dataset.fname);
+        });
+      }
     });
 
     flShowNamesInput.addEventListener("change", () => {
       _flShowNames = flShowNamesInput.checked;
       _flDraw();
+      if (_fl3dSyncOn) {
+        document.querySelectorAll("#fl3d-canvas-row .fl3d-tile").forEach(t => {
+          if (t.dataset.fname) _fl3dDrawTileMarkers(t, t.dataset.fname);
+        });
+      }
     });
 
     document.getElementById("fl3d-sync-frame").addEventListener("change", (e) => {
@@ -1140,6 +1150,10 @@ export { FL3D_FRAME_RE, buildPairMap } from './pair_map.mjs';
     }
 
     function _flFitCanvas() {
+      if (_fl3dSyncOn) {
+        _fl3dFitRow();
+        return;
+      }
       const wrap = flCanvas.parentElement;
       const cs   = getComputedStyle(flCard);
       const padL = parseFloat(cs.paddingLeft)  || 0;
@@ -1166,6 +1180,20 @@ export { FL3D_FRAME_RE, buildPairMap } from './pair_map.mjs';
         wrap.style.width      = "";
         wrap.style.marginLeft = "";
       }
+    }
+
+    function _fl3dFitRow() {
+      const row = document.getElementById("fl3d-canvas-row");
+      if (!row) return;
+      const cs   = getComputedStyle(flCard);
+      const padL = parseFloat(cs.paddingLeft)  || 0;
+      const padR = parseFloat(cs.paddingRight) || 0;
+      const baseW = flCard.clientWidth - padL - padR;
+      const maxW  = Math.max(baseW, window.innerWidth - 32);
+      const targetRowW = Math.min(Math.round(baseW * (_flZoom / 100)), Math.floor(maxW));
+      row.style.width = targetRowW + "px";
+      const extra = targetRowW - baseW;
+      row.style.marginLeft = extra > 0 ? `-${extra / 2}px` : "";
     }
 
     // Re-fit whenever the card width changes (window resize, layout shifts)
