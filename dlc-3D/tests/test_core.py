@@ -346,3 +346,113 @@ def test_find_sibling_on_filesystem_ignores_same_cam(tmp_path):
     cam0b.write_bytes(b"")
     result = _find_sibling_on_filesystem(str(cam0a))
     assert result is None
+
+
+# ── /csv endpoint ─────────────────────────────────────────────────────────────
+
+def test_csv_route_returns_rows_when_csv_exists(tmp_path, monkeypatch):
+    from flask import Flask
+    from dlc_3d_bp import routes
+    import config
+
+    monkeypatch.setattr(config, "USER_DATA_ROOTS", [tmp_path])
+    monkeypatch.setattr(routes, "_USER_DATA_ROOT", str(tmp_path))
+
+    videos_dir = tmp_path / "videos"
+    videos_dir.mkdir()
+    video = videos_dir / "surv1_cam0_20260123_121732_0.avi"
+    video.write_bytes(b"")
+    csv_file = videos_dir / "surv1_cam0_20260123_121732_0.csv"
+    csv_file.write_text(
+        "timestamp,frame_number,frame_line_status,note\n"
+        "0.000,1,1,start\n"
+        "0.033,2,2,\n"
+        "0.067,3,0,\n"
+        "0.100,4,1,end\n"
+    )
+
+    app = Flask(__name__)
+    app.register_blueprint(routes.bp)
+    client = app.test_client()
+
+    resp = client.get(f"/dlc-3d/csv?video={video}")
+    assert resp.status_code == 200
+    data = resp.get_json()
+    assert data["csv_exists"] is True
+    assert data["csv_path"].endswith(".csv")
+    fns = [r["frame_number"] for r in data["rows"]]
+    assert fns == [1, 2, 4]
+    assert data["rows"][0]["note"] == "start"
+    assert data["rows"][0]["frame_line_status"] == "1"
+
+
+def test_csv_route_skips_empty_rows(tmp_path, monkeypatch):
+    from flask import Flask
+    from dlc_3d_bp import routes
+    import config
+
+    monkeypatch.setattr(config, "USER_DATA_ROOTS", [tmp_path])
+    monkeypatch.setattr(routes, "_USER_DATA_ROOT", str(tmp_path))
+
+    videos_dir = tmp_path / "videos"
+    videos_dir.mkdir()
+    video = videos_dir / "rec1_cam0_20260201_080000_0.avi"
+    video.write_bytes(b"")
+    (videos_dir / "rec1_cam0_20260201_080000_0.csv").write_text(
+        "timestamp,frame_number,frame_line_status,note\n"
+        "0.0,1,0,\n"
+        "0.0,2,0,\n"
+        "0.0,3,2,important\n"
+    )
+
+    app = Flask(__name__)
+    app.register_blueprint(routes.bp)
+    client = app.test_client()
+
+    resp = client.get(f"/dlc-3d/csv?video={video}")
+    assert resp.status_code == 200
+    data = resp.get_json()
+    assert data["csv_exists"] is True
+    assert len(data["rows"]) == 1
+    assert data["rows"][0]["frame_number"] == 3
+
+
+def test_csv_route_returns_csv_exists_false_when_missing(tmp_path, monkeypatch):
+    from flask import Flask
+    from dlc_3d_bp import routes
+    import config
+
+    monkeypatch.setattr(config, "USER_DATA_ROOTS", [tmp_path])
+    monkeypatch.setattr(routes, "_USER_DATA_ROOT", str(tmp_path))
+
+    videos_dir = tmp_path / "videos"
+    videos_dir.mkdir()
+    video = videos_dir / "rec2_cam0_20260301_080000_0.avi"
+    video.write_bytes(b"")
+
+    app = Flask(__name__)
+    app.register_blueprint(routes.bp)
+    client = app.test_client()
+
+    resp = client.get(f"/dlc-3d/csv?video={video}")
+    assert resp.status_code == 200
+    data = resp.get_json()
+    assert data["csv_exists"] is False
+    assert data["rows"] == []
+    assert data["csv_path"].endswith(".csv")
+
+
+def test_csv_route_rejects_path_outside_user_data(tmp_path, monkeypatch):
+    from flask import Flask
+    from dlc_3d_bp import routes
+    import config
+
+    monkeypatch.setattr(config, "USER_DATA_ROOTS", [tmp_path])
+    monkeypatch.setattr(routes, "_USER_DATA_ROOT", str(tmp_path))
+
+    app = Flask(__name__)
+    app.register_blueprint(routes.bp)
+    client = app.test_client()
+
+    resp = client.get("/dlc-3d/csv?video=/etc/passwd")
+    assert resp.status_code == 400

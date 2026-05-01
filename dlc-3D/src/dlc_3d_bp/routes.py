@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import csv
 import json
 import re
 import shutil
@@ -481,3 +482,54 @@ def labeled_frames():
         "count":          len(frames),
         "session_folder": f"labeled-data/{session_key}",
     })
+
+
+@bp.route("/csv")
+def csv_route():
+    """Return CSV annotation rows for the same-stem .csv next to the given video.
+
+    Format: {"rows": [...], "csv_path": str, "csv_exists": bool}
+    Each row: {timestamp, frame_number, frame_line_status, note}.
+    Skips rows where status is empty/"0" AND note is empty.
+    """
+    video_path = request.args.get("video", "").strip()
+    if not video_path:
+        return jsonify({"error": "video required"}), 400
+
+    with _state_lock:
+        proj = _active_project
+    resolved = _resolve_video_path(video_path, proj or _USER_DATA_ROOT)
+    if resolved is None:
+        return jsonify({"error": "invalid path"}), 400
+
+    csv_path = resolved.with_suffix(".csv")
+    if not csv_path.is_file():
+        return jsonify({"rows": [], "csv_path": str(csv_path), "csv_exists": False})
+
+    rows = []
+    try:
+        with open(csv_path, newline="", encoding="utf-8") as f:
+            reader = csv.DictReader(f, skipinitialspace=True)
+            if reader.fieldnames:
+                reader.fieldnames = [n.strip() for n in reader.fieldnames]
+            for row in reader:
+                row = {k.strip() if k else k: v for k, v in row.items()}
+                status = (row.get("frame_line_status") or "").strip()
+                note   = (row.get("note") or "").strip()
+                if not note and (not status or status == "0"):
+                    continue
+                try:
+                    fn = int(float(row.get("frame_number", 0)))
+                except (ValueError, TypeError):
+                    fn = 0
+                rows.append({
+                    "timestamp":         (row.get("timestamp") or "").strip(),
+                    "frame_number":      fn,
+                    "frame_line_status": status,
+                    "note":              note,
+                })
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+
+    rows.sort(key=lambda r: r["frame_number"])
+    return jsonify({"rows": rows, "csv_path": str(csv_path), "csv_exists": True})
