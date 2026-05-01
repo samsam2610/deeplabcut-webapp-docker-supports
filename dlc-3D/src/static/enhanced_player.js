@@ -16,6 +16,94 @@ let _timerId       = null;
 let _syncCamEnabled   = false;
 let _siblingVideoPath = null;
 
+let _csvRows           = [];
+let _epStatusColorMap  = {};
+let _epNoteColorMap    = {};
+let _epActiveStatus    = new Set();
+let _epActiveNote      = new Set();
+let _epActiveChip      = null;       // { type: "status"|"note", val: string }
+
+const _EP_TAG_PALETTE  = [
+  "#58a6ff", "#3fb950", "#f0c040", "#f85149",
+  "#d2a8ff", "#ffa657", "#79c0ff", "#56d364",
+];
+
+async function _epLoadCsv(videoPath) {
+  _csvRows = [];
+  _epStatusColorMap = {};
+  _epNoteColorMap   = {};
+  _epActiveStatus.clear();
+  _epActiveNote.clear();
+  _epActiveChip = null;
+  try {
+    const resp = await fetch(`/dlc-3d/csv?video=${encodeURIComponent(videoPath)}`);
+    if (!resp.ok) return;
+    const data = await resp.json();
+    if (!data.csv_exists) return;
+    _csvRows = data.rows || [];
+    const statusVals = [...new Set(_csvRows.map(r => r.frame_line_status).filter(v => v && v !== "0"))];
+    const noteVals   = [...new Set(_csvRows.map(r => r.note).filter(v => v))];
+    statusVals.forEach((v, i) => { _epStatusColorMap[v] = _EP_TAG_PALETTE[i % _EP_TAG_PALETTE.length]; });
+    noteVals  .forEach((v, i) => { _epNoteColorMap[v]   = _EP_TAG_PALETTE[i % _EP_TAG_PALETTE.length]; });
+  } catch (e) {
+    console.warn("[enhanced_player] CSV load failed:", e.message);
+  }
+}
+
+function _epDrawTagCanvas(canvas, rows, field, activeSet, colorMap) {
+  if (!canvas) return;
+  const total = Math.max(_frameCount, 1);
+  const W = Math.round(canvas.getBoundingClientRect().width) || canvas.clientWidth || 600;
+  canvas.width = W;
+  const H = canvas.height || 10;
+  const ctx = canvas.getContext("2d");
+  const minW = Math.max(1, Math.round(W / total));
+  ctx.clearRect(0, 0, W, H);
+  if (!activeSet || activeSet.size === 0) return;
+  rows.forEach(row => {
+    const val = row[field];
+    if (!val || (field === "frame_line_status" && val === "0")) return;
+    if (!activeSet.has(val)) return;
+    ctx.fillStyle = colorMap[val] || "#888";
+    const x = Math.round(((row.frame_number - 1) / Math.max(total - 1, 1)) * W);
+    ctx.fillRect(x, 0, minW, H);
+  });
+}
+
+function _epDrawCursor(canvas) {
+  if (!canvas) return;
+  const W = Math.round(canvas.getBoundingClientRect().width) || canvas.clientWidth || 600;
+  canvas.width = W;
+  const H = canvas.height || 6;
+  const ctx = canvas.getContext("2d");
+  ctx.clearRect(0, 0, W, H);
+  if (_frameCount <= 1) return;
+  const x = Math.round((_currentFrame / (_frameCount - 1)) * W);
+  ctx.fillStyle = "#58a6ff";
+  ctx.beginPath();
+  ctx.moveTo(x - 4, 0);
+  ctx.lineTo(x + 4, 0);
+  ctx.lineTo(x, H);
+  ctx.closePath();
+  ctx.fill();
+}
+
+function _epRedrawAllCanvases() {
+  _epDrawTagCanvas(document.getElementById("ep-status-canvas"), _csvRows, "frame_line_status", _epActiveStatus, _epStatusColorMap);
+  _epDrawTagCanvas(document.getElementById("ep-note-canvas"),   _csvRows, "note",              _epActiveNote,   _epNoteColorMap);
+  _epDrawCursor(document.getElementById("ep-status-cursor"));
+  _epDrawCursor(document.getElementById("ep-note-cursor"));
+}
+
+function _epUpdateBarsVisibility() {
+  const hasStatus = _csvRows.some(r => r.frame_line_status && r.frame_line_status !== "0");
+  const hasNote   = _csvRows.some(r => r.note);
+  const sw = document.getElementById("ep-status-bar-wrap");
+  const nw = document.getElementById("ep-note-bar-wrap");
+  if (sw) sw.style.display = hasStatus ? "" : "none";
+  if (nw) nw.style.display = hasNote   ? "" : "none";
+}
+
 // ── Public API ────────────────────────────────────────────────────────────────
 
 export function getVideoPath()     { return _videoPath; }
@@ -53,6 +141,10 @@ export async function openPlayer(videoPath, siblingPath) {
 
   const seekEl = document.getElementById("ep-seek");
   if (seekEl) { seekEl.min = 0; seekEl.max = frameCount - 1; seekEl.value = 0; }
+
+  await _epLoadCsv(videoPath);
+  _epUpdateBarsVisibility();
+  _epRedrawAllCanvases();
 
   _epUpdateSyncCamUI();
 
@@ -159,6 +251,8 @@ function _epUpdateDisplay() {
   if (numEl)   numEl.textContent   = _currentFrame + 1;
   if (totalEl) totalEl.textContent = _frameCount;
   if (seekEl)  seekEl.value        = _currentFrame;
+  _epDrawCursor(document.getElementById("ep-status-cursor"));
+  _epDrawCursor(document.getElementById("ep-note-cursor"));
 }
 
 // ── Playback ──────────────────────────────────────────────────────────────────
@@ -192,6 +286,15 @@ function _setStatus(msg) {
 // ── Event wiring (runs once DOM is ready) ─────────────────────────────────────
 
 document.addEventListener("DOMContentLoaded", () => {
+  let _resizeRaf = null;
+  window.addEventListener("resize", () => {
+    if (_resizeRaf) cancelAnimationFrame(_resizeRaf);
+    _resizeRaf = requestAnimationFrame(() => {
+      _epRedrawAllCanvases();
+      _resizeRaf = null;
+    });
+  });
+
   // Seek bar
   document.getElementById("ep-seek")?.addEventListener("input", (e) => {
     _stop();

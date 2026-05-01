@@ -102,3 +102,30 @@
 }
 #dlc-3d-extract-card .frame-chip.cam0 { border-color: #3fb950; color: #3fb950; }
 #dlc-3d-extract-card .frame-chip.cam1 { border-color: #58a6ff; color: #58a6ff; }
+
+/* ── Timeline strips (status + note) ── */
+#dlc-3d-extract-card .ep-bar-header {
+  display: flex; align-items: center; gap: .35rem;
+  font-size: .72rem; color: var(--text-dim);
+  margin: .25rem 0 .15rem 0;
+}
+#dlc-3d-extract-card .ep-strip-label { flex-shrink: 0; min-width: 3rem; }
+#dlc-3d-extract-card .ep-strip-nav  { padding: 1px 5px; font-size: 9px; }
+#dlc-3d-extract-card .ep-chip-row {
+  display: flex; flex-wrap: wrap; gap: 3px;
+  flex: 1; min-width: 0;
+}
+#dlc-3d-extract-card .ep-chip {
+  font-size: 10px; padding: 1px 6px; border-radius: 3px;
+  border: 1px solid transparent; cursor: pointer;
+  color: #0d1117; font-family: var(--mono);
+}
+#dlc-3d-extract-card .ep-chip.active {
+  outline: 2px solid var(--accent); outline-offset: 1px;
+}
+#dlc-3d-extract-card #ep-status-canvas,
+#dlc-3d-extract-card #ep-note-canvas,
+#dlc-3d-extract-card #ep-status-cursor,
+#dlc-3d-extract-card #ep-note-cursor {
+  width: 100%; display: block;
+}

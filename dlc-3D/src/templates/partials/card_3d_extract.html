@@ -77,6 +77,30 @@
         <!-- Seek slider -->
         <input type="range" id="ep-seek" class="fe-seek" min="0" max="0" value="0">
 
+        <!-- Status timeline -->
+        <div id="ep-status-bar-wrap" style="display:none">
+          <div class="ep-bar-header">
+            <span class="ep-strip-label">Status</span>
+            <button class="btn-sm ep-strip-nav" id="ep-status-prev" disabled title="Previous (active chip)">◀</button>
+            <button class="btn-sm ep-strip-nav" id="ep-status-next" disabled title="Next (active chip)">▶</button>
+            <div id="ep-status-chips" class="ep-chip-row"></div>
+          </div>
+          <canvas id="ep-status-canvas" height="10"></canvas>
+          <canvas id="ep-status-cursor" height="6"></canvas>
+        </div>
+
+        <!-- Note timeline -->
+        <div id="ep-note-bar-wrap" style="display:none">
+          <div class="ep-bar-header">
+            <span class="ep-strip-label">Note</span>
+            <button class="btn-sm ep-strip-nav" id="ep-note-prev" disabled title="Previous (active chip)">◀</button>
+            <button class="btn-sm ep-strip-nav" id="ep-note-next" disabled title="Next (active chip)">▶</button>
+            <div id="ep-note-chips" class="ep-chip-row"></div>
+          </div>
+          <canvas id="ep-note-canvas" height="10"></canvas>
+          <canvas id="ep-note-cursor" height="6"></canvas>
+        </div>
+
         <!-- Sync cam row -->
         <div id="sync-cam-row" style="display:none;align-items:center;gap:1rem;margin:.4rem 0;font-size:.78rem">
           <label class="toggle">
