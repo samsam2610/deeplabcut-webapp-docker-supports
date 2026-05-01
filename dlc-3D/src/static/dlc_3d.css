@@ -160,11 +160,34 @@
 .fl3d-tile.focused {
   border-color: var(--accent);
 }
+.fl3d-tile-header {
+  display: flex;
+  align-items: center;
+  gap: .35rem;
+  margin-bottom: 2px;
+}
 .fl3d-tile-label {
   font-size: .7rem;
   color: var(--text-dim);
-  margin-bottom: 2px;
   font-family: var(--mono);
+}
+.fl3d-tile-size {
+  width: 70px;
+  accent-color: var(--accent);
+}
+.fl3d-tile-size-val {
+  font-size: .7rem;
+  color: var(--text);
+  min-width: 2.6rem;
+  text-align: right;
+}
+.fl3d-tile-size,
+.fl3d-tile-size-val {
+  display: none;
+}
+.fl3d-canvas-row.sync-on .fl3d-tile-size,
+.fl3d-canvas-row.sync-on .fl3d-tile-size-val {
+  display: inline-block;
 }
 .fl3d-tile-canvas {
   display: block;
