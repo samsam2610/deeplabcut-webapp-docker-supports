@@ -55,8 +55,8 @@ def test_file_browser_hidden_without_project(page, base_url):
     assert display == "none"
 
 
-def test_browse_btn_hidden_without_project(page, base_url):
+def test_browse_row_hidden_without_project(page, base_url):
     page.goto(base_url)
     page.locator("#btn-open-frame-extractor").click()
-    display = page.evaluate("document.getElementById('dlc3d-browse-btn')?.style.display ?? 'missing'")
+    display = page.evaluate("document.getElementById('dlc3d-browse-row')?.style.display ?? 'missing'")
     assert display == "none"
