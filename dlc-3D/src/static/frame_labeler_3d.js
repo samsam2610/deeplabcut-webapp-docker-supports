@@ -25,7 +25,7 @@ export { FL3D_FRAME_RE, buildPairMap } from './pair_map.mjs';
     const flBpHint       = document.getElementById("fl3d-bp-hint");
     const flBtnSave        = document.getElementById("fl3d-btn-save");
     const flBtnSaveH5      = document.getElementById("fl3d-btn-save-h5");
-    const flSaveStatus     = document.getElementById("fl3d-save-status");
+    const flSaveStatus     = document.getElementById("fl-save-status");
     const flLabelCount     = document.getElementById("fl3d-label-count");
     const flScorerFilename = document.getElementById("fl3d-scorer-filename");
     const flMarkerSizeInput = document.getElementById("fl3d-marker-size");
@@ -863,14 +863,14 @@ export { FL3D_FRAME_RE, buildPairMap } from './pair_map.mjs';
       flBpHint.classList.add("hidden");
       _flBodyparts.forEach((bp, i) => {
         const chip = document.createElement("button");
-        chip.className = "fl3d-bp-chip";
+        chip.className = "fl-bp-chip";
         chip.dataset.bp = bp;
         chip.style.setProperty("--fl-color", _flColor(i));
         chip.innerHTML =
-          `<span class="fl3d-bp-dot"></span>` +
-          `<span class="fl3d-bp-name">${bp}</span>` +
-          `<svg class="fl3d-bp-check" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><polyline points="20 6 9 17 4 12"/></svg>` +
-          `<svg class="fl3d-bp-eye-slash" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94"/><path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19"/><line x1="1" y1="1" x2="23" y2="23"/></svg>`;
+          `<span class="fl-bp-dot"></span>` +
+          `<span class="fl-bp-name">${bp}</span>` +
+          `<svg class="fl-bp-check" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><polyline points="20 6 9 17 4 12"/></svg>` +
+          `<svg class="fl-bp-eye-slash" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94"/><path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19"/><line x1="1" y1="1" x2="23" y2="23"/></svg>`;
         chip.addEventListener("click", () => _flSelectBp(bp));
         chip.addEventListener("dblclick", e => {
           e.preventDefault();
@@ -1402,7 +1402,7 @@ export { FL3D_FRAME_RE, buildPairMap } from './pair_map.mjs';
         if (!res.ok) {
           const d = await res.json().catch(() => ({}));
           flSaveStatus.textContent = `Delete failed: ${d.error || res.status}`;
-          flSaveStatus.className   = "fl3d-save-status err";
+          flSaveStatus.className   = "fl-save-status err";
           return;
         }
         // Remove from in-memory state
@@ -1421,10 +1421,10 @@ export { FL3D_FRAME_RE, buildPairMap } from './pair_map.mjs';
           _flShowFrame(Math.min(_flFrameIdx, _flFrames.length - 1));
         }
         flSaveStatus.textContent = `Deleted ${fname}`;
-        flSaveStatus.className   = "fl3d-save-status";
+        flSaveStatus.className   = "fl-save-status";
       } catch (err) {
         flSaveStatus.textContent = `Delete error: ${err.message}`;
-        flSaveStatus.className   = "fl3d-save-status err";
+        flSaveStatus.className   = "fl-save-status err";
       } finally {
         btn.disabled = false;
       }
@@ -1543,7 +1543,7 @@ export { FL3D_FRAME_RE, buildPairMap } from './pair_map.mjs';
       if (!_flVideoStem) return;
       flBtnSave.disabled      = true;
       flSaveStatus.textContent = "Saving…";
-      flSaveStatus.className   = "fl3d-save-status";
+      flSaveStatus.className   = "fl-save-status";
       try {
         const res  = await fetch(`/dlc/project/labels/${encodeURIComponent(_flVideoStem)}`, {
           method:  "POST",
@@ -1555,19 +1555,19 @@ export { FL3D_FRAME_RE, buildPairMap } from './pair_map.mjs';
           _flDirty = false;
           const h5note = data.h5_warning ? ` (H5 warning: ${data.h5_warning})` : (data.h5_path ? " + H5" : "");
           flSaveStatus.textContent = `Saved ✓${h5note}`;
-          flSaveStatus.className   = "fl3d-save-status ok";
+          flSaveStatus.className   = "fl-save-status ok";
         } else {
           flSaveStatus.textContent = data.error || "Error saving";
-          flSaveStatus.className   = "fl3d-save-status err";
+          flSaveStatus.className   = "fl-save-status err";
         }
       } catch (err) {
         flSaveStatus.textContent = `Network error: ${err.message}`;
-        flSaveStatus.className   = "fl3d-save-status err";
+        flSaveStatus.className   = "fl-save-status err";
       }
       flBtnSave.disabled = false;
       setTimeout(() => {
         flSaveStatus.textContent = "";
-        flSaveStatus.className   = "fl3d-save-status";
+        flSaveStatus.className   = "fl-save-status";
       }, 4000);
     });
 
@@ -1578,7 +1578,7 @@ export { FL3D_FRAME_RE, buildPairMap } from './pair_map.mjs';
       // First flush current frame's CSV
       flBtnSaveH5.disabled     = true;
       flSaveStatus.textContent = "Saving CSV…";
-      flSaveStatus.className   = "fl3d-save-status";
+      flSaveStatus.className   = "fl-save-status";
       try {
         const csvRes = await fetch(`/dlc/project/labels/${encodeURIComponent(_flVideoStem)}`, {
           method: "POST", headers: { "Content-Type": "application/json" },
@@ -1587,14 +1587,14 @@ export { FL3D_FRAME_RE, buildPairMap } from './pair_map.mjs';
         if (!csvRes.ok) {
           const d = await csvRes.json();
           flSaveStatus.textContent = d.error || "CSV save failed";
-          flSaveStatus.className   = "fl3d-save-status err";
+          flSaveStatus.className   = "fl-save-status err";
           flBtnSaveH5.disabled = false;
           return;
         }
         _flDirty = false;
       } catch (err) {
         flSaveStatus.textContent = `Network error: ${err.message}`;
-        flSaveStatus.className   = "fl3d-save-status err";
+        flSaveStatus.className   = "fl-save-status err";
         flBtnSaveH5.disabled = false;
         return;
       }
@@ -1606,7 +1606,7 @@ export { FL3D_FRAME_RE, buildPairMap } from './pair_map.mjs';
         const data = await res.json();
         if (!res.ok) {
           flSaveStatus.textContent = data.error || "Failed to dispatch H5 conversion";
-          flSaveStatus.className   = "fl3d-save-status err";
+          flSaveStatus.className   = "fl-save-status err";
           flBtnSaveH5.disabled = false;
           return;
         }
@@ -1626,9 +1626,9 @@ export { FL3D_FRAME_RE, buildPairMap } from './pair_map.mjs';
               const sk  = (r.skipped  || []).length;
               const note = sk > 0 ? `, ${sk} skipped` : "";
               flSaveStatus.textContent = `Saved ✓ CSV + H5 (${cnt} folder${cnt !== 1 ? "s" : ""}${note})`;
-              flSaveStatus.className   = "fl3d-save-status ok";
+              flSaveStatus.className   = "fl-save-status ok";
               flBtnSaveH5.disabled = false;
-              setTimeout(() => { flSaveStatus.textContent = ""; flSaveStatus.className = "fl3d-save-status"; }, 6000);
+              setTimeout(() => { flSaveStatus.textContent = ""; flSaveStatus.className = "fl-save-status"; }, 6000);
             } else if (td.state === "FAILURE" || td.state === "REVOKED") {
               clearInterval(poll);
               const errFull = td.error || td.state || "";
@@ -1637,7 +1637,7 @@ export { FL3D_FRAME_RE, buildPairMap } from './pair_map.mjs';
               const errLine = lines[lines.length - 1] || errFull;
               flSaveStatus.textContent = "H5 failed: " + errLine;
               flSaveStatus.title       = errFull;   // full traceback on hover
-              flSaveStatus.className   = "fl3d-save-status err";
+              flSaveStatus.className   = "fl-save-status err";
               console.error("H5 conversion traceback:\n", errFull);
               flBtnSaveH5.disabled = false;
             }
@@ -1645,7 +1645,7 @@ export { FL3D_FRAME_RE, buildPairMap } from './pair_map.mjs';
         }, 1500);
       } catch (err) {
         flSaveStatus.textContent = `Network error: ${err.message}`;
-        flSaveStatus.className   = "fl3d-save-status err";
+        flSaveStatus.className   = "fl-save-status err";
         flBtnSaveH5.disabled = false;
       }
     });

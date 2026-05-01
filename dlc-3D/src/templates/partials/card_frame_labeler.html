@@ -203,7 +203,7 @@
       <div id="fl3d-player-section" class="hidden">
 
         <!-- Frame navigation -->
-        <div class="fl3d-frame-nav">
+        <div class="fl-frame-nav">
           <button class="btn-sm fe-ctrl-btn" id="fl3d-btn-prev" title="Previous frame (←)">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polyline points="15 18 9 12 15 6"/><line x1="9" y1="6" x2="9" y2="18"/></svg>
           </button>
@@ -248,15 +248,15 @@
             <div class="fl3d-tile-label" id="fl3d-tile-label-primary"></div>
             <canvas id="fl3d-canvas" class="fl3d-tile-canvas" data-cam="" data-fname=""></canvas>
             <div class="fl3d-tile-empty hidden" id="fl3d-tile-empty-primary"></div>
-            <p class="fl3d-canvas-empty hidden" id="fl3d-canvas-loading">Loading frame…</p>
+            <p class="fl-canvas-empty hidden" id="fl3d-canvas-loading">Loading frame…</p>
           </div>
         </div>
 
         <!-- Body-part selector (napari-style chip list) -->
         <div style="margin-top:.75rem">
           <label style="display:block;font-size:.75rem;font-weight:500;text-transform:uppercase;letter-spacing:.06em;color:var(--text-dim);margin-bottom:.4rem">Body parts — click to select, then click on the frame</label>
-          <div id="fl3d-bodypart-list" class="fl3d-bodypart-list"></div>
-          <p class="fl3d-bp-hint" id="fl3d-bp-hint">No body parts found. Make sure the DLC project has a valid config.yaml.</p>
+          <div id="fl3d-bodypart-list" class="fl-bodypart-list"></div>
+          <p class="fl-bp-hint" id="fl3d-bp-hint">No body parts found. Make sure the DLC project has a valid config.yaml.</p>
         </div>
 
         <!-- Save row -->
@@ -279,8 +279,8 @@
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><line x1="12" y1="11" x2="12" y2="17"/></svg>
             Delete Frame
           </button>
-          <span id="fl3d-save-status" class="fl3d-save-status"></span>
+          <span id="fl3d-save-status" class="fl-save-status"></span>
         </div>
-        <span id="fl3d-label-count" class="fl3d-label-count">0 / 0 frames labeled</span>
+        <span id="fl3d-label-count" class="fl-label-count">0 / 0 frames labeled</span>
       </div>
     </section>

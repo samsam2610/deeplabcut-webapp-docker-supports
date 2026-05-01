@@ -230,13 +230,13 @@ def _select_unlabeled_chip(page: Page, fname: str):
     unaffected (auto-save only fires on frame-switch + dirty=true).
     """
     chips = page.eval_on_selector_all(
-        "#fl3d-bodypart-list .fl3d-bp-chip",
+        "#fl3d-bodypart-list .fl-bp-chip",
         "chips => chips.map(c => c.getAttribute('data-bp'))",
     )
     labels = page.evaluate(f"window.__fl3d.labels['{fname}'] || {{}}")
     bp = next((c for c in chips if labels.get(c) in (None, [None, None])), chips[0])
     page.evaluate(f"window.__fl3d.labels['{fname}'] = {{}}")
-    page.locator(f'.fl3d-bp-chip[data-bp="{bp}"]').click()
+    page.locator(f'.fl-bp-chip[data-bp="{bp}"]').click()
     page.wait_for_function(f"window.__fl3d.selectedBp === '{bp}'")
     return bp
 
@@ -299,7 +299,7 @@ def test_f7_keyboard_nudge_only_when_hover_focused(page: Page):
     page.wait_for_function(f"window.__fl3d.labels['{focused_fname}']?.['{bp}']")
     # The placement runs _flAutoAdvanceBp which switches the selected chip to
     # the next unlabeled body-part — re-select our bp so W targets the right one.
-    page.locator(f'.fl3d-bp-chip[data-bp="{bp}"]').click()
+    page.locator(f'.fl-bp-chip[data-bp="{bp}"]').click()
     page.wait_for_function(f"window.__fl3d.selectedBp === '{bp}'")
     before = page.evaluate(f"window.__fl3d.labels['{focused_fname}']['{bp}']")
     cams = page.eval_on_selector_all(
@@ -437,7 +437,7 @@ def test_i1_clear_frame_focused_tile_only(page: Page):
     sibling_tile.click()
     page.wait_for_function(f"window.__fl3d.focusedCam === {sibling}")
     # Re-select bp on sibling (auto-advance from primary may have changed it).
-    page.locator(f'.fl3d-bp-chip[data-bp="{bp}"]').click()
+    page.locator(f'.fl-bp-chip[data-bp="{bp}"]').click()
     page.wait_for_function(f"window.__fl3d.selectedBp === '{bp}'")
     _click_canvas_center(page, sibling)
     # Refocus primary by clicking the tile's top label area (not the canvas) to
