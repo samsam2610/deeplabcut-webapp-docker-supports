@@ -1473,10 +1473,14 @@ export { FL3D_FRAME_RE, buildPairMap } from './pair_map.mjs';
 
       // WASD nudge: move the selected marker when cursor is inside the canvas
       // and the current frame already has a point placed for the active body part.
+      // In sync mode, sibling tiles have their own canvases (so _flCursorInCanvas
+      // — bound to the primary canvas — wouldn't fire); use the per-tile hover
+      // tracker instead, gated to the focused tile.
       const _wasdKeys = ["a", "d", "w", "s"];
-      if (_wasdKeys.includes(e.key) && _flCursorInCanvas && _flSelectedBp && _flVideoStem) {
-        // In sync mode, only nudge when hovering the focused tile
-        if (_fl3dSyncOn && _fl3dHoveredCam !== _fl3dFocusedCam) return;
+      const _wasdGate = _fl3dSyncOn
+        ? (_fl3dHoveredCam === _fl3dFocusedCam && _fl3dHoveredCam !== null)
+        : _flCursorInCanvas;
+      if (_wasdKeys.includes(e.key) && _wasdGate && _flSelectedBp && _flVideoStem) {
         const fname = _fl3dActiveFname();
         const pt    = fname && _flLabels[fname] && _flLabels[fname][_flSelectedBp];
         if (pt && pt[0] !== null) {
