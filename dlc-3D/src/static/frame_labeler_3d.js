@@ -673,13 +673,15 @@ export { FL3D_FRAME_RE, buildPairMap } from './pair_map.mjs';
         _fl3dFrameNumIdx = _fl3dFrameNumbers.indexOf(currentFrameNum);
         if (_fl3dFrameNumIdx < 0) _fl3dFrameNumIdx = 0;
         _fl3dSyncOn = true;
-        _fl3dSyncRenderRow(_fl3dFrameNumbers[_fl3dFrameNumIdx]);
+        _flShowFrame(_fl3dFrameNumIdx);
       } else {
+        // Capture focused fname while sync is still on
+        const focusedFname = _fl3dActiveFname();
         _fl3dSyncOn = false;
-        // Remove sibling tiles
         document.querySelectorAll("#fl3d-canvas-row .fl3d-tile-sibling").forEach(t => t.remove());
-        // Re-fit primary canvas back to single-tile width
-        if (_flImgLoaded) { _flFitCanvas(); _flDraw(); }
+        const idx = _flFrames.indexOf(focusedFname);
+        if (idx >= 0) _flFrameIdx = idx;
+        _flShowFrame(_flFrameIdx);
       }
     });
 
@@ -891,6 +893,22 @@ export { FL3D_FRAME_RE, buildPairMap } from './pair_map.mjs';
 
     // ── Frame display ────────────────────────────────────────────
     function _flShowFrame(idx) {
+      if (_fl3dSyncOn) {
+        if (!_fl3dFrameNumbers.length) return;
+        if (_flDirty) { _flDirty = false; _flAutoSave(); }
+        idx = Math.max(0, Math.min(idx, _fl3dFrameNumbers.length - 1));
+        _fl3dFrameNumIdx = idx;
+        const frameNum = _fl3dFrameNumbers[idx];
+        flFrameInfo.textContent = `Frame ${idx + 1} / ${_fl3dFrameNumbers.length}`;
+        // Update primary fname display from the focused tile after render
+        _fl3dSyncRenderRow(frameNum);
+        const focusedFname = _fl3dActiveFname();
+        flFrameName.textContent = focusedFname || `(no cam${_fl3dFocusedCam} @ ${String(frameNum).padStart(5, "0")})`;
+        _flUpdateBpChipStatus();
+        _flUpdateLabelCount();
+        _flTapUpdateFrameStatus();
+        return;
+      }
       if (!_flFrames.length) return;
       // Auto-save unsaved changes before switching frames
       if (_flDirty) { _flDirty = false; _flAutoSave(); }
@@ -1351,8 +1369,8 @@ export { FL3D_FRAME_RE, buildPairMap } from './pair_map.mjs';
     }
 
     // ── Navigation ───────────────────────────────────────────────
-    flBtnPrev.addEventListener("click", () => _flShowFrame(_flFrameIdx - 1));
-    flBtnNext.addEventListener("click", () => _flShowFrame(_flFrameIdx + 1));
+    flBtnPrev.addEventListener("click", () => _flShowFrame((_fl3dSyncOn ? _fl3dFrameNumIdx : _flFrameIdx) - 1));
+    flBtnNext.addEventListener("click", () => _flShowFrame((_fl3dSyncOn ? _fl3dFrameNumIdx : _flFrameIdx) + 1));
 
     document.addEventListener("keydown", e => {
       if (flCard.classList.contains("hidden")) return;
@@ -1408,8 +1426,8 @@ export { FL3D_FRAME_RE, buildPairMap } from './pair_map.mjs';
       }
 
       // Frame navigation (arrow keys)
-      if (e.key === "ArrowLeft")  { e.preventDefault(); _flShowFrame(_flFrameIdx - 1); }
-      if (e.key === "ArrowRight") { e.preventDefault(); _flShowFrame(_flFrameIdx + 1); }
+      if (e.key === "ArrowLeft")  { e.preventDefault(); _flShowFrame((_fl3dSyncOn ? _fl3dFrameNumIdx : _flFrameIdx) - 1); }
+      if (e.key === "ArrowRight") { e.preventDefault(); _flShowFrame((_fl3dSyncOn ? _fl3dFrameNumIdx : _flFrameIdx) + 1); }
 
       // Delete (with cursor over canvas) — also deletes selected marker
       if (e.key === "Delete" && _flCursorInCanvas && _flSelectedBp && _flVideoStem) {
