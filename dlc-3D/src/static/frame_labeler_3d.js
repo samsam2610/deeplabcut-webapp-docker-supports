@@ -25,7 +25,7 @@ export { FL3D_FRAME_RE, buildPairMap } from './pair_map.mjs';
     const flBpHint       = document.getElementById("fl3d-bp-hint");
     const flBtnSave        = document.getElementById("fl3d-btn-save");
     const flBtnSaveH5      = document.getElementById("fl3d-btn-save-h5");
-    const flSaveStatus     = document.getElementById("fl-save-status");
+    const flSaveStatus     = document.getElementById("fl3d-save-status");
     const flLabelCount     = document.getElementById("fl3d-label-count");
     const flScorerFilename = document.getElementById("fl3d-scorer-filename");
     const flMarkerSizeInput = document.getElementById("fl3d-marker-size");

@@ -1086,6 +1086,37 @@ def test_p8_chip_click_immediately_paints_selection_ring(page: Page):
     )
 
 
+def test_p10_save_button_shows_visible_feedback(page: Page):
+    """User report: 'Save Labels button doesn't have feedback to let the
+    user know if the labels have been saved.' Root cause was that the
+    sed pass during chip-styling restoration over-reverted
+    getElementById('fl3d-save-status') to ('fl-save-status'), so flSaveStatus
+    was null and the handler crashed silently on the first textContent set.
+
+    Verify: Save click → 'Saving…' transient → 'Saved ✓' (or error) appears
+    in #fl3d-save-status with appropriate class."""
+    _enable_sync_at_frame(page, advance=2)
+    page.locator("#fl3d-btn-save").click()
+    # Transient "Saving…" — must appear before fetch resolves.
+    page.wait_for_function(
+        "() => document.getElementById('fl3d-save-status').textContent.startsWith('Saving')",
+        timeout=5000,
+    )
+    # Resolution — wait up to 30s for the CSV save to finish.
+    page.wait_for_function(
+        "() => { const t = document.getElementById('fl3d-save-status').textContent; return t && !t.startsWith('Saving'); }",
+        timeout=30000,
+    )
+    state = page.evaluate("""(() => {
+        const el = document.getElementById('fl3d-save-status');
+        return {text: el.textContent, cls: el.className};
+    })()""")
+    assert "Saved" in state["text"] or "✓" in state["text"], (
+        f"expected save success message, got: {state}"
+    )
+    assert "ok" in state["cls"], f"status class should include 'ok', got: {state['cls']}"
+
+
 def test_p9_hover_marker_shows_name_tooltip(page: Page):
     """User report: 'hover cursor over marker doesn't show its name.'
     _fl3dDrawTileMarkers must honor _flHoverBp the way the main webapp's
