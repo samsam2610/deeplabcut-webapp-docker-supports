@@ -1030,6 +1030,54 @@ export { FL3D_FRAME_RE, buildPairMap } from './pair_map.mjs';
 
       // Stash the image on the tile for re-draw on marker-size / show-names changes
       tile._fl3dImg = img;
+
+      // ── Sibling-tile input listeners ──────────────────────────────
+      // Only attach to sibling tiles; the primary tile's listeners are attached
+      // once at startup above to prevent accumulation across re-renders.
+      if (tile.classList.contains("fl3d-tile-sibling")) {
+        // Hover tracking
+        tile.addEventListener("mouseenter", () => { _fl3dHoveredCam = +tile.dataset.cam; });
+        tile.addEventListener("mouseleave", () => {
+          if (_fl3dHoveredCam === +tile.dataset.cam) _fl3dHoveredCam = null;
+        });
+
+        // Click → place marker on focused tile
+        canvas.addEventListener("click", (e) => {
+          if (!tile.dataset.fname) return;  // empty placeholder, no-op
+          if (+tile.dataset.cam !== _fl3dFocusedCam) return;  // only focused tile accepts input
+          const rect = canvas.getBoundingClientRect();
+          const sx = canvas.width  / rect.width;
+          const sy = canvas.height / rect.height;
+          const cx = (e.clientX - rect.left) * sx;
+          const cy = (e.clientY - rect.top)  * sy;
+          const fname = tile.dataset.fname;
+          if (!_flSelectedBp) return;
+          if (!_flLabels[fname]) _flLabels[fname] = {};
+          _flLabels[fname][_flSelectedBp] = [cx, cy];
+          _fl3dDirtyFrames.add(fname);
+          _flDirty = true;
+          _fl3dDrawTileMarkers(tile, fname);
+          _flUpdateBpChipStatus();
+          _flUpdateLabelCount();
+          _flAutoAdvanceBp();
+        });
+
+        // Right-click → remove marker on focused tile
+        canvas.addEventListener("contextmenu", (e) => {
+          e.preventDefault();
+          if (!tile.dataset.fname) return;
+          if (+tile.dataset.cam !== _fl3dFocusedCam) return;
+          if (!_flSelectedBp) return;
+          const fname = tile.dataset.fname;
+          if (!_flLabels[fname]) return;
+          _flLabels[fname][_flSelectedBp] = null;
+          _fl3dDirtyFrames.add(fname);
+          _flDirty = true;
+          _fl3dDrawTileMarkers(tile, fname);
+          _flUpdateBpChipStatus();
+          _flUpdateLabelCount();
+        });
+      }
     }
 
     function _fl3dDrawTileMarkers(tile, fname) {
@@ -1215,6 +1263,7 @@ export { FL3D_FRAME_RE, buildPairMap } from './pair_map.mjs';
       const scaleY = flCanvas.height / _flImg.naturalHeight;
       if (!_flLabels[fname]) _flLabels[fname] = {};
       _flLabels[fname][_flSelectedBp] = [cx / scaleX, cy / scaleY];
+      _fl3dDirtyFrames.add(fname);
       _flDirty = true;
       _flDraw();
       _flUpdateBpChipStatus();
@@ -1250,12 +1299,25 @@ export { FL3D_FRAME_RE, buildPairMap } from './pair_map.mjs';
       flCanvas.style.cursor = _flSelectedBp ? "crosshair" : "default";
     });
 
+    // ── Primary tile hover tracking (one-shot; attached once at startup) ──
+    // Sibling tiles get their own hover listeners inside _fl3dRenderTile.
+    const _fl3dPrimaryTileEl = document.querySelector("#fl3d-canvas-row .fl3d-tile");
+    if (_fl3dPrimaryTileEl) {
+      _fl3dPrimaryTileEl.addEventListener("mouseenter", () => {
+        _fl3dHoveredCam = +_fl3dPrimaryTileEl.dataset.cam || 0;
+      });
+      _fl3dPrimaryTileEl.addEventListener("mouseleave", () => {
+        if (_fl3dHoveredCam === (+_fl3dPrimaryTileEl.dataset.cam || 0)) _fl3dHoveredCam = null;
+      });
+    }
+
     function _flRemoveBpLabel(bp) {
       const fname = _fl3dActiveFname();
       if (!fname || !_flLabels[fname]) return;
       _flLabels[fname][bp] = null;
       // Also clear hidden state when marker is deleted
       if (_flHidden[fname]) delete _flHidden[fname][bp];
+      _fl3dDirtyFrames.add(fname);
       _flDirty = true;
       _flDraw();
       _flUpdateBpChipStatus();
@@ -1380,6 +1442,8 @@ export { FL3D_FRAME_RE, buildPairMap } from './pair_map.mjs';
       // and the current frame already has a point placed for the active body part.
       const _wasdKeys = ["a", "d", "w", "s"];
       if (_wasdKeys.includes(e.key) && _flCursorInCanvas && _flSelectedBp && _flVideoStem) {
+        // In sync mode, only nudge when hovering the focused tile
+        if (_fl3dSyncOn && _fl3dHoveredCam !== _fl3dFocusedCam) return;
         const fname = _fl3dActiveFname();
         const pt    = fname && _flLabels[fname] && _flLabels[fname][_flSelectedBp];
         if (pt && pt[0] !== null) {
@@ -1394,6 +1458,7 @@ export { FL3D_FRAME_RE, buildPairMap } from './pair_map.mjs';
           x = Math.max(0, Math.min(x, _flImg.naturalWidth  - 1));
           y = Math.max(0, Math.min(y, _flImg.naturalHeight - 1));
           _flLabels[fname][_flSelectedBp] = [x, y];
+          _fl3dDirtyFrames.add(fname);
           _flDirty = true;
           _flDraw();
           return;
