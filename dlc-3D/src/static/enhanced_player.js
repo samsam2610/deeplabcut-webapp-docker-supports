@@ -8,11 +8,14 @@ const _EP_FPS = 15;
 let _videoPath     = null;
 let _frameCount    = 0;
 let _currentFrame  = 0;
-let _stepSize      = 10;
-let _playing       = false;
-let _playDir       = 1;
-let _busy          = false;
-let _timerId       = null;
+let _stepSize       = 10;
+let _playing        = false;
+let _playDir        = 1;
+let _playN          = 1;
+let _looping        = true;
+let _activePresetIdx = null;
+let _busy           = false;
+let _timerId        = null;
 let _syncCamEnabled   = false;
 let _siblingVideoPath = null;
 
@@ -192,9 +195,18 @@ export async function openPlayer(videoPath, siblingPath) {
   _syncCamEnabled   = false;
   _currentFrame     = 0;
   _stepSize         = 10;
+  _playDir          = 1;
+  _playN            = 1;
+  _looping          = true;
+  _activePresetIdx  = null;
 
   const stepEl = document.getElementById("ep-step");
   if (stepEl) stepEl.value = 10;
+  const playnEl = document.getElementById("ep-playn");
+  if (playnEl) playnEl.value = 1;
+  const loopBtn = document.getElementById("ep-loop");
+  if (loopBtn) loopBtn.classList.toggle("active", _looping);
+  document.querySelectorAll(".ep-step-preset").forEach(el => el.classList.remove("active"));
 
   // Show primary frame area
   const noMsg = document.getElementById("no-video-msg");
@@ -335,9 +347,13 @@ function _epUpdateDisplay() {
 async function _epLoop() {
   if (!_playing) return;
   if (_busy) { _timerId = setTimeout(_epLoop, Math.round(1000 / _EP_FPS)); return; }
-  let next = _currentFrame + _playDir;
-  if (next >= _frameCount) next = 0;
-  if (next < 0) next = _frameCount - 1;
+  let next = _currentFrame + (_playN * _playDir);
+  if (_playDir > 0 && next >= _frameCount) {
+    if (_looping) next = 0; else { _stop(); return; }
+  }
+  if (_playDir < 0 && next < 0) {
+    if (_looping) next = _frameCount - 1; else { _stop(); return; }
+  }
   const t0 = performance.now();
   await _epLoadFrame(next);
   if (!_playing) return;
@@ -345,12 +361,27 @@ async function _epLoop() {
   _timerId = setTimeout(_epLoop, delay);
 }
 
+function _epPlayDir(dir) {
+  if (!_videoPath) return;
+  if (_playing && _playDir === dir) { _stop(); return; }
+  _stop();
+  _playDir = dir;
+  _playing = true;
+  const playBtn     = document.getElementById("ep-play");
+  const playBackBtn = document.getElementById("ep-play-back");
+  if (playBtn)     playBtn.textContent     = dir === 1  ? "⏸" : "▶";
+  if (playBackBtn) playBackBtn.textContent = dir === -1 ? "⏸" : "◀";
+  _epLoop();
+}
+
 function _stop() {
   if (_timerId !== null) { clearTimeout(_timerId); _timerId = null; }
   _playing = false;
   _busy    = false;
-  const playBtn = document.getElementById("ep-play");
-  if (playBtn) playBtn.textContent = "▶";
+  const playBtn     = document.getElementById("ep-play");
+  const playBackBtn = document.getElementById("ep-play-back");
+  if (playBtn)     playBtn.textContent     = "▶";
+  if (playBackBtn) playBackBtn.textContent = "◀";
 }
 
 function _setStatus(msg) {
@@ -401,30 +432,32 @@ document.addEventListener("DOMContentLoaded", () => {
     _epLoadFrame(parseInt(e.target.value, 10));
   });
 
-  // Play
-  document.getElementById("ep-play")?.addEventListener("click", () => {
+  // Play forward / backward
+  document.getElementById("ep-play")?.addEventListener("click",      () => _epPlayDir(+1));
+  document.getElementById("ep-play-back")?.addEventListener("click", () => _epPlayDir(-1));
+
+  // Step ± N
+  document.getElementById("ep-back")?.addEventListener("click", () => {
     if (!_videoPath) return;
-    if (_playing) {
-      _stop();
-    } else {
-      _playing = true;
-      document.getElementById("ep-play").textContent = "⏸";
-      _epLoop();
-    }
+    _stop();
+    _epLoadFrame(_currentFrame - _stepSize);
+  });
+  document.getElementById("ep-fwd")?.addEventListener("click", () => {
+    if (!_videoPath) return;
+    _stop();
+    _epLoadFrame(_currentFrame + _stepSize);
   });
 
-  // Step back / forward
-  document.getElementById("ep-step-back")?.addEventListener("click", () => {
+  // Step ± 1
+  document.getElementById("ep-back1")?.addEventListener("click", () => {
     if (!_videoPath) return;
     _stop();
-    const s = parseInt(document.getElementById("ep-step")?.value || "10", 10);
-    _epLoadFrame(_currentFrame - s);
+    _epLoadFrame(_currentFrame - 1);
   });
-  document.getElementById("ep-step-fwd")?.addEventListener("click", () => {
+  document.getElementById("ep-fwd1")?.addEventListener("click", () => {
     if (!_videoPath) return;
     _stop();
-    const s = parseInt(document.getElementById("ep-step")?.value || "10", 10);
-    _epLoadFrame(_currentFrame + s);
+    _epLoadFrame(_currentFrame + 1);
   });
 
   // Skip to start / end
@@ -435,6 +468,42 @@ document.addEventListener("DOMContentLoaded", () => {
   document.getElementById("ep-skip-end")?.addEventListener("click", () => {
     if (!_videoPath) return;
     _stop(); _epLoadFrame(_frameCount - 1);
+  });
+
+  // Loop toggle
+  const loopBtn = document.getElementById("ep-loop");
+  if (loopBtn) {
+    loopBtn.classList.toggle("active", _looping);
+    loopBtn.addEventListener("click", () => {
+      _looping = !_looping;
+      loopBtn.classList.toggle("active", _looping);
+    });
+  }
+
+  // Step presets (radio-style + editable)
+  document.querySelectorAll(".ep-step-preset").forEach(input => {
+    input.addEventListener("click", () => {
+      const v = Math.max(1, parseInt(input.value, 10) || 10);
+      _stepSize = v;
+      const stepEl = document.getElementById("ep-step");
+      if (stepEl) stepEl.value = v;
+      _activePresetIdx = parseInt(input.dataset.idx, 10);
+      document.querySelectorAll(".ep-step-preset").forEach(el => el.classList.remove("active"));
+      input.classList.add("active");
+    });
+    input.addEventListener("change", () => {
+      if (parseInt(input.dataset.idx, 10) === _activePresetIdx) {
+        const v = Math.max(1, parseInt(input.value, 10) || 10);
+        _stepSize = v;
+        const stepEl = document.getElementById("ep-step");
+        if (stepEl) stepEl.value = v;
+      }
+    });
+  });
+
+  // Play× input
+  document.getElementById("ep-playn")?.addEventListener("change", (e) => {
+    _playN = Math.max(1, parseInt(e.target.value, 10) || 1);
   });
 
   // Sync cam checkbox

@@ -62,15 +62,36 @@
         <!-- Controls row -->
         <div class="fe-controls">
           <button id="ep-skip-start" class="btn-sm fe-ctrl-btn" title="Jump to start">⏮</button>
-          <button id="ep-step-back"  class="btn-sm fe-ctrl-btn" title="Step back N frames">◀◀</button>
-          <button id="ep-play"       class="btn-sm fe-ctrl-btn" title="Play / pause">▶</button>
-          <button id="ep-step-fwd"   class="btn-sm fe-ctrl-btn" title="Step forward N frames">▶▶</button>
+          <button id="ep-back"       class="btn-sm fe-ctrl-btn" title="Back N (Shift+←)">◀◀</button>
+          <button id="ep-back1"      class="btn-sm fe-ctrl-btn" title="Back 1 (←)">‹</button>
+          <button id="ep-play-back"  class="btn-sm fe-ctrl-btn" title="Play backward (Shift+Space)">◀</button>
+          <button id="ep-play"       class="btn-sm fe-ctrl-btn" title="Play forward (Space)">▶</button>
+          <button id="ep-fwd1"       class="btn-sm fe-ctrl-btn" title="Forward 1 (→)">›</button>
+          <button id="ep-fwd"        class="btn-sm fe-ctrl-btn" title="Forward N (Shift+→)">▶▶</button>
           <button id="ep-skip-end"   class="btn-sm fe-ctrl-btn" title="Jump to end">⏭</button>
-          <input type="number" id="ep-step" value="10" min="1" max="9999"
-            title="Skip N frames"
-            style="width:4rem;text-align:center;font-family:var(--mono);font-size:.78rem;
-                   padding:.18rem .3rem;background:var(--surface-2);border:1px solid var(--border);
-                   border-radius:5px;color:var(--text)">
+          <button id="ep-loop"       class="btn-sm fe-ctrl-btn active" title="Loop playback">↻</button>
+
+          <span class="ep-ctrl-sep">Step</span>
+          <input type="number" id="ep-step" min="1" value="10" title="Step size (frames)"
+                 style="width:4rem;text-align:center;font-family:var(--mono);font-size:.78rem;
+                        padding:.18rem .3rem;background:var(--surface-2);border:1px solid var(--border);
+                        border-radius:5px;color:var(--text)">
+          <input type="number" class="ep-step-preset" data-idx="0" value="50"  title="Step preset 1"
+                 style="width:3rem;text-align:center;font-family:var(--mono);font-size:.7rem;padding:.15rem;
+                        background:var(--surface-2);border:1px solid var(--border);border-radius:4px;color:var(--text-dim)">
+          <input type="number" class="ep-step-preset" data-idx="1" value="100" title="Step preset 2"
+                 style="width:3rem;text-align:center;font-family:var(--mono);font-size:.7rem;padding:.15rem;
+                        background:var(--surface-2);border:1px solid var(--border);border-radius:4px;color:var(--text-dim)">
+          <input type="number" class="ep-step-preset" data-idx="2" value="200" title="Step preset 3"
+                 style="width:3rem;text-align:center;font-family:var(--mono);font-size:.7rem;padding:.15rem;
+                        background:var(--surface-2);border:1px solid var(--border);border-radius:4px;color:var(--text-dim)">
+
+          <span class="ep-ctrl-sep">Play×</span>
+          <input type="number" id="ep-playn" min="1" value="1" title="Play every N frames"
+                 style="width:3.5rem;text-align:center;font-family:var(--mono);font-size:.78rem;
+                        padding:.18rem .3rem;background:var(--surface-2);border:1px solid var(--border);
+                        border-radius:5px;color:var(--text)">
+
           <span class="fe-frame-counter">Frame <span id="ep-frame-num">—</span> / <span id="ep-frame-total">—</span></span>
         </div>
 

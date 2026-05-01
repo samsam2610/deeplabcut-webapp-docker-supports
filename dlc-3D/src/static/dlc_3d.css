@@ -129,3 +129,14 @@
 #dlc-3d-extract-card #ep-note-cursor {
   width: 100%; display: block;
 }
+
+/* ── Playback controls ── */
+#dlc-3d-extract-card .ep-ctrl-sep {
+  font-size: .72rem; color: var(--text-dim); margin-left: .4rem;
+}
+#dlc-3d-extract-card .ep-step-preset.active {
+  outline: 2px solid var(--accent); outline-offset: -1px;
+}
+#dlc-3d-extract-card #ep-loop.active {
+  background: var(--accent); color: #0d1117;
+}
