@@ -153,3 +153,156 @@ def test_d3_focused_cam_state_reflects_click(page: Page):
     for cam in cams:
         page.locator(f'#fl3d-canvas-row .fl3d-tile[data-cam="{cam}"]').click()
         assert page.evaluate("window.__fl3d.focusedCam") == cam
+
+
+# ---------- Group E: Lock-step navigation ----------
+
+def test_e1_next_advances_all_tiles(page: Page):
+    page.locator("#fl3d-sync-frame").check()
+    page.wait_for_function("window.__fl3d.syncOn === true")
+    before = page.eval_on_selector_all(
+        "#fl3d-canvas-row .fl3d-tile",
+        "tiles => tiles.map(t => ({cam: +t.dataset.cam, fname: t.dataset.fname}))",
+    )
+    before_idx = page.evaluate("window.__fl3d.frameNumberIdx")
+    page.locator("#fl3d-btn-next").click()
+    page.wait_for_function(f"window.__fl3d.frameNumberIdx === {before_idx + 1}")
+    after = page.eval_on_selector_all(
+        "#fl3d-canvas-row .fl3d-tile",
+        "tiles => tiles.map(t => ({cam: +t.dataset.cam, fname: t.dataset.fname}))",
+    )
+    assert [t["cam"] for t in before] == [t["cam"] for t in after]
+    assert before != after  # at least one tile changed
+
+def test_e2_prev_returns_to_original(page: Page):
+    page.locator("#fl3d-sync-frame").check()
+    page.wait_for_function("window.__fl3d.syncOn === true")
+    original = page.evaluate("window.__fl3d.frameNumberIdx")
+    page.locator("#fl3d-btn-next").click()
+    page.locator("#fl3d-btn-prev").click()
+    assert page.evaluate("window.__fl3d.frameNumberIdx") == original
+
+def test_e3_navigate_until_one_tile_empty(page: Page):
+    page.locator("#fl3d-sync-frame").check()
+    page.wait_for_function("window.__fl3d.syncOn === true")
+    found = False
+    for _ in range(50):
+        empties = page.locator("#fl3d-canvas-row .fl3d-tile-empty:not(.hidden)").count()
+        if empties >= 1:
+            found = True
+            break
+        page.locator("#fl3d-btn-next").click()
+    assert found, "fixture has no frame_number with a missing sibling — pick a richer fixture"
+    empty_tile = page.locator("#fl3d-canvas-row .fl3d-tile:has(.fl3d-tile-empty:not(.hidden))").first
+    empty_cam = empty_tile.evaluate("t => +t.dataset.cam")
+    empty_tile.click()
+    assert page.evaluate("window.__fl3d.focusedCam") == empty_cam
+
+
+# ---------- Group F: Marker placement ----------
+
+def _select_first_chip(page: Page):
+    chip = page.locator("#fl3d-bodypart-list .fl3d-bp-chip").first
+    bp = chip.get_attribute("data-bp")
+    chip.click()
+    page.wait_for_function(f"window.__fl3d.selectedBp === '{bp}'")
+    return bp
+
+def _click_canvas_center(page: Page, tile_cam: int):
+    canvas = page.locator(f'#fl3d-canvas-row .fl3d-tile[data-cam="{tile_cam}"] canvas')
+    box = canvas.bounding_box()
+    page.mouse.click(box["x"] + box["width"] / 2, box["y"] + box["height"] / 2)
+
+def test_f1_marker_added_on_focused_tile(page: Page):
+    page.locator("#fl3d-sync-frame").check()
+    page.wait_for_function("window.__fl3d.syncOn === true")
+    bp = _select_first_chip(page)
+    focused = page.evaluate("window.__fl3d.focusedCam")
+    focused_fname = page.eval_on_selector(
+        "#fl3d-canvas-row .fl3d-tile.focused", "t => t.dataset.fname"
+    )
+    _click_canvas_center(page, focused)
+    page.wait_for_function(f"window.__fl3d.dirtyFrames.includes('{focused_fname}')")
+    pt = page.evaluate(f"window.__fl3d.labels['{focused_fname}']?.['{bp}']")
+    assert pt is not None and len(pt) == 2
+
+def test_f2_focus_swap_then_marker_routes_to_sibling(page: Page):
+    page.locator("#fl3d-sync-frame").check()
+    page.wait_for_function("window.__fl3d.syncOn === true")
+    bp = _select_first_chip(page)
+    primary = page.evaluate("window.__fl3d.primaryCam")
+    cams = page.eval_on_selector_all(
+        "#fl3d-canvas-row .fl3d-tile", "tiles => tiles.map(t => +t.dataset.cam)"
+    )
+    sibling_cam = next(c for c in cams if c != primary)
+    sibling_tile = page.locator(f'#fl3d-canvas-row .fl3d-tile[data-cam="{sibling_cam}"]')
+    if sibling_tile.locator(".fl3d-tile-empty:not(.hidden)").count() > 0:
+        pytest.skip("sibling tile is empty placeholder for current frame_number")
+    sibling_tile.click()
+    page.wait_for_function(f"window.__fl3d.focusedCam === {sibling_cam}")
+    sibling_fname = sibling_tile.evaluate("t => t.dataset.fname")
+    _click_canvas_center(page, sibling_cam)
+    page.wait_for_function(f"window.__fl3d.dirtyFrames.includes('{sibling_fname}')")
+    pt = page.evaluate(f"window.__fl3d.labels['{sibling_fname}']?.['{bp}']")
+    assert pt is not None
+
+def test_f7_keyboard_nudge_only_when_hover_focused(page: Page):
+    page.locator("#fl3d-sync-frame").check()
+    page.wait_for_function("window.__fl3d.syncOn === true")
+    bp = _select_first_chip(page)
+    focused = page.evaluate("window.__fl3d.focusedCam")
+    focused_fname = page.eval_on_selector(
+        "#fl3d-canvas-row .fl3d-tile.focused", "t => t.dataset.fname"
+    )
+    _click_canvas_center(page, focused)
+    page.wait_for_function(f"window.__fl3d.labels['{focused_fname}']?.['{bp}']")
+    before = page.evaluate(f"window.__fl3d.labels['{focused_fname}']['{bp}']")
+    cams = page.eval_on_selector_all(
+        "#fl3d-canvas-row .fl3d-tile", "tiles => tiles.map(t => +t.dataset.cam)"
+    )
+    other = next(c for c in cams if c != focused)
+    other_canvas = page.locator(f'#fl3d-canvas-row .fl3d-tile[data-cam="{other}"] canvas')
+    other_box = other_canvas.bounding_box()
+    page.mouse.move(other_box["x"] + 5, other_box["y"] + 5)
+    page.keyboard.press("w")
+    page.wait_for_timeout(50)
+    after_unhover = page.evaluate(f"window.__fl3d.labels['{focused_fname}']['{bp}']")
+    assert after_unhover == before, "nudge fired when cursor was on unfocused tile"
+    focused_canvas = page.locator(f'#fl3d-canvas-row .fl3d-tile[data-cam="{focused}"] canvas')
+    fb = focused_canvas.bounding_box()
+    page.mouse.move(fb["x"] + fb["width"] / 2, fb["y"] + fb["height"] / 2)
+    page.keyboard.press("w")
+    page.wait_for_timeout(50)
+    after_hover = page.evaluate(f"window.__fl3d.labels['{focused_fname}']['{bp}']")
+    assert after_hover != before
+
+
+# ---------- Group G: Shared display controls ----------
+
+def test_g1_zoom_200_breaks_out(page: Page):
+    page.locator("#fl3d-sync-frame").check()
+    page.wait_for_function("window.__fl3d.syncOn === true")
+    page.locator("#fl3d-zoom").evaluate("(el) => { el.value = '200'; el.dispatchEvent(new Event('input')); }")
+    margin = page.eval_on_selector("#fl3d-canvas-row", "el => parseFloat(el.style.marginLeft) || 0")
+    assert margin < 0
+
+def test_g2_zoom_50_no_negative_margin(page: Page):
+    page.locator("#fl3d-sync-frame").check()
+    page.wait_for_function("window.__fl3d.syncOn === true")
+    page.locator("#fl3d-zoom").evaluate("(el) => { el.value = '50'; el.dispatchEvent(new Event('input')); }")
+    margin = page.eval_on_selector("#fl3d-canvas-row", "el => parseFloat(el.style.marginLeft) || 0")
+    assert margin >= 0
+
+def test_g3_marker_size_updates_state(page: Page):
+    page.locator("#fl3d-sync-frame").check()
+    page.wait_for_function("window.__fl3d.syncOn === true")
+    page.locator("#fl3d-marker-size").evaluate("(el) => { el.value = '12'; el.dispatchEvent(new Event('input')); }")
+    page.wait_for_function("window.__fl3d.markerRadius === 12")
+
+def test_g4_show_names_toggle_updates_state(page: Page):
+    page.locator("#fl3d-sync-frame").check()
+    page.wait_for_function("window.__fl3d.syncOn === true")
+    before = page.evaluate("window.__fl3d.showNames")
+    page.locator("#fl3d-show-names").click()
+    after = page.evaluate("window.__fl3d.showNames")
+    assert after != before
