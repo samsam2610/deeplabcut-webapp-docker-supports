@@ -1,5 +1,5 @@
 "use strict";
-import { _populateGpuSelect } from './training.js';
+import { _populateGpuSelect } from '/static/js/training.js';
 
 (function initFl3d() {
     // Guard: bail out early if fl3d-* IDs are absent (not on the dlc-3D page).
