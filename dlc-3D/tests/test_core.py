@@ -456,3 +456,51 @@ def test_csv_route_rejects_path_outside_user_data(tmp_path, monkeypatch):
 
     resp = client.get("/dlc-3d/csv?video=/etc/passwd")
     assert resp.status_code == 400
+
+
+# ── Calibration source location ──────────────────────────────────────────────
+
+def test_save_frame_copies_calibration_from_video_parent_folder(tmp_path, monkeypatch):
+    """Out-of-project layout: calibration.toml lives next to the videos
+    in /user-data/<recording>/, not under proj/videos/."""
+    import config
+    from dlc_3d_bp import routes
+    monkeypatch.setattr(config, "USER_DATA_ROOTS", [tmp_path])
+    monkeypatch.setattr(routes, "_USER_DATA_ROOT", str(tmp_path))
+
+    rec_dir = tmp_path / "recordings"
+    rec_dir.mkdir()
+    (rec_dir / "calibration.toml").write_text("[cam_0]\n")
+    video = rec_dir / "surv1_cam0_20260123_121732_0.avi"
+    _make_video(video, frames=10)
+
+    proj = tmp_path / "project"
+    (proj / "videos").mkdir(parents=True)
+
+    routes._save_single_frame(proj, str(video), 3)
+
+    assert (proj / "labeled-data" / "surv1_20260123" / "calibration.toml").is_file()
+
+
+def test_save_frame_copies_calibration_from_clip_grandparent(tmp_path, monkeypatch):
+    """Clip layout: clip_001.avi sits inside a video-named subfolder of the
+    recording dir; calibration.toml is one level up at the recording root."""
+    import config
+    from dlc_3d_bp import routes
+    monkeypatch.setattr(config, "USER_DATA_ROOTS", [tmp_path])
+    monkeypatch.setattr(routes, "_USER_DATA_ROOT", str(tmp_path))
+
+    rec_dir = tmp_path / "recordings"
+    rec_dir.mkdir()
+    (rec_dir / "calibration.toml").write_text("[cam_0]\n")
+    clip_dir = rec_dir / "surv1_cam0_20260123_121732_0"
+    clip_dir.mkdir()
+    clip = clip_dir / "clip_001.avi"
+    _make_video(clip, frames=10)
+
+    proj = tmp_path / "project"
+    (proj / "videos").mkdir(parents=True)
+
+    routes._save_single_frame(proj, str(clip), 3)
+
+    assert (proj / "labeled-data" / "surv1_20260123" / "calibration.toml").is_file()
