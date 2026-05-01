@@ -1,7 +1,7 @@
 // dlc_3d.js — inline file browser, project loader, extract button handler.
 "use strict";
 
-import { openPlayer, getCurrentFrame, getVideoPath, getSiblingPath, isSyncCamEnabled } from "./enhanced_player.js";
+import { openPlayer, getCurrentFrame, getVideoPath, getSiblingPath, isSyncCamEnabled, epLoadFrameAt } from "./enhanced_player.js";
 
 // ── State ─────────────────────────────────────────────────────────────────────
 
@@ -11,6 +11,7 @@ let _activeVideo        = null;
 let _loadToken          = 0;
 let _browserCurrentPath = null;
 let _browserParentPath  = null;
+let _batchStopRequested = false;
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -62,6 +63,11 @@ function _resetExtractorUI() {
   _setStatus("");
   const labeledWrap = document.getElementById("labeled-wrap");
   if (labeledWrap) labeledWrap.style.display = "none";
+  const batchBtn  = document.getElementById("ep-batch-extract-btn");
+  const batchStop = document.getElementById("ep-batch-stop-btn");
+  if (batchBtn)  batchBtn.disabled = true;
+  if (batchStop) batchStop.classList.add("hidden");
+  _batchStopRequested = false;
 }
 
 // ── Card open / close ─────────────────────────────────────────────────────────
@@ -229,6 +235,89 @@ async function _selectVideo(videoPath) {
 
 // ── Extract ───────────────────────────────────────────────────────────────────
 
+function _setBatchUIRunning(running) {
+  const single = document.getElementById("ep-extract-btn");
+  const batch  = document.getElementById("ep-batch-extract-btn");
+  const stop   = document.getElementById("ep-batch-stop-btn");
+  if (single) single.disabled = running;
+  if (batch)  batch.disabled  = running;
+  if (stop)   stop.classList.toggle("hidden", !running);
+}
+
+async function _extractBatch() {
+  const primaryVideo = getVideoPath();
+  const siblingPath  = getSiblingPath();
+  if (!primaryVideo || !_projectPath) {
+    if (!_projectPath) _setStatus("No project loaded.");
+    return;
+  }
+
+  let frameCount;
+  try {
+    const resp = await fetch(`/dlc-3d/video-info?video=${encodeURIComponent(primaryVideo)}`);
+    const info = await resp.json();
+    frameCount = info.frame_count;
+  } catch (e) { _setStatus("Network error: " + e.message); return; }
+
+  const startFrame = getCurrentFrame();
+  const requested  = Math.max(2, parseInt(document.getElementById("ep-batch-count").value, 10) || 10);
+  const step       = Math.max(1, parseInt(document.getElementById("ep-batch-step").value,  10) || 1);
+  const maxCount   = Math.floor((frameCount - 1 - startFrame) / step) + 1;
+  const count      = Math.min(requested, maxCount);
+  if (count < 1) { _setStatus("No frames available from this position."); return; }
+
+  const extractSibling = isSyncCamEnabled()
+    ? (document.getElementById("ep-extract-sibling")?.checked ?? true)
+    : false;
+
+  _batchStopRequested = false;
+  _setBatchUIRunning(true);
+  if (count < requested) {
+    _setStatus(`Near end — extracting ${count} frame${count !== 1 ? "s" : ""} (clamped from ${requested})`);
+  }
+
+  let saved = 0, skipped = 0, aborted = false;
+  for (let i = 0; i < count; i++) {
+    if (_batchStopRequested) { aborted = true; break; }
+    const targetFrame = startFrame + i * step;
+    _setStatus(`Saving… ${i + 1}/${count}`);
+    const body = {
+      primary_video:        primaryVideo,
+      primary_frame_number: targetFrame,
+      extract_sibling:      extractSibling,
+    };
+    if (extractSibling && siblingPath) {
+      body.sibling_video        = siblingPath;
+      body.sibling_frame_number = targetFrame;
+    }
+    try {
+      const resp = await fetch("/dlc-3d/save-frame", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      const data = await resp.json();
+      if (resp.ok) {
+        saved   += (data.saved   || []).length;
+        skipped += (data.skipped || []).length;
+      }
+    } catch (e) {
+      _setStatus(`Network error at frame ${targetFrame}: ${e.message}`);
+      aborted = true;
+      break;
+    }
+    if (i < count - 1) await epLoadFrameAt(targetFrame + step);
+    _refreshLabeledFrames();
+  }
+
+  _setBatchUIRunning(false);
+  const totalDesc = extractSibling ? `${saved} (×2 sibling)` : `${saved}`;
+  _setStatus(aborted
+    ? `Stopped — saved ${totalDesc}, skipped ${skipped}`
+    : `Done — saved ${totalDesc}, skipped ${skipped}`);
+  _refreshLabeledFrames();
+}
+
 async function _extractFrame() {
   const primaryVideo   = getVideoPath();
   const primaryFrame   = getCurrentFrame();
@@ -313,6 +402,8 @@ document.addEventListener("DOMContentLoaded", () => {
   document.getElementById("btn-open-frame-extractor")?.addEventListener("click", _openCard);
   document.getElementById("btn-close-3d-extract")?.addEventListener("click", _closeCard);
   document.getElementById("ep-extract-btn")?.addEventListener("click", _extractFrame);
+  document.getElementById("ep-batch-extract-btn")?.addEventListener("click", _extractBatch);
+  document.getElementById("ep-batch-stop-btn")?.addEventListener("click", () => { _batchStopRequested = true; });
 
   document.getElementById("dlc3d-browse-btn")?.addEventListener("click", () => {
     const browser   = document.getElementById("dlc3d-file-browser");
