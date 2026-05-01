@@ -255,7 +255,9 @@ async function _extractBatch() {
   let frameCount;
   try {
     const resp = await fetch(`/dlc-3d/video-info?video=${encodeURIComponent(primaryVideo)}`);
+    if (!resp.ok) { _setStatus("Cannot load video info"); return; }
     const info = await resp.json();
+    if (typeof info.frame_count !== "number") { _setStatus("Invalid video info"); return; }
     frameCount = info.frame_count;
   } catch (e) { _setStatus("Network error: " + e.message); return; }
 
@@ -266,17 +268,16 @@ async function _extractBatch() {
   const count      = Math.min(requested, maxCount);
   if (count < 1) { _setStatus("No frames available from this position."); return; }
 
-  const extractSibling = isSyncCamEnabled()
+  const extractSibling   = isSyncCamEnabled()
     ? (document.getElementById("ep-extract-sibling")?.checked ?? true)
     : false;
+  const siblingExtracted = extractSibling && !!siblingPath;
+  const clamped          = count < requested;
 
   _batchStopRequested = false;
   _setBatchUIRunning(true);
-  if (count < requested) {
-    _setStatus(`Near end — extracting ${count} frame${count !== 1 ? "s" : ""} (clamped from ${requested})`);
-  }
 
-  let saved = 0, skipped = 0, aborted = false;
+  let saved = 0, skipped = 0, aborted = false, errored = false;
   for (let i = 0; i < count; i++) {
     if (_batchStopRequested) { aborted = true; break; }
     const targetFrame = startFrame + i * step;
@@ -286,7 +287,7 @@ async function _extractBatch() {
       primary_frame_number: targetFrame,
       extract_sibling:      extractSibling,
     };
-    if (extractSibling && siblingPath) {
+    if (siblingExtracted) {
       body.sibling_video        = siblingPath;
       body.sibling_frame_number = targetFrame;
     }
@@ -300,21 +301,27 @@ async function _extractBatch() {
       if (resp.ok) {
         saved   += (data.saved   || []).length;
         skipped += (data.skipped || []).length;
+      } else {
+        _setStatus(`Server error at frame ${targetFrame}: ${data.error || resp.status}`);
+        errored = true;
+        break;
       }
     } catch (e) {
       _setStatus(`Network error at frame ${targetFrame}: ${e.message}`);
-      aborted = true;
+      errored = true;
       break;
     }
     if (i < count - 1) await epLoadFrameAt(targetFrame + step);
-    _refreshLabeledFrames();
   }
 
   _setBatchUIRunning(false);
-  const totalDesc = extractSibling ? `${saved} (×2 sibling)` : `${saved}`;
-  _setStatus(aborted
-    ? `Stopped — saved ${totalDesc}, skipped ${skipped}`
-    : `Done — saved ${totalDesc}, skipped ${skipped}`);
+  if (!errored) {
+    const sibTag    = siblingExtracted ? " (×2 sibling)" : "";
+    const clampTag  = clamped ? ` (clamped from ${requested})` : "";
+    _setStatus(aborted
+      ? `Stopped — saved ${saved}${sibTag}, skipped ${skipped}${clampTag}`
+      : `Done — saved ${saved}${sibTag}, skipped ${skipped}${clampTag}`);
+  }
   _refreshLabeledFrames();
 }
 
