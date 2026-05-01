@@ -227,6 +227,10 @@
             <input type="range" id="fl3d-zoom" min="50" max="300" value="100" step="25" style="width:80px;accent-color:var(--accent)">
             <span id="fl3d-zoom-val" style="min-width:2.5rem;text-align:right;color:var(--text)">100 %</span>
           </label>
+          <button id="fl3d-equalize-btn" class="btn-sm hidden" title="Reset all per-camera viewer sizes to equal" style="font-size:.75rem;padding:.2rem .55rem">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+            Equalize
+          </button>
           <label style="display:flex;align-items:center;gap:.45rem;font-size:.78rem;color:var(--text-dim);white-space:nowrap">
             Marker size
             <input type="range" id="fl3d-marker-size" min="1" max="24" value="4" style="width:80px;accent-color:var(--accent)">
@@ -244,8 +248,12 @@
 
         <!-- Labeling canvas -->
         <div class="fl3d-canvas-row" id="fl3d-canvas-row">
-          <div class="fl3d-tile focused" data-cam="" data-fname="">
-            <div class="fl3d-tile-label" id="fl3d-tile-label-primary"></div>
+          <div class="fl3d-tile focused" data-cam="" data-fname="" data-weight="100" style="flex-grow:100">
+            <div class="fl3d-tile-header">
+              <span class="fl3d-tile-label" id="fl3d-tile-label-primary"></span>
+              <input type="range" class="fl3d-tile-size" min="50" max="300" step="25" value="100">
+              <span class="fl3d-tile-size-val">100%</span>
+            </div>
             <canvas id="fl3d-canvas" class="fl3d-tile-canvas" data-cam="" data-fname=""></canvas>
             <div class="fl3d-tile-empty hidden" id="fl3d-tile-empty-primary"></div>
             <p class="fl-canvas-empty hidden" id="fl3d-canvas-loading">Loading frame…</p>
