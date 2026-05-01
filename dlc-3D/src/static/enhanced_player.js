@@ -189,6 +189,10 @@ export function getCurrentFrame()  { return _currentFrame; }
 export function getSiblingPath()   { return _siblingVideoPath; }
 export function isSyncCamEnabled() { return _syncCamEnabled; }
 
+export async function epLoadFrameAt(n) {
+  await _epLoadFrame(n);
+}
+
 export async function openPlayer(videoPath, siblingPath) {
   _stop();
   _videoPath        = videoPath;
@@ -236,8 +240,10 @@ export async function openPlayer(videoPath, siblingPath) {
 
   _epUpdateSyncCamUI();
 
-  const extractBtn = document.getElementById("ep-extract-btn");
-  if (extractBtn) extractBtn.disabled = false;
+  const extractBtn      = document.getElementById("ep-extract-btn");
+  const batchExtractBtn = document.getElementById("ep-batch-extract-btn");
+  if (extractBtn)      extractBtn.disabled      = false;
+  if (batchExtractBtn) batchExtractBtn.disabled = false;
 
   const zoomEl  = document.getElementById("ep-zoom-3d");
   const zoomPct = document.getElementById("ep-zoom-3d-pct");
