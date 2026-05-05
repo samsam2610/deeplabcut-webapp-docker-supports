@@ -192,6 +192,23 @@ def _find_sibling_on_filesystem(video_abs: str) -> "str | None":
     return None
 
 
+# ── Sibling h5 resolver (for analyzed-viewer layer pairing) ──────────────────
+
+def _resolve_sibling_h5(primary_h5: str, target_cam: int) -> dict:
+    r"""Substitute `_cam{N}_` in the basename of primary_h5 to point at target_cam.
+
+    Returns {"path": <str>, "exists": bool} or {"path": None, "exists": False}
+    when the input has no `_cam\d+_` token.
+    """
+    p = Path(primary_h5)
+    m = _CAM_RE.search(p.name)
+    if not m:
+        return {"path": None, "exists": False}
+    sibling_name = _CAM_RE.sub(f"_cam{int(target_cam)}_", p.name, count=1)
+    sibling = p.with_name(sibling_name)
+    return {"path": str(sibling), "exists": sibling.is_file()}
+
+
 # ── Frame saving ──────────────────────────────────────────────────────────────
 
 def _save_single_frame(project_path: Path, video_rel: str, frame_number: int) -> dict:
@@ -428,6 +445,19 @@ def get_sibling_camera():
         "sibling_video_path": sibling,
         "calibration_exists": calibration_exists,
     })
+
+
+@bp.route("/analyzed/sibling-h5")
+def analyzed_sibling_h5():
+    primary = (request.args.get("primary_h5") or "").strip()
+    cam = request.args.get("cam", type=int)
+    if not primary or cam is None:
+        return jsonify({"error": "primary_h5 and cam required"}), 400
+    # Path security: must resolve under /user-data/
+    resolved = Path(primary).resolve()
+    if not str(resolved).startswith(_USER_DATA_ROOT + "/"):
+        return jsonify({"error": "path outside /user-data"}), 403
+    return jsonify(_resolve_sibling_h5(primary, cam))
 
 
 # ── Frame extraction ──────────────────────────────────────────────────────────
