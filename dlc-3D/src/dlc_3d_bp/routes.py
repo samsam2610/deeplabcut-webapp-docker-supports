@@ -457,7 +457,7 @@ def analyzed_sibling_h5():
     resolved = Path(primary).resolve()
     if not str(resolved).startswith(_USER_DATA_ROOT + "/"):
         return jsonify({"error": "path outside /user-data"}), 403
-    return jsonify(_resolve_sibling_h5(primary, cam))
+    return jsonify(_resolve_sibling_h5(str(resolved), cam))
 
 
 # ── Frame extraction ──────────────────────────────────────────────────────────
