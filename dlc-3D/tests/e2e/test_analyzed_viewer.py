@@ -157,3 +157,21 @@ def test_primary_layer_pairs_to_both_tiles(page, base_url):
     # cam0 must have a path; cam1 must have either a path or the pill text
     assert states[0]['path'], states
     assert states[1]['path'] or 'no sibling h5' in states[1]['pill'], states
+
+
+def test_marker_edit_banner_uses_split_format_in_sync_mode(page, base_url):
+    page.goto(base_url, wait_until="domcontentloaded")
+    _open_card(page)
+    _select_sync_video(page)
+    page.wait_for_function("() => window.__va3dController.tiles.length === 2", timeout=5000)
+    # Programmatically inject a pending edit on tile 0 to make the banner appear.
+    # The refresh helper reads from Controller.tiles[*].pendingEdits and renders
+    # the cam0/cam1 split when there are 2 tiles.
+    page.evaluate("""() => {
+      window.__va3dController.tiles[0].pendingEdits.set(0, {});
+      if (typeof window.__va3dRefreshMarkerBanner === 'function') {
+        window.__va3dRefreshMarkerBanner();
+      }
+    }""")
+    text = page.text_content("#va3d-marker-edit-count")
+    assert "cam0:" in text and "cam1:" in text, f"Banner text was: {text!r}"

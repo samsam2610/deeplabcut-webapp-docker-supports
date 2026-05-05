@@ -993,21 +993,56 @@ document.addEventListener('DOMContentLoaded', () => Controller.init());
       return _vaLocalEdits.size;
     }
 
+    // Bind tile-0's pendingEdits to the legacy module-level _vaLocalEdits
+    // map so the canvas handlers (which still write to _vaLocalEdits) and
+    // the per-tile state share storage with no manual mirroring. Tile-1's
+    // pendingEdits stays a separate Map and remains empty for now — the
+    // canvas handlers are still tile-0-only because generalising them
+    // requires the deferred sibling-overlay renderer (no canvas-coord
+    // mapping exists for tile-1 yet). Once sibling rendering lands, the
+    // handlers will be generalised to read the focused tile and write into
+    // that tile's pendingEdits; _vaUpdateEditBanner keeps working unchanged.
+    //
+    // Controller.init() runs on DOMContentLoaded (after this script body
+    // evaluates), so defer the alias until tile-0 actually exists.
+    function _vaBindTile0PendingEdits() {
+      if (Controller.tiles[0]) Controller.tiles[0].pendingEdits = _vaLocalEdits;
+    }
+    if (Controller.tiles[0]) {
+      _vaBindTile0PendingEdits();
+    } else {
+      document.addEventListener('DOMContentLoaded', _vaBindTile0PendingEdits);
+    }
+
     function _vaUpdateEditBanner() {
       if (!vaMarkerEditBanner) return;
       // Force-hide while comparison layers are active — editing is disabled.
-      if (!_vaIsEditable()) {
+      // (Layers > 1 means a comparison layer is on; 0 means nothing chosen
+      // yet, which is fine — the banner just hides naturally via count=0.)
+      if (_vaLayers.length > 1) {
         vaMarkerEditBanner.classList.add("hidden");
         return;
       }
-      const n = _vaEditCount();
-      if (n === 0) {
+      const tiles = Controller.tiles || [];
+      const c0 = tiles[0]?.pendingEdits.size || 0;
+      const c1 = tiles[1]?.pendingEdits.size || 0;
+      const total = c0 + c1;
+      if (total === 0) {
         vaMarkerEditBanner.classList.add("hidden");
-      } else {
-        vaMarkerEditBanner.classList.remove("hidden");
-        if (vaMarkerEditCount) vaMarkerEditCount.textContent = `${n} frame${n !== 1 ? "s" : ""} edited`;
+        return;
+      }
+      vaMarkerEditBanner.classList.remove("hidden");
+      if (vaMarkerEditCount) {
+        if (tiles.length >= 2) {
+          vaMarkerEditCount.textContent = `cam0: ${c0} · cam1: ${c1} frames edited`;
+        } else {
+          vaMarkerEditCount.textContent = `${c0} frame${c0 !== 1 ? "s" : ""} edited`;
+        }
       }
     }
+
+    // Expose for e2e introspection — canonical refresh entry point.
+    window.__va3dRefreshMarkerBanner = _vaUpdateEditBanner;
 
     // Convert canvas-display coords back to video-native coords
     function _vaCanvasToVideo(cx, cy) {
@@ -1082,6 +1117,21 @@ document.addEventListener('DOMContentLoaded', () => Controller.init());
       } catch (_) {}
     }
 
+    // ── Per-cam editing scope note ──────────────────────────────────────
+    // The canvas edit handlers below (click-to-place, drag, right-click
+    // delete, dblclick-clear-frame) all target tile-0's overlay canvas
+    // (vaOverlayCanvas = #va3d-overlay-canvas-0) and write to the shared
+    // _vaLocalEdits map (aliased to Controller.tiles[0].pendingEdits via
+    // _vaBindTile0PendingEdits above). When sync-cam is on, edits to
+    // tile-1 are NOT yet supported — the sibling tile has no overlay
+    // canvas wiring, hit-testing, or pose data yet. Plan task 10 takes
+    // the conservative scope cut: the banner reflects per-tile state
+    // (cam0/cam1 split counts) so the UI is in the right shape, but
+    // tile-1 always shows cam1: 0 until the deferred sibling-overlay
+    // renderer lands. At that point these handlers will be generalised
+    // to read the focused tile (Controller.tiles.find(t =>
+    // t.rootEl.classList.contains('focused'))) and operate on that
+    // tile's canvas + pendingEdits map.
     if (vaOverlayCanvas) {
       vaOverlayCanvas.style.pointerEvents = "auto";
 
