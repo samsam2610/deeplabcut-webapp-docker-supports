@@ -111,6 +111,10 @@ const Controller = {
   primaryVideoRel: null,
   siblingVideoRel: null,
   _loadToken: 0,
+  // When sync is toggled off, the sibling Tile instance is parked here so its
+  // pendingEdits survive a sync-off → sync-on cycle. Cleared when the user
+  // switches to a different sibling video (see loadVideo).
+  _pendingSibling: null,
 
   init() {
     const tile0Root = document.querySelector('#va3d-tile-row .va3d-tile');
@@ -131,6 +135,15 @@ const Controller = {
     document.getElementById('va3d-equalize-btn')?.addEventListener('click', () => {
       this.tiles.forEach(t => t.setWeight(100));
     });
+    // Keyboard 1/2 → focus tile 0/1. Scoped to when the analyzed-viewer card
+    // is open; ignored when typing into form fields.
+    document.addEventListener('keydown', (e) => {
+      const card = document.getElementById('view-analyzed-3d-card');
+      if (!card || card.classList.contains('hidden')) return;
+      if (e.target.matches && e.target.matches('input, textarea, select')) return;
+      if (e.key === '1') this.focusTile(0);
+      else if (e.key === '2' && this.tiles.length > 1) this.focusTile(1);
+    });
   },
 
   async loadVideo(videoRel) {
@@ -149,6 +162,13 @@ const Controller = {
       if (myToken !== this._loadToken) return;
       console.warn('[va3d] sibling-camera probe failed:', e);
       this.siblingVideoRel = null;
+    }
+    // If we have a parked sibling tile from a different video, drop it.
+    // TODO: prompt the user to confirm discard when pendingEdits is non-empty.
+    // Sibling editing is dormant today (Tile-1 pendingEdits stays empty), so
+    // a silent discard is harmless until per-cam editing on tile-1 lands.
+    if (this._pendingSibling && this._pendingSibling.videoRel !== this.siblingVideoRel) {
+      this._pendingSibling = null;
     }
     this._renderSiblingTile();
   },
@@ -184,6 +204,15 @@ const Controller = {
 
   _ensureSiblingTile() {
     if (this.tiles.length === 2) return;
+    // Restore a parked sibling Tile if it matches the current sibling video.
+    // This preserves pendingEdits across a sync-off → sync-on toggle.
+    if (this._pendingSibling && this._pendingSibling.videoRel === this.siblingVideoRel) {
+      document.getElementById('va3d-tile-row').appendChild(this._pendingSibling.rootEl);
+      this.tiles.push(this._pendingSibling);
+      this._wireFocus(this._pendingSibling);
+      this._pendingSibling = null;
+      return;
+    }
     const tpl = document.getElementById('va3d-tile-template');
     const node = tpl.content.firstElementChild.cloneNode(true);
     node.dataset.cam = '1';
@@ -197,7 +226,11 @@ const Controller = {
 
   _removeSiblingTile() {
     if (this.tiles.length < 2) return;
-    this.tiles[1].rootEl.remove();
+    // Park the Tile instance (with its pendingEdits) so a re-toggle of Sync
+    // restores the same instance instead of constructing a fresh one. The
+    // DOM node is detached but kept alive on the parked Tile.
+    this._pendingSibling = this.tiles[1];
+    this._pendingSibling.rootEl.remove();
     this.tiles = this.tiles.slice(0, 1);
   },
 
@@ -313,6 +346,16 @@ const Controller = {
 
   async _loadFrameOnTile(tile, frame) {
     if (!tile.videoRel) return;
+    // This loader runs on sibling tiles only (tile-0 takes the _vaLoadFrame
+    // path which has its own error handling). Any failure here — unreadable
+    // sibling video, frame past end, transient backend error — surfaces via
+    // the same 'frame load failed' pill.
+    //
+    // DEFERRED: differentiating 416/404 (frame N/A on sibling) from a generic
+    // load failure would require fetch() with explicit status inspection
+    // instead of <img>.src — the browser does not expose HTTP status to img
+    // onerror. Keeping the single pill until that refactor lands.
+    //
     // Per-tile load token: fast Next clicks can interleave two calls; the
     // stale call's onload/onerror must not flip the visible state of the
     // fresh load. The promise itself always resolves (we don't want to
