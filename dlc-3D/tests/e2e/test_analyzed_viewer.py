@@ -18,6 +18,9 @@ def test_card_opens_and_lists_project_content(page, base_url):
     # Must NOT be the "Loading…" placeholder anymore.
     initial_text = page.text_content("#va3d-content-list")
     assert "Loading…" not in initial_text
+    # Positive check: list either has entries or shows the explicit empty state
+    assert "explorer-empty" in page.inner_html("#va3d-content-list") or \
+           page.query_selector("#va3d-content-list a") is not None
 
 
 def test_close_button_hides_card(page, base_url):

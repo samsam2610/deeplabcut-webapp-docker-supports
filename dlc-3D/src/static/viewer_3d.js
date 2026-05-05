@@ -1800,11 +1800,17 @@ import { state } from '/static/js/state.js';
     vaRefreshBtn.addEventListener("click", _vaLoadContent);
 
     // ── Open / close ──────────────────────────────────────────
-    vaOpenBtn?.addEventListener("click", () => {
-      vaCard.classList.remove("hidden");
-      vaCard.scrollIntoView({ behavior: "smooth", block: "nearest" });
-      _vaLoadContent();
-    });
+    // Defensive bind-time guard: the #btn-open-view-analyzed trigger is
+    // shared with the upstream viewer.js. Today upstream throws at init
+    // so its handler never binds, but if that ever changes we must not
+    // wire ours when our va3d card is not in the DOM.
+    if (vaOpenBtn && vaCard) {
+      vaOpenBtn.addEventListener("click", () => {
+        vaCard.classList.remove("hidden");
+        vaCard.scrollIntoView({ behavior: "smooth", block: "nearest" });
+        _vaLoadContent();
+      });
+    }
 
     vaCloseBtn?.addEventListener("click", () => {
       vaCard.classList.add("hidden");
