@@ -159,6 +159,44 @@ def test_primary_layer_pairs_to_both_tiles(page, base_url):
     assert states[1]['path'] or 'no sibling h5' in states[1]['pill'], states
 
 
+def test_both_cams_checkbox_default_checked_in_sync(page, base_url):
+    page.goto(base_url, wait_until="domcontentloaded")
+    _open_card(page)
+    _select_sync_video(page)
+    page.wait_for_function("() => window.__va3dController.tiles.length === 2", timeout=5000)
+    page.check("#va3d-curation-toggle")
+    assert page.is_visible("#va3d-both-cams-label")
+    assert page.is_checked("#va3d-both-cams")
+
+
+def test_extract_frame_calls_endpoint_per_cam(page, base_url):
+    page.goto(base_url, wait_until="domcontentloaded")
+    _open_card(page)
+    _select_sync_video(page)
+    page.wait_for_function("() => window.__va3dController.tiles.length === 2", timeout=5000)
+    page.check("#va3d-curation-toggle")
+    # Intercept the curator endpoint
+    calls = []
+    page.route(
+        "**/dlc/curator/extract-frame",
+        lambda route: (
+            calls.append(route.request.post_data_json),
+            route.fulfill(
+                status=201,
+                content_type="application/json",
+                body='{"saved":"x.png","folder":"f","frame_count":1,"duplicate":false}',
+            ),
+        ),
+    )
+    page.click("#va3d-extract-frame-btn")
+    # Wait briefly for both calls to fire
+    page.wait_for_timeout(500)
+    # Each call body should reference one of the two cam videos
+    video_fields = [(c or {}).get("video_path") or (c or {}).get("video_name") for c in calls]
+    distinct = set(v for v in video_fields if v)
+    assert len(distinct) >= 2, f"expected per-cam videos in calls, got: {video_fields!r}"
+
+
 def test_marker_edit_banner_uses_split_format_in_sync_mode(page, base_url):
     page.goto(base_url, wait_until="domcontentloaded")
     _open_card(page)

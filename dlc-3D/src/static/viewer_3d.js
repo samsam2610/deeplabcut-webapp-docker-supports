@@ -36,6 +36,45 @@ class Tile {
   }
 }
 
+// ─── Both-cams visibility helper ───────────────────────────────────────────
+function _va3dUpdateBothCamsVisibility() {
+  const both = document.getElementById('va3d-both-cams-label');
+  if (!both) return;
+  both.style.display = (Controller.tiles.length > 1 && Controller.syncOn) ? 'inline-flex' : 'none';
+}
+
+// ─── Curator call helpers (paired per-cam fan-out) ─────────────────────────
+async function _va3dCuratorCall(endpoint, body) {
+  const r = await fetch(endpoint, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  if (!r.ok) {
+    let err;
+    try { err = (await r.clone().json()).error; } catch { err = await r.text(); }
+    return { ok: false, error: err || `HTTP ${r.status}` };
+  }
+  return { ok: true, body: await r.json() };
+}
+
+function _va3dShouldDoubleUp() {
+  const cb = document.getElementById('va3d-both-cams');
+  return cb && cb.checked && Controller.syncOn && Controller.tiles.length > 1;
+}
+
+function _va3dShowCuratorStatus(targets, results) {
+  const statusEl = document.getElementById('va3d-curation-status');
+  if (!statusEl) return;
+  if (targets.length === 1) return;
+  const summary = results.map((res, i) => {
+    const r = res.status === 'fulfilled' ? res.value : { ok: false, error: res.reason };
+    const cam = targets[i].cam;
+    return r.ok ? `cam${cam} ✓` : `cam${cam} ✗ ${r.error || ''}`;
+  }).join(' · ');
+  statusEl.textContent = summary;
+}
+
 // ─── ViewerController singleton ────────────────────────────────────────────
 const Controller = {
   tiles: [],
@@ -59,6 +98,7 @@ const Controller = {
         this._removeSiblingTile();
         this.syncOn = false;
       }
+      _va3dUpdateBothCamsVisibility();
     });
     document.getElementById('va3d-equalize-btn')?.addEventListener('click', () => {
       this.tiles.forEach(t => t.setWeight(100));
@@ -101,6 +141,7 @@ const Controller = {
       lbl.title = 'no sibling cam detected';
       eq.classList.add('hidden');
       this.syncOn = false;
+      _va3dUpdateBothCamsVisibility();
       return;
     }
     lbl.style.display = 'inline-flex';
@@ -110,6 +151,7 @@ const Controller = {
     this.syncOn = true;
     eq.classList.remove('hidden');
     this._ensureSiblingTile();
+    _va3dUpdateBothCamsVisibility();
   },
 
   _ensureSiblingTile() {
@@ -2405,6 +2447,7 @@ document.addEventListener('DOMContentLoaded', () => Controller.init());
           }
           vaExtractFrameBtn.disabled = true;
           _curStatus("Extracting…");
+          let primaryRes = { ok: false };
           try {
             const res  = await fetch("/dlc/curator/extract-frame", {
               method: "POST",
@@ -2413,16 +2456,27 @@ document.addEventListener('DOMContentLoaded', () => Controller.init());
             });
             const data = await res.json();
             if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+            primaryRes = { ok: true, body: data };
             _curStatus(
               data.duplicate
                 ? `Already extracted: ${data.saved}`
                 : `Saved ${data.saved} (${data.folder}, #${data.frame_count})`
             );
           } catch (err) {
+            primaryRes = { ok: false, error: err.message };
             _curStatus(`Extract failed: ${err.message}`, true);
-          } finally {
-            vaExtractFrameBtn.disabled = false;
           }
+          // ── Paired sibling-cam fan-out (when sync + Both cams) ──
+          if (_va3dShouldDoubleUp()) {
+            const tile1 = Controller.tiles[1];
+            const sibBody = { frame_number: _vaCurrentFrame, video_path: tile1.videoRel };
+            const sibRes = await _va3dCuratorCall("/dlc/curator/extract-frame", sibBody);
+            _va3dShowCuratorStatus(Controller.tiles, [
+              { status: 'fulfilled', value: primaryRes },
+              { status: 'fulfilled', value: sibRes },
+            ]);
+          }
+          vaExtractFrameBtn.disabled = false;
         });
       }
 
@@ -2434,6 +2488,7 @@ document.addEventListener('DOMContentLoaded', () => Controller.init());
           }
           vaAddToDatasetBtn.disabled = true;
           _curStatus("Adding to dataset…");
+          let primaryRes = { ok: false };
           try {
             const res  = await fetch("/dlc/curator/add-to-dataset", {
               method: "POST",
@@ -2442,6 +2497,7 @@ document.addEventListener('DOMContentLoaded', () => Controller.init());
             });
             const data = await res.json();
             if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+            primaryRes = { ok: true, body: data };
             const h5note = data.h5_updated ? " + H5" : "";
             _curStatus(
               data.duplicate
@@ -2449,10 +2505,20 @@ document.addEventListener('DOMContentLoaded', () => Controller.init());
                 : `Added ${data.saved} to CSV${h5note} (${data.frame_count} frames)`
             );
           } catch (err) {
+            primaryRes = { ok: false, error: err.message };
             _curStatus(`Failed: ${err.message}`, true);
-          } finally {
-            vaAddToDatasetBtn.disabled = false;
           }
+          // ── Paired sibling-cam fan-out (when sync + Both cams) ──
+          if (_va3dShouldDoubleUp()) {
+            const tile1 = Controller.tiles[1];
+            const sibBody = { frame_number: _vaCurrentFrame, video_path: tile1.videoRel };
+            const sibRes = await _va3dCuratorCall("/dlc/curator/add-to-dataset", sibBody);
+            _va3dShowCuratorStatus(Controller.tiles, [
+              { status: 'fulfilled', value: primaryRes },
+              { status: 'fulfilled', value: sibRes },
+            ]);
+          }
+          vaAddToDatasetBtn.disabled = false;
         });
       }
 
@@ -2468,6 +2534,7 @@ document.addEventListener('DOMContentLoaded', () => Controller.init());
           let added = 0, dupes = 0, errors = 0;
           const start = _vaCurrentFrame;
           let lastFrame = start;
+          let aborted = false;
           for (let i = 0; i < count; i++) {
             const frameNum = start + i * step;
             if (frameNum >= _vaFrameCount) break;
@@ -2485,15 +2552,32 @@ document.addEventListener('DOMContentLoaded', () => Controller.init());
               if (!res.ok) { errors++; continue; }
               if (data.duplicate) dupes++; else added++;
             } catch (_) { errors++; }
+            // ── Paired sibling-cam fan-out (when sync + Both cams) ──
+            // Stop on first sibling-side failure (per spec).
+            if (_va3dShouldDoubleUp()) {
+              const tile1 = Controller.tiles[1];
+              const sibBody = { frame_number: frameNum, video_path: tile1.videoRel };
+              const sibRes = await _va3dCuratorCall("/dlc/curator/add-to-dataset", sibBody);
+              if (!sibRes.ok) {
+                errors++;
+                _curStatus(`Batch aborted at frame ${frameNum} — cam1 failed: ${sibRes.error || ''}`, true);
+                aborted = true;
+                break;
+              }
+              const sibData = sibRes.body || {};
+              if (sibData.duplicate) dupes++; else added++;
+            }
           }
           // Ensure player is on the last frame processed
           if (lastFrame !== _vaCurrentFrame) await Controller.seek(lastFrame);
           vaBatchAddBtn.disabled = false;
-          const parts = [];
-          if (added) parts.push(`${added} added`);
-          if (dupes) parts.push(`${dupes} duplicate${dupes !== 1 ? "s" : ""}`);
-          if (errors) parts.push(`${errors} error${errors !== 1 ? "s" : ""}`);
-          _curStatus(`Batch done: ${parts.join(", ") || "nothing to add"}.`, errors > 0 && added === 0);
+          if (!aborted) {
+            const parts = [];
+            if (added) parts.push(`${added} added`);
+            if (dupes) parts.push(`${dupes} duplicate${dupes !== 1 ? "s" : ""}`);
+            if (errors) parts.push(`${errors} error${errors !== 1 ? "s" : ""}`);
+            _curStatus(`Batch done: ${parts.join(", ") || "nothing to add"}.`, errors > 0 && added === 0);
+          }
         });
       }
 
