@@ -1264,6 +1264,54 @@ document.addEventListener('DOMContentLoaded', () => Controller.init());
           _vaUpdateEditBanner();
           vaStatus.textContent = `Saved: ${data.frames_edited} frame(s), ${data.bodyparts_edited} keypoint(s) updated.`;
           vaStatus.className   = "fe-extract-status ok";
+
+          // Fan-out: save sibling tiles (tile 1+) in parallel when they have
+          // pending edits. Tile-1 editing is dormant today (its pendingEdits
+          // map is never written), so this branch is a no-op until the
+          // sibling-overlay generalisation lands. Implemented now so the save
+          // path is in place when that work arrives.
+          const siblingTiles = (Controller.tiles || []).slice(1)
+            .filter(t => t && t.pendingEdits && t.pendingEdits.size > 0);
+          if (siblingTiles.length) {
+            const siblingResults = await Promise.allSettled(siblingTiles.map(async (tile) => {
+              if (!tile.primaryH5Path) {
+                return { cam: tile.cam, ok: false, error: "no h5 for this cam" };
+              }
+              const body = {
+                h5:    tile.primaryH5Path,
+                edits: Array.from(tile.pendingEdits.entries()).map(([frame, parts]) => ({ frame, parts })),
+              };
+              const r = await fetch("/dlc/viewer/save-marker-edits", {
+                method:  "POST",
+                headers: { "Content-Type": "application/json" },
+                body:    JSON.stringify(body),
+              });
+              if (!r.ok) return { cam: tile.cam, ok: false, error: await r.text() };
+              return { cam: tile.cam, ok: true };
+            }));
+            // Clear pendingEdits for any sibling that succeeded.
+            siblingResults.forEach((res2, i) => {
+              if (res2.status === "fulfilled" && res2.value.ok) {
+                siblingTiles[i].pendingEdits.clear();
+              }
+            });
+            // Per-cam summary status (only when sibling tiles participated).
+            const cam0Part = `cam0 ✓`;
+            const sibParts = siblingResults.map((res2, i) => {
+              const v = res2.status === "fulfilled"
+                ? res2.value
+                : { cam: siblingTiles[i].cam, ok: false, error: res2.reason };
+              return v.ok ? `cam${v.cam} ✓` : `cam${v.cam} ✗ ${v.error || ""}`;
+            });
+            vaStatus.textContent = [cam0Part, ...sibParts].join(" · ");
+            vaStatus.className   = sibParts.every(p => p.includes("✓"))
+              ? "fe-extract-status ok"
+              : "fe-extract-status err";
+            if (typeof window.__va3dRefreshMarkerBanner === "function") {
+              window.__va3dRefreshMarkerBanner();
+            }
+          }
+
           // Reload poses for current frame from updated H5
           if (_vaOverlayEnabled) await _vaFetchPoses(_vaCurrentFrame);
         } catch (err) {
@@ -1284,8 +1332,17 @@ document.addEventListener('DOMContentLoaded', () => Controller.init());
         const layer = _vaPrimary();
         if (!layer) return;
         _vaLocalEdits.clear();
+        // Clear pendingEdits on every tile (tile-0's map is aliased to
+        // _vaLocalEdits via Task 10, so this covers tile-1+ only today —
+        // dormant until sibling editing lands).
+        (Controller.tiles || []).forEach(t => {
+          if (t && t.pendingEdits) t.pendingEdits.clear();
+        });
         _vaClearPoseCache();
         _vaUpdateEditBanner();
+        if (typeof window.__va3dRefreshMarkerBanner === "function") {
+          window.__va3dRefreshMarkerBanner();
+        }
         // Delete server-side cache too
         try {
           await fetch("/dlc/viewer/save-marker-edits", {
