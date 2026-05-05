@@ -20,6 +20,7 @@ class Tile {
     this.comparisonLayers = [];
     this.pendingEdits = new Map();   // frame → { bodypart → {x,y} }
     this.markersByFrame = new Map(); // frame → markers
+    this.sliderEl?.addEventListener('input', (e) => this.setWeight(parseInt(e.target.value, 10)));
   }
   setLabel(text) { this.labelEl.textContent = text; }
   setPill(text) {
@@ -58,6 +59,9 @@ const Controller = {
         this._removeSiblingTile();
         this.syncOn = false;
       }
+    });
+    document.getElementById('va3d-equalize-btn')?.addEventListener('click', () => {
+      this.tiles.forEach(t => t.setWeight(100));
     });
   },
 

@@ -105,3 +105,26 @@ def test_seek_advances_both_tiles(page, base_url):
     )
     # Both tiles must agree on the controller's currentFrame
     assert page.evaluate("() => window.__va3dController.currentFrame") > 0
+
+
+def test_per_tile_size_slider_updates_flex_grow(page, base_url):
+    page.goto(base_url, wait_until="domcontentloaded")
+    _open_card(page)
+    _select_sync_video(page)
+    page.wait_for_function("() => window.__va3dController.tiles.length === 2", timeout=5000)
+    # Drag tile-1's slider to 200%
+    page.evaluate("""() => {
+      const s = document.querySelectorAll('#va3d-tile-row .va3d-tile-size')[1];
+      s.value = 200;
+      s.dispatchEvent(new Event('input', {bubbles:true}));
+    }""")
+    weights = page.evaluate(
+      "() => Array.from(document.querySelectorAll('#va3d-tile-row .va3d-tile')).map(t => t.style.flexGrow)"
+    )
+    assert weights == ['100', '200']
+    # Click Equalize, both should return to 100
+    page.click("#va3d-equalize-btn")
+    weights = page.evaluate(
+      "() => Array.from(document.querySelectorAll('#va3d-tile-row .va3d-tile')).map(t => t.style.flexGrow)"
+    )
+    assert weights == ['100', '100']
