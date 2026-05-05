@@ -148,7 +148,7 @@ def test_primary_layer_pairs_to_both_tiles(page, base_url):
     }""")
     # Wait until the controller has assigned a primary path to each tile (or set a pill)
     page.wait_for_function(
-      "() => window.__va3dController.tiles.every(t => t.primaryH5Path !== undefined)",
+      "() => window.__va3dController.tiles.every(t => t.primaryH5Path !== null || t.pillEl.textContent.includes('no sibling'))",
       timeout=5000,
     )
     states = page.evaluate(

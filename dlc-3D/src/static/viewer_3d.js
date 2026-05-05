@@ -171,10 +171,15 @@ const Controller = {
   // here we only stash the resolved path on the tile and update its pill.
   async _resolveLayerForTile(primaryH5Path, tile) {
     if (tile.cam === 0) return { path: primaryH5Path, exists: true };
-    const r = await fetch(
-      `/dlc-3d/analyzed/sibling-h5?primary_h5=${encodeURIComponent(primaryH5Path)}&cam=${tile.cam}`
-    );
-    return await r.json();
+    try {
+      const r = await fetch(
+        `/dlc-3d/analyzed/sibling-h5?primary_h5=${encodeURIComponent(primaryH5Path)}&cam=${tile.cam}`
+      );
+      if (!r.ok) return { path: null, exists: false };
+      return await r.json();
+    } catch (e) {
+      return { path: null, exists: false };
+    }
   },
 
   async _loadH5OnTile(tile) {
@@ -1566,21 +1571,26 @@ document.addEventListener('DOMContentLoaded', () => Controller.init());
       const label = opt?.dataset.label || path.split("/").pop();
       const type  = opt?.dataset.type  || "raw";
 
-      // Primary swap = fresh slate. Drop every comparison layer.
-      _vaLayers.length = 0;
-      const layer = _vaMakeLayer({ path, label, type });
-      _vaSetPrimaryLayer(layer);
-      document.getElementById("va3d-overlay-h5-path").value = path;
-      await _vaLoadLayerInfo(layer);
-      await _vaLoadEditCacheForPrimary();
-      _vaRenderCompareRows();
-      _vaRefreshAddComparisonOptions(_vaLastVariants);
-      _vaRenderPrimaryThresholdInline();
-      if (_vaOverlayEnabled) _vaLoadFrame(_vaCurrentFrame);
-      _vaSyncPrimaryRow();
-      // Pair the primary h5 across every tile (tile-0 trivially keeps `path`;
-      // tile-1 resolves to its sibling h5 or shows a 'no sibling' pill).
-      await Controller.setPrimaryLayer(path);
+      try {
+        // Primary swap = fresh slate. Drop every comparison layer.
+        _vaLayers.length = 0;
+        const layer = _vaMakeLayer({ path, label, type });
+        _vaSetPrimaryLayer(layer);
+        document.getElementById("va3d-overlay-h5-path").value = path;
+        await _vaLoadLayerInfo(layer);
+        await _vaLoadEditCacheForPrimary();
+        _vaRenderCompareRows();
+        _vaRefreshAddComparisonOptions(_vaLastVariants);
+        _vaRenderPrimaryThresholdInline();
+        if (_vaOverlayEnabled) _vaLoadFrame(_vaCurrentFrame);
+        _vaSyncPrimaryRow();
+      } finally {
+        // Pair the primary h5 across every tile (tile-0 trivially keeps `path`;
+        // tile-1 resolves to its sibling h5 or shows a 'no sibling' pill).
+        // Runs in `finally` so a fault in the layer-info / edit-cache loaders
+        // can never strand the tiles with a stale primaryH5Path.
+        await Controller.setPrimaryLayer(path);
+      }
     }
 
     function _vaRenderPrimaryThresholdInline() {
