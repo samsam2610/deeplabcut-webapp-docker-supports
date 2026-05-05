@@ -9,9 +9,9 @@ import { state } from '/static/js/state.js';
     const vaPlayerSec    = document.getElementById("va3d-player-section");
     const vaSelectedName = document.getElementById("va3d-selected-name");
     const vaBackBtn      = document.getElementById("va3d-btn-back");
-    const vaVideoWrap    = document.getElementById("va3d-video-wrap");
-    const vaFrameImg     = document.getElementById("va3d-frame-img");
-    const vaFrameSpinner = document.getElementById("va3d-frame-spinner");
+    const vaVideoWrap    = document.getElementById("va3d-video-wrap-0");
+    const vaFrameImg     = document.getElementById("va3d-frame-img-0");
+    const vaFrameSpinner = document.getElementById("va3d-frame-spinner-0");
     const vaZoomInput    = document.getElementById("va3d-zoom");
     const vaZoomVal      = document.getElementById("va3d-zoom-val");
     const vaBtnPlay      = document.getElementById("va3d-btn-play");
@@ -520,7 +520,7 @@ import { state } from '/static/js/state.js';
     });
 
     // ── Kinematic overlay canvas ──────────────────────────────
-    const vaOverlayCanvas = document.getElementById("va3d-overlay-canvas");
+    const vaOverlayCanvas = document.getElementById("va3d-overlay-canvas-0");
     const vaOverlayCtx    = vaOverlayCanvas ? vaOverlayCanvas.getContext("2d") : null;
 
     // Current frame poses (fetched alongside each annotated frame)

@@ -57,6 +57,10 @@
             <input type="range" id="va3d-zoom" min="50" max="300" value="100" step="25" style="width:80px;accent-color:var(--accent)">
             <span id="va3d-zoom-val" style="min-width:2.5rem;text-align:right;color:var(--text)">100 %</span>
           </label>
+          <button id="va3d-equalize-btn" class="btn-sm hidden" title="Reset all per-camera viewer sizes to equal" style="font-size:.75rem;padding:.2rem .55rem;margin-left:.4rem">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+            Equalize
+          </button>
         </div>
 
         <!-- ── Video Metadata Strip (companion CSV) ─────────── -->
@@ -181,11 +185,24 @@
             title="Double-click to erase all markers on the current frame">Clear Frame</button>
         </div>
 
-        <div id="va3d-video-wrap" style="position:relative;background:#000;border-radius:8px;border:1px solid var(--border);margin-bottom:.25rem">
-          <img id="va3d-frame-img" alt="" draggable="false" style="width:100%;display:block;height:auto" />
-          <!-- Canvas for hover hit-testing, label display, and drag-to-edit markers -->
-          <canvas id="va3d-overlay-canvas" style="position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none"></canvas>
-          <div id="va3d-frame-spinner" class="fe-frame-spinner hidden"></div>
+        <div id="va3d-tile-row" class="va3d-tile-row">
+          <div class="va3d-tile focused" data-cam="0" data-weight="100" style="flex-grow:100">
+            <div class="va3d-tile-header">
+              <span class="va3d-tile-label" id="va3d-tile-label-0"></span>
+              <span class="va3d-tile-pill hidden" id="va3d-tile-pill-0"></span>
+              <input type="range" class="va3d-tile-size" min="50" max="500" step="25" value="100">
+              <span class="va3d-tile-size-val">100%</span>
+            </div>
+            <div class="va3d-tile-canvas-wrap" id="va3d-video-wrap-0"
+                 style="position:relative;background:#000;border-radius:8px;border:1px solid var(--border)">
+              <img id="va3d-frame-img-0" class="va3d-frame-img" alt="" draggable="false"
+                   style="width:100%;display:block;height:auto" />
+              <!-- Canvas for hover hit-testing, label display, and drag-to-edit markers -->
+              <canvas id="va3d-overlay-canvas-0" class="va3d-overlay-canvas"
+                      style="position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none"></canvas>
+              <div id="va3d-frame-spinner-0" class="fe-frame-spinner hidden"></div>
+            </div>
+          </div>
         </div>
 
         <!-- Seek / timeline slider — sits directly below the canvas -->
