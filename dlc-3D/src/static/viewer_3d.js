@@ -208,6 +208,39 @@ const Controller = {
     }
   },
 
+  async addComparisonLayer(layerPath) {
+    for (const tile of this.tiles) {
+      try {
+        const res = await this._resolveLayerForTile(layerPath, tile);
+        if (res && res.exists && !tile.comparisonLayers.includes(res.path)) {
+          tile.comparisonLayers.push(res.path);
+        } else if ((!res || !res.exists) && tile.cam !== 0) {
+          // Sibling missing for this comparison — note in pill (don't clobber
+          // an existing 'no sibling h5' pill from the primary resolver).
+          const cur = tile.pillEl.textContent || '';
+          if (!cur.includes('sibling comparison missing')) {
+            tile.setPill(cur ? `${cur} · sibling comparison missing` : 'sibling comparison missing');
+          }
+        }
+      } catch (e) {
+        // Resolver fault must never break the tile-0 add flow.
+      }
+    }
+  },
+
+  removeComparisonLayer(layerPath) {
+    // The remove call typically passes tile-0's path; tile-1's matching entry
+    // has a different cam token in its basename. Match cam-agnostically.
+    const baseName = (layerPath || '').split('/').pop() || '';
+    const camAgnosticBase = baseName.replace(/_cam\d+_/, '_camX_');
+    for (const tile of this.tiles) {
+      tile.comparisonLayers = tile.comparisonLayers.filter(p => {
+        const b = (p || '').split('/').pop().replace(/_cam\d+_/, '_camX_');
+        return b !== camAgnosticBase;
+      });
+    }
+  },
+
   async _loadFrameOnTile(tile, frame) {
     if (!tile.videoRel) return;
     // Per-tile load token: fast Next clicks can interleave two calls; the
@@ -1719,11 +1752,15 @@ document.addEventListener('DOMContentLoaded', () => Controller.init());
     function _vaRemoveCompare(id) {
       const idx = _vaLayers.findIndex(l => l.id === id);
       if (idx < 1) return;  // never remove primary
+      const removedPath = _vaLayers[idx].path;
       _vaLayers.splice(idx, 1);
       _vaAssignShapes();
       _vaRenderCompareRows();
       _vaRefreshAddComparisonOptions(_vaLastVariants);
       _vaDrawCurrentFrame();
+      // Drop this comparison from every tile's per-tile list (cam-agnostic
+      // basename match handles the sibling tile's cam-substituted path).
+      try { Controller.removeComparisonLayer(removedPath); } catch (err) {}
     }
 
     function _vaUpdateEditDisabledBanner() {
@@ -1758,6 +1795,9 @@ document.addEventListener('DOMContentLoaded', () => Controller.init());
       const opt  = e.target.options[e.target.selectedIndex];
       await _vaAddCompare(path, opt.dataset.label, opt.dataset.type);
       e.target.value = "";  // reset to placeholder
+      // Pair this comparison h5 across every tile (tile-0 trivially keeps
+      // `path`; tile-1 resolves to its sibling h5 or notes the miss in pill).
+      try { await Controller.addComparisonLayer(path); } catch (err) {}
     });
 
     const vaOverlayPrimaryVisible = document.getElementById("va3d-overlay-primary-visible");
