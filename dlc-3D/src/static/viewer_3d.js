@@ -64,15 +64,43 @@ function _va3dShouldDoubleUp() {
 }
 
 function _va3dShowCuratorStatus(targets, results) {
-  const statusEl = document.getElementById('va3d-curation-status');
-  if (!statusEl) return;
   if (targets.length === 1) return;
+  let anyError = false;
   const summary = results.map((res, i) => {
-    const r = res.status === 'fulfilled' ? res.value : { ok: false, error: res.reason };
+    // Accept either Promise.allSettled envelopes or plain {ok, error} shapes.
+    const r = res && res.status === 'fulfilled' ? res.value
+            : res && 'ok' in res                 ? res
+            : { ok: false, error: res && res.reason };
+    if (!r.ok) anyError = true;
     const cam = targets[i].cam;
     return r.ok ? `cam${cam} ✓` : `cam${cam} ✗ ${r.error || ''}`;
   }).join(' · ');
-  statusEl.textContent = summary;
+  // Route through _curStatus so the auto-clear timer is managed in one place
+  // (any pending timer from the primary call is cleared) and the err class is
+  // applied when any per-cam result failed.
+  if (typeof window.__va3dCurStatus === 'function') {
+    window.__va3dCurStatus(summary, anyError);
+  } else {
+    const statusEl = document.getElementById('va3d-curation-status');
+    if (statusEl) {
+      statusEl.textContent = summary;
+      statusEl.className = 'fe-extract-status' + (anyError ? ' err' : '');
+    }
+  }
+}
+
+// Build a curator request body for a given tile + frame, mirroring the
+// primary _videoRequestBody() shape per-mode.  In 'video' (project) mode the
+// backend expects video_name = basename; in 'browse-video' mode it expects
+// the absolute video_path.  ('frames' mode: sibling tile is skipped per the
+// double-up gate, but fall back to video_path if reached.)
+function _va3dBuildCuratorBody(tile, frame) {
+  const mode = (typeof window.__va3dGetMode === 'function') ? window.__va3dGetMode() : null;
+  if (mode === 'video') {
+    const name = String(tile.videoRel || '').split('/').pop();
+    return { frame_number: frame, video_name: name };
+  }
+  return { frame_number: frame, video_path: tile.videoRel };
 }
 
 // ─── ViewerController singleton ────────────────────────────────────────────
@@ -2426,6 +2454,12 @@ document.addEventListener('DOMContentLoaded', () => Controller.init());
           }, 4000);
         }
       }
+      // Expose so outer-scope _va3dShowCuratorStatus can route per-cam summaries
+      // through the same single-source timer (avoids the 4s clobber).
+      window.__va3dCurStatus = _curStatus;
+      // Expose current mode so outer-scope _va3dBuildCuratorBody can pick the
+      // right body shape (video_name vs video_path) for sibling fan-out.
+      window.__va3dGetMode = () => _vaMode;
 
       // ── Build request body helper ───────────────────────────────
       function _videoRequestBody(frameNum) {
@@ -2469,12 +2503,9 @@ document.addEventListener('DOMContentLoaded', () => Controller.init());
           // ── Paired sibling-cam fan-out (when sync + Both cams) ──
           if (_va3dShouldDoubleUp()) {
             const tile1 = Controller.tiles[1];
-            const sibBody = { frame_number: _vaCurrentFrame, video_path: tile1.videoRel };
+            const sibBody = _va3dBuildCuratorBody(tile1, _vaCurrentFrame);
             const sibRes = await _va3dCuratorCall("/dlc/curator/extract-frame", sibBody);
-            _va3dShowCuratorStatus(Controller.tiles, [
-              { status: 'fulfilled', value: primaryRes },
-              { status: 'fulfilled', value: sibRes },
-            ]);
+            _va3dShowCuratorStatus(Controller.tiles, [primaryRes, sibRes]);
           }
           vaExtractFrameBtn.disabled = false;
         });
@@ -2511,12 +2542,9 @@ document.addEventListener('DOMContentLoaded', () => Controller.init());
           // ── Paired sibling-cam fan-out (when sync + Both cams) ──
           if (_va3dShouldDoubleUp()) {
             const tile1 = Controller.tiles[1];
-            const sibBody = { frame_number: _vaCurrentFrame, video_path: tile1.videoRel };
+            const sibBody = _va3dBuildCuratorBody(tile1, _vaCurrentFrame);
             const sibRes = await _va3dCuratorCall("/dlc/curator/add-to-dataset", sibBody);
-            _va3dShowCuratorStatus(Controller.tiles, [
-              { status: 'fulfilled', value: primaryRes },
-              { status: 'fulfilled', value: sibRes },
-            ]);
+            _va3dShowCuratorStatus(Controller.tiles, [primaryRes, sibRes]);
           }
           vaAddToDatasetBtn.disabled = false;
         });
@@ -2556,7 +2584,7 @@ document.addEventListener('DOMContentLoaded', () => Controller.init());
             // Stop on first sibling-side failure (per spec).
             if (_va3dShouldDoubleUp()) {
               const tile1 = Controller.tiles[1];
-              const sibBody = { frame_number: frameNum, video_path: tile1.videoRel };
+              const sibBody = _va3dBuildCuratorBody(tile1, frameNum);
               const sibRes = await _va3dCuratorCall("/dlc/curator/add-to-dataset", sibBody);
               if (!sibRes.ok) {
                 errors++;

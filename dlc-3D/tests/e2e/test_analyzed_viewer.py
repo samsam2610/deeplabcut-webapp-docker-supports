@@ -177,21 +177,27 @@ def test_extract_frame_calls_endpoint_per_cam(page, base_url):
     page.check("#va3d-curation-toggle")
     # Intercept the curator endpoint
     calls = []
-    page.route(
-        "**/dlc/curator/extract-frame",
-        lambda route: (
-            calls.append(route.request.post_data_json),
-            route.fulfill(
-                status=201,
-                content_type="application/json",
-                body='{"saved":"x.png","folder":"f","frame_count":1,"duplicate":false}',
-            ),
-        ),
-    )
-    page.click("#va3d-extract-frame-btn")
-    # Wait briefly for both calls to fire
-    page.wait_for_timeout(500)
-    # Each call body should reference one of the two cam videos
+
+    def _intercept(route):
+        calls.append(route.request.post_data_json)
+        route.fulfill(
+            status=201,
+            content_type="application/json",
+            body='{"saved":"x.png","folder":"f","frame_count":1,"duplicate":false}',
+        )
+
+    page.route("**/dlc/curator/extract-frame", _intercept)
+    try:
+        page.click("#va3d-extract-frame-btn")
+        # Deterministic wait: poll until we have both calls (cap at ~2s)
+        for _ in range(20):
+            if len(calls) >= 2:
+                break
+            page.wait_for_timeout(100)
+    finally:
+        page.unroute("**/dlc/curator/extract-frame")
+    assert len(calls) >= 2, f"expected 2 endpoint calls, got {len(calls)}: {calls}"
+    # Sibling sends video_name in 'video' mode and video_path in 'browse-video' mode
     video_fields = [(c or {}).get("video_path") or (c or {}).get("video_name") for c in calls]
     distinct = set(v for v in video_fields if v)
     assert len(distinct) >= 2, f"expected per-cam videos in calls, got: {video_fields!r}"
