@@ -144,8 +144,13 @@ const Controller = {
     if (typeof _vaLoadFrame === 'function') {
       tasks.push(_vaLoadFrame(n));
     }
-    if (this.tiles[1] && this.tiles[1].videoRel) {
-      tasks.push(this._loadFrameOnTile(this.tiles[1], n));
+    // Sibling tile: skip when primary is in 'frames' mode (n is an index
+    // into _vaFrameFiles, not a real video frame, so /dlc-3d/frame?n=…
+    // would request the wrong picture).
+    const sibling = this.tiles[1];
+    const inFramesMode = (typeof _vaMode !== 'undefined' && _vaMode === 'frames');
+    if (sibling && sibling.videoRel && !inFramesMode) {
+      tasks.push(this._loadFrameOnTile(sibling, n));
     }
     await Promise.all(tasks);
     // _vaLoadFrame clamps n internally; mirror its result as truth.
@@ -155,18 +160,26 @@ const Controller = {
 
   async _loadFrameOnTile(tile, frame) {
     if (!tile.videoRel) return;
+    // Per-tile load token: fast Next clicks can interleave two calls; the
+    // stale call's onload/onerror must not flip the visible state of the
+    // fresh load. The promise itself always resolves (we don't want to
+    // leave a hanging promise from a superseded src assignment) — the
+    // token check after the await decides whether to update state.
+    const myToken = (tile._loadToken = (tile._loadToken || 0) + 1);
     tile.spinnerEl.classList.remove('hidden');
     try {
       const url = `/dlc-3d/frame?video=${encodeURIComponent(tile.videoRel)}&n=${frame}`;
       await new Promise((res, rej) => {
-        tile.imgEl.onload  = () => res();
-        tile.imgEl.onerror = (e) => rej(e || new Error('frame load failed'));
+        tile.imgEl.onload  = () => (myToken === tile._loadToken ? res() : res());
+        tile.imgEl.onerror = () => (myToken === tile._loadToken ? rej(new Error('img load')) : res());
         tile.imgEl.src = url;
       });
+      if (myToken !== tile._loadToken) return;   // superseded; later call will clear pill
+      tile.setPill('');                          // clear any prior 'frame load failed'
     } catch (e) {
-      tile.setPill('frame load failed');
+      if (myToken === tile._loadToken) tile.setPill('frame load failed');
     } finally {
-      tile.spinnerEl.classList.add('hidden');
+      if (myToken === tile._loadToken) tile.spinnerEl.classList.add('hidden');
     }
   },
 };
