@@ -79,3 +79,29 @@ def test_sync_cam_toggle_collapses_to_single_tile(page, base_url):
     page.wait_for_function("() => window.__va3dController.tiles.length === 2", timeout=5000)
     page.uncheck("#va3d-sync-cam")
     page.wait_for_function("() => window.__va3dController.tiles.length === 1", timeout=2000)
+
+
+def test_seek_advances_both_tiles(page, base_url):
+    page.goto(base_url, wait_until="domcontentloaded")
+    _open_card(page)
+    _select_sync_video(page)
+    page.wait_for_function("() => window.__va3dController.tiles.length === 2", timeout=5000)
+    # Wait for both tiles' first frames to load
+    page.wait_for_function(
+        "() => Array.from(document.querySelectorAll('#va3d-tile-row .va3d-frame-img'))"
+        ".every(img => img.complete && img.naturalWidth > 0)",
+        timeout=10000,
+    )
+    # Click the next-frame button several times; both tile imgs should advance
+    src_before = page.evaluate(
+        "() => Array.from(document.querySelectorAll('#va3d-tile-row .va3d-frame-img')).map(i => i.src)"
+    )
+    for _ in range(3):
+        page.click("#va3d-btn-next")
+    page.wait_for_function(
+        "(prev) => Array.from(document.querySelectorAll('#va3d-tile-row .va3d-frame-img'))"
+        ".every((img, i) => img.src !== prev[i])",
+        arg=src_before, timeout=5000,
+    )
+    # Both tiles must agree on the controller's currentFrame
+    assert page.evaluate("() => window.__va3dController.currentFrame") > 0

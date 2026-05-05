@@ -133,6 +133,42 @@ const Controller = {
   focusTile(cam) {
     this.tiles.forEach(t => t.rootEl.classList.toggle('focused', t.cam === cam));
   },
+
+  // ── Frame-locked seek ──────────────────────────────────────────────────
+  // Routes all seek/play/skip handlers through a single entry point so every
+  // tile advances together. Tile-0 still uses the existing _vaLoadFrame
+  // (which carries the overlay/poses logic); the sibling tile uses the
+  // generic _loadFrameOnTile loader keyed off tile.videoRel.
+  async seek(n) {
+    const tasks = [];
+    if (typeof _vaLoadFrame === 'function') {
+      tasks.push(_vaLoadFrame(n));
+    }
+    if (this.tiles[1] && this.tiles[1].videoRel) {
+      tasks.push(this._loadFrameOnTile(this.tiles[1], n));
+    }
+    await Promise.all(tasks);
+    // _vaLoadFrame clamps n internally; mirror its result as truth.
+    if (typeof _vaCurrentFrame !== 'undefined') this.currentFrame = _vaCurrentFrame;
+    else this.currentFrame = n;
+  },
+
+  async _loadFrameOnTile(tile, frame) {
+    if (!tile.videoRel) return;
+    tile.spinnerEl.classList.remove('hidden');
+    try {
+      const url = `/dlc-3d/frame?video=${encodeURIComponent(tile.videoRel)}&n=${frame}`;
+      await new Promise((res, rej) => {
+        tile.imgEl.onload  = () => res();
+        tile.imgEl.onerror = (e) => rej(e || new Error('frame load failed'));
+        tile.imgEl.src = url;
+      });
+    } catch (e) {
+      tile.setPill('frame load failed');
+    } finally {
+      tile.spinnerEl.classList.add('hidden');
+    }
+  },
 };
 
 window.__va3dController = Controller;  // for e2e introspection
@@ -490,7 +526,7 @@ document.addEventListener('DOMContentLoaded', () => Controller.init());
       // Sibling-cam probe + tile management (additive; does not affect single-cam path).
       try { await Controller.loadVideo(_vaCurrentVideoPath || name); }
       catch (e) { console.warn('[va3d] Controller.loadVideo failed:', e); }
-      _vaLoadFrame(0);
+      Controller.seek(0);
     }
 
     function _vaOpenFrameFolder(stem, frames) {
@@ -502,7 +538,7 @@ document.addEventListener('DOMContentLoaded', () => Controller.init());
       _vaFps        = 5;   // slow playback for sparse labeled frames
       vaSelectedName.textContent = `${stem}/ (${frames.length} labeled frames)`;
       vaPlayerSec.classList.remove("hidden");
-      _vaLoadFrame(0);
+      Controller.seek(0);
     }
 
     async function _vaOpenBrowseVideo(absPath, name) {
@@ -521,7 +557,7 @@ document.addEventListener('DOMContentLoaded', () => Controller.init());
       // Sibling-cam probe + tile management (additive; does not affect single-cam path).
       try { await Controller.loadVideo(absPath); }
       catch (e) { console.warn('[va3d] Controller.loadVideo failed:', e); }
-      _vaLoadFrame(0);
+      Controller.seek(0);
       // Discover companion h5 variants in the same directory
       _vaDiscoverVariants(absPath);
     }
@@ -1896,7 +1932,7 @@ document.addEventListener('DOMContentLoaded', () => Controller.init());
       }
 
       const t0 = performance.now();
-      await _vaLoadFrame(next);
+      await Controller.seek(next);
       // If play was stopped while we were awaiting the frame, exit cleanly
       if (!_vaPlayTimer) return;
 
@@ -1922,12 +1958,12 @@ document.addEventListener('DOMContentLoaded', () => Controller.init());
       }
     });
 
-    vaBtnPrev.addEventListener("click", () => _vaLoadFrame(_vaCurrentFrame - 1));
-    vaBtnNext.addEventListener("click", () => _vaLoadFrame(_vaCurrentFrame + 1));
+    vaBtnPrev.addEventListener("click", () => Controller.seek(_vaCurrentFrame - 1));
+    vaBtnNext.addEventListener("click", () => Controller.seek(_vaCurrentFrame + 1));
 
     function _vaSkipN() { return Math.max(1, parseInt(vaSkipN?.value, 10) || 10); }
-    vaBtnSkipBack?.addEventListener("click", () => _vaLoadFrame(_vaCurrentFrame - _vaSkipN()));
-    vaBtnSkipFwd?.addEventListener("click",  () => _vaLoadFrame(_vaCurrentFrame + _vaSkipN()));
+    vaBtnSkipBack?.addEventListener("click", () => Controller.seek(_vaCurrentFrame - _vaSkipN()));
+    vaBtnSkipFwd?.addEventListener("click",  () => Controller.seek(_vaCurrentFrame + _vaSkipN()));
     // Prevent arrow keys from changing the skip-N field from triggering frame nav
     vaSkipN?.addEventListener("keydown", e => e.stopPropagation());
 
@@ -1937,7 +1973,7 @@ document.addEventListener('DOMContentLoaded', () => Controller.init());
       _vaCurrentFrame = Math.round((vaSeek.value / 1000) * Math.max(_vaFrameCount - 1, 0));
       _vaUpdateDisplay();
     });
-    vaSeek.addEventListener("change", () => { _vaSeekDragging = false; _vaLoadFrame(_vaCurrentFrame); });
+    vaSeek.addEventListener("change", () => { _vaSeekDragging = false; Controller.seek(_vaCurrentFrame); });
 
     vaBackBtn.addEventListener("click", _vaReset);
     vaRefreshBtn.addEventListener("click", _vaLoadContent);
@@ -1987,14 +2023,14 @@ document.addEventListener('DOMContentLoaded', () => Controller.init());
       // ── Frame navigation ──────────────────────────────────────────────────────
       if (e.key === "ArrowLeft") {
         e.preventDefault();
-        e.ctrlKey ? _vaLoadFrame(_vaCurrentFrame - _vaSkipN())
-                  : _vaLoadFrame(_vaCurrentFrame - 1);
+        e.ctrlKey ? Controller.seek(_vaCurrentFrame - _vaSkipN())
+                  : Controller.seek(_vaCurrentFrame - 1);
         return;
       }
       if (e.key === "ArrowRight") {
         e.preventDefault();
-        e.ctrlKey ? _vaLoadFrame(_vaCurrentFrame + _vaSkipN())
-                  : _vaLoadFrame(_vaCurrentFrame + 1);
+        e.ctrlKey ? Controller.seek(_vaCurrentFrame + _vaSkipN())
+                  : Controller.seek(_vaCurrentFrame + 1);
         return;
       }
 
@@ -2210,7 +2246,7 @@ document.addEventListener('DOMContentLoaded', () => Controller.init());
             lastFrame = frameNum;
             _curStatus(`Batch adding… ${i + 1}/${count} (frame ${frameNum})`);
             // Navigate player to the frame being extracted
-            await _vaLoadFrame(frameNum);
+            await Controller.seek(frameNum);
             try {
               const res  = await fetch("/dlc/curator/add-to-dataset", {
                 method: "POST",
@@ -2223,7 +2259,7 @@ document.addEventListener('DOMContentLoaded', () => Controller.init());
             } catch (_) { errors++; }
           }
           // Ensure player is on the last frame processed
-          if (lastFrame !== _vaCurrentFrame) await _vaLoadFrame(lastFrame);
+          if (lastFrame !== _vaCurrentFrame) await Controller.seek(lastFrame);
           vaBatchAddBtn.disabled = false;
           const parts = [];
           if (added) parts.push(`${added} added`);
@@ -2278,7 +2314,7 @@ document.addEventListener('DOMContentLoaded', () => Controller.init());
         canvas.addEventListener("click", e => {
           const rect = canvas.getBoundingClientRect();
           const fn = Math.round((e.clientX - rect.left) / rect.width * Math.max(_vaFrameCount - 1, 0));
-          _vaLoadFrame(fn);
+          Controller.seek(fn);
         });
       });
 
@@ -2292,10 +2328,10 @@ document.addEventListener('DOMContentLoaded', () => Controller.init());
         if (!frames.length) return;
         if (dir < 0) {
           const prev = [...frames].reverse().find(f => f < _vaCurrentFrame);
-          if (prev != null) _vaLoadFrame(prev);
+          if (prev != null) Controller.seek(prev);
         } else {
           const next = frames.find(f => f > _vaCurrentFrame);
-          if (next != null) _vaLoadFrame(next);
+          if (next != null) Controller.seek(next);
         }
       }
 
