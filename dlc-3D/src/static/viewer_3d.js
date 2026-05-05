@@ -42,24 +42,39 @@ const Controller = {
   syncOn: false,
   primaryVideoRel: null,
   siblingVideoRel: null,
+  _loadToken: 0,
 
   init() {
     const tile0Root = document.querySelector('#va3d-tile-row .va3d-tile');
     if (!tile0Root) return;
     this.tiles = [new Tile(0, tile0Root)];
     this._wireFocus(this.tiles[0]);
+    const syncCb = document.getElementById('va3d-sync-cam');
+    syncCb?.addEventListener('change', (e) => {
+      if (e.target.checked && this.siblingVideoRel) {
+        this._ensureSiblingTile();
+        this.syncOn = true;
+      } else {
+        this._removeSiblingTile();
+        this.syncOn = false;
+      }
+    });
   },
 
   async loadVideo(videoRel) {
+    const myToken = ++this._loadToken;
     this.primaryVideoRel = videoRel;
     this.tiles[0].videoRel = videoRel;
     this.tiles[0].setLabel(videoRel.split('/').pop());
     // Probe sibling
     try {
       const r = await fetch(`/dlc-3d/sibling-camera?video=${encodeURIComponent(videoRel)}`);
+      if (myToken !== this._loadToken) return;
       const j = await r.json();
+      if (myToken !== this._loadToken) return;
       this.siblingVideoRel = j.sibling_video_path || null;
     } catch (e) {
+      if (myToken !== this._loadToken) return;
       console.warn('[va3d] sibling-camera probe failed:', e);
       this.siblingVideoRel = null;
     }
@@ -2575,17 +2590,4 @@ document.addEventListener('DOMContentLoaded', () => Controller.init());
         }).observe(vaPlayerSec, { attributes: true, attributeFilter: ["class"] });
       }
     })(); // end Video Metadata Panel
-
-    // ── Sync Cam checkbox wiring ─────────────────────────────────────────────
-    document.addEventListener('DOMContentLoaded', () => {
-      document.getElementById('va3d-sync-cam')?.addEventListener('change', (e) => {
-        if (e.target.checked && Controller.siblingVideoRel) {
-          Controller._ensureSiblingTile();
-          Controller.syncOn = true;
-        } else {
-          Controller._removeSiblingTile();
-          Controller.syncOn = false;
-        }
-      });
-    });
 
