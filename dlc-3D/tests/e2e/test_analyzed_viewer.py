@@ -128,3 +128,32 @@ def test_per_tile_size_slider_updates_flex_grow(page, base_url):
       "() => Array.from(document.querySelectorAll('#va3d-tile-row .va3d-tile')).map(t => t.style.flexGrow)"
     )
     assert weights == ['100', '100']
+
+
+def test_primary_layer_pairs_to_both_tiles(page, base_url):
+    page.goto(base_url, wait_until="domcontentloaded")
+    _open_card(page)
+    _select_sync_video(page)
+    page.wait_for_function("() => window.__va3dController.tiles.length === 2", timeout=5000)
+    # Toggle overlay on
+    page.check("#va3d-overlay-toggle")
+    # Pick the first option in the primary select (any cam0 h5 from the OM-2 fixture)
+    has_h5 = page.evaluate("() => document.querySelectorAll('#va3d-overlay-primary-select option').length > 1")
+    if not has_h5:
+        pytest.skip("OM-2 fixture has no analyzed h5 to pick")
+    page.evaluate("""() => {
+      const s = document.getElementById('va3d-overlay-primary-select');
+      s.selectedIndex = 1;
+      s.dispatchEvent(new Event('change', {bubbles:true}));
+    }""")
+    # Wait until the controller has assigned a primary path to each tile (or set a pill)
+    page.wait_for_function(
+      "() => window.__va3dController.tiles.every(t => t.primaryH5Path !== undefined)",
+      timeout=5000,
+    )
+    states = page.evaluate(
+      "() => window.__va3dController.tiles.map(t => ({path: t.primaryH5Path, pill: t.pillEl.textContent}))"
+    )
+    # cam0 must have a path; cam1 must have either a path or the pill text
+    assert states[0]['path'], states
+    assert states[1]['path'] or 'no sibling h5' in states[1]['pill'], states

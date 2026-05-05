@@ -162,6 +162,47 @@ const Controller = {
     else this.currentFrame = n;
   },
 
+  // ── Layer-pair resolver ────────────────────────────────────────────────
+  // When the user picks the primary h5 in the overlay panel, each tile must
+  // resolve to its own cam-specific h5 via /dlc-3d/analyzed/sibling-h5.
+  // Tile 0 trivially uses the picked path; tile 1 (sibling) asks the backend
+  // for the matching h5 and falls back to a 'no sibling h5 — overlay off'
+  // pill if none exists. Sibling rendering itself is deferred to Task 9 —
+  // here we only stash the resolved path on the tile and update its pill.
+  async _resolveLayerForTile(primaryH5Path, tile) {
+    if (tile.cam === 0) return { path: primaryH5Path, exists: true };
+    const r = await fetch(
+      `/dlc-3d/analyzed/sibling-h5?primary_h5=${encodeURIComponent(primaryH5Path)}&cam=${tile.cam}`
+    );
+    return await r.json();
+  },
+
+  async _loadH5OnTile(tile) {
+    // Tile 0's h5 is loaded by the existing single-cam handler
+    // (_vaApplyPrimaryFromSelect) operating on globals — nothing to do here.
+    // Tile 1's actual marker render is deferred to Task 9 (comparison-layers
+    // resolver). At this point we have already populated tile.primaryH5Path
+    // so downstream rendering work can find it.
+    if (tile.cam === 0) return;
+    // Placeholder hook: clear any 'frame load failed' pill so the resolver's
+    // pill (if needed) is the only thing visible.
+    // (Sibling-h5 loaders will land in Task 9.)
+  },
+
+  async setPrimaryLayer(primaryH5Path) {
+    for (const tile of this.tiles) {
+      const res = await this._resolveLayerForTile(primaryH5Path, tile);
+      if (res && res.exists) {
+        tile.primaryH5Path = res.path;
+        tile.setPill('');
+        await this._loadH5OnTile(tile);
+      } else {
+        tile.primaryH5Path = null;
+        tile.setPill('no sibling h5 — overlay off');
+      }
+    }
+  },
+
   async _loadFrameOnTile(tile, frame) {
     if (!tile.videoRel) return;
     // Per-tile load token: fast Next clicks can interleave two calls; the
@@ -1537,6 +1578,9 @@ document.addEventListener('DOMContentLoaded', () => Controller.init());
       _vaRenderPrimaryThresholdInline();
       if (_vaOverlayEnabled) _vaLoadFrame(_vaCurrentFrame);
       _vaSyncPrimaryRow();
+      // Pair the primary h5 across every tile (tile-0 trivially keeps `path`;
+      // tile-1 resolves to its sibling h5 or shows a 'no sibling' pill).
+      await Controller.setPrimaryLayer(path);
     }
 
     function _vaRenderPrimaryThresholdInline() {
