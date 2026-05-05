@@ -1,6 +1,128 @@
 "use strict";
 import { state } from '/static/js/state.js';
 
+// ─── Tile abstraction ───────────────────────────────────────────────────────
+class Tile {
+  constructor(cam, rootEl) {
+    this.cam      = cam;                    // 0 or 1
+    this.rootEl   = rootEl;                 // .va3d-tile
+    this.imgEl    = rootEl.querySelector('.va3d-frame-img');
+    this.canvasEl = rootEl.querySelector('.va3d-overlay-canvas');
+    this.wrapEl   = rootEl.querySelector('.va3d-tile-canvas-wrap');
+    this.labelEl  = rootEl.querySelector('.va3d-tile-label');
+    this.pillEl   = rootEl.querySelector('.va3d-tile-pill');
+    this.spinnerEl= rootEl.querySelector('.va3d-frame-spinner');
+    this.sliderEl = rootEl.querySelector('.va3d-tile-size');
+    this.sliderValEl = rootEl.querySelector('.va3d-tile-size-val');
+    this.weight   = 100;
+    this.videoRel = null;
+    this.primaryH5Path = null;
+    this.comparisonLayers = [];
+    this.pendingEdits = new Map();   // frame → { bodypart → {x,y} }
+    this.markersByFrame = new Map(); // frame → markers
+  }
+  setLabel(text) { this.labelEl.textContent = text; }
+  setPill(text) {
+    if (text) { this.pillEl.textContent = text; this.pillEl.classList.remove('hidden'); }
+    else      { this.pillEl.classList.add('hidden'); }
+  }
+  setWeight(w) {
+    this.weight = w;
+    this.rootEl.dataset.weight = String(w);
+    this.rootEl.style.flexGrow = String(w);
+    this.sliderEl.value = String(w);
+    this.sliderValEl.textContent = `${w}%`;
+  }
+}
+
+// ─── ViewerController singleton ────────────────────────────────────────────
+const Controller = {
+  tiles: [],
+  currentFrame: 0,
+  syncOn: false,
+  primaryVideoRel: null,
+  siblingVideoRel: null,
+
+  init() {
+    const tile0Root = document.querySelector('#va3d-tile-row .va3d-tile');
+    if (!tile0Root) return;
+    this.tiles = [new Tile(0, tile0Root)];
+    this._wireFocus(this.tiles[0]);
+  },
+
+  async loadVideo(videoRel) {
+    this.primaryVideoRel = videoRel;
+    this.tiles[0].videoRel = videoRel;
+    this.tiles[0].setLabel(videoRel.split('/').pop());
+    // Probe sibling
+    try {
+      const r = await fetch(`/dlc-3d/sibling-camera?video=${encodeURIComponent(videoRel)}`);
+      const j = await r.json();
+      this.siblingVideoRel = j.sibling_video_path || null;
+    } catch (e) {
+      console.warn('[va3d] sibling-camera probe failed:', e);
+      this.siblingVideoRel = null;
+    }
+    this._renderSiblingTile();
+  },
+
+  _renderSiblingTile() {
+    const lbl = document.getElementById('va3d-sync-cam-label');
+    const cb  = document.getElementById('va3d-sync-cam');
+    const eq  = document.getElementById('va3d-equalize-btn');
+    if (!this.siblingVideoRel) {
+      // Hide sibling tile if present
+      if (this.tiles.length > 1) {
+        this.tiles[1].rootEl.remove();
+        this.tiles = this.tiles.slice(0, 1);
+      }
+      lbl.style.display = 'inline-flex';
+      cb.checked = false;
+      cb.disabled = true;
+      lbl.title = 'no sibling cam detected';
+      eq.classList.add('hidden');
+      this.syncOn = false;
+      return;
+    }
+    lbl.style.display = 'inline-flex';
+    cb.checked = true;
+    cb.disabled = false;
+    lbl.title = '';
+    this.syncOn = true;
+    eq.classList.remove('hidden');
+    this._ensureSiblingTile();
+  },
+
+  _ensureSiblingTile() {
+    if (this.tiles.length === 2) return;
+    const tpl = document.getElementById('va3d-tile-template');
+    const node = tpl.content.firstElementChild.cloneNode(true);
+    node.dataset.cam = '1';
+    document.getElementById('va3d-tile-row').appendChild(node);
+    const tile = new Tile(1, node);
+    tile.videoRel = this.siblingVideoRel;
+    tile.setLabel(this.siblingVideoRel.split('/').pop());
+    this.tiles.push(tile);
+    this._wireFocus(tile);
+  },
+
+  _removeSiblingTile() {
+    if (this.tiles.length < 2) return;
+    this.tiles[1].rootEl.remove();
+    this.tiles = this.tiles.slice(0, 1);
+  },
+
+  _wireFocus(tile) {
+    tile.rootEl.addEventListener('mousedown', () => this.focusTile(tile.cam));
+  },
+  focusTile(cam) {
+    this.tiles.forEach(t => t.rootEl.classList.toggle('focused', t.cam === cam));
+  },
+};
+
+window.__va3dController = Controller;  // for e2e introspection
+document.addEventListener('DOMContentLoaded', () => Controller.init());
+
     const vaCard         = document.getElementById("view-analyzed-3d-card");
     const vaOpenBtn      = document.getElementById("btn-open-view-analyzed");
     const vaCloseBtn     = document.getElementById("btn-close-view-analyzed-3d");
@@ -350,6 +472,9 @@ import { state } from '/static/js/state.js';
         _vaCurrentVideoPath = info.abs_path || null;
       } catch (_) { _vaFps = 30; _vaFrameCount = 0; }
       vaPlayerSec.classList.remove("hidden");
+      // Sibling-cam probe + tile management (additive; does not affect single-cam path).
+      try { await Controller.loadVideo(_vaCurrentVideoPath || name); }
+      catch (e) { console.warn('[va3d] Controller.loadVideo failed:', e); }
       _vaLoadFrame(0);
     }
 
@@ -378,6 +503,9 @@ import { state } from '/static/js/state.js';
         _vaFrameCount = info.frame_count || 0;
       } catch (_) { _vaFps = 30; _vaFrameCount = 0; }
       vaPlayerSec.classList.remove("hidden");
+      // Sibling-cam probe + tile management (additive; does not affect single-cam path).
+      try { await Controller.loadVideo(absPath); }
+      catch (e) { console.warn('[va3d] Controller.loadVideo failed:', e); }
       _vaLoadFrame(0);
       // Discover companion h5 variants in the same directory
       _vaDiscoverVariants(absPath);
@@ -2447,4 +2575,17 @@ import { state } from '/static/js/state.js';
         }).observe(vaPlayerSec, { attributes: true, attributeFilter: ["class"] });
       }
     })(); // end Video Metadata Panel
+
+    // ── Sync Cam checkbox wiring ─────────────────────────────────────────────
+    document.addEventListener('DOMContentLoaded', () => {
+      document.getElementById('va3d-sync-cam')?.addEventListener('change', (e) => {
+        if (e.target.checked && Controller.siblingVideoRel) {
+          Controller._ensureSiblingTile();
+          Controller.syncOn = true;
+        } else {
+          Controller._removeSiblingTile();
+          Controller.syncOn = false;
+        }
+      });
+    });
 

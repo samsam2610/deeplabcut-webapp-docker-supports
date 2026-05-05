@@ -61,6 +61,10 @@
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
             Equalize
           </button>
+          <label id="va3d-sync-cam-label" style="display:none;align-items:center;gap:.45rem;font-size:.78rem;color:var(--text-dim);cursor:pointer;user-select:none">
+            <input type="checkbox" id="va3d-sync-cam">
+            Sync Cam
+          </label>
         </div>
 
         <!-- ── Video Metadata Strip (companion CSV) ─────────── -->
@@ -204,6 +208,23 @@
             </div>
           </div>
         </div>
+
+        <template id="va3d-tile-template">
+          <div class="va3d-tile" data-cam="" data-weight="100" style="flex-grow:100">
+            <div class="va3d-tile-header">
+              <span class="va3d-tile-label"></span>
+              <span class="va3d-tile-pill hidden"></span>
+              <input type="range" class="va3d-tile-size" min="50" max="500" step="25" value="100">
+              <span class="va3d-tile-size-val">100%</span>
+            </div>
+            <div class="va3d-tile-canvas-wrap"
+                 style="position:relative;background:#000;border-radius:8px;border:1px solid var(--border)">
+              <img class="va3d-frame-img" alt="" draggable="false" style="width:100%;display:block;height:auto" />
+              <canvas class="va3d-overlay-canvas" style="position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none"></canvas>
+              <div class="fe-frame-spinner va3d-frame-spinner hidden"></div>
+            </div>
+          </div>
+        </template>
 
         <!-- Seek / timeline slider — sits directly below the canvas -->
         <input type="range" id="va3d-seek" class="fe-seek" min="0" max="1000" value="0" step="1" style="margin-bottom:.4rem" />

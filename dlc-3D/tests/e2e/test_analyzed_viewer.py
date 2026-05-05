@@ -28,3 +28,54 @@ def test_close_button_hides_card(page, base_url):
     _open_card(page)
     page.click("#btn-close-view-analyzed-3d")
     page.wait_for_selector("#view-analyzed-3d-card.hidden", state="attached", timeout=2000)
+
+
+SYNC_VIDEO_DIR = (
+    "/user-data/Parra-Data/Cloud/Reaching-Task-Data/RatBox Videos/tdcs/042426"
+)
+SYNC_VIDEO_HINT = "OM-2_cam0_20260424"  # picks the cam0 video from the OM-2 fixture
+
+
+def _select_sync_video(page):
+    """Navigate Browse Folders to the OM-2 dir and click the cam0 video."""
+    # Switch to Browse Folders tab
+    page.click("#va3d-tab-browse")
+    page.wait_for_selector("#va3d-tab-browse-panel:not(.hidden)", timeout=2000)
+    # Type the directory into the breadcrumb and Enter
+    page.fill("#va3d-browse-breadcrumb", SYNC_VIDEO_DIR)
+    page.press("#va3d-browse-breadcrumb", "Enter")
+    # Show videos that lack h5 too (OM-2 cam videos may not have h5 in this dir)
+    if page.is_checked("#va3d-browse-hide-no-h5"):
+        page.uncheck("#va3d-browse-hide-no-h5")
+    page.wait_for_selector(
+        f"#va3d-browse-list .fe-video-item[data-has-h5]:has-text('{SYNC_VIDEO_HINT}')",
+        timeout=10000,
+    )
+    page.click(f"#va3d-browse-list .fe-video-item[data-has-h5]:has-text('{SYNC_VIDEO_HINT}')")
+    page.wait_for_function(
+        "() => window.__va3dController && window.__va3dController.tiles.length > 0",
+        timeout=10000,
+    )
+
+
+def test_sync_cam_auto_on_when_sibling_exists(page, base_url):
+    page.goto(base_url, wait_until="domcontentloaded")
+    _open_card(page)
+    _select_sync_video(page)
+    # Wait for sibling probe + tile creation
+    page.wait_for_function(
+        "() => window.__va3dController.tiles.length === 2",
+        timeout=5000,
+    )
+    assert page.is_checked("#va3d-sync-cam")
+    tiles = page.query_selector_all("#va3d-tile-row .va3d-tile")
+    assert len(tiles) == 2
+
+
+def test_sync_cam_toggle_collapses_to_single_tile(page, base_url):
+    page.goto(base_url, wait_until="domcontentloaded")
+    _open_card(page)
+    _select_sync_video(page)
+    page.wait_for_function("() => window.__va3dController.tiles.length === 2", timeout=5000)
+    page.uncheck("#va3d-sync-cam")
+    page.wait_for_function("() => window.__va3dController.tiles.length === 1", timeout=2000)
