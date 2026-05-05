@@ -1277,16 +1277,26 @@ document.addEventListener('DOMContentLoaded', () => Controller.init());
               if (!tile.primaryH5Path) {
                 return { cam: tile.cam, ok: false, error: "no h5 for this cam" };
               }
-              const body = {
-                h5:    tile.primaryH5Path,
-                edits: Array.from(tile.pendingEdits.entries()).map(([frame, parts]) => ({ frame, parts })),
-              };
+              // NOTE: matches legacy tile-0 save body — the endpoint reads edits
+              // from the server-side cache populated by /dlc/viewer/marker-edit.
+              // When tile-1 editing lands, also wire per-edit POSTs there.
+              const body = { h5: tile.primaryH5Path };
               const r = await fetch("/dlc/viewer/save-marker-edits", {
                 method:  "POST",
                 headers: { "Content-Type": "application/json" },
                 body:    JSON.stringify(body),
               });
-              if (!r.ok) return { cam: tile.cam, ok: false, error: await r.text() };
+              if (!r.ok) {
+                const errText = await (async () => {
+                  try {
+                    const j = await r.clone().json();
+                    return j.error || `HTTP ${r.status}`;
+                  } catch {
+                    return await r.text() || `HTTP ${r.status}`;
+                  }
+                })();
+                return { cam: tile.cam, ok: false, error: errText };
+              }
               return { cam: tile.cam, ok: true };
             }));
             // Clear pendingEdits for any sibling that succeeded.
