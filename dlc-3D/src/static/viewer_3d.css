@@ -38,8 +38,8 @@
   border: 1px solid var(--border);
   flex-shrink: 0;
 }
-.va3d-tile-size { width: 70px; accent-color: var(--accent); }
-.va3d-tile-size-val { min-width: 2.6rem; text-align: right; font-family: var(--mono); }
+.va3d-tile-size { width: 70px; accent-color: var(--accent); flex-shrink: 0; }
+.va3d-tile-size-val { min-width: 2.6rem; text-align: right; font-family: var(--mono); flex-shrink: 0; }
 .va3d-tile.focused .va3d-tile-canvas-wrap {
   outline: 2px solid var(--accent);
   outline-offset: -2px;

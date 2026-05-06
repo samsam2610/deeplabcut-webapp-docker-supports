@@ -325,3 +325,18 @@ def test_sibling_tile_renders_markers_for_primary_layer(page, base_url):
             nonzero = last_diag['nonzero']
             break
     assert nonzero > 0, f"Tile-1 overlay canvas never showed markers across probed frames; last={last_diag}"
+
+
+def test_both_cams_label_hidden_when_curation_off(page, base_url):
+    page.goto(base_url, wait_until="domcontentloaded")
+    _open_card(page)
+    _select_sync_video(page)
+    page.wait_for_function("() => window.__va3dController.tiles.length === 2", timeout=5000)
+    # Curation toggle is OFF by default — the Both-cams label must be hidden
+    assert not page.is_visible("#va3d-both-cams-label")
+    # Now toggle curation on — Both-cams label should appear
+    page.check("#va3d-curation-toggle")
+    assert page.is_visible("#va3d-both-cams-label")
+    # Toggle curation off — label should hide again
+    page.uncheck("#va3d-curation-toggle")
+    assert not page.is_visible("#va3d-both-cams-label")

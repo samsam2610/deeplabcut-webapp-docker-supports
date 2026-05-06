@@ -45,7 +45,8 @@ class Tile {
 function _va3dUpdateBothCamsVisibility() {
   const both = document.getElementById('va3d-both-cams-label');
   if (!both) return;
-  both.style.display = (Controller.tiles.length > 1 && Controller.syncOn) ? 'inline-flex' : 'none';
+  const curationOn = !!document.getElementById('va3d-curation-toggle')?.checked;
+  both.style.display = (Controller.tiles.length > 1 && Controller.syncOn && curationOn) ? 'inline-flex' : 'none';
 }
 
 // ─── Curator call helpers (paired per-cam fan-out) ─────────────────────────
@@ -1749,6 +1750,7 @@ document.addEventListener('DOMContentLoaded', () => Controller.init());
     const vaCurationControls = document.getElementById("va3d-curation-controls");
     vaCurationToggle?.addEventListener("change", () => {
       vaCurationControls?.classList.toggle("hidden", !vaCurationToggle.checked);
+      _va3dUpdateBothCamsVisibility();
     });
 
     // ── Kinematic overlay controls ────────────────────────────
