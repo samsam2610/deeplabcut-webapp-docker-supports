@@ -254,3 +254,74 @@ def test_tile0_canvas_wrap_does_not_overflow_into_tile1(page, base_url):
     assert t0["wrapX"] + t0["wrapW"] <= t1["tileX"] + 1, (
         f"tile-0 wrap right edge {t0['wrapX'] + t0['wrapW']} overlaps tile-1 start {t1['tileX']}"
     )
+
+
+def test_sibling_tile_renders_markers_for_primary_layer(page, base_url):
+    page.goto(base_url, wait_until="domcontentloaded")
+    _open_card(page)
+    _select_sync_video(page)
+    page.wait_for_function("() => window.__va3dController.tiles.length === 2", timeout=5000)
+    page.check("#va3d-overlay-toggle")
+    has_h5 = page.evaluate("() => document.querySelectorAll('#va3d-overlay-primary-select option').length > 1")
+    if not has_h5:
+        pytest.skip("OM-2 fixture has no analyzed h5")
+    page.evaluate("""() => {
+      const s = document.getElementById('va3d-overlay-primary-select');
+      s.selectedIndex = 1;
+      s.dispatchEvent(new Event('change', {bubbles:true}));
+    }""")
+    # Wait for tile-1's primaryH5Path to be resolved (or pill to indicate missing)
+    page.wait_for_function(
+      "() => window.__va3dController.tiles.every(t => t.primaryH5Path !== null"
+      " || (t.pillEl && t.pillEl.textContent && t.pillEl.textContent.includes('no sibling')))",
+      timeout=10000,
+    )
+    # If sibling has no h5, this test verifies nothing useful — skip
+    has_sibling_h5 = page.evaluate("() => window.__va3dController.tiles[1].primaryH5Path !== null")
+    if not has_sibling_h5:
+        pytest.skip("OM-2 fixture sibling h5 not present for this video")
+    # Wait for both tile imgs to load
+    page.wait_for_function(
+      "() => Array.from(document.querySelectorAll('#va3d-tile-row .va3d-frame-img'))"
+      ".every(i => i.complete && i.naturalWidth > 0)",
+      timeout=15000,
+    )
+    page.wait_for_timeout(500)  # let initial pose fetch + draw settle
+    # Drop the global threshold to 0 so even low-confidence poses are returned;
+    # the OM-2 fixture's cam1 h5 has very few high-confidence frames so the
+    # default 0.60 threshold yields empty results at most frames.
+    page.evaluate("""() => {
+      const t = document.getElementById('va3d-overlay-threshold');
+      t.value = '0';
+      t.dispatchEvent(new Event('input', {bubbles:true}));
+    }""")
+    page.wait_for_timeout(500)
+    # Tile-0's _vaLoadFrame triggers a re-render which propagates to siblings
+    # via _vaRenderAllSiblings(). Probe a handful of frames and accept the
+    # first one with markers.
+    nonzero = 0
+    last_diag = None
+    for n in [0, 10, 50, 100, 250, 500, 1000]:
+        page.evaluate(f"() => window.__va3dController.seek({n})")
+        page.wait_for_function(
+            "() => !window.__va3dController.tiles[1].layers[0]"
+            " || window.__va3dController.tiles[1].layers[0].posesCache.has(window.__va3dController.currentFrame)",
+            timeout=5000,
+        )
+        page.wait_for_timeout(200)
+        last_diag = page.evaluate("""() => {
+          const tile = window.__va3dController.tiles[1];
+          const c = tile.canvasEl;
+          const f = window.__va3dController.currentFrame;
+          const cached = tile.layers[0] ? tile.layers[0].posesCache.get(f) : null;
+          let n = 0;
+          if (c && c.width && c.height) {
+            const data = c.getContext('2d').getImageData(0, 0, c.width, c.height).data;
+            for (let i = 3; i < data.length; i += 4) if (data[i] > 0) n++;
+          }
+          return {nonzero: n, frame: f, n_poses: cached ? (cached.poses||[]).length : 0};
+        }""")
+        if last_diag['nonzero'] > 0:
+            nonzero = last_diag['nonzero']
+            break
+    assert nonzero > 0, f"Tile-1 overlay canvas never showed markers across probed frames; last={last_diag}"

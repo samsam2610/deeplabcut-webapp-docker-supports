@@ -18,6 +18,11 @@ class Tile {
     this.videoRel = null;
     this.primaryH5Path = null;
     this.comparisonLayers = [];
+    // Per-tile layer objects mirroring _vaLayers shape, with cam-substituted
+    // paths + their own posesCache. Drives the sibling-tile marker renderer
+    // (Controller._renderTileMarkers). Tile-0 leaves this empty and uses the
+    // legacy module-level _vaLayers + _vaDrawCurrentFrame path instead.
+    this.layers = [];
     this.pendingEdits = new Map();   // frame → { bodypart → {x,y} }
     this.markersByFrame = new Map(); // frame → markers
     this.sliderEl?.addEventListener('input', (e) => this.setWeight(parseInt(e.target.value, 10)));
@@ -263,6 +268,11 @@ const Controller = {
     // _vaLoadFrame clamps n internally; mirror its result as truth.
     if (typeof _vaCurrentFrame !== 'undefined') this.currentFrame = _vaCurrentFrame;
     else this.currentFrame = n;
+    // Render sibling-tile markers AFTER both tile imgs have landed, so the
+    // canvas-buffer sizing in _renderTileMarkers reads non-zero offsetWidth.
+    for (let i = 1; i < this.tiles.length; i++) {
+      try { await this._renderTileMarkers(this.tiles[i]); } catch (e) {}
+    }
   },
 
   // ── Layer-pair resolver ────────────────────────────────────────────────
@@ -285,16 +295,30 @@ const Controller = {
     }
   },
 
+  // Build a per-tile layer object mirroring the _vaLayers entry shape.
+  // sourceLayer is the corresponding tile-0 layer (used to copy shape /
+  // bodyparts / visible). The path is the cam-substituted resolved path.
+  _makeTileLayer(path, sourceLayer) {
+    return {
+      path,
+      visible:    sourceLayer ? sourceLayer.visible : true,
+      shape:      sourceLayer ? sourceLayer.shape   : 'circle-filled',
+      // Mirror the source layer's per-layer threshold override (or null →
+      // use global). _vaLayerThreshold tolerates both cases.
+      threshold:  sourceLayer ? (sourceLayer.threshold ?? null) : null,
+      errored:    false,
+      bodyparts:  sourceLayer ? (sourceLayer.bodyparts || []) : [],
+      posesCache: new Map(),
+    };
+  },
+
   async _loadH5OnTile(tile) {
     // Tile 0's h5 is loaded by the existing single-cam handler
     // (_vaApplyPrimaryFromSelect) operating on globals — nothing to do here.
-    // Tile 1's actual marker render is deferred to Task 9 (comparison-layers
-    // resolver). At this point we have already populated tile.primaryH5Path
-    // so downstream rendering work can find it.
+    // For tile-1, kick off a sibling-marker render now that primaryH5Path
+    // and tile.layers[0] are populated.
     if (tile.cam === 0) return;
-    // Placeholder hook: clear any 'frame load failed' pill so the resolver's
-    // pill (if needed) is the only thing visible.
-    // (Sibling-h5 loaders will land in Task 9.)
+    await this._renderTileMarkers(tile);
   },
 
   async setPrimaryLayer(primaryH5Path) {
@@ -303,9 +327,16 @@ const Controller = {
       if (res && res.exists) {
         tile.primaryH5Path = res.path;
         tile.setPill('');
+        if (tile.cam !== 0) {
+          // Primary swap = fresh layer set on the sibling, mirroring how
+          // _vaApplyPrimaryFromSelect drops every comparison layer on tile-0.
+          const sourceLayer = (typeof _vaPrimary === 'function') ? _vaPrimary() : null;
+          tile.layers = [this._makeTileLayer(res.path, sourceLayer)];
+        }
         await this._loadH5OnTile(tile);
       } else {
         tile.primaryH5Path = null;
+        if (tile.cam !== 0) tile.layers = [];
         tile.setPill('no sibling h5 — overlay off');
       }
     }
@@ -317,6 +348,16 @@ const Controller = {
         const res = await this._resolveLayerForTile(layerPath, tile);
         if (res && res.exists && !tile.comparisonLayers.includes(res.path)) {
           tile.comparisonLayers.push(res.path);
+          if (tile.cam !== 0) {
+            // Find the corresponding source layer on tile-0 by path so we
+            // copy its shape (assigned in _SHAPE_ORDER position) onto the
+            // sibling layer.
+            const sourceLayer = (typeof _vaLayers !== 'undefined')
+              ? _vaLayers.find(l => l.path === layerPath) || null
+              : null;
+            tile.layers.push(this._makeTileLayer(res.path, sourceLayer));
+            await this._renderTileMarkers(tile);
+          }
         } else if ((!res || !res.exists) && tile.cam !== 0) {
           // Sibling missing for this comparison — note in pill (don't clobber
           // an existing 'no sibling h5' pill from the primary resolver).
@@ -341,6 +382,81 @@ const Controller = {
         const b = (p || '').split('/').pop().replace(/_cam\d+_/, '_camX_');
         return b !== camAgnosticBase;
       });
+      if (tile.cam !== 0) {
+        // Drop any matching tile.layers entry (preserve primary at index 0).
+        tile.layers = tile.layers.filter((l, i) => {
+          if (i === 0) return true;
+          const b = (l.path || '').split('/').pop().replace(/_cam\d+_/, '_camX_');
+          return b !== camAgnosticBase;
+        });
+        this._renderTileMarkers(tile).catch(() => {});
+      }
+    }
+  },
+
+  // Render kinematic markers on a sibling tile's overlay canvas. Mirrors the
+  // primary-layer + comparison-layer rendering done by _vaDrawCurrentFrame on
+  // tile-0, but is read-only (no edit/select/hover rings — editing on the
+  // sibling stays out of scope).
+  async _renderTileMarkers(tile) {
+    if (tile.cam === 0) return;             // tile-0 handled by legacy path
+    if (!tile.canvasEl || !tile.imgEl) return;
+    const ctx = tile.canvasEl.getContext('2d');
+    // Sync canvas buffer to displayed img dims (mirrors _vaSyncCanvas).
+    const dispW = tile.imgEl.offsetWidth  || tile.imgEl.clientWidth  || 1;
+    const dispH = tile.imgEl.offsetHeight || tile.imgEl.clientHeight || 1;
+    if (tile.canvasEl.width !== dispW || tile.canvasEl.height !== dispH) {
+      tile.canvasEl.width  = dispW;
+      tile.canvasEl.height = dispH;
+    }
+    ctx.clearRect(0, 0, tile.canvasEl.width, tile.canvasEl.height);
+    // Bail if overlay disabled, no img loaded, or no layers.
+    if (typeof _vaOverlayEnabled === 'undefined' || !_vaOverlayEnabled) return;
+    if (!tile.imgEl.naturalWidth || !tile.layers.length) return;
+    const natW = tile.imgEl.naturalWidth;
+    const natH = tile.imgEl.naturalHeight;
+    const sx   = tile.canvasEl.width  / natW;
+    const sy   = tile.canvasEl.height / natH;
+    const r    = Math.max(1, Math.round(_vaMarkerSize * Math.min(sx, sy)));
+    const frame = (typeof _vaCurrentFrame === 'number') ? _vaCurrentFrame : (this.currentFrame || 0);
+    // Fetch poses for each visible non-errored tile layer at the current frame.
+    await Promise.all(
+      tile.layers
+        .filter(l => l.visible && !l.errored)
+        .map(l => _vaFetchPosesForFrame(l, frame).catch(() => null))
+    );
+    const visible = tile.layers.filter(l => l.visible && !l.errored);
+    if (!visible.length) return;
+    const primary = visible[0];
+    // Comparison layers first (primary draws last, mirroring _vaDrawCurrentFrame).
+    for (const layer of visible) {
+      if (layer === primary) continue;
+      const cached = layer.posesCache.get(frame);
+      if (!cached) continue;
+      const drawFn = _SHAPE_FN[layer.shape] || _drawCircleFilled;
+      const total  = cached.n_bodyparts || layer.bodyparts.length || 1;
+      for (const pose of cached.poses) {
+        if (_vaHiddenParts.has(pose.bp)) continue;
+        const cx = Math.round(pose.x * sx);
+        const cy = Math.round(pose.y * sy);
+        const color = _vaPaletteColor(pose.color_idx, total);
+        drawFn(ctx, cx, cy, r, color);
+      }
+    }
+    // Primary — read-only on the sibling, so no edit/select rings.
+    const cached = primary.posesCache.get(frame);
+    if (cached) {
+      const total = cached.n_bodyparts || primary.bodyparts.length || 1;
+      for (const pose of cached.poses) {
+        if (_vaHiddenParts.has(pose.bp)) continue;
+        const cx = Math.round(pose.x * sx);
+        const cy = Math.round(pose.y * sy);
+        const color = _vaPaletteColor(pose.color_idx, total);
+        ctx.beginPath();
+        ctx.arc(cx, cy, r, 0, Math.PI * 2);
+        ctx.fillStyle = color;
+        ctx.fill();
+      }
     }
   },
 
@@ -686,6 +802,7 @@ document.addEventListener('DOMContentLoaded', () => Controller.init());
         primaryReady    = true;
       }
       _vaDrawCurrentFrame();
+      _vaRenderAllSiblings();
       if (primaryReady) _vaUpdateBpChipStatus();
       // Only hit the server when paused
       if (!_vaPlayTimer && (!pCached || pCached.key !== pKey)) _vaFetchPoses(n);
@@ -723,6 +840,18 @@ document.addEventListener('DOMContentLoaded', () => Controller.init());
       // Primary layer: handles edits/selection/hover via existing _vaDrawPoseMarkers.
       if (_vaPrimary() && _vaPrimary().visible && !_vaPrimary().errored) {
         _vaDrawPoseMarkers();
+      }
+    }
+
+    // Re-render markers on every sibling tile (cam !== 0). Called immediately
+    // after each _vaDrawCurrentFrame() so sibling overlays stay in sync with
+    // tile-0 across threshold / marker-size / hidden-parts / chip-toggle /
+    // layer add/remove changes. Fire-and-forget — _renderTileMarkers swallows
+    // its own errors and the legacy tile-0 path must not be blocked.
+    function _vaRenderAllSiblings() {
+      if (!Controller || !Controller.tiles) return;
+      for (let i = 1; i < Controller.tiles.length; i++) {
+        Controller._renderTileMarkers(Controller.tiles[i]).catch(() => {});
       }
     }
 
@@ -1047,6 +1176,7 @@ document.addEventListener('DOMContentLoaded', () => Controller.init());
       // comparison layer's shape disappear and replaced it with circles at
       // the primary's coordinates.
       _vaDrawCurrentFrame();
+      _vaRenderAllSiblings();
       // Hover label only makes sense when the primary layer is visible (its
       // poses drive _vaCurrentPoses + hit-testing).
       const primary = _vaPrimary();
@@ -1891,7 +2021,7 @@ document.addEventListener('DOMContentLoaded', () => Controller.init());
         layer.threshold = Number(slider.value);
         lbl.textContent = layer.threshold.toFixed(2);
         if (_vaOverlayEnabled) {
-          _vaFetchPosesForFrame(layer, _vaCurrentFrame).then(_vaDrawCurrentFrame);
+          _vaFetchPosesForFrame(layer, _vaCurrentFrame).then(() => { _vaDrawCurrentFrame(); _vaRenderAllSiblings(); });
         }
       });
       slot.appendChild(slider);
@@ -1925,6 +2055,7 @@ document.addEventListener('DOMContentLoaded', () => Controller.init());
         vis.addEventListener("change", () => {
           layer.visible = vis.checked;
           _vaDrawCurrentFrame();
+          _vaRenderAllSiblings();
         });
         row.appendChild(vis);
         // shape badge
@@ -1953,7 +2084,7 @@ document.addEventListener('DOMContentLoaded', () => Controller.init());
             layer.threshold = Number(slider.value);
             lbl.textContent = layer.threshold.toFixed(2);
             if (_vaOverlayEnabled) {
-              _vaFetchPosesForFrame(layer, _vaCurrentFrame).then(_vaDrawCurrentFrame);
+              _vaFetchPosesForFrame(layer, _vaCurrentFrame).then(() => { _vaDrawCurrentFrame(); _vaRenderAllSiblings(); });
             }
           });
           thrSlot.appendChild(slider);
@@ -1984,6 +2115,7 @@ document.addEventListener('DOMContentLoaded', () => Controller.init());
       _vaRenderCompareRows();
       _vaRefreshAddComparisonOptions(_vaLastVariants);
       _vaDrawCurrentFrame();
+      _vaRenderAllSiblings();
     }
 
     function _vaRemoveCompare(id) {
@@ -1995,6 +2127,7 @@ document.addEventListener('DOMContentLoaded', () => Controller.init());
       _vaRenderCompareRows();
       _vaRefreshAddComparisonOptions(_vaLastVariants);
       _vaDrawCurrentFrame();
+      _vaRenderAllSiblings();
       // Drop this comparison from every tile's per-tile list (cam-agnostic
       // basename match handles the sibling tile's cam-substituted path).
       try { Controller.removeComparisonLayer(removedPath); } catch (err) {}
@@ -2015,6 +2148,9 @@ document.addEventListener('DOMContentLoaded', () => Controller.init());
         if (vaOverlayCtx) vaOverlayCtx.clearRect(0, 0, vaOverlayCanvas.width, vaOverlayCanvas.height);
         if (vaBpListWrap) vaBpListWrap.classList.add("hidden");
         if (vaOverlayCanvas) vaOverlayCanvas.style.cursor = "default";
+        // Sibling tiles too: _renderTileMarkers early-bails on !_vaOverlayEnabled
+        // but still clears its canvas first, so this drops any stale markers.
+        _vaRenderAllSiblings();
         return;
       }
       if (_vaAllBodyParts.length && vaBpListWrap) vaBpListWrap.classList.remove("hidden");
@@ -2046,6 +2182,7 @@ document.addEventListener('DOMContentLoaded', () => Controller.init());
       if (!layer) return;
       layer.visible = !!vaOverlayPrimaryVisible.checked;
       _vaDrawCurrentFrame();
+      _vaRenderAllSiblings();
     });
 
     function _vaSyncPrimaryRow() {
@@ -2074,6 +2211,15 @@ document.addEventListener('DOMContentLoaded', () => Controller.init());
       _vaOverlayStatus("");
       _vaCurrentPoses = [];
       if (vaOverlayCtx) vaOverlayCtx.clearRect(0, 0, vaOverlayCanvas.width, vaOverlayCanvas.height);
+      // Drop sibling tile layers + clear their canvases too.
+      Controller.tiles.slice(1).forEach(t => {
+        t.layers = [];
+        t.primaryH5Path = null;
+        if (t.canvasEl) {
+          const ctx = t.canvasEl.getContext('2d');
+          ctx.clearRect(0, 0, t.canvasEl.width, t.canvasEl.height);
+        }
+      });
     });
 
     // Threshold slider
