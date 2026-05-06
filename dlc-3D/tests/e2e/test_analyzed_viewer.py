@@ -169,38 +169,44 @@ def test_both_cams_checkbox_default_checked_in_sync(page, base_url):
     assert page.is_checked("#va3d-both-cams")
 
 
-def test_extract_frame_calls_endpoint_per_cam(page, base_url):
+def test_extract_both_cams_routes_through_dlc3d_save_frame(page, base_url):
+    """In sync+Both-cams mode, Extract Frame must call /dlc-3d/save-frame
+    (single atomic call with extract_sibling=true) — not /dlc/curator/extract-frame."""
     page.goto(base_url, wait_until="domcontentloaded")
     _open_card(page)
     _select_sync_video(page)
     page.wait_for_function("() => window.__va3dController.tiles.length === 2", timeout=5000)
     page.check("#va3d-curation-toggle")
-    # Intercept the curator endpoint
-    calls = []
+    assert page.is_checked("#va3d-both-cams")
 
-    def _intercept(route):
-        calls.append(route.request.post_data_json)
-        route.fulfill(
-            status=201,
-            content_type="application/json",
-            body='{"saved":"x.png","folder":"f","frame_count":1,"duplicate":false}',
-        )
-
-    page.route("**/dlc/curator/extract-frame", _intercept)
+    save_calls = []
+    curator_calls = []
+    def _capture_save(route):
+        save_calls.append(route.request.post_data_json)
+        route.fulfill(status=201, content_type="application/json",
+                      body='{"saved":["img_cam0_0001_00000.png","img_cam1_0001_00000.png"],"skipped":[],"calibration_copied":true,"session_folder":"labeled-data/test"}')
+    def _capture_curator(route):
+        curator_calls.append(route.request.post_data_json)
+        route.fulfill(status=201, content_type="application/json", body='{"saved":[]}')
+    page.route("**/dlc-3d/save-frame", _capture_save)
+    page.route("**/dlc/curator/extract-frame", _capture_curator)
     try:
         page.click("#va3d-extract-frame-btn")
-        # Deterministic wait: poll until we have both calls (cap at ~2s)
         for _ in range(20):
-            if len(calls) >= 2:
+            if save_calls:
                 break
             page.wait_for_timeout(100)
     finally:
+        page.unroute("**/dlc-3d/save-frame")
         page.unroute("**/dlc/curator/extract-frame")
-    assert len(calls) >= 2, f"expected 2 endpoint calls, got {len(calls)}: {calls}"
-    # Sibling sends video_name in 'video' mode and video_path in 'browse-video' mode
-    video_fields = [(c or {}).get("video_path") or (c or {}).get("video_name") for c in calls]
-    distinct = set(v for v in video_fields if v)
-    assert len(distinct) >= 2, f"expected per-cam videos in calls, got: {video_fields!r}"
+    assert len(save_calls) == 1, f"expected 1 /dlc-3d/save-frame call, got {len(save_calls)}: {save_calls}"
+    body = save_calls[0]
+    assert body.get("extract_sibling") is True, body
+    assert body.get("primary_video") and body.get("sibling_video"), body
+    assert body.get("primary_frame_number") == 0, body
+    assert body.get("sibling_frame_number") == 0, body
+    # And the legacy curator endpoint must NOT have been called in Both-cams mode
+    assert not curator_calls, f"unexpected /dlc/curator/extract-frame call: {curator_calls}"
 
 
 def test_marker_edit_banner_uses_split_format_in_sync_mode(page, base_url):

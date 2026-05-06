@@ -69,6 +69,22 @@ function _va3dShouldDoubleUp() {
   return cb && cb.checked && Controller.syncOn && Controller.tiles.length > 1;
 }
 
+// Atomic dlc-3d save-frame call: extracts primary + sibling frame into
+// labeled-data/<session_key>/ with cam-tagged filenames + calibration copy.
+async function _va3dSaveFramePair(frameNum) {
+  if (!Controller.tiles[0]?.videoRel || !Controller.tiles[1]?.videoRel) {
+    return { ok: false, error: 'missing tile videoRel' };
+  }
+  const body = {
+    primary_video:        Controller.tiles[0].videoRel,
+    primary_frame_number: frameNum,
+    extract_sibling:      true,
+    sibling_video:        Controller.tiles[1].videoRel,
+    sibling_frame_number: frameNum,
+  };
+  return await _va3dCuratorCall('/dlc-3d/save-frame', body);
+}
+
 function _va3dShowCuratorStatus(targets, results) {
   if (targets.length === 1) return;
   let anyError = false;
@@ -2679,31 +2695,43 @@ document.addEventListener('DOMContentLoaded', () => Controller.init());
           }
           vaExtractFrameBtn.disabled = true;
           _curStatus("Extracting…");
-          let primaryRes = { ok: false };
-          try {
-            const res  = await fetch("/dlc/curator/extract-frame", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify(_videoRequestBody()),
-            });
-            const data = await res.json();
-            if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
-            primaryRes = { ok: true, body: data };
-            _curStatus(
-              data.duplicate
-                ? `Already extracted: ${data.saved}`
-                : `Saved ${data.saved} (${data.folder}, #${data.frame_count})`
-            );
-          } catch (err) {
-            primaryRes = { ok: false, error: err.message };
-            _curStatus(`Extract failed: ${err.message}`, true);
-          }
-          // ── Paired sibling-cam fan-out (when sync + Both cams) ──
           if (_va3dShouldDoubleUp()) {
-            const tile1 = Controller.tiles[1];
-            const sibBody = _va3dBuildCuratorBody(tile1, _vaCurrentFrame);
-            const sibRes = await _va3dCuratorCall("/dlc/curator/extract-frame", sibBody);
-            _va3dShowCuratorStatus(Controller.tiles, [primaryRes, sibRes]);
+            // Both cams via /dlc-3d/save-frame (atomic, dlc-3d naming + calibration copy)
+            const res = await _va3dSaveFramePair(_vaCurrentFrame);
+            if (res.ok) {
+              const data = res.body || {};
+              const saved = (data.saved || []).join(', ');
+              const skipped = (data.skipped || []).length;
+              const folder = data.session_folder || '';
+              const calNote = data.calibration_copied ? ' + calibration' : '';
+              if (saved && skipped) {
+                _curStatus(`Saved ${saved} (${folder}${calNote}); ${skipped} duplicate${skipped !== 1 ? 's' : ''} skipped`);
+              } else if (saved) {
+                _curStatus(`Saved ${saved} (${folder}${calNote})`);
+              } else {
+                _curStatus(`All frames already extracted (${skipped} duplicate${skipped !== 1 ? 's' : ''})`);
+              }
+            } else {
+              _curStatus(`Extract failed: ${res.error || 'unknown'}`, true);
+            }
+          } else {
+            // Single-cam (legacy)
+            try {
+              const r  = await fetch("/dlc/curator/extract-frame", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(_videoRequestBody()),
+              });
+              const data = await r.json();
+              if (!r.ok) throw new Error(data.error || `HTTP ${r.status}`);
+              _curStatus(
+                data.duplicate
+                  ? `Already extracted: ${data.saved}`
+                  : `Saved ${data.saved} (${data.folder}, #${data.frame_count})`
+              );
+            } catch (err) {
+              _curStatus(`Extract failed: ${err.message}`, true);
+            }
           }
           vaExtractFrameBtn.disabled = false;
         });
@@ -2716,33 +2744,46 @@ document.addEventListener('DOMContentLoaded', () => Controller.init());
             _curStatus("No video loaded — open a video first.", true); return;
           }
           vaAddToDatasetBtn.disabled = true;
-          _curStatus("Adding to dataset…");
-          let primaryRes = { ok: false };
-          try {
-            const res  = await fetch("/dlc/curator/add-to-dataset", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify(_videoRequestBody()),
-            });
-            const data = await res.json();
-            if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
-            primaryRes = { ok: true, body: data };
-            const h5note = data.h5_updated ? " + H5" : "";
-            _curStatus(
-              data.duplicate
-                ? `Already in dataset: ${data.saved}`
-                : `Added ${data.saved} to CSV${h5note} (${data.frame_count} frames)`
-            );
-          } catch (err) {
-            primaryRes = { ok: false, error: err.message };
-            _curStatus(`Failed: ${err.message}`, true);
-          }
-          // ── Paired sibling-cam fan-out (when sync + Both cams) ──
           if (_va3dShouldDoubleUp()) {
-            const tile1 = Controller.tiles[1];
-            const sibBody = _va3dBuildCuratorBody(tile1, _vaCurrentFrame);
-            const sibRes = await _va3dCuratorCall("/dlc/curator/add-to-dataset", sibBody);
-            _va3dShowCuratorStatus(Controller.tiles, [primaryRes, sibRes]);
+            // Sync mode: raw PNGs only via /dlc-3d/save-frame (no CSV write per user choice).
+            _curStatus("Saving frame pair…");
+            const res = await _va3dSaveFramePair(_vaCurrentFrame);
+            if (res.ok) {
+              const data = res.body || {};
+              const saved = (data.saved || []).join(', ');
+              const skipped = (data.skipped || []).length;
+              const folder = data.session_folder || '';
+              const calNote = data.calibration_copied ? ' + calibration' : '';
+              if (saved && skipped) {
+                _curStatus(`Saved ${saved} (${folder}${calNote}); ${skipped} duplicate${skipped !== 1 ? 's' : ''} skipped`);
+              } else if (saved) {
+                _curStatus(`Saved ${saved} (${folder}${calNote})`);
+              } else {
+                _curStatus(`All frames already extracted (${skipped} duplicate${skipped !== 1 ? 's' : ''})`);
+              }
+            } else {
+              _curStatus(`Save failed: ${res.error || 'unknown'}`, true);
+            }
+          } else {
+            // Single-cam (legacy: writes CSV via /dlc/curator/add-to-dataset)
+            _curStatus("Adding to dataset…");
+            try {
+              const r  = await fetch("/dlc/curator/add-to-dataset", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(_videoRequestBody()),
+              });
+              const data = await r.json();
+              if (!r.ok) throw new Error(data.error || `HTTP ${r.status}`);
+              const h5note = data.h5_updated ? " + H5" : "";
+              _curStatus(
+                data.duplicate
+                  ? `Already in dataset: ${data.saved}`
+                  : `Added ${data.saved} to CSV${h5note} (${data.frame_count} frames)`
+              );
+            } catch (err) {
+              _curStatus(`Failed: ${err.message}`, true);
+            }
           }
           vaAddToDatasetBtn.disabled = false;
         });
@@ -2757,6 +2798,7 @@ document.addEventListener('DOMContentLoaded', () => Controller.init());
           const count = Math.max(1, parseInt(vaBatchCount?.value) || 10);
           const step  = Math.max(1, parseInt(vaBatchStep?.value)  || 30);
           vaBatchAddBtn.disabled = true;
+          const doubleUp = _va3dShouldDoubleUp();
           let added = 0, dupes = 0, errors = 0;
           const start = _vaCurrentFrame;
           let lastFrame = start;
@@ -2768,30 +2810,33 @@ document.addEventListener('DOMContentLoaded', () => Controller.init());
             _curStatus(`Batch adding… ${i + 1}/${count} (frame ${frameNum})`);
             // Navigate player to the frame being extracted
             await Controller.seek(frameNum);
-            try {
-              const res  = await fetch("/dlc/curator/add-to-dataset", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify(_videoRequestBody(frameNum)),
-              });
-              const data = await res.json();
-              if (!res.ok) { errors++; continue; }
-              if (data.duplicate) dupes++; else added++;
-            } catch (_) { errors++; }
-            // ── Paired sibling-cam fan-out (when sync + Both cams) ──
-            // Stop on first sibling-side failure (per spec).
-            if (_va3dShouldDoubleUp()) {
-              const tile1 = Controller.tiles[1];
-              const sibBody = _va3dBuildCuratorBody(tile1, frameNum);
-              const sibRes = await _va3dCuratorCall("/dlc/curator/add-to-dataset", sibBody);
-              if (!sibRes.ok) {
+            if (doubleUp) {
+              // Both cams: atomic /dlc-3d/save-frame (raw PNGs, no CSV)
+              const res = await _va3dSaveFramePair(frameNum);
+              if (!res.ok) {
                 errors++;
-                _curStatus(`Batch aborted at frame ${frameNum} — cam1 failed: ${sibRes.error || ''}`, true);
+                _curStatus(`Batch aborted at frame ${frameNum}: ${res.error || ''}`, true);
                 aborted = true;
                 break;
               }
-              const sibData = sibRes.body || {};
-              if (sibData.duplicate) dupes++; else added++;
+              const data = res.body || {};
+              // Each successful pair adds 2 PNGs (or fewer if some were duplicates).
+              const savedN = (data.saved || []).length;
+              const skipN  = (data.skipped || []).length;
+              added += savedN;
+              dupes += skipN;
+            } else {
+              // Single-cam (legacy CSV write)
+              try {
+                const r  = await fetch("/dlc/curator/add-to-dataset", {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify(_videoRequestBody(frameNum)),
+                });
+                const data = await r.json();
+                if (!r.ok) { errors++; continue; }
+                if (data.duplicate) dupes++; else added++;
+              } catch (_) { errors++; }
             }
           }
           // Ensure player is on the last frame processed
