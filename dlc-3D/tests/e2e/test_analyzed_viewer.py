@@ -219,3 +219,38 @@ def test_marker_edit_banner_uses_split_format_in_sync_mode(page, base_url):
     }""")
     text = page.text_content("#va3d-marker-edit-count")
     assert "cam0:" in text and "cam1:" in text, f"Banner text was: {text!r}"
+
+
+def test_tile0_canvas_wrap_does_not_overflow_into_tile1(page, base_url):
+    page.goto(base_url, wait_until="domcontentloaded")
+    _open_card(page)
+    _select_sync_video(page)
+    page.wait_for_function("() => window.__va3dController.tiles.length === 2", timeout=5000)
+    # Wait for both tile imgs to actually load (otherwise canvas-wrap height is 0)
+    page.wait_for_function(
+        "() => Array.from(document.querySelectorAll('#va3d-tile-row .va3d-frame-img'))"
+        ".every(i => i.complete && i.naturalWidth > 0)",
+        timeout=15000,
+    )
+    page.wait_for_timeout(300)  # let layout settle after img load + ResizeObserver
+    layout = page.evaluate(
+        """() => {
+          const tiles = Array.from(document.querySelectorAll('#va3d-tile-row .va3d-tile'));
+          return tiles.map(t => {
+            const tr = t.getBoundingClientRect();
+            const w  = t.querySelector('.va3d-tile-canvas-wrap').getBoundingClientRect();
+            return {tileX: tr.x, tileW: tr.width, wrapX: w.x, wrapW: w.width};
+          });
+        }"""
+    )
+    assert len(layout) == 2, layout
+    # tile-0's canvas-wrap must not extend past tile-0's right edge
+    t0 = layout[0]
+    assert t0["wrapW"] <= t0["tileW"] + 4, (  # 4px slack for borders
+        f"tile-0 canvas-wrap width {t0['wrapW']} exceeds tile width {t0['tileW']} - overflow"
+    )
+    # tile-0 wrap must not start before tile-0 OR extend into tile-1
+    t1 = layout[1]
+    assert t0["wrapX"] + t0["wrapW"] <= t1["tileX"] + 1, (
+        f"tile-0 wrap right edge {t0['wrapX'] + t0['wrapW']} overlaps tile-1 start {t1['tileX']}"
+    )

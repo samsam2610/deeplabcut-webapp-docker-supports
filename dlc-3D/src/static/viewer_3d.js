@@ -511,15 +511,17 @@ document.addEventListener('DOMContentLoaded', () => Controller.init());
     // ── Viewer sizing (same break-out-of-card approach as frame labeler) ──
     function _vaFitViewer() {
       if (!vaFrameImg.naturalWidth) return;
-      const cs    = getComputedStyle(vaCard);
-      const padL  = parseFloat(cs.paddingLeft)  || 0;
-      const padR  = parseFloat(cs.paddingRight) || 0;
+      const row  = document.getElementById('va3d-tile-row');
+      if (!row) return;
+      const cs   = getComputedStyle(vaCard);
+      const padL = parseFloat(cs.paddingLeft)  || 0;
+      const padR = parseFloat(cs.paddingRight) || 0;
       const baseW = vaCard.clientWidth - padL - padR;
       const maxW  = Math.max(baseW, window.innerWidth - 32);
       const targetW = Math.min(Math.round(baseW * (_vaZoom / 100)), Math.floor(maxW));
       const extra   = targetW - baseW;
-      vaVideoWrap.style.width      = targetW + "px";
-      vaVideoWrap.style.marginLeft = extra > 0 ? `-${extra / 2}px` : "";
+      row.style.width      = targetW + "px";
+      row.style.marginLeft = extra > 0 ? `-${extra / 2}px` : "";
     }
 
     if (typeof ResizeObserver !== "undefined") {
@@ -563,7 +565,12 @@ document.addEventListener('DOMContentLoaded', () => Controller.init());
       vaFrameImg.onerror = null;
       if (vaFrameImg.src && vaFrameImg.src.startsWith("blob:")) URL.revokeObjectURL(vaFrameImg.src);
       vaFrameImg.removeAttribute("src");
-      vaVideoWrap.style.width      = "";
+      const row = document.getElementById('va3d-tile-row');
+      if (row) {
+        row.style.width      = "";
+        row.style.marginLeft = "";
+      }
+      vaVideoWrap.style.width      = "";   // defensive: clear any stale width from older versions
       vaVideoWrap.style.marginLeft = "";
       vaFrameSpinner.classList.add("hidden");
       vaPlayerSec.classList.add("hidden");
