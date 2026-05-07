@@ -807,6 +807,31 @@ export { FL3D_FRAME_RE, buildPairMap } from './pair_map.mjs';
         syncLbl.style.display = _fl3dCamSet.length >= 2 ? "flex" : "none";
       }
 
+      // Reconcile sync state with the new stem before rendering.
+      // Mirrors the OFF-branch logic so the user gets a clean slate when
+      // the new stem is single-cam, and re-derives the primary cam when
+      // the new stem is still multi-cam.
+      const syncCb = document.getElementById("fl3d-sync-frame");
+      if (_fl3dSyncOn) {
+        if (_fl3dCamSet.length < 2) {
+          // New stem is single-cam — turn sync OFF.
+          // Dispatching change on the checkbox runs the existing OFF-branch
+          // cleanup (removes sibling tiles, restores zoom max, hides Equalize).
+          syncCb.checked = false;
+          syncCb.dispatchEvent(new Event("change", { bubbles: true }));
+        } else {
+          // New stem is multi-cam — keep sync on but re-derive _fl3dPrimaryCam.
+          // If the focused-fname-derived primary cam isn't in the new camSet,
+          // fall back to the smallest cam index in the new stem.
+          if (!_fl3dCamSet.includes(_fl3dPrimaryCam)) {
+            _fl3dPrimaryCam = _fl3dCamSet.slice().sort((a, b) => a - b)[0];
+            _fl3dFocusedCam = _fl3dPrimaryCam;
+          }
+          // Reset the sync frame index so we land on the new stem's first pair.
+          _fl3dFrameNumIdx = 0;
+        }
+      }
+
       // Fetch existing labels
       try {
         const res  = await fetch(`/dlc/project/labels/${encodeURIComponent(stem)}`);
