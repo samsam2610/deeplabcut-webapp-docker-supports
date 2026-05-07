@@ -172,7 +172,7 @@ const Controller = {
     const myToken = ++this._loadToken;
     this.primaryVideoRel = videoRel;
     this.tiles[0].videoRel = videoRel;
-    this.tiles[0].setLabel(videoRel.split('/').pop());
+    this.tiles[0].setLabel('main');
     // Probe sibling
     try {
       const r = await fetch(`/dlc-3d/sibling-camera?video=${encodeURIComponent(videoRel)}`);
@@ -241,7 +241,7 @@ const Controller = {
     document.getElementById('va3d-tile-row').appendChild(node);
     const tile = new Tile(1, node);
     tile.videoRel = this.siblingVideoRel;
-    tile.setLabel(this.siblingVideoRel.split('/').pop());
+    tile.setLabel('sibling');
     this.tiles.push(tile);
     this._wireFocus(tile);
   },
