@@ -5,6 +5,7 @@
 {% block extra_head %}
 <link rel="stylesheet" href="{{ url_for('dlc_3d.static', filename='dlc_3d.css') }}">
 <link rel="stylesheet" href="{{ url_for('dlc_3d.static', filename='viewer_3d.css') }}">
+<link rel="stylesheet" href="{{ url_for('dlc_3d.static', filename='lp_cards.css') }}">
 {% endblock %}
 
 {% block content %}
@@ -28,6 +29,10 @@
     {% include "partials/card_session_actions.html" %}
     {% include "partials/card_config_editor.html" %}
     {% include "partials/card_admin.html" %}
+    {% include "partials/card_lp_convert.html" %}
+    {% include "partials/card_lp_train.html" %}
+    {% include "partials/card_lp_eks.html" %}
+    {% include "partials/card_lp_jobs.html" %}
   </main>
 {% endblock %}
 
@@ -37,4 +42,5 @@
 <script type="module" src="{{ url_for('dlc_3d.static', filename='viewer_3d.js') }}"></script>
 <script type="module" src="{{ url_for('dlc_3d.static', filename='dlc_3d.js') }}"></script>
 <script type="module" src="{{ url_for('dlc_3d.static', filename='frame_labeler_3d.js') }}"></script>
+<script type="module" src="{{ url_for('dlc_3d.static', filename='lp_cards.js') }}"></script>
 {% endblock %}

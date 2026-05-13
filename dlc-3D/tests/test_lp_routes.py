@@ -3,6 +3,27 @@ import pytest
 from flask import Flask
 
 
+# Partials referenced by dlc_3d.html that live in the main webapp's
+# image at runtime (overlay via Docker) but are absent from this repo.
+# The fixture writes empty stubs so the page renders in unit tests.
+_OVERLAY_PARTIALS = (
+    "session_dlc_bar.html",
+    "session_anipose_bar.html",
+    "card_dlc_project.html",
+    "card_training_dataset.html",
+    "card_train_network.html",
+    "card_analyze.html",
+    "card_annotator.html",
+    "card_gpu_monitor.html",
+    "card_dlc_config.html",
+    "card_custom_script.html",
+    "card_project_explorer.html",
+    "card_session_actions.html",
+    "card_config_editor.html",
+    "card_admin.html",
+)
+
+
 @pytest.fixture
 def lp_app(tmp_path):
     sys.modules.pop("app", None)
@@ -19,6 +40,10 @@ def lp_app(tmp_path):
         "<body>{% block content %}{% endblock %}"
         "{% block scripts %}{% endblock %}</body></html>"
     )
+    partials_dir = tmp_path / "partials"
+    partials_dir.mkdir()
+    for name in _OVERLAY_PARTIALS:
+        (partials_dir / name).write_text("")
     import app as dlc3d_app_mod
     return dlc3d_app_mod.app
 
