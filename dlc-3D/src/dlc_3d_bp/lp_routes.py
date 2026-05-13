@@ -59,3 +59,48 @@ def convert():
     except (FileNotFoundError, ValueError) as e:
         return jsonify({"error": str(e)}), 400
     return jsonify(summary), 201
+
+
+def _redis_conn():
+    """Return a redis client or None if redis isn't reachable."""
+    try:
+        import redis
+        url = os.environ.get("CELERY_RESULT_BACKEND", "redis://redis:6379/0")
+        c = redis.Redis.from_url(url, decode_responses=True, socket_timeout=1.0)
+        c.ping()
+        return c
+    except Exception:
+        return None
+
+
+@lp_bp.route("/job/<job_id>")
+def job_status(job_id: str):
+    from dlc_3d_bp.lp import job_registry
+    conn = _redis_conn()
+    row = job_registry.get(conn, job_id) if conn else None
+    if not row:
+        return jsonify({"error": "unknown job"}), 404
+    # Augment with Celery AsyncResult state
+    try:
+        from dlc_3d_bp.lp.celery_app import celery
+        ar = celery.AsyncResult(job_id)
+        row["celery_state"] = ar.state
+        if ar.info and isinstance(ar.info, dict):
+            row["celery_info"] = ar.info
+    except Exception:
+        pass
+    # Tail recent log lines if present
+    if conn:
+        log_lines = conn.lrange(f"dlc3d:lp:log:{job_id}", -200, -1)
+        if log_lines:
+            row["log_tail"] = log_lines
+    return jsonify(row)
+
+
+@lp_bp.route("/jobs")
+def jobs_index():
+    from dlc_3d_bp.lp import job_registry
+    conn = _redis_conn()
+    if not conn:
+        return jsonify({"jobs": []})
+    return jsonify({"jobs": job_registry.list_recent(conn, limit=50)})

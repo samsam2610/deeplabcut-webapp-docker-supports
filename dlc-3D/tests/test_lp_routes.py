@@ -97,3 +97,20 @@ def test_convert_endpoint_rejects_outside_user_data(lp_app):
         "lp_dir":  "/etc-lp",
     })
     assert r.status_code == 403
+
+
+def test_job_status_endpoint_returns_404_for_unknown(lp_app, monkeypatch):
+    # Force _redis_conn to return None so the registry lookup is skipped
+    monkeypatch.setattr("dlc_3d_bp.lp_routes._redis_conn", lambda: None)
+    c = lp_app.test_client()
+    r = c.get("/dlc-3d/lp/job/does-not-exist")
+    assert r.status_code == 404
+
+
+def test_jobs_index_endpoint(lp_app, monkeypatch):
+    monkeypatch.setattr("dlc_3d_bp.lp_routes._redis_conn", lambda: None)
+    c = lp_app.test_client()
+    r = c.get("/dlc-3d/lp/jobs")
+    assert r.status_code == 200
+    body = r.get_json()
+    assert "jobs" in body and isinstance(body["jobs"], list)
