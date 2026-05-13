@@ -5,9 +5,43 @@ from .celery_app import celery
 
 
 @celery.task(bind=True, name="dlc_3d_lp.train")
-def lp_train(self, model_dir: str, options: dict) -> dict:
-    """Stub — implemented in Phase 5."""
-    return {"status": "stub", "model_dir": model_dir, "options": options}
+def lp_train(self, lp_project: str, options: dict) -> dict:
+    """Build the run config from `options` and run `litpose train`."""
+    import os
+    from .train_runner import build_train_config, make_run_dir, run_train_subprocess
+
+    project = Path(lp_project)
+    base_config = project / "config.yaml"
+    if not base_config.is_file():
+        raise FileNotFoundError(f"LP base config not found at {base_config}")
+
+    run_dir = make_run_dir(project)
+    run_cfg = run_dir / "config.yaml"
+    build_train_config(base_config, run_cfg, options)
+
+    log_key = f"dlc3d:lp:log:{self.request.id}"
+    try:
+        import redis
+        rconn = redis.Redis.from_url(
+            os.environ.get("CELERY_RESULT_BACKEND", "redis://redis:6379/0"),
+            decode_responses=True,
+        )
+    except Exception:
+        rconn = None
+
+    def emit(line: str) -> None:
+        if rconn:
+            try:
+                rconn.rpush(log_key, line)
+                rconn.ltrim(log_key, -2000, -1)
+            except Exception:
+                pass
+        self.update_state(state="STARTED", meta={"last_line": line, "run_dir": str(run_dir)})
+
+    rc = run_train_subprocess(run_dir, log_callback=emit)
+    if rc != 0:
+        raise RuntimeError(f"litpose train exited with code {rc}")
+    return {"status": "ok", "run_dir": str(run_dir)}
 
 
 @celery.task(bind=True, name="dlc_3d_lp.eks")
