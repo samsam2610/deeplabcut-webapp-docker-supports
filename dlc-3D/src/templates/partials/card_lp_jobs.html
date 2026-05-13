@@ -1,10 +1,20 @@
 <section class="card dlc-theme hidden" id="lp-jobs-card">
   <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:.3rem">
     <h2>LP Jobs</h2>
-    <button class="btn-sm" id="btn-close-lp-jobs" title="Close">
-      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-      Close
-    </button>
+    <div style="display:flex;gap:.4rem">
+      <button class="btn-sm" id="btn-lp-jobs-refresh">Refresh</button>
+      <button class="btn-sm" id="btn-close-lp-jobs" title="Close">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+        Close
+      </button>
+    </div>
   </div>
-  <p class="subtitle">Stub — implementation in Phase 2.</p>
+  <p class="subtitle">Recent LP / EKS jobs from this Redis instance.</p>
+  <table class="lp-jobs-table">
+    <thead>
+      <tr><th>Type</th><th>Project / Input</th><th>Created</th><th>State</th><th></th></tr>
+    </thead>
+    <tbody id="lp-jobs-tbody"></tbody>
+  </table>
+  <pre class="lp-result" id="lp-jobs-detail" hidden></pre>
 </section>

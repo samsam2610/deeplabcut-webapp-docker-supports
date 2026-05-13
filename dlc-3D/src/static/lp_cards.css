@@ -84,3 +84,20 @@
   color: var(--text);
   font-size: 0.75rem;
 }
+
+.lp-jobs-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.74rem;
+  margin-top: 0.3rem;
+}
+.lp-jobs-table th, .lp-jobs-table td {
+  text-align: left;
+  padding: 0.25rem 0.4rem;
+  border-bottom: 1px solid var(--border);
+  font-family: var(--mono);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 18rem;
+}

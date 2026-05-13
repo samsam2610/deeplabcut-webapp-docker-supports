@@ -196,3 +196,47 @@ function initTrainCard() {
 }
 
 initTrainCard();
+
+
+function initJobsCard() {
+  const card = $("#lp-jobs-card");
+  if (!card) return;
+  const tbody = $("#lp-jobs-tbody");
+  const detail = $("#lp-jobs-detail");
+  $("#btn-close-lp-jobs")?.addEventListener("click", () => card.classList.add("hidden"));
+
+  async function refresh() {
+    const r = await fetch("/dlc-3d/lp/jobs");
+    const body = await r.json();
+    tbody.innerHTML = "";
+    for (const j of body.jobs || []) {
+      const created = new Date((j.created_at || 0) * 1000).toLocaleString();
+      const tr = document.createElement("tr");
+      tr.innerHTML = `
+        <td>${j.type || ""}</td>
+        <td title="${j.lp_project || j.out || (j.in_paths || []).join(",")}">${
+          (j.lp_project || j.out || (j.in_paths || [])[0] || "").split("/").slice(-2).join("/")
+        }</td>
+        <td>${created}</td>
+        <td>${j.celery_state || "?"}</td>
+        <td><button class="btn-sm" data-job="${j.id}">view</button></td>`;
+      tbody.appendChild(tr);
+    }
+    tbody.querySelectorAll("button[data-job]").forEach((b) => {
+      b.addEventListener("click", async () => {
+        const r2 = await fetch(`/dlc-3d/lp/job/${b.dataset.job}`);
+        detail.hidden = false;
+        detail.textContent = JSON.stringify(await r2.json(), null, 2);
+      });
+    });
+  }
+
+  $("#btn-lp-jobs-refresh")?.addEventListener("click", refresh);
+  new MutationObserver((muts) => {
+    for (const m of muts) {
+      if (m.attributeName === "class" && !card.classList.contains("hidden")) refresh();
+    }
+  }).observe(card, { attributes: true, attributeFilter: ["class"] });
+}
+
+initJobsCard();
