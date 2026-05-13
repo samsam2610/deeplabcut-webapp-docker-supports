@@ -104,3 +104,43 @@ def jobs_index():
     if not conn:
         return jsonify({"jobs": []})
     return jsonify({"jobs": job_registry.list_recent(conn, limit=50)})
+
+
+@lp_bp.route("/eks", methods=["POST"])
+def eks_run():
+    from dlc_3d_bp.lp.tasks import lp_eks
+
+    body = request.get_json(force=True, silent=True) or {}
+    mode = body.get("mode")
+    in_paths = body.get("in_paths") or []
+    if mode not in ("single", "multi"):
+        return jsonify({"error": "mode must be 'single' or 'multi'"}), 400
+    if not in_paths:
+        return jsonify({"error": "in_paths required"}), 400
+    for p in in_paths:
+        if not _under_user_data(Path(p)):
+            return jsonify({"error": f"path outside /user-data: {p}"}), 403
+    if mode == "single":
+        out_csv = (body.get("out_csv") or "").strip()
+        if not out_csv:
+            return jsonify({"error": "out_csv required for single mode"}), 400
+        if not _under_user_data(Path(out_csv)):
+            return jsonify({"error": f"out_csv outside /user-data: {out_csv}"}), 403
+    else:  # multi
+        out_dir = (body.get("out_dir") or "").strip()
+        if not out_dir:
+            return jsonify({"error": "out_dir required for multi mode"}), 400
+        if not _under_user_data(Path(out_dir)):
+            return jsonify({"error": f"out_dir outside /user-data: {out_dir}"}), 403
+
+    async_result = lp_eks.apply_async(args=[body])
+    conn = _redis_conn()
+    if conn:
+        from dlc_3d_bp.lp.job_registry import register
+        register(conn, async_result.id, {
+            "type": "eks",
+            "mode": mode,
+            "in_paths": in_paths,
+            "out": body.get("out_csv") or body.get("out_dir"),
+        })
+    return jsonify({"job_id": async_result.id}), 202

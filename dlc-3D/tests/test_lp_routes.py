@@ -114,3 +114,35 @@ def test_jobs_index_endpoint(lp_app, monkeypatch):
     assert r.status_code == 200
     body = r.get_json()
     assert "jobs" in body and isinstance(body["jobs"], list)
+
+
+def test_eks_endpoint_validates_input(lp_app):
+    c = lp_app.test_client()
+    r = c.post("/dlc-3d/lp/eks", json={})
+    assert r.status_code == 400
+
+
+def test_eks_endpoint_enqueues(lp_app, monkeypatch):
+    class _FakeAsync:
+        id = "fake-job-id"
+
+    monkeypatch.setattr(
+        "dlc_3d_bp.lp.tasks.lp_eks.apply_async",
+        lambda *a, **k: _FakeAsync(),
+    )
+    monkeypatch.setattr(
+        "dlc_3d_bp.lp_routes._under_user_data",
+        lambda p: True,
+    )
+    # No-op redis to skip registration side-effects
+    monkeypatch.setattr("dlc_3d_bp.lp_routes._redis_conn", lambda: None)
+    c = lp_app.test_client()
+    r = c.post("/dlc-3d/lp/eks", json={
+        "mode": "single",
+        "in_paths": ["/user-data/x/pred.csv"],
+        "out_csv": "/user-data/x/pred_eks.csv",
+        "s": 1.0,
+    })
+    assert r.status_code == 202
+    body = r.get_json()
+    assert body["job_id"] == "fake-job-id"
