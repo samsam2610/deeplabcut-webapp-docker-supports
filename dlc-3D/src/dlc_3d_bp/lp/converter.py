@@ -2,11 +2,22 @@
 
 Pure-python; safe to call from the Flask container (no GPU, no LP imports).
 The source DLC project is never mutated.
+
+Supports two source layouts:
+
+* "view-in-folder" (legacy DLC): folder name carries the cam, e.g.
+  ``labeled-data/<session>_cam<N>_<date>/`` with one ``CollectedData_*.csv``
+  per view-folder.
+* "view-in-filename" (this project's ``dlc-3D`` extractor): folder name is a
+  session key (e.g. ``labeled-data/khoai-lang-1_20260429/``); the cam is in
+  the image filenames ``img_cam<N>_<order>_<frame>.png``; a single
+  ``CollectedData_*.csv`` per folder contains rows for all cams.
 """
 from __future__ import annotations
 
 import csv
 import os
+import re
 import shutil
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -15,6 +26,10 @@ from typing import Dict, List, Tuple
 import yaml
 
 from .project_layout import session_view_pair, lp_csv_for_view, lp_labeled_dir_name
+
+
+# Matches images like ``img_cam0_0007_126161.png``: cam index then frame number.
+_FRAME_IN_NAME_RE = re.compile(r"img_cam(\d+)_\d+_(\d+)\.png")
 
 
 @dataclass
@@ -40,8 +55,9 @@ class ConversionSummary:
 def _read_dlc_collected_csv(path: Path) -> Dict:
     """Return {frame_number: [row1, row2, ...]} from a CollectedData_*.csv.
 
-    DLC schemas vary. We don't parse the header rows — we treat the file as
-    opaque row blocks keyed by frame number, which is sufficient for ordering.
+    Used for the view-in-folder layout: every data row belongs to the folder's
+    single view. We don't parse the header rows — we treat the file as opaque
+    row blocks keyed by frame number, which is sufficient for ordering.
     """
     rows: Dict = {}
     if not path.is_file():
@@ -72,8 +88,60 @@ def _read_dlc_collected_csv(path: Path) -> Dict:
     return rows
 
 
+def _read_view_in_filename_csv(path: Path) -> Tuple[List[List[str]], Dict[str, Dict[int, List[List[str]]]]]:
+    """Read a CollectedData_*.csv whose rows span multiple cams.
+
+    Returns ``(header_rows, {view_name: {frame_number: [row, ...]}})`` where
+    ``view_name`` is ``cam<N>`` parsed from the image filename. Rows whose
+    image filename doesn't match :data:`_FRAME_IN_NAME_RE` are skipped.
+    """
+    header: List[List[str]] = []
+    per_view: Dict[str, Dict[int, List[List[str]]]] = {}
+    if not path.is_file():
+        return header, per_view
+    with path.open(newline="") as f:
+        reader = csv.reader(f)
+        for row in reader:
+            if not row:
+                continue
+            if row[0] in ("scorer", "bodyparts", "coords", "individuals"):
+                header.append(row)
+                continue
+            # Image filename may be in col 0 (1-col path) or col 2 (3-col split).
+            name = ""
+            if len(row) >= 3 and row[0] == "labeled-data":
+                name = row[2]
+            else:
+                name = Path(row[0]).name
+            m = _FRAME_IN_NAME_RE.search(name)
+            if not m:
+                continue
+            cam_idx = int(m.group(1))
+            frame_no = int(m.group(2))
+            view = f"cam{cam_idx}"
+            per_view.setdefault(view, {}).setdefault(frame_no, []).append(row)
+    return header, per_view
+
+
+def _classify_session_folder(folder: Path) -> str:
+    """Return one of ``"view-in-folder"``, ``"view-in-filename"``, ``"unknown"``.
+
+    A folder is "view-in-folder" iff ``session_view_pair(folder.name)`` returns
+    both session key and view (the folder name encodes the cam).
+
+    Otherwise, if any ``img_cam<N>_*.png`` is present, it's "view-in-filename".
+    """
+    skey, view = session_view_pair(folder.name)
+    if skey and view:
+        return "view-in-folder"
+    for p in folder.iterdir():
+        if p.is_file() and _FRAME_IN_NAME_RE.search(p.name):
+            return "view-in-filename"
+    return "unknown"
+
+
 def _list_calibrations(dlc_dir: Path) -> List[Tuple[str, Path]]:
-    """Return [(session_key, calibration_toml_path), ...] from labeled-data/*/calibration.toml."""
+    """Return [(folder_name, calibration_toml_path), ...] from labeled-data/*/calibration.toml."""
     found: List[Tuple[str, Path]] = []
     ld = dlc_dir / "labeled-data"
     if not ld.is_dir():
@@ -124,23 +192,47 @@ def convert_dlc_to_lp(
     (lp_dir / "videos").mkdir(exist_ok=True)
 
     # 1. Discover sessions and views from labeled-data folder names
+    # by_session[session_key][view] -> dict describing where labels/frames live
+    # For view-in-folder mode: {"src_dir": <view-folder>, "collected_csv": ...}
+    # For view-in-filename mode: {"src_dir": <session-folder>,
+    #                              "collected_csv": ...,
+    #                              "mode": "view-in-filename",
+    #                              "frames": {frame_no: [row,...]}}
     by_session: Dict[str, Dict[str, dict]] = {}
+    # Track each folder's classification so calibration aggregation can map
+    # the session-key folder name verbatim onto a session key.
+    folder_modes: Dict[str, str] = {}
+
     ld_iter = sorted((dlc_dir / "labeled-data").iterdir()) if (dlc_dir / "labeled-data").is_dir() else []
     for session_dir in ld_iter:
         if not session_dir.is_dir():
             continue
-        session_key, view = session_view_pair(session_dir.name)
-        if not session_key or not view:
+        mode = _classify_session_folder(session_dir)
+        folder_modes[session_dir.name] = mode
+        if mode == "view-in-folder":
+            session_key, view = session_view_pair(session_dir.name)
+            cc = next(session_dir.glob("CollectedData_*.csv"), None)
+            by_session.setdefault(session_key, {})[view] = {
+                "src_dir": session_dir,
+                "collected_csv": cc,
+                "mode": "view-in-folder",
+            }
+        elif mode == "view-in-filename":
+            session_key = session_dir.name
+            cc = next(session_dir.glob("CollectedData_*.csv"), None)
+            header, per_view = (([], {}) if cc is None else _read_view_in_filename_csv(cc))
+            for view, frames in per_view.items():
+                by_session.setdefault(session_key, {})[view] = {
+                    "src_dir": session_dir,
+                    "collected_csv": cc,
+                    "mode": "view-in-filename",
+                    "header": header,
+                    "frames": frames,
+                }
+        else:
             summary.warnings.append(
                 f"skipping unrecognised labeled-data folder: {session_dir.name}"
             )
-            continue
-        # CollectedData_*.csv path
-        cc = next(session_dir.glob("CollectedData_*.csv"), None)
-        by_session.setdefault(session_key, {})[view] = {
-            "src_dir": session_dir,
-            "collected_csv": cc,
-        }
 
     # Keep only sessions with >=2 views (multi-view requirement); single-view
     # sessions are emitted as warnings.
@@ -171,14 +263,22 @@ def convert_dlc_to_lp(
         view_to_frames: Dict[str, Dict[int, List[List[str]]]] = {}
         for v in all_views:
             entry = views.get(v)
-            if not entry or not entry.get("collected_csv"):
+            if not entry:
                 view_to_frames[v] = {}
                 continue
-            view_to_frames[v] = _read_dlc_collected_csv(entry["collected_csv"])
-            if not per_view_header[v]:
-                per_view_header[v] = view_to_frames[v].pop("__header__", [])
-            else:
-                view_to_frames[v].pop("__header__", None)
+            if entry.get("mode") == "view-in-filename":
+                view_to_frames[v] = dict(entry.get("frames") or {})
+                if not per_view_header[v]:
+                    per_view_header[v] = list(entry.get("header") or [])
+            else:  # view-in-folder
+                if not entry.get("collected_csv"):
+                    view_to_frames[v] = {}
+                    continue
+                view_to_frames[v] = _read_dlc_collected_csv(entry["collected_csv"])
+                if not per_view_header[v]:
+                    per_view_header[v] = view_to_frames[v].pop("__header__", [])
+                else:
+                    view_to_frames[v].pop("__header__", None)
 
         # Intersect frame numbers across views present for this session
         present_views = [v for v in all_views if view_to_frames.get(v)]
@@ -213,7 +313,20 @@ def convert_dlc_to_lp(
             # is img_cam<N>_<order>_<frame>.png)
             for v in present_views:
                 src_dir = views[v]["src_dir"]
-                matches = list(src_dir.glob(f"img_*_{frame_no:05d}.png"))
+                # Look for an image whose frame-number group matches frame_no.
+                matches: List[Path] = []
+                for p in src_dir.iterdir():
+                    if not p.is_file():
+                        continue
+                    m = _FRAME_IN_NAME_RE.search(p.name)
+                    if m and int(m.group(2)) == frame_no:
+                        # For view-in-filename mode, also constrain to this cam.
+                        if views[v].get("mode") == "view-in-filename":
+                            if f"cam{m.group(1)}" != v:
+                                continue
+                        matches.append(p)
+                if not matches:
+                    matches = list(src_dir.glob(f"img_*_{frame_no:05d}.png"))
                 if not matches:
                     matches = list(src_dir.glob(f"img*{frame_no}*.png"))
                 if matches:
@@ -236,14 +349,21 @@ def convert_dlc_to_lp(
     if cal_entries:
         cal_dir = lp_dir / "calibrations"
         cal_dir.mkdir(exist_ok=True)
-        # Take one calibration per session_key (use folder name's session part)
+        # Take one calibration per session_key.
         seen: set = set()
         with (lp_dir / "calibrations.csv").open("w", newline="") as f:
             w = csv.writer(f)
             w.writerow(["session", "calibration_file"])
             for folder_name, cal_path in cal_entries:
                 skey, _ = session_view_pair(folder_name)
-                if not skey or skey in seen:
+                if not skey:
+                    # If folder is view-in-filename, the folder name IS the
+                    # session key.
+                    if folder_modes.get(folder_name) == "view-in-filename":
+                        skey = folder_name
+                    else:
+                        continue
+                if skey in seen:
                     continue
                 seen.add(skey)
                 dst = cal_dir / f"{skey}.toml"
