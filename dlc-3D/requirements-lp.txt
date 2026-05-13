@@ -1,5 +1,6 @@
+# lightning-pose-app is not published on PyPI; we only need the lightning-pose
+# Python package, not its app/CLI.
 lightning-pose
-lightning-pose-app
 ensemble-kalman-smoother
 celery>=5.3
 redis>=5.0
