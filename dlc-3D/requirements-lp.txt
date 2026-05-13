@@ -1,0 +1,6 @@
+lightning-pose
+lightning-pose-app
+ensemble-kalman-smoother
+celery>=5.3
+redis>=5.0
+PyYAML>=6
