@@ -146,3 +146,25 @@ def test_eks_endpoint_enqueues(lp_app, monkeypatch):
     assert r.status_code == 202
     body = r.get_json()
     assert body["job_id"] == "fake-job-id"
+
+
+def test_train_endpoint_enqueues(lp_app, monkeypatch):
+    class _FakeAsync:
+        id = "fake-train-id"
+
+    monkeypatch.setattr(
+        "dlc_3d_bp.lp.tasks.lp_train.apply_async",
+        lambda *a, **k: _FakeAsync(),
+    )
+    monkeypatch.setattr(
+        "dlc_3d_bp.lp_routes._under_user_data",
+        lambda p: True,
+    )
+    monkeypatch.setattr("dlc_3d_bp.lp_routes._redis_conn", lambda: None)
+    c = lp_app.test_client()
+    r = c.post("/dlc-3d/lp/train", json={
+        "lp_project": "/user-data/x/lp",
+        "options": {"mvt_enabled": True, "reproj_loss_enabled": True},
+    })
+    assert r.status_code == 202
+    assert r.get_json()["job_id"] == "fake-train-id"

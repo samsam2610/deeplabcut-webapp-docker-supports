@@ -144,3 +144,27 @@ def eks_run():
             "out": body.get("out_csv") or body.get("out_dir"),
         })
     return jsonify({"job_id": async_result.id}), 202
+
+
+@lp_bp.route("/train", methods=["POST"])
+def train_run():
+    from dlc_3d_bp.lp.tasks import lp_train
+
+    body = request.get_json(force=True, silent=True) or {}
+    project = (body.get("lp_project") or "").strip()
+    options = body.get("options") or {}
+    if not project:
+        return jsonify({"error": "lp_project required"}), 400
+    if not _under_user_data(Path(project)):
+        return jsonify({"error": "lp_project must be under /user-data"}), 403
+
+    async_result = lp_train.apply_async(args=[project, options])
+    conn = _redis_conn()
+    if conn:
+        from dlc_3d_bp.lp.job_registry import register
+        register(conn, async_result.id, {
+            "type": "train",
+            "lp_project": project,
+            "options": options,
+        })
+    return jsonify({"job_id": async_result.id}), 202
