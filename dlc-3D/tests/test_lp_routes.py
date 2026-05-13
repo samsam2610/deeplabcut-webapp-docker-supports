@@ -81,3 +81,19 @@ def test_index_renders_with_lp_cards(lp_app):
     html = r.get_data(as_text=True)
     for cid in ("lp-convert-card", "lp-train-card", "lp-eks-card", "lp-jobs-card"):
         assert cid in html, f"missing {cid}"
+
+
+def test_convert_endpoint_validates_input(lp_app):
+    c = lp_app.test_client()
+    r = c.post("/dlc-3d/lp/convert", json={})
+    assert r.status_code == 400
+    assert "error" in r.get_json()
+
+
+def test_convert_endpoint_rejects_outside_user_data(lp_app):
+    c = lp_app.test_client()
+    r = c.post("/dlc-3d/lp/convert", json={
+        "dlc_dir": "/etc",
+        "lp_dir":  "/etc-lp",
+    })
+    assert r.status_code == 403

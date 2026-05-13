@@ -1,8 +1,18 @@
 """Flask blueprint for /dlc-3d/lp/* endpoints."""
 import os
-from flask import Blueprint, jsonify
+from pathlib import Path
+from flask import Blueprint, jsonify, request
 
 lp_bp = Blueprint("dlc_3d_lp", __name__, url_prefix="/dlc-3d/lp")
+
+_USER_DATA_ROOT = "/user-data"
+
+
+def _under_user_data(p: Path) -> bool:
+    try:
+        return str(p.resolve()).startswith(_USER_DATA_ROOT + "/")
+    except Exception:
+        return False
 
 
 def _worker_reachable() -> bool:
@@ -29,3 +39,23 @@ def health():
         "queue": "lp_3d",
         "broker_url": os.environ.get("CELERY_BROKER_URL", ""),
     })
+
+
+@lp_bp.route("/convert", methods=["POST"])
+def convert():
+    from dlc_3d_bp.lp.converter import convert_dlc_to_lp
+
+    body = request.get_json(force=True, silent=True) or {}
+    dlc = (body.get("dlc_dir") or "").strip()
+    lp = (body.get("lp_dir") or "").strip()
+    force = bool(body.get("force", False))
+    if not dlc or not lp:
+        return jsonify({"error": "dlc_dir and lp_dir required"}), 400
+    dlc_p, lp_p = Path(dlc), Path(lp)
+    if not (_under_user_data(dlc_p) and _under_user_data(lp_p)):
+        return jsonify({"error": "paths must resolve under /user-data/"}), 403
+    try:
+        summary = convert_dlc_to_lp(dlc_p, lp_p, force=force)
+    except (FileNotFoundError, ValueError) as e:
+        return jsonify({"error": str(e)}), 400
+    return jsonify(summary), 201

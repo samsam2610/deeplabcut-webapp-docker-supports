@@ -1,1 +1,50 @@
-/* lp-* card styling. Implemented in later phases. */
+.lp-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  margin-bottom: 0.5rem;
+}
+.lp-field > label {
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-dim);
+}
+.lp-field > input[type="text"],
+.lp-field > input[type="number"],
+.lp-field > select {
+  font-family: var(--mono);
+  font-size: 0.78rem;
+  padding: 0.3rem 0.5rem;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text);
+}
+.lp-field.lp-checkbox {
+  flex-direction: row;
+  align-items: center;
+  gap: 0.4rem;
+}
+.lp-result {
+  margin-top: 0.7rem;
+  max-height: 220px;
+  overflow: auto;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 0.5rem;
+  font-size: 0.72rem;
+  font-family: var(--mono);
+  white-space: pre-wrap;
+}
+.btn-primary {
+  background: var(--accent, #4f7ad6);
+  color: white;
+  border: none;
+  border-radius: 4px;
+  padding: 0.4rem 0.9rem;
+  font-size: 0.8rem;
+  cursor: pointer;
+}
+.btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }

@@ -6,5 +6,22 @@
       Close
     </button>
   </div>
-  <p class="subtitle">Stub — implementation in Phase 2.</p>
+  <p class="subtitle">Convert the active DLC project to a multi-view Lightning-Pose layout. Source project is never modified.</p>
+
+  <div class="lp-field">
+    <label>Source DLC project</label>
+    <input type="text" id="lp-convert-src" readonly>
+  </div>
+  <div class="lp-field">
+    <label>Output LP project path</label>
+    <input type="text" id="lp-convert-dst" placeholder="auto-filled when source loads">
+  </div>
+  <div class="lp-field lp-checkbox">
+    <input type="checkbox" id="lp-convert-force">
+    <label for="lp-convert-force">Overwrite if target directory is not empty</label>
+  </div>
+
+  <button class="btn-primary" id="btn-lp-convert-run">Run conversion</button>
+
+  <pre class="lp-result" id="lp-convert-result" hidden></pre>
 </section>
