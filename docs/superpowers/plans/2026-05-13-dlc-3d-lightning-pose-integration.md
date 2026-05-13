@@ -161,26 +161,48 @@ app.register_blueprint(bp)
 app.register_blueprint(lp_bp)
 ```
 
-- [ ] **Step 1.1.6: Add registration test**
+- [ ] **Step 1.1.6: Add registration test with a fresh-import fixture**
 
-Append to `tests/test_lp_routes.py`:
+The tests need a `base_app` stub and a fresh `app` module per test (re-registering a Blueprint on the same Flask instance raises in Flask ≥ 3). Append to `tests/test_lp_routes.py`:
 ```python
-def test_lp_blueprint_registered():
-    # Import the live Flask app the same way gunicorn does.
-    # base_app comes from the overlay image; for unit tests we stub it.
-    import sys, types
-    if "base_app" not in sys.modules:
-        stub = types.ModuleType("base_app")
-        from flask import Flask
-        stub.app = Flask("base_app_stub")
-        sys.modules["base_app"] = stub
-    import importlib
-    import app as dlc3d_app
-    importlib.reload(dlc3d_app)
-    rules = [r.rule for r in dlc3d_app.app.url_map.iter_rules()]
-    assert any(r.startswith("/dlc-3d/lp") or r == "/dlc-3d/lp/" for r in rules) or \
-           "dlc_3d_lp" in {bp_name for bp_name in dlc3d_app.app.blueprints}
+import sys, types
+import pytest
+from flask import Flask
+
+
+@pytest.fixture
+def lp_app(tmp_path):
+    """Return a fresh Flask app with base_app stubbed and a tmp base.html.
+
+    Pops cached modules so the dlc-3D `app.py` re-runs and registers
+    blueprints onto a new Flask instance for every test.
+    """
+    sys.modules.pop("app", None)
+    sys.modules.pop("base_app", None)
+    stub = types.ModuleType("base_app")
+    stub.app = Flask(
+        "base_app_stub",
+        template_folder=str(tmp_path),
+        static_folder=str(tmp_path),
+    )
+    sys.modules["base_app"] = stub
+    # Minimal base.html so {% extends %} works in dlc_3d.html
+    (tmp_path / "base.html").write_text(
+        "<html><head>{% block extra_head %}{% endblock %}</head>"
+        "<body>{% block content %}{% endblock %}"
+        "{% block scripts %}{% endblock %}</body></html>"
+    )
+    import app as dlc3d_app_mod
+    return dlc3d_app_mod.app
+
+
+def test_lp_blueprint_registered(lp_app):
+    assert "dlc_3d_lp" in lp_app.blueprints
+    rules = [r.rule for r in lp_app.url_map.iter_rules()]
+    assert any(r.startswith("/dlc-3d/lp") for r in rules) or "dlc_3d_lp" in lp_app.blueprints
 ```
+
+(Drop the earlier `test_lp_blueprint_imports` / `test_lp_package_imports` tests if they still use the cached-module pattern; the fixture replaces it.)
 
 - [ ] **Step 1.1.7: Run tests**
 
@@ -203,19 +225,10 @@ git -c commit.gpgsign=false commit -m "feat(dlc-3d): scaffold lp_routes blueprin
 
 - [ ] **Step 1.2.1: Write the failing test**
 
-Append to `tests/test_lp_routes.py`:
+Append to `tests/test_lp_routes.py` (uses the `lp_app` fixture):
 ```python
-def test_health_endpoint():
-    import sys, types
-    if "base_app" not in sys.modules:
-        from flask import Flask
-        stub = types.ModuleType("base_app")
-        stub.app = Flask("base_app_stub")
-        sys.modules["base_app"] = stub
-    import importlib
-    import app as dlc3d_app
-    importlib.reload(dlc3d_app)
-    client = dlc3d_app.app.test_client()
+def test_health_endpoint(lp_app):
+    client = lp_app.test_client()
     r = client.get("/dlc-3d/lp/health")
     assert r.status_code == 200
     body = r.get_json()
@@ -348,24 +361,8 @@ Add to `scripts` (after the existing module scripts):
 
 Append to `tests/test_lp_routes.py`:
 ```python
-def test_index_renders_with_lp_cards(monkeypatch, tmp_path):
-    import sys, types
-    if "base_app" not in sys.modules:
-        from flask import Flask
-        stub = types.ModuleType("base_app")
-        stub.app = Flask("base_app_stub",
-                         template_folder=str(tmp_path),  # base.html stub
-                         static_folder=str(tmp_path))
-        sys.modules["base_app"] = stub
-    # Provide a minimal base.html so {% extends %} works
-    (tmp_path / "base.html").write_text(
-        "<html><head>{% block extra_head %}{% endblock %}</head>"
-        "<body>{% block content %}{% endblock %}"
-        "{% block scripts %}{% endblock %}</body></html>"
-    )
-    import importlib, app as dlc3d_app
-    importlib.reload(dlc3d_app)
-    client = dlc3d_app.app.test_client()
+def test_index_renders_with_lp_cards(lp_app):
+    client = lp_app.test_client()
     r = client.get("/dlc-3d/")
     assert r.status_code == 200
     html = r.get_data(as_text=True)
@@ -877,33 +874,17 @@ git -c commit.gpgsign=false commit -m "feat(dlc-3d): lp.converter — DLC projec
 
 - [ ] **Step 2.3.1: Write failing test for /convert**
 
-Append to `tests/test_lp_routes.py`:
+Append to `tests/test_lp_routes.py` (uses the `lp_app` fixture from Phase 1):
 ```python
-def test_convert_endpoint_validates_input(tmp_path):
-    import sys, types
-    if "base_app" not in sys.modules:
-        from flask import Flask
-        stub = types.ModuleType("base_app")
-        stub.app = Flask("base_app_stub")
-        sys.modules["base_app"] = stub
-    import importlib, app as dlc3d_app
-    importlib.reload(dlc3d_app)
-    c = dlc3d_app.app.test_client()
+def test_convert_endpoint_validates_input(lp_app):
+    c = lp_app.test_client()
     r = c.post("/dlc-3d/lp/convert", json={})
     assert r.status_code == 400
     assert "error" in r.get_json()
 
 
-def test_convert_endpoint_rejects_outside_user_data(tmp_path):
-    import sys, types
-    if "base_app" not in sys.modules:
-        from flask import Flask
-        stub = types.ModuleType("base_app")
-        stub.app = Flask("base_app_stub")
-        sys.modules["base_app"] = stub
-    import importlib, app as dlc3d_app
-    importlib.reload(dlc3d_app)
-    c = dlc3d_app.app.test_client()
+def test_convert_endpoint_rejects_outside_user_data(lp_app):
+    c = lp_app.test_client()
     r = c.post("/dlc-3d/lp/convert", json={
         "dlc_dir": "/etc",
         "lp_dir":  "/etc-lp",
@@ -1342,30 +1323,17 @@ Expected: 2 passed.
 
 Append to `tests/test_lp_routes.py`:
 ```python
-def test_job_status_endpoint_returns_404_for_unknown(monkeypatch):
-    import sys, types
-    if "base_app" not in sys.modules:
-        from flask import Flask
-        stub = types.ModuleType("base_app")
-        stub.app = Flask("base_app_stub")
-        sys.modules["base_app"] = stub
-    import importlib, app as dlc3d_app
-    importlib.reload(dlc3d_app)
-    c = dlc3d_app.app.test_client()
+def test_job_status_endpoint_returns_404_for_unknown(lp_app, monkeypatch):
+    # Force _redis_conn to return None so the registry lookup is skipped
+    monkeypatch.setattr("dlc_3d_bp.lp_routes._redis_conn", lambda: None)
+    c = lp_app.test_client()
     r = c.get("/dlc-3d/lp/job/does-not-exist")
     assert r.status_code == 404
 
 
-def test_jobs_index_endpoint(monkeypatch):
-    import sys, types
-    if "base_app" not in sys.modules:
-        from flask import Flask
-        stub = types.ModuleType("base_app")
-        stub.app = Flask("base_app_stub")
-        sys.modules["base_app"] = stub
-    import importlib, app as dlc3d_app
-    importlib.reload(dlc3d_app)
-    c = dlc3d_app.app.test_client()
+def test_jobs_index_endpoint(lp_app, monkeypatch):
+    monkeypatch.setattr("dlc_3d_bp.lp_routes._redis_conn", lambda: None)
+    c = lp_app.test_client()
     r = c.get("/dlc-3d/lp/jobs")
     assert r.status_code == 200
     body = r.get_json()
@@ -1684,43 +1652,27 @@ def lp_eks(self, spec: dict) -> dict:
 
 Append to `tests/test_lp_routes.py`:
 ```python
-def test_eks_endpoint_validates_input(monkeypatch):
-    import sys, types
-    if "base_app" not in sys.modules:
-        from flask import Flask
-        stub = types.ModuleType("base_app")
-        stub.app = Flask("base_app_stub")
-        sys.modules["base_app"] = stub
-    import importlib, app as dlc3d_app
-    importlib.reload(dlc3d_app)
-    c = dlc3d_app.app.test_client()
+def test_eks_endpoint_validates_input(lp_app):
+    c = lp_app.test_client()
     r = c.post("/dlc-3d/lp/eks", json={})
     assert r.status_code == 400
 
 
-def test_eks_endpoint_enqueues(monkeypatch, tmp_path):
-    import sys, types
-    if "base_app" not in sys.modules:
-        from flask import Flask
-        stub = types.ModuleType("base_app")
-        stub.app = Flask("base_app_stub")
-        sys.modules["base_app"] = stub
-
+def test_eks_endpoint_enqueues(lp_app, monkeypatch):
     class _FakeAsync:
         id = "fake-job-id"
 
     monkeypatch.setattr(
         "dlc_3d_bp.lp.tasks.lp_eks.apply_async",
-        lambda *a, **k: _FakeAsync()
+        lambda *a, **k: _FakeAsync(),
     )
-    # Pretend the user-data file exists by pointing to /user-data/...
     monkeypatch.setattr(
         "dlc_3d_bp.lp_routes._under_user_data",
-        lambda p: True
+        lambda p: True,
     )
-    import importlib, app as dlc3d_app
-    importlib.reload(dlc3d_app)
-    c = dlc3d_app.app.test_client()
+    # No-op redis to skip registration side-effects
+    monkeypatch.setattr("dlc_3d_bp.lp_routes._redis_conn", lambda: None)
+    c = lp_app.test_client()
     r = c.post("/dlc-3d/lp/eks", json={
         "mode": "single",
         "in_paths": ["/user-data/x/pred.csv"],
@@ -2223,14 +2175,7 @@ git -c commit.gpgsign=false commit -m "feat(dlc-3d): lp_train Celery task wired 
 
 Append to `tests/test_lp_routes.py`:
 ```python
-def test_train_endpoint_enqueues(monkeypatch):
-    import sys, types
-    if "base_app" not in sys.modules:
-        from flask import Flask
-        stub = types.ModuleType("base_app")
-        stub.app = Flask("base_app_stub")
-        sys.modules["base_app"] = stub
-
+def test_train_endpoint_enqueues(lp_app, monkeypatch):
     class _FakeAsync:
         id = "fake-train-id"
 
@@ -2240,11 +2185,10 @@ def test_train_endpoint_enqueues(monkeypatch):
     )
     monkeypatch.setattr(
         "dlc_3d_bp.lp_routes._under_user_data",
-        lambda p: True
+        lambda p: True,
     )
-    import importlib, app as dlc3d_app
-    importlib.reload(dlc3d_app)
-    c = dlc3d_app.app.test_client()
+    monkeypatch.setattr("dlc_3d_bp.lp_routes._redis_conn", lambda: None)
+    c = lp_app.test_client()
     r = c.post("/dlc-3d/lp/train", json={
         "lp_project": "/user-data/x/lp",
         "options": {"mvt_enabled": True, "reproj_loss_enabled": True},
