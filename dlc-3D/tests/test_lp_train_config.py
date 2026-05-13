@@ -74,6 +74,9 @@ def test_build_config_3d_reprojection_loss(tmp_path):
     cfg = yaml.safe_load(out.read_text())
     assert cfg["training"]["imgaug_3d"] is True
     assert cfg["losses"]["supervised_reprojection_heatmap_mse"]["log_weight"] == 3.0
+    aw = cfg["callbacks"]["anneal_weight"]
+    assert aw["attr_name"] == "total_unsupervised_importance"
+    assert aw["final_val"] == 1.0
 
 
 def test_build_config_eval_flags(tmp_path):

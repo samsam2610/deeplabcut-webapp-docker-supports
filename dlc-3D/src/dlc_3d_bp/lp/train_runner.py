@@ -70,11 +70,20 @@ def build_train_config(
         })
         cfg["model"].setdefault("mvt", {})["patch_masking"] = pm
 
-    # 3D reprojection loss
+    # 3D reprojection loss. LP 2.1.0 anneals the unsupervised-loss weight via
+    # the AnnealWeight callback, which is required to exist whenever an
+    # unsupervised loss like supervised_reprojection_heatmap_mse is present.
     if options.get("reproj_loss_enabled"):
         cfg["training"]["imgaug_3d"] = True
         cfg["losses"]["supervised_reprojection_heatmap_mse"] = {
             "log_weight": options.get("reproj_loss_log_weight", 3.0),
+        }
+        cfg.setdefault("callbacks", {})["anneal_weight"] = {
+            "attr_name": "total_unsupervised_importance",
+            "init_val": 0.0,
+            "increase_factor": 0.01,
+            "final_val": 1.0,
+            "freeze_until_epoch": 0,
         }
 
     # Training params
