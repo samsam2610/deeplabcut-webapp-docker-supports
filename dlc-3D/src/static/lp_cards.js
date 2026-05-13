@@ -240,3 +240,18 @@ function initJobsCard() {
 }
 
 initJobsCard();
+
+
+function initLpLauncher() {
+  document.querySelectorAll("[data-lp-target]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const targetId = btn.dataset.lpTarget;
+      const card = document.getElementById(targetId);
+      if (!card) return;
+      card.classList.remove("hidden");
+      card.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    });
+  });
+}
+
+initLpLauncher();

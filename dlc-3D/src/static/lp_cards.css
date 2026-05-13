@@ -101,3 +101,14 @@
   text-overflow: ellipsis;
   max-width: 18rem;
 }
+
+.lp-launcher-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.5rem;
+  margin-top: 0.4rem;
+}
+.lp-launcher-btn {
+  gap: 0.5rem;
+  justify-content: flex-start;
+}
