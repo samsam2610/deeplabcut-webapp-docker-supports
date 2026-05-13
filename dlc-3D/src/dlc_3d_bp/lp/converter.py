@@ -71,9 +71,9 @@ def _read_dlc_collected_csv(path: Path) -> Dict:
                 continue
             # DLC header rows start with literal 'scorer'/'bodyparts'/'coords'
             if row[0] in ("scorer", "bodyparts", "coords", "individuals"):
-                header.append(row)
+                header.append(_normalize_header_row(row))
                 continue
-            body.append(row)
+            body.append(_normalize_dlc_row(row))
     for row in body:
         # Path is in column 0 (or columns 0-2 for newer schemas); frame number
         # is the last path segment like 'imgNNNNN.png'.
@@ -88,12 +88,35 @@ def _read_dlc_collected_csv(path: Path) -> Dict:
     return rows
 
 
+def _normalize_dlc_row(row: List[str]) -> List[str]:
+    """Drop the 3-column DLC path split (``labeled-data,session,filename``) so
+    the row is ``[path, x1, y1, ...]``. Idempotent for already-1-column rows.
+    """
+    if len(row) >= 3 and row[0] == "labeled-data":
+        return [row[0] + "/" + row[1] + "/" + row[2]] + list(row[3:])
+    return list(row)
+
+
+def _normalize_header_row(row: List[str]) -> List[str]:
+    """Strip the two extra blank cells DLC puts after the leading tag for the
+    3-column index format, so the header has one path column + coord columns.
+    """
+    # DLC header rows look like: ['scorer','','','Ali','Ali',...] when the
+    # body uses a 3-col path index. Drop columns 1 and 2 if both are blank.
+    if len(row) >= 3 and row[1] == "" and row[2] == "":
+        return [row[0]] + list(row[3:])
+    return list(row)
+
+
 def _read_view_in_filename_csv(path: Path) -> Tuple[List[List[str]], Dict[str, Dict[int, List[List[str]]]]]:
     """Read a CollectedData_*.csv whose rows span multiple cams.
 
     Returns ``(header_rows, {view_name: {frame_number: [row, ...]}})`` where
     ``view_name`` is ``cam<N>`` parsed from the image filename. Rows whose
     image filename doesn't match :data:`_FRAME_IN_NAME_RE` are skipped.
+
+    Rows and header rows are normalised so each has a single leading path
+    column (LP's ``pd.read_csv(..., index_col=0)`` expects that shape).
     """
     header: List[List[str]] = []
     per_view: Dict[str, Dict[int, List[List[str]]]] = {}
@@ -105,7 +128,7 @@ def _read_view_in_filename_csv(path: Path) -> Tuple[List[List[str]], Dict[str, D
             if not row:
                 continue
             if row[0] in ("scorer", "bodyparts", "coords", "individuals"):
-                header.append(row)
+                header.append(_normalize_header_row(row))
                 continue
             # Image filename may be in col 0 (1-col path) or col 2 (3-col split).
             name = ""
@@ -119,7 +142,9 @@ def _read_view_in_filename_csv(path: Path) -> Tuple[List[List[str]], Dict[str, D
             cam_idx = int(m.group(1))
             frame_no = int(m.group(2))
             view = f"cam{cam_idx}"
-            per_view.setdefault(view, {}).setdefault(frame_no, []).append(row)
+            per_view.setdefault(view, {}).setdefault(frame_no, []).append(
+                _normalize_dlc_row(row)
+            )
     return header, per_view
 
 
@@ -377,30 +402,124 @@ def convert_dlc_to_lp(
     return summary.asdict()
 
 
+def _probe_image_dims(lp_dir: Path) -> Tuple[int, int]:
+    """Return (height, width) by parsing the first labeled PNG header.
+
+    Uses stdlib only (the dlc-3d Flask container doesn't ship Pillow). PNG IHDR
+    chunk is at bytes 16..24, big-endian width then height. Falls back to
+    (384, 384) if no PNGs can be read.
+    """
+    import struct
+    for p in (lp_dir / "labeled-data").glob("*/img*.png"):
+        try:
+            with p.open("rb") as f:
+                head = f.read(24)
+            if len(head) >= 24 and head[:8] == b"\x89PNG\r\n\x1a\n":
+                width, height = struct.unpack(">II", head[16:24])
+                return int(height), int(width)
+        except Exception:
+            continue
+    return 384, 384
+
+
 def _write_lp_config(lp_dir: Path, dlc_dir: Path, views: List[str]) -> None:
+    """Write an LP 2.1.0-compatible config.yaml.
+
+    The shape mirrors lightning-pose 2.1.0's expected schema (see
+    ``lightning_pose/api/model_config.py`` and ``lightning_pose/train.py``):
+    a full ``data`` block (including ``image_orig_dims``/``image_resize_dims``,
+    ``downsample_factor``, ``columns_for_singleview_pca``), ``model`` (with
+    ``model_name``, ``heatmap_loss_type``), and a fully-populated ``training``
+    block (including ``min_epochs``/``max_epochs``, ``unfreezing_epoch``,
+    train/val/test probs, RNG seeds, ``num_gpus``, ``log_every_n_steps``,
+    and ``lr_scheduler_params.multisteplr.milestones``).
+    """
     with (dlc_dir / "config.yaml").open() as f:
         dlc_cfg = yaml.safe_load(f) or {}
     bodyparts = dlc_cfg.get("bodyparts", []) or dlc_cfg.get("multianimalbodyparts", [])
+    img_h, img_w = _probe_image_dims(lp_dir)
+
+    is_multi = len(views) > 1
+    # LP 2.1.0 renamed the supervised multi-view model to
+    # ``heatmap_multiview_transformer`` (formerly ``multiview_heatmap``).
+    model_type = "heatmap_multiview_transformer" if is_multi else "heatmap_mhcrnn"
+
+    # ViT-backed models require square input. LP's HeatmapDataset additionally
+    # asserts ``image_resize_height % 128 == 0`` (see
+    # ``lightning_pose/data/datasets.py``). ``vits_dino`` is DINO ViT-S/16
+    # (patch size 16) and uses ``interpolate_pos_encoding=True``, so multiples
+    # of 128 are fine. Pick the largest multiple of 128 that fits in the
+    # original image, with a floor of 256.
+    if is_multi:
+        side = max(256, (min(img_h, img_w) // 128) * 128)
+        resize_h = resize_w = side
+    else:
+        resize_h, resize_w = img_h, img_w
+
+    data_block = {
+        "image_orig_dims": {"height": img_h, "width": img_w},
+        "image_resize_dims": {"height": resize_h, "width": resize_w},
+        "data_dir": str(lp_dir),
+        "video_dir": "videos",
+        "csv_file": (
+            [f"{v}.csv" for v in views] if is_multi
+            else (views[0] + ".csv" if views else "labels.csv")
+        ),
+        "view_names": views,
+        "downsample_factor": 2,
+        "num_keypoints": len(bodyparts),
+        "keypoint_names": bodyparts,
+        "mirrored_column_matches": None,
+        "columns_for_singleview_pca": None,
+    }
+    # Note: ``camera_params_file`` is intentionally omitted from the base
+    # config. LP only needs it for the 3D reprojection loss (enabled via
+    # ``options.reproj_loss_enabled`` in :mod:`lp.train_runner`). Including
+    # it unconditionally caused the data loader to require a matching
+    # per-image calibrations.csv, which our converter doesn't produce.
+
     lp_cfg = {
-        "data": {
-            "data_dir": str(lp_dir),
-            "video_dir": "videos",
-            "csv_file": [f"{v}.csv" for v in views] if len(views) > 1 else (views[0] + ".csv" if views else "labels.csv"),
-            "view_names": views,
-            "keypoint_names": bodyparts,
-            "num_keypoints": len(bodyparts),
-        },
+        "data": data_block,
         "model": {
-            "model_type": "heatmap_mhcrnn" if len(views) <= 1 else "multiview_heatmap",
-            "backbone": "resnet50_animal_apose",
+            "model_name": "dlc3d_lp_run",
+            "model_type": model_type,
+            # ``heatmap_multiview_transformer`` requires a ViT backbone
+            # (ALLOWED_TRANSFORMER_BACKBONES); ResNets aren't supported for
+            # the supervised multi-view model in LP 2.1.0. For single-view
+            # (heatmap_mhcrnn) any backbone in ALLOWED_BACKBONES works.
+            "backbone": "vits_dino" if is_multi else "resnet50_animal_apose",
+            "heatmap_loss_type": "mse",
             "losses_to_use": [],
         },
         "training": {
-            "max_epochs": 300,
+            "imgaug": "default",
+            "imgaug_3d": False,
             "train_batch_size": 16,
             "val_batch_size": 16,
             "test_batch_size": 16,
-            "imgaug_3d": False,
+            "train_prob": 0.95,
+            "val_prob": 0.05,
+            "train_frames": 1,
+            "num_gpus": 1,
+            "num_workers": 4,
+            "unfreezing_epoch": 20,
+            "rng_seed_data_pt": 0,
+            "rng_seed_model_pt": 0,
+            "min_epochs": 1,
+            "max_epochs": 300,
+            "log_every_n_steps": 10,
+            "ckpt_every_n_epochs": None,
+            "early_stopping": False,
+            "lr_scheduler": "multisteplr",
+            "lr_scheduler_params": {
+                "multisteplr": {
+                    "milestones": [150, 200, 250],
+                    "gamma": 0.5,
+                },
+            },
+            "optimizer": "Adam",
+            "optimizer_params": {"learning_rate": 0.001},
+            "uniform_heatmaps_for_nan_keypoints": False,
         },
         "losses": {},
         "eval": {

@@ -37,7 +37,7 @@ def test_build_config_mvt_default(tmp_path):
         "batch_size": 8,
     })
     cfg = yaml.safe_load(out.read_text())
-    assert cfg["model"]["model_type"] == "multiview_heatmap"
+    assert cfg["model"]["model_type"] == "heatmap_multiview_transformer"
     assert cfg["training"]["max_epochs"] == 50
     assert cfg["training"]["train_batch_size"] == 8
     assert "supervised_reprojection_heatmap_mse" not in cfg["losses"]

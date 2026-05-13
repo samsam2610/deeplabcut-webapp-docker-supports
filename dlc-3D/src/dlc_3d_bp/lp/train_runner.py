@@ -48,9 +48,10 @@ def build_train_config(
     cfg.setdefault("losses", {})
     cfg.setdefault("eval", {})
 
-    # MVT toggle
+    # MVT toggle. LP 2.1.0 calls the supervised multi-view model
+    # ``heatmap_multiview_transformer``; older naming was ``multiview_heatmap``.
     if options.get("mvt_enabled", True):
-        cfg["model"]["model_type"] = "multiview_heatmap"
+        cfg["model"]["model_type"] = "heatmap_multiview_transformer"
     elif options.get("model_type"):
         cfg["model"]["model_type"] = options["model_type"]
 
@@ -83,6 +84,16 @@ def build_train_config(
                      ("batch_size", "test_batch_size")):
         if src in options:
             cfg["training"][dst] = options[src]
+
+    # Keep min_epochs <= max_epochs. LP 2.1.0 asserts both keys are present and
+    # uses them as PL Trainer args; min_epochs > max_epochs would error.
+    if "max_epochs" in options:
+        cfg["training"]["min_epochs"] = min(
+            cfg["training"].get("min_epochs", 1), int(options["max_epochs"])
+        )
+    # Lr scheduler milestones must be <= max_epochs or the multi-step LR is
+    # a no-op for short smoke runs — that's fine, but ensure the list isn't
+    # required to be filtered. (left as-is)
 
     # Eval flags
     if "predict_vids_after_training" in options:
