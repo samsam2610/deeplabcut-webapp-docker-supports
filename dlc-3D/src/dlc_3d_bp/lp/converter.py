@@ -21,7 +21,7 @@ import re
 import shutil
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Dict, List, Tuple
+from typing import Dict, Iterator, List, Tuple
 
 import yaml
 
@@ -556,3 +556,51 @@ def _write_lp_config(lp_dir: Path, dlc_dir: Path, views: List[str]) -> None:
 
     with (lp_dir / "config.yaml").open("w") as f:
         yaml.safe_dump(base, f, sort_keys=False)
+
+
+def _walk_all_labeled_data(dlc_dir) -> Iterator[Tuple[Path, str, List[str]]]:
+    """Yield ``(src_png, dest_rel, normalised_row)`` for every labeled row in
+    every labeled-data folder of *dlc_dir*, view-agnostically.
+
+    Used by the SV-pretrain converter branch: it doesn't care about pairing or
+    folder classification — just every (image, row) tuple that has a backing
+    PNG on disk and is referenced in the folder's CollectedData CSV.
+
+    ``dest_rel`` is the relative path the row's first column will carry in the
+    output single-view CSV (``labeled-data/<orig_folder>/<orig_filename>.png``).
+    ``normalised_row`` is the row after ``_normalize_dlc_row`` flattening (the
+    3-col DLC path index → 1 cell).
+    """
+    dlc_dir = Path(dlc_dir)
+    ld = dlc_dir / "labeled-data"
+    if not ld.is_dir():
+        return
+    for folder in sorted(ld.iterdir()):
+        if not folder.is_dir():
+            continue
+        if folder.name.startswith(".") or folder.name.startswith("@"):
+            continue
+        cc = next(folder.glob("CollectedData_*.csv"), None)
+        if cc is None:
+            continue
+        # Read the CSV directly (don't go through _read_dlc_collected_csv, which
+        # keys rows by frame number parsed out of the filename — we want every
+        # row regardless of whether the filename has digits).
+        with cc.open(newline="") as f:
+            for raw_row in csv.reader(f):
+                if not raw_row:
+                    continue
+                if raw_row[0] in ("scorer", "bodyparts", "coords", "individuals"):
+                    continue
+                row = _normalize_dlc_row(raw_row)
+                # Path cell after normalisation
+                path_cell = row[0]
+                # Filename = last segment
+                fname = Path(path_cell).name
+                src_png = folder / fname
+                if not src_png.is_file():
+                    # Row references an image not on disk — skip it (DLC
+                    # sometimes leaves stale rows after manual deletes).
+                    continue
+                dest_rel = f"labeled-data/{folder.name}/{fname}"
+                yield src_png, dest_rel, row
