@@ -1,0 +1,43 @@
+<section class="card dlc-theme hidden" id="lp-predict-card">
+  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:.3rem">
+    <h2>Predict with LP Model</h2>
+    <button class="btn-sm" id="btn-close-lp-predict" title="Close">
+      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+      Close
+    </button>
+  </div>
+  <p class="subtitle">Run a trained LP model on one or more videos. Predictions land under <code style="font-family:var(--mono);font-size:.78rem">&lt;model_dir&gt;/video_preds/</code>.</p>
+
+  <div class="lp-field">
+    <label>LP project path <span style="color:var(--text-dim);font-weight:400;text-transform:none;letter-spacing:0">(auto-filled from active DLC project; override if needed)</span></label>
+    <input type="text" id="lp-predict-project" placeholder="auto-filled — load a DLC project first">
+  </div>
+
+  <div class="lp-field">
+    <label>Trained model run</label>
+    <div class="select-wrap" style="position:relative">
+      <select id="lp-predict-model" style="font-family:var(--mono);font-size:.78rem;padding:.3rem .5rem;background:var(--surface-2);border:1px solid var(--border);border-radius:4px;color:var(--text);width:100%">
+        <option value="">— load LP project to populate —</option>
+      </select>
+    </div>
+    <div id="lp-predict-model-note" style="font-size:.7rem;color:var(--text-dim);margin-top:.2rem"></div>
+  </div>
+
+  <div class="lp-field">
+    <label>Videos to predict on <span style="color:var(--text-dim);font-weight:400;text-transform:none;letter-spacing:0">(one absolute path per line)</span></label>
+    <textarea id="lp-predict-videos" rows="4" style="font-family:var(--mono);font-size:.74rem;padding:.3rem .5rem;background:var(--surface-2);border:1px solid var(--border);border-radius:4px;color:var(--text);width:100%;min-height:5rem" placeholder="/user-data/.../video1.mp4
+/user-data/.../video2.mp4"></textarea>
+  </div>
+
+  <div class="lp-field lp-checkbox">
+    <input type="checkbox" id="lp-predict-skip-viz">
+    <label for="lp-predict-skip-viz">Skip labeled-video rendering (faster, predictions only)</label>
+  </div>
+  <div class="lp-field lp-checkbox">
+    <input type="checkbox" id="lp-predict-overwrite">
+    <label for="lp-predict-overwrite">Overwrite existing predictions</label>
+  </div>
+
+  <button class="btn-primary" id="btn-lp-predict-run">Run prediction</button>
+  <pre class="lp-result" id="lp-predict-result" hidden></pre>
+</section>

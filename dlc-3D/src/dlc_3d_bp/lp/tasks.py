@@ -69,3 +69,44 @@ def lp_eks(self, spec: dict) -> dict:
             **smooth_multiview_csvs(spec["in_paths"], spec["out_dir"], s=s),
         }
     raise ValueError(f"unknown mode: {mode!r}")
+
+
+@celery.task(bind=True, name="dlc_3d_lp.predict")
+def lp_predict(self, model_dir: str, videos: list, skip_viz: bool = False, overwrite: bool = False) -> dict:
+    """Run `litpose predict <model_dir> <video...>`.
+
+    Output lands under ``<model_dir>/video_preds/``. Streams stdout to a Redis
+    log list and updates Celery state per line for live UI polling.
+    """
+    import os
+    from .predict_runner import run_predict_subprocess
+
+    if not videos:
+        raise ValueError("at least one video path required")
+    md = Path(model_dir)
+    if not md.is_dir():
+        raise FileNotFoundError(f"model_dir does not exist: {model_dir}")
+
+    log_key = f"dlc3d:lp:log:{self.request.id}"
+    try:
+        import redis
+        rconn = redis.Redis.from_url(
+            os.environ.get("CELERY_RESULT_BACKEND", "redis://redis:6379/0"),
+            decode_responses=True,
+        )
+    except Exception:
+        rconn = None
+
+    def emit(line: str) -> None:
+        if rconn:
+            try:
+                rconn.rpush(log_key, line)
+                rconn.ltrim(log_key, -2000, -1)
+            except Exception:
+                pass
+        self.update_state(state="STARTED", meta={"last_line": line, "model_dir": str(md)})
+
+    rc = run_predict_subprocess(md, videos, skip_viz=skip_viz, overwrite=overwrite, log_callback=emit)
+    if rc != 0:
+        raise RuntimeError(f"litpose predict exited with code {rc}")
+    return {"status": "ok", "model_dir": str(md), "video_preds_dir": str(md / "video_preds")}

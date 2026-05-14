@@ -187,3 +187,80 @@ def train_run():
             "options": options,
         })
     return jsonify({"job_id": async_result.id}), 202
+
+
+def _active_lp_project_default() -> str:
+    """Return '<active DLC project>-LP/' if a DLC project is loaded, else ''."""
+    import dlc_3d_bp.routes as routes_mod
+    with routes_mod._state_lock:
+        active_dlc = routes_mod._active_project or ""
+    return (active_dlc.rstrip("/") + "-LP") if active_dlc else ""
+
+
+@lp_bp.route("/models")
+def list_models_route():
+    """List trained model run dirs in an LP project.
+
+    Query: ?lp_project=<path>   (defaults to <active DLC project>-LP/)
+    """
+    from dlc_3d_bp.lp.predict_runner import list_models
+
+    project = (request.args.get("lp_project") or "").strip()
+    if not project:
+        project = _active_lp_project_default()
+    if not project:
+        return jsonify({"error": "no active DLC project — load one first or pass lp_project", "models": []}), 400
+    if not _under_user_data(Path(project)):
+        return jsonify({"error": "lp_project must be under /user-data", "models": []}), 403
+    if not Path(project).is_dir():
+        return jsonify({"lp_project": project, "models": [], "warning": "lp_project does not exist"}), 200
+    return jsonify({"lp_project": project, "models": list_models(project)})
+
+
+@lp_bp.route("/predict", methods=["POST"])
+def predict_run():
+    from dlc_3d_bp.lp.tasks import lp_predict
+    from dlc_3d_bp.lp.predict_runner import list_models
+
+    body = request.get_json(force=True, silent=True) or {}
+    model_dir = (body.get("model_dir") or "").strip()
+    videos = body.get("videos") or []
+    skip_viz = bool(body.get("skip_viz", False))
+    overwrite = bool(body.get("overwrite", False))
+
+    # Default model_dir to the newest model in <active LP project>/models/
+    if not model_dir:
+        lp_project = (body.get("lp_project") or "").strip() or _active_lp_project_default()
+        if not lp_project:
+            return jsonify({"error": "no active DLC project — load one first or pass model_dir/lp_project"}), 400
+        if not _under_user_data(Path(lp_project)):
+            return jsonify({"error": "lp_project must be under /user-data"}), 403
+        models = list_models(lp_project)
+        usable = [m for m in models if m["has_checkpoint"]]
+        if not usable:
+            return jsonify({"error": f"no trained models with a checkpoint found under {lp_project}/models/"}), 400
+        model_dir = usable[0]["path"]  # newest first per list_models()
+
+    if not _under_user_data(Path(model_dir)):
+        return jsonify({"error": "model_dir must be under /user-data"}), 403
+    if not Path(model_dir).is_dir():
+        return jsonify({"error": f"model_dir does not exist: {model_dir}"}), 400
+
+    if not videos:
+        return jsonify({"error": "at least one video required"}), 400
+    for v in videos:
+        if not _under_user_data(Path(v)):
+            return jsonify({"error": f"video path outside /user-data: {v}"}), 403
+
+    async_result = lp_predict.apply_async(args=[model_dir, videos, skip_viz, overwrite])
+    conn = _redis_conn()
+    if conn:
+        from dlc_3d_bp.lp.job_registry import register
+        register(conn, async_result.id, {
+            "type": "predict",
+            "model_dir": model_dir,
+            "videos": videos,
+            "skip_viz": skip_viz,
+            "overwrite": overwrite,
+        })
+    return jsonify({"job_id": async_result.id, "model_dir": model_dir}), 202

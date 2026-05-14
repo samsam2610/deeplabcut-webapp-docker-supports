@@ -224,3 +224,95 @@ def test_train_endpoint_enqueues(lp_app, monkeypatch):
     })
     assert r.status_code == 202
     assert r.get_json()["job_id"] == "fake-train-id"
+
+
+def test_models_endpoint_400_without_active_project(lp_app, monkeypatch):
+    import dlc_3d_bp.routes as r_mod
+    monkeypatch.setattr(r_mod, "_active_project", None, raising=False)
+    c = lp_app.test_client()
+    r = c.get("/dlc-3d/lp/models")
+    assert r.status_code == 400
+
+
+def test_models_endpoint_lists_runs(lp_app, monkeypatch, tmp_path):
+    """Server lists model run dirs newest-first with checkpoint detection."""
+    monkeypatch.setattr("dlc_3d_bp.lp_routes._under_user_data", lambda p: True)
+    # Synthetic LP project with two runs, one with a checkpoint
+    lp = tmp_path / "fakelp"
+    (lp / "models" / "20260101-000000" / "tb_logs" / "x" / "version_0" / "checkpoints").mkdir(parents=True)
+    (lp / "models" / "20260101-000000" / "tb_logs" / "x" / "version_0" / "checkpoints" / "epoch=0-best.ckpt").write_bytes(b"")
+    (lp / "models" / "20260102-000000").mkdir(parents=True)  # no checkpoint
+    c = lp_app.test_client()
+    r = c.get(f"/dlc-3d/lp/models?lp_project={lp}")
+    assert r.status_code == 200
+    body = r.get_json()
+    assert len(body["models"]) == 2
+    # newest first
+    assert body["models"][0]["run_id"] == "20260102-000000"
+    assert body["models"][0]["has_checkpoint"] is False
+    assert body["models"][1]["has_checkpoint"] is True
+
+
+def test_predict_endpoint_400_without_videos(lp_app, monkeypatch):
+    monkeypatch.setattr("dlc_3d_bp.lp_routes._under_user_data", lambda p: True)
+    c = lp_app.test_client()
+    r = c.post("/dlc-3d/lp/predict", json={"model_dir": "/user-data/x/m"})
+    assert r.status_code == 400
+
+
+def test_predict_endpoint_403_outside_user_data(lp_app):
+    c = lp_app.test_client()
+    r = c.post("/dlc-3d/lp/predict", json={
+        "model_dir": "/etc",
+        "videos": ["/etc/passwd"],
+    })
+    assert r.status_code == 403
+
+
+def test_predict_endpoint_enqueues_with_explicit_model(lp_app, monkeypatch, tmp_path):
+    class _FakeAsync:
+        id = "fake-predict-id"
+
+    md = tmp_path / "m"
+    md.mkdir()
+    monkeypatch.setattr("dlc_3d_bp.lp_routes._under_user_data", lambda p: True)
+    monkeypatch.setattr("dlc_3d_bp.lp_routes._redis_conn", lambda: None)
+    monkeypatch.setattr(
+        "dlc_3d_bp.lp.tasks.lp_predict.apply_async",
+        lambda *a, **k: _FakeAsync(),
+    )
+    c = lp_app.test_client()
+    r = c.post("/dlc-3d/lp/predict", json={
+        "model_dir": str(md),
+        "videos": ["/user-data/x/v.mp4"],
+        "skip_viz": True,
+    })
+    assert r.status_code == 202, r.get_data(as_text=True)
+    assert r.get_json()["job_id"] == "fake-predict-id"
+
+
+def test_predict_endpoint_picks_newest_model_with_checkpoint(lp_app, monkeypatch, tmp_path):
+    class _FakeAsync:
+        id = "fake-id"
+    captured = {}
+    def _fake_apply(args=None, **kwargs):
+        captured["model_dir"] = args[0]
+        return _FakeAsync()
+
+    monkeypatch.setattr("dlc_3d_bp.lp_routes._under_user_data", lambda p: True)
+    monkeypatch.setattr("dlc_3d_bp.lp_routes._redis_conn", lambda: None)
+    monkeypatch.setattr("dlc_3d_bp.lp.tasks.lp_predict.apply_async", _fake_apply)
+
+    lp = tmp_path / "lp"
+    (lp / "models" / "20260101-000000" / "tb_logs" / "x" / "version_0" / "checkpoints").mkdir(parents=True)
+    (lp / "models" / "20260101-000000" / "tb_logs" / "x" / "version_0" / "checkpoints" / "epoch=0-best.ckpt").write_bytes(b"")
+    # Newer run without checkpoint should be skipped
+    (lp / "models" / "20260102-000000").mkdir(parents=True)
+
+    c = lp_app.test_client()
+    r = c.post("/dlc-3d/lp/predict", json={
+        "lp_project": str(lp),
+        "videos": ["/user-data/x/v.mp4"],
+    })
+    assert r.status_code == 202, r.get_data(as_text=True)
+    assert captured["model_dir"].endswith("20260101-000000")

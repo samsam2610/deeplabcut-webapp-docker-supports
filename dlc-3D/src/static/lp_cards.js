@@ -219,6 +219,121 @@ function initTrainCard() {
 initTrainCard();
 
 
+function initPredictCard() {
+  const card = $("#lp-predict-card");
+  if (!card) return;
+  const projectEl = $("#lp-predict-project");
+  const modelEl   = $("#lp-predict-model");
+  const noteEl    = $("#lp-predict-model-note");
+  const videosEl  = $("#lp-predict-videos");
+  const runEl     = $("#btn-lp-predict-run");
+  const resEl     = $("#lp-predict-result");
+
+  $("#btn-close-lp-predict")?.addEventListener("click", () => card.classList.add("hidden"));
+
+  let lastAutoFill = "";
+  const syncProjectField = () => {
+    const dlc = activeDlcProjectFromDom();
+    const auto = dlc ? dlc.replace(/\/+$/, "") + "-LP" : "";
+    if (projectEl.value === "" || projectEl.value === lastAutoFill) {
+      projectEl.value = auto;
+      lastAutoFill = auto;
+    }
+  };
+
+  async function reloadModels() {
+    const p = projectEl.value.trim();
+    modelEl.innerHTML = '<option value="">— loading… —</option>';
+    noteEl.textContent = "";
+    const url = "/dlc-3d/lp/models" + (p ? `?lp_project=${encodeURIComponent(p)}` : "");
+    let body;
+    try {
+      const r = await fetch(url);
+      body = await r.json();
+      if (!r.ok) {
+        modelEl.innerHTML = `<option value="">— ${body.error || "error"} —</option>`;
+        return;
+      }
+    } catch (e) {
+      modelEl.innerHTML = `<option value="">— ${e.message} —</option>`;
+      return;
+    }
+    const models = body.models || [];
+    if (!models.length) {
+      modelEl.innerHTML = '<option value="">— no models found —</option>';
+      noteEl.textContent = "Train a model first, or pick a different LP project.";
+      return;
+    }
+    const usable = models.filter((m) => m.has_checkpoint);
+    modelEl.innerHTML = models
+      .map((m) => {
+        const label = `${m.run_id}${m.has_checkpoint ? " ✓" : " (no checkpoint)"}${m.has_predictions ? " · trained" : ""}`;
+        const disabled = m.has_checkpoint ? "" : " disabled";
+        return `<option value="${m.path}"${disabled}>${label}</option>`;
+      })
+      .join("");
+    if (usable.length) {
+      modelEl.value = usable[0].path;  // pre-select newest usable
+    }
+    noteEl.textContent = `${usable.length} usable model${usable.length === 1 ? "" : "s"} of ${models.length} total`;
+  }
+
+  const onCardOpen = () => {
+    syncProjectField();
+    reloadModels();
+  };
+  new MutationObserver(onCardOpen).observe(card, { attributes: true, attributeFilter: ["class"] });
+  const upstream = document.getElementById("dlc-active-path");
+  if (upstream) {
+    new MutationObserver(() => { syncProjectField(); reloadModels(); }).observe(upstream, { childList: true, characterData: true, subtree: true });
+  }
+  // Refresh models when user edits the project field
+  projectEl.addEventListener("change", reloadModels);
+  syncProjectField();
+
+  runEl.addEventListener("click", async () => {
+    runEl.disabled = true;
+    resEl.hidden = false;
+    resEl.textContent = "Submitting…";
+    const videos = videosEl.value.split("\n").map((s) => s.trim()).filter(Boolean);
+    if (!videos.length) {
+      resEl.textContent = "Error: enter at least one video path";
+      runEl.disabled = false;
+      return;
+    }
+    const payload = {
+      lp_project: projectEl.value.trim() || undefined,
+      model_dir:  modelEl.value || undefined,
+      videos,
+      skip_viz:   $("#lp-predict-skip-viz").checked,
+      overwrite:  $("#lp-predict-overwrite").checked,
+    };
+    try {
+      const r = await fetch("/dlc-3d/lp/predict", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      const body = await r.json();
+      if (!r.ok) { resEl.textContent = "Error: " + JSON.stringify(body, null, 2); return; }
+      const jobId = body.job_id;
+      resEl.textContent = `Job ${jobId}: PENDING\nmodel_dir: ${body.model_dir || ""}`;
+      await pollJob(jobId, (j) => {
+        const tail = (j.log_tail || []).slice(-30).join("\n");
+        resEl.textContent =
+          `state: ${j.celery_state || "PENDING"}\n` +
+          `model_dir: ${j.celery_info?.model_dir || j.model_dir || ""}\n` +
+          `--- log tail ---\n${tail}`;
+      }, 2500);
+    } finally {
+      runEl.disabled = false;
+    }
+  });
+}
+
+initPredictCard();
+
+
 function initJobsCard() {
   const card = $("#lp-jobs-card");
   if (!card) return;
