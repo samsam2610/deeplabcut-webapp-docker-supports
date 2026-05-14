@@ -222,15 +222,33 @@ initTrainCard();
 function initPredictCard() {
   const card = $("#lp-predict-card");
   if (!card) return;
-  const projectEl = $("#lp-predict-project");
-  const modelEl   = $("#lp-predict-model");
-  const noteEl    = $("#lp-predict-model-note");
-  const videosEl  = $("#lp-predict-videos");
-  const runEl     = $("#btn-lp-predict-run");
-  const resEl     = $("#lp-predict-result");
+
+  const projectEl     = $("#lp-predict-project");
+  const modelEl       = $("#lp-predict-model");
+  const noteEl        = $("#lp-predict-model-note");
+
+  const targetEl      = $("#lp-predict-target");
+  const browseUpEl    = $("#lp-predict-browse-up");
+  const browseBtnEl   = $("#lp-predict-browse-btn");
+  const browserEl     = $("#lp-predict-browser");
+  const batchAddEl    = $("#lp-predict-batch-add-btn");
+  const batchClearEl  = $("#lp-predict-batch-clear-btn");
+  const batchListEl   = $("#lp-predict-batch-list");
+
+  const destEl        = $("#lp-predict-destfolder");
+  const destUpEl      = $("#lp-predict-dest-up");
+  const destBrowseEl  = $("#lp-predict-dest-browse-btn");
+  const destBrowserEl = $("#lp-predict-dest-browser");
+  const destClearEl   = $("#lp-predict-dest-clear-btn");
+
+  const skipVizEl     = $("#lp-predict-skip-viz");
+  const overwriteEl   = $("#lp-predict-overwrite");
+  const runEl         = $("#btn-lp-predict-run");
+  const resEl         = $("#lp-predict-result");
 
   $("#btn-close-lp-predict")?.addEventListener("click", () => card.classList.add("hidden"));
 
+  // ── LP project + model dropdown (unchanged from previous behaviour) ──
   let lastAutoFill = "";
   const syncProjectField = () => {
     const dlc = activeDlcProjectFromDom();
@@ -250,13 +268,9 @@ function initPredictCard() {
     try {
       const r = await fetch(url);
       body = await r.json();
-      if (!r.ok) {
-        modelEl.innerHTML = `<option value="">— ${body.error || "error"} —</option>`;
-        return;
-      }
+      if (!r.ok) { modelEl.innerHTML = `<option value="">— ${body.error || "error"} —</option>`; return; }
     } catch (e) {
-      modelEl.innerHTML = `<option value="">— ${e.message} —</option>`;
-      return;
+      modelEl.innerHTML = `<option value="">— ${e.message} —</option>`; return;
     }
     const models = body.models || [];
     if (!models.length) {
@@ -265,39 +279,227 @@ function initPredictCard() {
       return;
     }
     const usable = models.filter((m) => m.has_checkpoint);
-    modelEl.innerHTML = models
-      .map((m) => {
-        const label = `${m.run_id}${m.has_checkpoint ? " ✓" : " (no checkpoint)"}${m.has_predictions ? " · trained" : ""}`;
-        const disabled = m.has_checkpoint ? "" : " disabled";
-        return `<option value="${m.path}"${disabled}>${label}</option>`;
-      })
-      .join("");
-    if (usable.length) {
-      modelEl.value = usable[0].path;  // pre-select newest usable
-    }
+    modelEl.innerHTML = models.map((m) => {
+      const label = `${m.run_id}${m.has_checkpoint ? " ✓" : " (no checkpoint)"}${m.has_predictions ? " · trained" : ""}`;
+      const disabled = m.has_checkpoint ? "" : " disabled";
+      return `<option value="${m.path}"${disabled}>${label}</option>`;
+    }).join("");
+    if (usable.length) modelEl.value = usable[0].path;
     noteEl.textContent = `${usable.length} usable model${usable.length === 1 ? "" : "s"} of ${models.length} total`;
   }
 
-  const onCardOpen = () => {
-    syncProjectField();
-    reloadModels();
-  };
-  new MutationObserver(onCardOpen).observe(card, { attributes: true, attributeFilter: ["class"] });
+  new MutationObserver(() => { syncProjectField(); reloadModels(); })
+    .observe(card, { attributes: true, attributeFilter: ["class"] });
   const upstream = document.getElementById("dlc-active-path");
   if (upstream) {
-    new MutationObserver(() => { syncProjectField(); reloadModels(); }).observe(upstream, { childList: true, characterData: true, subtree: true });
+    new MutationObserver(() => { syncProjectField(); reloadModels(); })
+      .observe(upstream, { childList: true, characterData: true, subtree: true });
   }
-  // Refresh models when user edits the project field
   projectEl.addEventListener("change", reloadModels);
   syncProjectField();
 
+  // ── Tree browser (mirrors analyze.js video picker) ─────────────────
+  const VIDEO_EXTS  = new Set([".mp4", ".avi", ".mov", ".mkv", ".wmv", ".m4v"]);
+  const IMAGE_EXTS  = new Set([".jpg", ".jpeg", ".png", ".bmp", ".tif", ".tiff"]);
+  const supportedFile = (name) => {
+    const i = name.lastIndexOf(".");
+    return i >= 0 && (VIDEO_EXTS.has(name.slice(i).toLowerCase()) || IMAGE_EXTS.has(name.slice(i).toLowerCase()));
+  };
+
+  /** Per-browser state. */
+  function makeBrowser({ inputEl, paneEl, dirOnly }) {
+    let highlightedRow = null;
+    let highlightedPath = "";
+    let browserLoaded = false;
+    let currentDir = "";
+
+    function setHighlight(row, path) {
+      if (highlightedRow && highlightedRow !== row) {
+        highlightedRow.style.background = "";
+        highlightedRow.style.outline = "";
+      }
+      highlightedRow = row;
+      highlightedPath = path;
+      inputEl.value = path;
+      row.style.background = "var(--accent-dim, rgba(99,179,237,.18))";
+      row.style.outline = "1px solid var(--accent, #63b3ed)";
+    }
+
+    function makeEntry(name, fullPath, isDir) {
+      const wrapper = document.createElement("div");
+      const row = document.createElement("div");
+      row.style.cssText = "display:flex;align-items:center;gap:.3rem;padding:.15rem .4rem;border-radius:3px;cursor:pointer";
+      const arrow = document.createElement("span");
+      arrow.style.cssText = "width:.8rem;color:var(--text-dim);font-size:.7rem";
+      arrow.textContent = isDir ? "▶" : "·";
+      const label = document.createElement("span");
+      label.style.cssText = "flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:var(--mono);font-size:.74rem";
+      label.textContent = name + (isDir ? "/" : "");
+      row.appendChild(arrow); row.appendChild(label);
+      wrapper.appendChild(row);
+
+      const childContainer = document.createElement("div");
+      childContainer.style.cssText = "display:none;padding-left:1rem";
+      wrapper.appendChild(childContainer);
+
+      let loaded = false, expanded = false;
+
+      if (isDir) {
+        row.addEventListener("click", async () => {
+          setHighlight(row, fullPath);
+          if (!expanded && !loaded) {
+            childContainer.innerHTML = `<span style="font-size:.72rem;color:var(--text-dim);padding:.15rem .4rem;display:block">Loading…</span>`;
+            childContainer.style.display = "block";
+            try {
+              const res = await fetch(`/fs/ls?path=${encodeURIComponent(fullPath)}`);
+              const d = await res.json();
+              childContainer.innerHTML = "";
+              if (!d.error) {
+                const vis = (d.entries || []).filter((e) =>
+                  (e.type === "dir" && e.has_media !== false) ||
+                  (!dirOnly && e.type === "file" && supportedFile(e.name)));
+                vis.forEach((e) =>
+                  childContainer.appendChild(makeEntry(e.name, fullPath.replace(/\/+$/, "") + "/" + e.name, e.type === "dir")));
+                if (!vis.length) childContainer.innerHTML = `<span style="font-size:.72rem;color:var(--text-dim);padding:.15rem .4rem;display:block">(no supported entries)</span>`;
+              } else {
+                childContainer.innerHTML = `<span style="font-size:.72rem;color:var(--text-dim);padding:.15rem .4rem;display:block">${d.error}</span>`;
+              }
+            } catch (e) {
+              childContainer.innerHTML = `<span style="font-size:.72rem;color:var(--text-dim);padding:.15rem .4rem;display:block">Error loading.</span>`;
+            }
+            loaded = true; expanded = true; arrow.textContent = "▼";
+          } else {
+            expanded = !expanded;
+            childContainer.style.display = expanded ? "block" : "none";
+            arrow.textContent = expanded ? "▼" : "▶";
+          }
+        });
+      } else {
+        row.addEventListener("click", () => setHighlight(row, fullPath));
+      }
+
+      // Double-click: emit a custom event the parent wires to its queue handler
+      row.addEventListener("dblclick", (e) => {
+        e.stopPropagation();
+        inputEl.value = fullPath;
+        paneEl.dispatchEvent(new CustomEvent("lp-picker-dblclick", { detail: { path: fullPath }, bubbles: false }));
+        paneEl.classList.add("hidden");
+        browserLoaded = false;
+      });
+
+      return wrapper;
+    }
+
+    async function browseDir(dirPath) {
+      browserLoaded = false;
+      currentDir = dirPath;
+      inputEl.value = dirPath;
+      paneEl.innerHTML = `<span style="font-size:.8rem;color:var(--text-dim)">Loading…</span>`;
+      try {
+        const res = await fetch(`/fs/ls?path=${encodeURIComponent(dirPath)}`);
+        const data = await res.json();
+        if (data.error) { paneEl.textContent = data.error; return; }
+        paneEl.innerHTML = "";
+        const visible = (data.entries || []).filter((e) =>
+          (e.type === "dir" && e.has_media !== false) ||
+          (!dirOnly && e.type === "file" && supportedFile(e.name)));
+        if (!visible.length) {
+          const empty = document.createElement("span");
+          empty.style.cssText = "font-size:.78rem;color:var(--text-dim);padding:.3rem;display:block";
+          empty.textContent = dirOnly ? "(no subfolders)" : "(no supported video or image files)";
+          paneEl.appendChild(empty);
+        } else {
+          visible.forEach((e) =>
+            paneEl.appendChild(makeEntry(e.name, (data.path || dirPath).replace(/\/+$/, "") + "/" + e.name, e.type === "dir")));
+        }
+        browserLoaded = true;
+      } catch (err) {
+        paneEl.textContent = "Failed to load.";
+      }
+    }
+
+    function openAt(initialPath) {
+      const isHidden = paneEl.classList.contains("hidden");
+      paneEl.classList.toggle("hidden");
+      if (!isHidden) return; // we were open → just close
+      const typed = inputEl.value.trim() || initialPath || "/user-data";
+      browseDir(typed);
+    }
+
+    function up() {
+      const cur = (inputEl.value.trim() || currentDir).replace(/\/+$/, "");
+      if (!cur) return;
+      const parent = cur.split("/").slice(0, -1).join("/") || "/";
+      if (parent !== cur) { browseDir(parent); paneEl.classList.remove("hidden"); }
+    }
+
+    return { browseDir, openAt, up, getHighlighted: () => highlightedPath };
+  }
+
+  // ── Videos picker ───────────────────────────────────────────────────
+  const videoBrowser = makeBrowser({ inputEl: targetEl, paneEl: browserEl, dirOnly: false });
+  const queue = []; // ordered, deduped
+
+  function renderQueue() {
+    if (!queue.length) {
+      batchListEl.style.display = "none";
+      batchListEl.innerHTML = "";
+      return;
+    }
+    batchListEl.style.display = "block";
+    batchListEl.innerHTML = "";
+    queue.forEach((p, i) => {
+      const row = document.createElement("div");
+      row.style.cssText = "display:flex;align-items:center;gap:.3rem;padding:.1rem 0";
+      const txt = document.createElement("span");
+      txt.style.cssText = "flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap";
+      txt.textContent = p;
+      const rm = document.createElement("button");
+      rm.className = "btn-sm"; rm.style.cssText = "padding:0 .35rem;font-size:.7rem;opacity:.6";
+      rm.textContent = "×"; rm.title = "Remove";
+      rm.addEventListener("click", () => { queue.splice(i, 1); renderQueue(); });
+      row.appendChild(txt); row.appendChild(rm);
+      batchListEl.appendChild(row);
+    });
+  }
+
+  function addToQueue(p) {
+    p = (p || "").trim();
+    if (!p) return;
+    if (!queue.includes(p)) queue.push(p);
+    renderQueue();
+  }
+
+  browserEl.addEventListener("lp-picker-dblclick", (e) => addToQueue(e.detail.path));
+  batchAddEl.addEventListener("click", () => addToQueue(videoBrowser.getHighlighted() || targetEl.value));
+  batchClearEl.addEventListener("click", () => { queue.length = 0; renderQueue(); });
+
+  browseBtnEl.addEventListener("click", () => {
+    const fallback = (projectEl.value.trim().replace(/-LP\/?$/, "")) || "/user-data";
+    videoBrowser.openAt(fallback);
+  });
+  browseUpEl.addEventListener("click", () => videoBrowser.up());
+  targetEl.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") { e.preventDefault(); videoBrowser.browseDir(targetEl.value.trim()); browserEl.classList.remove("hidden"); }
+  });
+
+  // ── Output folder picker (dir-only) ────────────────────────────────
+  const destBrowser = makeBrowser({ inputEl: destEl, paneEl: destBrowserEl, dirOnly: true });
+  destBrowseEl.addEventListener("click", () => destBrowser.openAt(destEl.value.trim() || "/user-data"));
+  destUpEl.addEventListener("click", () => destBrowser.up());
+  destClearEl.addEventListener("click", () => { destEl.value = ""; destBrowserEl.classList.add("hidden"); });
+  destEl.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") { e.preventDefault(); destBrowser.browseDir(destEl.value.trim()); destBrowserEl.classList.remove("hidden"); }
+  });
+
+  // ── Submit ─────────────────────────────────────────────────────────
   runEl.addEventListener("click", async () => {
     runEl.disabled = true;
     resEl.hidden = false;
     resEl.textContent = "Submitting…";
-    const videos = videosEl.value.split("\n").map((s) => s.trim()).filter(Boolean);
+    const videos = queue.length ? queue.slice() : (targetEl.value.trim() ? [targetEl.value.trim()] : []);
     if (!videos.length) {
-      resEl.textContent = "Error: enter at least one video path";
+      resEl.textContent = "Error: queue at least one video (browse + double-click, or + Add to queue).";
       runEl.disabled = false;
       return;
     }
@@ -305,8 +507,9 @@ function initPredictCard() {
       lp_project: projectEl.value.trim() || undefined,
       model_dir:  modelEl.value || undefined,
       videos,
-      skip_viz:   $("#lp-predict-skip-viz").checked,
-      overwrite:  $("#lp-predict-overwrite").checked,
+      skip_viz:   skipVizEl.checked,
+      overwrite:  overwriteEl.checked,
+      dest_dir:   destEl.value.trim(),
     };
     try {
       const r = await fetch("/dlc-3d/lp/predict", {
@@ -317,12 +520,13 @@ function initPredictCard() {
       const body = await r.json();
       if (!r.ok) { resEl.textContent = "Error: " + JSON.stringify(body, null, 2); return; }
       const jobId = body.job_id;
-      resEl.textContent = `Job ${jobId}: PENDING\nmodel_dir: ${body.model_dir || ""}`;
+      resEl.textContent = `Job ${jobId}: PENDING\nmodel_dir: ${body.model_dir || ""}\ndest: ${body.dest_dir || "<per-video parent>"}`;
       await pollJob(jobId, (j) => {
         const tail = (j.log_tail || []).slice(-30).join("\n");
         resEl.textContent =
           `state: ${j.celery_state || "PENDING"}\n` +
           `model_dir: ${j.celery_info?.model_dir || j.model_dir || ""}\n` +
+          `dest: ${j.celery_info?.dest_dir || j.dest_dir || "<per-video parent>"}\n` +
           `--- log tail ---\n${tail}`;
       }, 2500);
     } finally {
