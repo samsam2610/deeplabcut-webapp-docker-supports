@@ -75,12 +75,16 @@ def lp_eks(self, spec: dict) -> dict:
 def lp_predict(self, model_dir: str, videos: list, skip_viz: bool = False, overwrite: bool = False, dest_dir: str = "") -> dict:
     """Run `litpose predict <model_dir> <video...>`, then relocate outputs.
 
-    Output lands either in ``dest_dir`` (when non-empty) or in each video's
-    parent directory (when empty). Streams stdout to a Redis log list and
-    updates Celery state per line for live UI polling.
+    Before invoking litpose:
+      - Reads model view_names from <model_dir>/config.yaml.
+      - For multi-view models: resolves sibling _camN_ files in the same dir.
+      - Transcodes any non-mp4 inputs to mp4 via ffmpeg (cached, stream-copy
+        with libx264 fallback).
+
+    Output relocation runs after predict — see relocate_predictions().
     """
     import os
-    from .predict_runner import run_predict_subprocess, relocate_predictions
+    from .predict_runner import run_predict_subprocess, relocate_predictions, prepare_predict_inputs
 
     if not videos:
         raise ValueError("at least one video path required")
@@ -107,15 +111,33 @@ def lp_predict(self, model_dir: str, videos: list, skip_viz: bool = False, overw
                 pass
         self.update_state(state="STARTED", meta={"last_line": line, "model_dir": str(md)})
 
-    rc = run_predict_subprocess(md, videos, skip_viz=skip_viz, overwrite=overwrite, log_callback=emit)
+    # ── Resolve siblings + transcode ────────────────────────────────────
+    prep = prepare_predict_inputs(md, videos)
+    if not prep["mp4_paths"]:
+        raise RuntimeError(
+            f"no usable sessions after sibling resolution: {prep['sibling_warnings']}"
+        )
+    emit(f"prepared {len(prep['mp4_paths'])} mp4 input(s); "
+         f"transcoded {len(prep['transcoded'])}; "
+         f"warnings: {len(prep['sibling_warnings'])}")
+    for w in prep["sibling_warnings"]:
+        emit(f"  warning: {w}")
+
+    # ── Run litpose predict on the resolved mp4 list ────────────────────
+    rc = run_predict_subprocess(md, prep["mp4_paths"], skip_viz=skip_viz, overwrite=overwrite, log_callback=emit)
     if rc != 0:
         raise RuntimeError(f"litpose predict exited with code {rc}")
 
-    relocate_info = relocate_predictions(md, videos, dest_dir=(dest_dir or None), overwrite=overwrite)
+    # ── Move outputs to dest_dir (or per-video parent) ─────────────────
+    relocate_info = relocate_predictions(md, prep["mp4_paths"], dest_dir=(dest_dir or None), overwrite=overwrite)
     return {
         "status": "ok",
         "model_dir": str(md),
         "dest_dir": relocate_info["dest_dir"] or "<per-video parent>",
         "moved": relocate_info["moved"],
         "skipped": relocate_info["skipped"],
+        "transcoded": prep["transcoded"],
+        "sibling_warnings": prep["sibling_warnings"],
+        "is_multiview": prep["is_multiview"],
+        "view_names": prep["view_names"],
     }
