@@ -168,3 +168,73 @@ def _load_view_names(model_dir: "Path | str") -> list[str]:
     if not isinstance(views, list):
         return []
     return [str(v) for v in views]
+
+
+import re
+
+
+def _resolve_siblings(videos: "list[Path | str]", view_names: list) -> dict:
+    """Group video paths into per-session pairs by _<view>_ substitution.
+
+    Multi-view (len(view_names) > 1):
+      For each input, find the first ``_<view>_`` token in the stem (any
+      view from ``view_names``). Resolve sibling paths for every other view
+      in the same directory. Drop sessions where any view file is missing
+      and record a warning.
+
+    Single-view (len(view_names) <= 1):
+      Return each input as its own one-element "pair".
+
+    Returns: ``{"pairs": list[list[Path]], "warnings": list[str]}``.
+    """
+    pairs: list = []
+    warnings: list = []
+
+    if len(view_names) <= 1:
+        for v in videos:
+            pairs.append([Path(v)])
+        return {"pairs": pairs, "warnings": warnings}
+
+    # Multi-view: bucket inputs by session key
+    sessions: dict = {}
+    for v in videos:
+        v = Path(v)
+        stem = v.stem
+        match_view = None
+        for vn in view_names:
+            if re.search(rf"_{re.escape(vn)}_", stem):
+                match_view = vn
+                break
+        if match_view is None:
+            pairs.append([v])
+            warnings.append(f"{v.name}: no view token from {view_names} found in stem; passing through alone")
+            continue
+        # Session key: directory + stem with _<view>_ removed
+        session_stem = re.sub(rf"_{re.escape(match_view)}_", "_<VIEW>_", stem, count=1)
+        key = (v.parent, session_stem)
+        sessions.setdefault(key, {})[match_view] = v
+
+    for (parent, session_stem), got in sessions.items():
+        resolved: dict = {}
+        for vn in view_names:
+            if vn in got:
+                resolved[vn] = got[vn]
+                continue
+            # Build the expected sibling path
+            candidate_stem = session_stem.replace("_<VIEW>_", f"_{vn}_", 1)
+            # Pick up the original suffix from any known view's file
+            example = next(iter(got.values()))
+            candidate = parent / f"{candidate_stem}{example.suffix}"
+            if candidate.is_file():
+                resolved[vn] = candidate
+            else:
+                warnings.append(
+                    f"{session_stem.replace('_<VIEW>_', '_')}: "
+                    f"missing sibling for view '{vn}' (looked for {candidate.name})"
+                )
+
+        if len(resolved) == len(view_names):
+            pairs.append([resolved[vn] for vn in view_names])
+        # else: session dropped (warning already recorded)
+
+    return {"pairs": pairs, "warnings": warnings}
