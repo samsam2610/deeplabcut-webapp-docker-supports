@@ -182,6 +182,11 @@ def lp_predict(self, model_dir: str, videos: list, skip_viz: bool = False, overw
         self.update_state(state="STARTED", meta={"last_line": line, "model_dir": str(md)})
 
     # ── Resolve siblings + transcode ────────────────────────────────────
+    # Emit BEFORE prepare_predict_inputs so the task transitions PENDING →
+    # STARTED immediately. Transcoding 10 GB AVIs can take 3+ minutes each;
+    # without an early emit, the Jobs card shows PENDING-with-empty-log and
+    # the run looks hung.
+    emit(f"preparing inputs (transcoding {len(videos)} video(s) to mp4 if needed)…")
     prep = prepare_predict_inputs(md, videos)
     if not prep["mp4_paths"]:
         raise RuntimeError(
