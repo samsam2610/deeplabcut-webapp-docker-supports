@@ -72,14 +72,15 @@ def lp_eks(self, spec: dict) -> dict:
 
 
 @celery.task(bind=True, name="dlc_3d_lp.predict")
-def lp_predict(self, model_dir: str, videos: list, skip_viz: bool = False, overwrite: bool = False) -> dict:
-    """Run `litpose predict <model_dir> <video...>`.
+def lp_predict(self, model_dir: str, videos: list, skip_viz: bool = False, overwrite: bool = False, dest_dir: str = "") -> dict:
+    """Run `litpose predict <model_dir> <video...>`, then relocate outputs.
 
-    Output lands under ``<model_dir>/video_preds/``. Streams stdout to a Redis
-    log list and updates Celery state per line for live UI polling.
+    Output lands either in ``dest_dir`` (when non-empty) or in each video's
+    parent directory (when empty). Streams stdout to a Redis log list and
+    updates Celery state per line for live UI polling.
     """
     import os
-    from .predict_runner import run_predict_subprocess
+    from .predict_runner import run_predict_subprocess, relocate_predictions
 
     if not videos:
         raise ValueError("at least one video path required")
@@ -109,4 +110,12 @@ def lp_predict(self, model_dir: str, videos: list, skip_viz: bool = False, overw
     rc = run_predict_subprocess(md, videos, skip_viz=skip_viz, overwrite=overwrite, log_callback=emit)
     if rc != 0:
         raise RuntimeError(f"litpose predict exited with code {rc}")
-    return {"status": "ok", "model_dir": str(md), "video_preds_dir": str(md / "video_preds")}
+
+    relocate_info = relocate_predictions(md, videos, dest_dir=(dest_dir or None), overwrite=overwrite)
+    return {
+        "status": "ok",
+        "model_dir": str(md),
+        "dest_dir": relocate_info["dest_dir"] or "<per-video parent>",
+        "moved": relocate_info["moved"],
+        "skipped": relocate_info["skipped"],
+    }
