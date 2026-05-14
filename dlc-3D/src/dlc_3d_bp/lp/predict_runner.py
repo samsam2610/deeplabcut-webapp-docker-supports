@@ -290,14 +290,53 @@ def _transcode_to_mp4(src: "Path | str") -> tuple:
     )
 
 
+_DALI_DEFAULTS = {
+    "general": {"seed": 123456},
+    "base": {
+        "train":   {"sequence_length": 32},
+        "predict": {"sequence_length": 96},
+    },
+    "context": {
+        "train":   {"batch_size": 16},
+        "predict": {"sequence_length": 96},
+    },
+}
+
+
+def _ensure_dali_in_config(model_dir: "Path | str") -> bool:
+    """Inject a default ``dali`` block into ``<model_dir>/config.yaml`` if absent.
+
+    Existing trained models written before LP 2.1.0 schema awareness have no
+    ``dali`` section. ``litpose predict`` reads ``cfg.dali`` directly and raises
+    ``ConfigAttributeError`` when the key is missing. Appending a default block
+    is purely additive (training already happened) and lets predict proceed.
+
+    Returns True if the file was modified, False if ``dali`` was already there.
+    """
+    import yaml as _yaml
+    cfg_path = Path(model_dir) / "config.yaml"
+    if not cfg_path.is_file():
+        return False
+    try:
+        cfg = _yaml.safe_load(cfg_path.read_text()) or {}
+    except Exception:
+        return False
+    if "dali" in cfg:
+        return False
+    cfg["dali"] = _DALI_DEFAULTS
+    cfg_path.write_text(_yaml.safe_dump(cfg, sort_keys=False))
+    return True
+
+
 def prepare_predict_inputs(model_dir: "Path | str", videos: "list[Path | str]") -> dict:
     """Resolve sibling views + transcode non-mp4 inputs for litpose predict.
 
     1. Reads ``data.view_names`` from ``<model_dir>/config.yaml``.
-    2. If multi-view: groups inputs into per-session pairs by ``_<view>_``
+    2. Ensures ``dali`` is present in the model config (injects defaults if not).
+    3. If multi-view: groups inputs into per-session pairs by ``_<view>_``
        substitution, dropping sessions with missing siblings (each dropped
        session adds a warning).
-    3. Transcodes every non-mp4 path (via stream-copy, falling back to
+    4. Transcodes every non-mp4 path (via stream-copy, falling back to
        libx264 re-encode), reusing cached ``<stem>.mp4`` next to sources.
 
     Returns::
@@ -310,6 +349,7 @@ def prepare_predict_inputs(model_dir: "Path | str", videos: "list[Path | str]") 
         }
     """
     model_dir = Path(model_dir)
+    _ensure_dali_in_config(model_dir)
     view_names = _load_view_names(model_dir)
     is_multiview = len(view_names) > 1
 
