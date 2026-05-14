@@ -1,23 +1,26 @@
 """Celery tasks for lightning-pose training and EKS smoothing."""
 from pathlib import Path
 
+import yaml
+
 from .celery_app import celery
 
 
-@celery.task(bind=True, name="dlc_3d_lp.train")
-def lp_train(self, lp_project: str, options: dict) -> dict:
-    """Build the run config from `options` and run `litpose train`."""
+def _lp_train_impl(self, lp_project: str, options: dict) -> dict:
+    """Train an LP model. Single-stage MVT by default; two-stage curriculum
+    (SV-pretrain → MVT with backbone transfer) when ``options.two_stage`` is True."""
     import os
-    from .train_runner import build_train_config, make_run_dir, run_train_subprocess
+    from pathlib import Path as _Path
+    from . import train_runner as _tr
 
-    project = Path(lp_project)
-    base_config = project / "config.yaml"
-    if not base_config.is_file():
-        raise FileNotFoundError(f"LP base config not found at {base_config}")
+    build_train_config = _tr.build_train_config
+    build_stage1_config = _tr.build_stage1_config
+    find_best_checkpoint = _tr.find_best_checkpoint
+    make_run_dir = _tr.make_run_dir
 
-    run_dir = make_run_dir(project)
-    run_cfg = run_dir / "config.yaml"
-    build_train_config(base_config, run_cfg, options)
+    proj = _Path(lp_project)
+    if not (proj / "config.yaml").is_file():
+        raise FileNotFoundError(f"LP project config not found at {proj}/config.yaml")
 
     log_key = f"dlc3d:lp:log:{self.request.id}"
     try:
@@ -29,19 +32,86 @@ def lp_train(self, lp_project: str, options: dict) -> dict:
     except Exception:
         rconn = None
 
-    def emit(line: str) -> None:
+    def emit(line: str, **meta) -> None:
         if rconn:
             try:
-                rconn.rpush(log_key, line)
-                rconn.ltrim(log_key, -2000, -1)
+                rconn.rpush(log_key, line); rconn.ltrim(log_key, -2000, -1)
             except Exception:
                 pass
-        self.update_state(state="STARTED", meta={"last_line": line, "run_dir": str(run_dir)})
+        self.update_state(state="STARTED",
+                          meta={"last_line": line, "lp_project": str(proj), **meta})
 
-    rc = run_train_subprocess(run_dir, log_callback=emit)
+    # ── Two-stage branch ────────────────────────────────────────────────
+    two_stage = bool(options.get("two_stage", False))
+    override_ckpt = (options.get("stage1_ckpt_override") or "").strip()
+
+    if two_stage:
+        run_root = make_run_dir(proj)  # <proj>/models/<timestamp>/
+        stage1_dir = run_root / "stage1"
+        stage2_dir = run_root / "stage2"
+
+        stage1_ckpt: _Path | None = None
+        if override_ckpt:
+            emit(f"two-stage: using override ckpt {override_ckpt} — skipping stage 1",
+                 stage="stage1_override")
+            stage1_ckpt = _Path(override_ckpt)
+        else:
+            sv_project = proj / "sv-pretrain"
+            if not (sv_project / "config.yaml").is_file():
+                raise FileNotFoundError(
+                    f"two-stage requested but {sv_project}/config.yaml missing; "
+                    "re-run convert with a current converter to emit sv-pretrain"
+                )
+            stage1_dir.mkdir(parents=True, exist_ok=True)
+            build_stage1_config(sv_project=sv_project, out_dir=stage1_dir, options=options)
+            emit("two-stage: STAGE 1 starting (sv-pretrain)", stage="stage1_training")
+            rc = _tr.run_train_subprocess(stage1_dir, log_callback=lambda l: emit(l, stage="stage1_training"))
+            if rc != 0:
+                raise RuntimeError(f"stage 1 litpose train exited with code {rc}")
+            stage1_ckpt = find_best_checkpoint(stage1_dir)
+            if stage1_ckpt is None:
+                raise RuntimeError(f"stage 1 produced no checkpoint under {stage1_dir}")
+            emit(f"two-stage: STAGE 1 done — ckpt {stage1_ckpt}", stage="stage1_done")
+
+        # Stage 2 (MVT)
+        stage2_dir.mkdir(parents=True, exist_ok=True)
+        stage2_options = dict(options)
+        # Strip stage-1 keys so build_train_config doesn't see them
+        for k in ("two_stage", "stage1_max_epochs", "stage1_early_stop_patience", "stage1_ckpt_override"):
+            stage2_options.pop(k, None)
+        build_train_config(proj / "config.yaml", stage2_dir / "config.yaml", stage2_options)
+
+        # Inject model.checkpoint into the just-written stage-2 config
+        s2_cfg_path = stage2_dir / "config.yaml"
+        s2_cfg = yaml.safe_load(s2_cfg_path.read_text())
+        s2_cfg.setdefault("model", {})["checkpoint"] = str(stage1_ckpt)
+        s2_cfg_path.write_text(yaml.safe_dump(s2_cfg, sort_keys=False))
+
+        emit("two-stage: STAGE 2 starting (MVT with backbone transfer)", stage="stage2_training")
+        rc = _tr.run_train_subprocess(stage2_dir, log_callback=lambda l: emit(l, stage="stage2_training"))
+        if rc != 0:
+            raise RuntimeError(f"stage 2 litpose train exited with code {rc}")
+        emit("two-stage: STAGE 2 done", stage="stage2_done")
+        return {
+            "status": "ok",
+            "lp_project": str(proj),
+            "run_dir": str(run_root),
+            "stage1_ckpt": str(stage1_ckpt),
+            "stage": "stage2_done",
+        }
+
+    # ── Single-stage MVT branch (existing behaviour, unchanged contract) ─
+    run_dir = make_run_dir(proj)
+    build_train_config(proj / "config.yaml", run_dir / "config.yaml", options)
+    rc = _tr.run_train_subprocess(run_dir, log_callback=emit)
     if rc != 0:
         raise RuntimeError(f"litpose train exited with code {rc}")
-    return {"status": "ok", "run_dir": str(run_dir)}
+    return {"status": "ok", "lp_project": str(proj), "run_dir": str(run_dir), "stage": "done"}
+
+
+lp_train = celery.task(bind=True, name="dlc_3d_lp.train")(_lp_train_impl)
+# Expose the raw function via __wrapped__ so tests can invoke with their own self.
+lp_train.__wrapped__ = _lp_train_impl
 
 
 @celery.task(bind=True, name="dlc_3d_lp.eks")
