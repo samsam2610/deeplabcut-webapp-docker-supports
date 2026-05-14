@@ -288,3 +288,51 @@ def _transcode_to_mp4(src: "Path | str") -> tuple:
         f"stream-copy stderr tail: {(r.stderr or '').splitlines()[-3:]}, "
         f"re-encode stderr tail: {(r2.stderr or '').splitlines()[-3:]}"
     )
+
+
+def prepare_predict_inputs(model_dir: "Path | str", videos: "list[Path | str]") -> dict:
+    """Resolve sibling views + transcode non-mp4 inputs for litpose predict.
+
+    1. Reads ``data.view_names`` from ``<model_dir>/config.yaml``.
+    2. If multi-view: groups inputs into per-session pairs by ``_<view>_``
+       substitution, dropping sessions with missing siblings (each dropped
+       session adds a warning).
+    3. Transcodes every non-mp4 path (via stream-copy, falling back to
+       libx264 re-encode), reusing cached ``<stem>.mp4`` next to sources.
+
+    Returns::
+        {
+            "mp4_paths": [Path, ...],          # what to pass to litpose
+            "transcoded": [str, ...],          # source paths we transcoded this call
+            "sibling_warnings": [str, ...],
+            "is_multiview": bool,
+            "view_names": list[str],
+        }
+    """
+    model_dir = Path(model_dir)
+    view_names = _load_view_names(model_dir)
+    is_multiview = len(view_names) > 1
+
+    siblings = _resolve_siblings([Path(v) for v in videos], view_names)
+    mp4_paths: list = []
+    transcoded: list = []
+
+    for group in siblings["pairs"]:
+        try:
+            mp4_group = []
+            for v in group:
+                out, did = _transcode_to_mp4(v)
+                if did:
+                    transcoded.append(str(v))
+                mp4_group.append(out)
+            mp4_paths.extend(mp4_group)
+        except (FileNotFoundError, RuntimeError) as e:
+            siblings["warnings"].append(f"transcode failed for {[p.name for p in group]}: {e}")
+
+    return {
+        "mp4_paths": mp4_paths,
+        "transcoded": transcoded,
+        "sibling_warnings": siblings["warnings"],
+        "is_multiview": is_multiview,
+        "view_names": view_names,
+    }
