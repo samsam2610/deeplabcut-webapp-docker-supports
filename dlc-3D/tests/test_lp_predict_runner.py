@@ -37,3 +37,24 @@ def test_relocate_to_explicit_dest_dir(tmp_path):
     assert not (model_dir / "video_preds" / "labeled_videos" / "clipA_labeled.mp4").exists()
     assert result["moved"] >= 6
     assert result["skipped"] == []
+
+
+def test_relocate_per_video_default(tmp_path):
+    """dest_dir=None puts each video's outputs in that video's parent folder."""
+    model_dir = tmp_path / "model"
+    vids_a = tmp_path / "session_a"; vids_a.mkdir()
+    vids_b = tmp_path / "session_b"; vids_b.mkdir()
+    va = vids_a / "rat1.mp4"; va.write_bytes(b"")
+    vb = vids_b / "rat2.mp4"; vb.write_bytes(b"")
+    _seed_model_video_preds(model_dir, ["rat1", "rat2"], with_labeled_mp4=False)
+
+    result = relocate_predictions(model_dir, [va, vb], dest_dir=None)
+
+    assert (vids_a / "rat1.csv").is_file()
+    assert (vids_a / "rat1_pixel_error.csv").is_file()
+    assert (vids_b / "rat2.csv").is_file()
+    # Don't cross-contaminate
+    assert not (vids_a / "rat2.csv").exists()
+    assert not (vids_b / "rat1.csv").exists()
+    assert result["dest_dir"] is None
+    assert result["skipped"] == []
