@@ -523,10 +523,17 @@ function initPredictCard() {
       resEl.textContent = `Job ${jobId}: PENDING\nmodel_dir: ${body.model_dir || ""}\ndest: ${body.dest_dir || "<per-video parent>"}`;
       await pollJob(jobId, (j) => {
         const tail = (j.log_tail || []).slice(-30).join("\n");
+        const info = j.celery_info || {};
+        const transcoded = info.transcoded || [];
+        const warnings   = info.sibling_warnings || [];
+        const extras = [];
+        if (transcoded.length) extras.push(`transcoded:\n  ` + transcoded.join("\n  "));
+        if (warnings.length)   extras.push(`warnings:\n  ` + warnings.join("\n  "));
         resEl.textContent =
           `state: ${j.celery_state || "PENDING"}\n` +
-          `model_dir: ${j.celery_info?.model_dir || j.model_dir || ""}\n` +
-          `dest: ${j.celery_info?.dest_dir || j.dest_dir || "<per-video parent>"}\n` +
+          `model_dir: ${info.model_dir || j.model_dir || ""}\n` +
+          `dest: ${info.dest_dir || j.dest_dir || "<per-video parent>"}\n` +
+          (extras.length ? extras.join("\n") + "\n" : "") +
           `--- log tail ---\n${tail}`;
       }, 2500);
     } finally {
