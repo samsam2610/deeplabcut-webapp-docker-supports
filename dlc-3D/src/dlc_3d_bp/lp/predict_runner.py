@@ -238,3 +238,53 @@ def _resolve_siblings(videos: "list[Path | str]", view_names: list) -> dict:
         # else: session dropped (warning already recorded)
 
     return {"pairs": pairs, "warnings": warnings}
+
+
+def _transcode_to_mp4(src: "Path | str") -> tuple:
+    """Remux a non-mp4 video to mp4 next to the source.
+
+    Returns ``(out_path, did_transcode)``.
+
+    Behaviour:
+      - If src is already ``.mp4`` → returns src unchanged.
+      - If ``<stem>.mp4`` already exists next to src → returns cached path; no ffmpeg.
+      - Else runs ``ffmpeg -y -i src -c copy -movflags +faststart <stem>.mp4``.
+      - If the stream-copy fails, falls back to ``ffmpeg -y -i src -c:v libx264 -preset veryfast -crf 18 <stem>.mp4``.
+      - Raises ``FileNotFoundError`` if ffmpeg isn't on PATH.
+      - Raises ``RuntimeError`` if both stream-copy and re-encode fail.
+    """
+    src = Path(src)
+    if src.suffix.lower() == ".mp4":
+        return src, False
+
+    out = src.with_suffix(".mp4")
+    if out.is_file():
+        return out, False
+
+    copy_cmd = [
+        "ffmpeg", "-y", "-i", str(src),
+        "-c", "copy", "-movflags", "+faststart",
+        str(out),
+    ]
+    try:
+        r = subprocess.run(copy_cmd, capture_output=True, text=True)
+    except FileNotFoundError:
+        # ffmpeg not on PATH → re-raise with a clear message
+        raise FileNotFoundError("ffmpeg required for transcoding; not found on PATH")
+    if r.returncode == 0 and out.is_file():
+        return out, True
+
+    reencode_cmd = [
+        "ffmpeg", "-y", "-i", str(src),
+        "-c:v", "libx264", "-preset", "veryfast", "-crf", "18",
+        str(out),
+    ]
+    r2 = subprocess.run(reencode_cmd, capture_output=True, text=True)
+    if r2.returncode == 0 and out.is_file():
+        return out, True
+
+    raise RuntimeError(
+        f"transcode failed for {src.name}: "
+        f"stream-copy stderr tail: {(r.stderr or '').splitlines()[-3:]}, "
+        f"re-encode stderr tail: {(r2.stderr or '').splitlines()[-3:]}"
+    )

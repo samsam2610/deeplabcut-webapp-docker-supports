@@ -90,3 +90,82 @@ def test_resolve_siblings_singleview_returns_each(tmp_path):
     a = _touch(d / "v1.avi"); b = _touch(d / "v2.avi")
     out = _resolve_siblings([a, b], view_names=[])
     assert out["pairs"] == [[a], [b]]
+
+
+from dlc_3d_bp.lp.predict_runner import _transcode_to_mp4
+
+
+def test_transcode_skips_when_mp4_exists(tmp_path, monkeypatch):
+    """If <stem>.mp4 already exists next to <stem>.avi, no ffmpeg call."""
+    d = tmp_path / "vids"; d.mkdir()
+    src = d / "video.avi"; src.write_bytes(b"\x00")
+    cached = d / "video.mp4"; cached.write_bytes(b"\x00")
+
+    called = []
+    def _fake_run(cmd, **_kw):
+        called.append(cmd)
+        raise AssertionError("ffmpeg should not be invoked when mp4 cache exists")
+    monkeypatch.setattr("subprocess.run", _fake_run)
+
+    out, transcoded = _transcode_to_mp4(src)
+    assert out == cached
+    assert transcoded is False
+    assert called == []
+
+
+def test_transcode_invokes_ffmpeg_stream_copy(tmp_path, monkeypatch):
+    """Non-mp4 input + no cache → ffmpeg -c copy invoked, output path returned."""
+    d = tmp_path / "vids"; d.mkdir()
+    src = d / "video.avi"; src.write_bytes(b"\x00")
+
+    seen = {}
+    def _fake_run(cmd, **kw):
+        seen["cmd"] = cmd
+        # Pretend ffmpeg succeeded and produced an mp4
+        (d / "video.mp4").write_bytes(b"\x00")
+        class _R:
+            returncode = 0
+            stderr = ""
+        return _R()
+    monkeypatch.setattr("subprocess.run", _fake_run)
+
+    out, transcoded = _transcode_to_mp4(src)
+    assert out == d / "video.mp4"
+    assert transcoded is True
+    assert "ffmpeg" in seen["cmd"][0]
+    assert "-c" in seen["cmd"] and "copy" in seen["cmd"]
+
+
+def test_transcode_falls_back_on_copy_failure(tmp_path, monkeypatch):
+    """If -c copy fails, retry with libx264."""
+    d = tmp_path / "vids"; d.mkdir()
+    src = d / "video.avi"; src.write_bytes(b"\x00")
+
+    calls = []
+    def _fake_run(cmd, **kw):
+        calls.append(cmd)
+        class _R:
+            stderr = "muxer not compatible"
+        # First call (stream copy) fails; second call (re-encode) succeeds
+        if "-c" in cmd and "copy" in cmd:
+            _R.returncode = 1
+        else:
+            (d / "video.mp4").write_bytes(b"\x00")
+            _R.returncode = 0
+        return _R()
+    monkeypatch.setattr("subprocess.run", _fake_run)
+
+    out, transcoded = _transcode_to_mp4(src)
+    assert out == d / "video.mp4"
+    assert transcoded is True
+    assert len(calls) == 2
+    assert any("libx264" in c for c in calls[1])
+
+
+def test_transcode_mp4_input_is_identity(tmp_path):
+    """MP4 input → returns the same path, no transcode."""
+    d = tmp_path / "vids"; d.mkdir()
+    src = d / "video.mp4"; src.write_bytes(b"\x00")
+    out, transcoded = _transcode_to_mp4(src)
+    assert out == src
+    assert transcoded is False
