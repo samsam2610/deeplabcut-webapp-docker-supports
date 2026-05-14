@@ -110,18 +110,30 @@ def build_train_config(
     # Keep min_epochs <= max_epochs. LP 2.1.0 asserts both keys are present and
     # uses them as PL Trainer args; min_epochs > max_epochs would error.
     if "max_epochs" in options:
+        max_e = int(options["max_epochs"])
         cfg["training"]["min_epochs"] = min(
-            cfg["training"].get("min_epochs", 1), int(options["max_epochs"])
+            cfg["training"].get("min_epochs", 1), max_e
         )
+        # Clamp val frequency so validation runs at least once before training
+        # ends. Without this, short smoke runs (max_epochs < default 5) leave
+        # `*-best.ckpt` unwritten and LP's post-train eval crashes with
+        # "Checkpoint file not found, have you trained for enough epochs?".
+        current_val = cfg["training"].get("check_val_every_n_epoch", 5) or 5
+        cfg["training"]["check_val_every_n_epoch"] = max(1, min(current_val, max_e))
     # Lr scheduler milestones must be <= max_epochs or the multi-step LR is
     # a no-op for short smoke runs — that's fine, but ensure the list isn't
     # required to be filtered. (left as-is)
 
-    # Eval flags
-    if "predict_vids_after_training" in options:
-        cfg["eval"]["predict_vids_after_training"] = bool(options["predict_vids_after_training"])
-    if "save_vids_after_training" in options:
-        cfg["eval"]["save_vids_after_training"] = bool(options["save_vids_after_training"])
+    # Eval flags. Upstream canonical defaults predict_vids_after_training=true,
+    # which fires LP's _predict_test_videos at end-of-train. In our pipeline the
+    # explicit Predict card is the right path for inference, so we make this an
+    # explicit opt-in (default False) regardless of upstream canonical.
+    cfg["eval"]["predict_vids_after_training"] = bool(
+        options.get("predict_vids_after_training", False)
+    )
+    cfg["eval"]["save_vids_after_training"] = bool(
+        options.get("save_vids_after_training", False)
+    )
 
     out_path.write_text(yaml.safe_dump(cfg, sort_keys=False))
 
@@ -190,6 +202,19 @@ def build_stage1_config(
     training["min_epochs"] = min(training.get("min_epochs", 1) or 1, max_epochs)
     training["early_stopping"] = True
     training["early_stop_patience"] = int(options.get("stage1_early_stop_patience", 5))
+    # Clamp val frequency so validation runs at least once before training ends.
+    # LP's canonical default is check_val_every_n_epoch=5; if stage1_max_epochs
+    # is smaller, no validation tick fires, no `*-best.ckpt` is saved, and LP's
+    # post-train eval (predict_on_label_csv) crashes with FileNotFoundError.
+    current_val = training.get("check_val_every_n_epoch", 5) or 5
+    training["check_val_every_n_epoch"] = max(1, min(current_val, max_epochs))
+    # Stage 1 only needs to produce a backbone checkpoint — skip post-train
+    # video prediction so LP doesn't try to resolve `${data.video_dir}` (which
+    # for the SV sub-project is a relative `../videos` path that Hydra fails
+    # to resolve from its working dir).
+    eval_block = cfg.setdefault("eval", {})
+    eval_block["predict_vids_after_training"] = False
+    eval_block["save_vids_after_training"] = False
     # No unsupervised losses, no patch masking, no reproj for stage 1.
     cfg.setdefault("losses", {})
     cfg.setdefault("callbacks", {})

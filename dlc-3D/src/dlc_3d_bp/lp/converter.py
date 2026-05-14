@@ -537,7 +537,11 @@ def _write_lp_config(lp_dir: Path, dlc_dir: Path, views: List[str]) -> None:
     # ── Substitute project-specific fields under data ─────────────────────
     data = base.setdefault("data", {})
     data["data_dir"] = str(lp_dir)
-    data["video_dir"] = "videos"
+    # Upstream config_default_multiview.yaml documents video_dir as "ABSOLUTE".
+    # Writing a relative path here breaks LP's _predict_test_videos which uses
+    # Hydra's switched cwd to resolve, raising "Video directory not found:
+    # videos" at the end of training.
+    data["video_dir"] = str(lp_dir / "videos")
     data["num_keypoints"] = len(bodyparts)
     data["keypoint_names"] = bodyparts
     data["image_orig_dims"] = {"height": img_h, "width": img_w}
@@ -648,7 +652,10 @@ def _write_sv_config(
     data["data_dir"] = str(sv_dir)
     # SV-pretrain uses the parent's videos dir (relative). Useful only if
     # unsupervised losses are later enabled; harmless to point here otherwise.
-    data["video_dir"] = "../videos"
+    # Absolute path so LP's eval-after-training resolves it regardless of
+    # Hydra's switched working dir. Points at the PARENT LP project's videos
+    # dir (the SV pretrain sub-project doesn't have its own videos copy).
+    data["video_dir"] = str(sv_dir.parent / "videos")
     data["csv_file"] = "labels.csv"
     data["num_keypoints"] = len(bodyparts)
     data["keypoint_names"] = bodyparts
