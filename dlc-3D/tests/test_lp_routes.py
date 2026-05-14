@@ -316,3 +316,64 @@ def test_predict_endpoint_picks_newest_model_with_checkpoint(lp_app, monkeypatch
     })
     assert r.status_code == 202, r.get_data(as_text=True)
     assert captured["model_dir"].endswith("20260101-000000")
+
+
+def test_predict_endpoint_accepts_empty_dest_dir(lp_app, monkeypatch, tmp_path):
+    class _FakeAsync:
+        id = "fake-id"
+    captured = {}
+    def _fake_apply(args=None, **kwargs):
+        captured["args"] = list(args)
+        return _FakeAsync()
+
+    md = tmp_path / "m"; md.mkdir()
+    monkeypatch.setattr("dlc_3d_bp.lp_routes._under_user_data", lambda p: True)
+    monkeypatch.setattr("dlc_3d_bp.lp_routes._redis_conn", lambda: None)
+    monkeypatch.setattr("dlc_3d_bp.lp.tasks.lp_predict.apply_async", _fake_apply)
+    c = lp_app.test_client()
+    r = c.post("/dlc-3d/lp/predict", json={
+        "model_dir": str(md),
+        "videos": ["/user-data/x/v.mp4"],
+        "dest_dir": "",
+    })
+    assert r.status_code == 202, r.get_data(as_text=True)
+    # Args order: [model_dir, videos, skip_viz, overwrite, dest_dir]
+    assert captured["args"][-1] == ""
+
+
+def test_predict_endpoint_forwards_dest_dir(lp_app, monkeypatch, tmp_path):
+    class _FakeAsync:
+        id = "fake-id"
+    captured = {}
+    def _fake_apply(args=None, **kwargs):
+        captured["args"] = list(args)
+        return _FakeAsync()
+
+    md = tmp_path / "m"; md.mkdir()
+    monkeypatch.setattr("dlc_3d_bp.lp_routes._under_user_data", lambda p: True)
+    monkeypatch.setattr("dlc_3d_bp.lp_routes._redis_conn", lambda: None)
+    monkeypatch.setattr("dlc_3d_bp.lp.tasks.lp_predict.apply_async", _fake_apply)
+    c = lp_app.test_client()
+    r = c.post("/dlc-3d/lp/predict", json={
+        "model_dir": str(md),
+        "videos": ["/user-data/x/v.mp4"],
+        "dest_dir": "/user-data/where/i/want/it",
+    })
+    assert r.status_code == 202, r.get_data(as_text=True)
+    assert captured["args"][-1] == "/user-data/where/i/want/it"
+
+
+def test_predict_endpoint_rejects_dest_dir_outside_user_data(lp_app, monkeypatch, tmp_path):
+    md = tmp_path / "m"; md.mkdir()
+    # Allow model_dir + videos through but NOT dest_dir
+    def _under(p):
+        return not str(p).startswith("/etc")
+    monkeypatch.setattr("dlc_3d_bp.lp_routes._under_user_data", _under)
+    monkeypatch.setattr("dlc_3d_bp.lp_routes._redis_conn", lambda: None)
+    c = lp_app.test_client()
+    r = c.post("/dlc-3d/lp/predict", json={
+        "model_dir": str(md),
+        "videos": ["/user-data/x/v.mp4"],
+        "dest_dir": "/etc/badplace",
+    })
+    assert r.status_code == 403

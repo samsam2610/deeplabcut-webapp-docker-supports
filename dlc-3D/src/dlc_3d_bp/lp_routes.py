@@ -227,6 +227,7 @@ def predict_run():
     videos = body.get("videos") or []
     skip_viz = bool(body.get("skip_viz", False))
     overwrite = bool(body.get("overwrite", False))
+    dest_dir = (body.get("dest_dir") or "").strip()
 
     # Default model_dir to the newest model in <active LP project>/models/
     if not model_dir:
@@ -252,7 +253,10 @@ def predict_run():
         if not _under_user_data(Path(v)):
             return jsonify({"error": f"video path outside /user-data: {v}"}), 403
 
-    async_result = lp_predict.apply_async(args=[model_dir, videos, skip_viz, overwrite])
+    if dest_dir and not _under_user_data(Path(dest_dir)):
+        return jsonify({"error": f"dest_dir outside /user-data: {dest_dir}"}), 403
+
+    async_result = lp_predict.apply_async(args=[model_dir, videos, skip_viz, overwrite, dest_dir])
     conn = _redis_conn()
     if conn:
         from dlc_3d_bp.lp.job_registry import register
@@ -262,5 +266,6 @@ def predict_run():
             "videos": videos,
             "skip_viz": skip_viz,
             "overwrite": overwrite,
+            "dest_dir": dest_dir,
         })
-    return jsonify({"job_id": async_result.id, "model_dir": model_dir}), 202
+    return jsonify({"job_id": async_result.id, "model_dir": model_dir, "dest_dir": dest_dir}), 202
