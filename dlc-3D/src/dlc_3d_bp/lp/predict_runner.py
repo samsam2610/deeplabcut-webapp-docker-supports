@@ -95,7 +95,13 @@ def relocate_predictions(
 
     If ``dest_dir`` is None (or falsy), each video's outputs land in that
     video's parent directory. Otherwise everything lands in ``dest_dir``.
-    The labeled MP4 is renamed to ``<stem>_labeled.mp4`` at the destination.
+
+    Destination filenames are renamed with an ``_lp`` infix so they never
+    collide with same-named user files (e.g., a DLC annotation `<stem>.csv`
+    sitting next to the source video):
+      - ``<stem>.csv``                → ``<stem>_lp.csv``
+      - ``<stem>_<metric>.csv``       → ``<stem>_lp_<metric>.csv``
+      - ``<stem>_labeled.mp4``        → ``<stem>_lp_labeled.mp4``
 
     When a destination file already exists and ``overwrite`` is False, the
     move is skipped and the source path is recorded in the ``skipped`` list.
@@ -110,6 +116,17 @@ def relocate_predictions(
 
     explicit_dest = Path(dest_dir) if dest_dir else None
 
+    def _lp_name(src_name: str, stem: str) -> str:
+        """Insert '_lp' after the video stem so we never collide with user files."""
+        if src_name == f"{stem}.csv":
+            return f"{stem}_lp.csv"
+        if src_name.startswith(f"{stem}_") and src_name.endswith(".csv"):
+            tail = src_name[len(stem) + 1:]  # e.g. "pixel_error.csv"
+            return f"{stem}_lp_{tail}"
+        if src_name == f"{stem}_labeled.mp4":
+            return f"{stem}_lp_labeled.mp4"
+        return src_name  # unknown shape — leave as-is
+
     for v in videos:
         v = Path(v)
         stem = v.stem
@@ -117,7 +134,7 @@ def relocate_predictions(
         target_dir.mkdir(parents=True, exist_ok=True)
 
         for src in sorted(vp.glob(f"{stem}.csv")) + sorted(vp.glob(f"{stem}_*.csv")):
-            dst = target_dir / src.name
+            dst = target_dir / _lp_name(src.name, stem)
             if dst.exists() and not overwrite:
                 skipped.append(str(src))
                 continue
@@ -126,7 +143,7 @@ def relocate_predictions(
 
         mp4 = labeled / f"{stem}_labeled.mp4"
         if mp4.is_file():
-            dst = target_dir / f"{stem}_labeled.mp4"
+            dst = target_dir / _lp_name(mp4.name, stem)
             if dst.exists() and not overwrite:
                 skipped.append(str(mp4))
             else:
