@@ -58,3 +58,27 @@ def test_relocate_per_video_default(tmp_path):
     assert not (vids_b / "rat1.csv").exists()
     assert result["dest_dir"] is None
     assert result["skipped"] == []
+
+
+def test_relocate_skips_on_conflict_without_overwrite(tmp_path):
+    model_dir = tmp_path / "model"
+    vids = tmp_path / "v"; vids.mkdir()
+    video = vids / "rat.mp4"; video.write_bytes(b"")
+    _seed_model_video_preds(model_dir, ["rat"], with_labeled_mp4=False)
+
+    # Pre-existing destination — must not be clobbered
+    existing = vids / "rat.csv"
+    existing.write_text("DO_NOT_TOUCH\n")
+
+    result = relocate_predictions(model_dir, [video], dest_dir=None, overwrite=False)
+
+    assert existing.read_text() == "DO_NOT_TOUCH\n"
+    # The non-conflicting metric CSV still moves
+    assert (vids / "rat_pixel_error.csv").is_file()
+    assert any("rat.csv" in s for s in result["skipped"])
+
+    # Now with overwrite=True it should replace
+    _seed_model_video_preds(model_dir, ["rat"], with_labeled_mp4=False)  # re-seed (the prev run moved metric out)
+    result2 = relocate_predictions(model_dir, [video], dest_dir=None, overwrite=True)
+    assert existing.read_text().startswith("predictions,here")
+    assert result2["skipped"] == []
