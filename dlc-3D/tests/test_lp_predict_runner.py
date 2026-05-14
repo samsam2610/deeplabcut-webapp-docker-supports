@@ -105,3 +105,16 @@ def test_relocate_skips_on_lp_filename_conflict(tmp_path):
     result2 = relocate_predictions(model_dir, [video], dest_dir=None, overwrite=True)
     assert prev.read_text().startswith("predictions,here")
     assert result2["skipped"] == []
+
+
+def test_relocate_returns_dest_paths(tmp_path):
+    """relocate_predictions surfaces the destination paths so the caller can chain a sidecar step."""
+    model_dir = tmp_path / "model"
+    vids = tmp_path / "v"; vids.mkdir()
+    video = vids / "clipX.mp4"; video.write_bytes(b"")
+    _seed_model_video_preds(model_dir, ["clipX"], with_labeled_mp4=False)
+
+    result = relocate_predictions(model_dir, [video], dest_dir=None, overwrite=True)
+    assert "dest_paths" in result
+    assert str(vids / "clipX_lp.csv") in result["dest_paths"]
+    assert str(vids / "clipX_lp_pixel_error.csv") in result["dest_paths"]

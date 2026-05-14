@@ -84,7 +84,7 @@ def lp_predict(self, model_dir: str, videos: list, skip_viz: bool = False, overw
     Output relocation runs after predict — see relocate_predictions().
     """
     import os
-    from .predict_runner import run_predict_subprocess, relocate_predictions, prepare_predict_inputs
+    from .predict_runner import run_predict_subprocess, relocate_predictions, prepare_predict_inputs, emit_h5_sidecars
 
     if not videos:
         raise ValueError("at least one video path required")
@@ -130,12 +130,20 @@ def lp_predict(self, model_dir: str, videos: list, skip_viz: bool = False, overw
 
     # ── Move outputs to dest_dir (or per-video parent) ─────────────────
     relocate_info = relocate_predictions(md, prep["mp4_paths"], dest_dir=(dest_dir or None), overwrite=overwrite)
+    emit(f"relocated {relocate_info['moved']} file(s); skipped {len(relocate_info['skipped'])}")
+
+    # ── Emit H5 sidecars (main webapp's analyzed-viewer uses pd.read_hdf) ─
+    h5_info = emit_h5_sidecars(relocate_info.get("dest_paths") or [])
+    emit(f"emitted {len(h5_info['emitted'])} H5 sidecar(s)")
+
     return {
         "status": "ok",
         "model_dir": str(md),
         "dest_dir": relocate_info["dest_dir"] or "<per-video parent>",
         "moved": relocate_info["moved"],
         "skipped": relocate_info["skipped"],
+        "h5_emitted": h5_info["emitted"],
+        "h5_skipped": h5_info["skipped"],
         "transcoded": prep["transcoded"],
         "sibling_warnings": prep["sibling_warnings"],
         "is_multiview": prep["is_multiview"],

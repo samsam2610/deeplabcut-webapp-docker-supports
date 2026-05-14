@@ -113,6 +113,7 @@ def relocate_predictions(
     labeled = vp / "labeled_videos"
     moved = 0
     skipped: list[str] = []
+    dest_paths: list[str] = []
 
     explicit_dest = Path(dest_dir) if dest_dir else None
 
@@ -140,6 +141,7 @@ def relocate_predictions(
                 continue
             shutil.move(str(src), str(dst))
             moved += 1
+            dest_paths.append(str(dst))
 
         mp4 = labeled / f"{stem}_labeled.mp4"
         if mp4.is_file():
@@ -149,6 +151,7 @@ def relocate_predictions(
             else:
                 shutil.move(str(mp4), str(dst))
                 moved += 1
+                dest_paths.append(str(dst))
 
     # Tidy: drop labeled_videos/ and video_preds/ if empty after moves
     if labeled.is_dir() and not any(labeled.iterdir()):
@@ -160,7 +163,70 @@ def relocate_predictions(
         "moved": moved,
         "skipped": skipped,
         "dest_dir": str(explicit_dest) if explicit_dest is not None else None,
+        "dest_paths": dest_paths,
     }
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# CSV → H5 sidecar (so the main webapp's analyzed-viewer can read LP outputs)
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _is_lp_prediction_csv(p: Path) -> bool:
+    """LP predictions filename match: ``<stem>_lp.csv`` — NOT ``_lp_<metric>.csv``."""
+    name = p.name
+    if not name.endswith("_lp.csv"):
+        return False
+    # Reject metric files: '<stem>_lp_<metric>.csv' (anything with another '_' after '_lp')
+    stem_without_ext = name[:-len(".csv")]   # e.g. 'video_lp' or 'video_lp_pixel_error'
+    return stem_without_ext.endswith("_lp")
+
+
+def csv_to_h5(csv_path: Path | str, h5_path: Path | str | None = None) -> Path:
+    """Convert an LP predictions CSV to a DLC-compatible H5 sidecar.
+
+    LP predictions CSVs have a three-row MultiIndex header
+    (``scorer / bodyparts / coords``) and the first column is the frame
+    path/index. The output H5 is written with ``pd.to_hdf(key='df_with_missing',
+    mode='w')`` — the same format DLC's analyze step produces, so
+    ``pd.read_hdf`` (which the main webapp's analyzed-viewer uses) loads it
+    unchanged.
+
+    Returns the path to the H5 written. Requires ``pytables`` at import time.
+    """
+    import pandas as pd
+
+    csv_path = Path(csv_path)
+    if h5_path is None:
+        h5_path = csv_path.with_suffix(".h5")
+    h5_path = Path(h5_path)
+    df = pd.read_csv(csv_path, header=[0, 1, 2], index_col=0)
+    df.to_hdf(str(h5_path), key="df_with_missing", mode="w")
+    return h5_path
+
+
+def emit_h5_sidecars(dest_paths: "list[Path | str]") -> dict:
+    """For each LP predictions CSV in ``dest_paths``, write an H5 next to it.
+
+    Skips paths that are not LP predictions (e.g., per-metric CSVs). When an
+    H5 already exists it is overwritten (LP just produced a fresh CSV).
+
+    Returns ``{"emitted": [str, ...], "skipped": [str, ...]}``.
+    """
+    emitted: list[str] = []
+    skipped: list[str] = []
+    for p in dest_paths:
+        p = Path(p)
+        if p.suffix.lower() != ".csv":
+            continue
+        if not _is_lp_prediction_csv(p):
+            skipped.append(str(p))
+            continue
+        try:
+            out = csv_to_h5(p)
+            emitted.append(str(out))
+        except Exception as e:
+            skipped.append(f"{p}: {e}")
+    return {"emitted": emitted, "skipped": skipped}
 
 
 # ─────────────────────────────────────────────────────────────────────────────

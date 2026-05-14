@@ -5,3 +5,6 @@ ensemble-kalman-smoother
 celery>=5.3
 redis>=5.0
 PyYAML>=6
+# pytables for pd.to_hdf — required so the post-predict CSV→H5 sidecar emit
+# produces files the main webapp's analyzed-viewer (pd.read_hdf) can load.
+tables>=3.10
