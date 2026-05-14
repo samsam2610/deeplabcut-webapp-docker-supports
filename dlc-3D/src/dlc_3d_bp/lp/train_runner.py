@@ -169,3 +169,28 @@ def find_best_checkpoint(model_dir) -> Path | None:
     if any_ckpt:
         return max(any_ckpt, key=lambda p: p.stat().st_mtime)
     return None
+
+
+def build_stage1_config(
+    sv_project,
+    out_dir,
+    options: dict,
+) -> None:
+    """Materialise stage-1's config.yaml at ``<out_dir>/config.yaml``.
+
+    Starts from the SV-pretrain project's ``config.yaml`` and overlays
+    short-run + early-stopping defaults so stage 1 finishes quickly once
+    val loss plateaus.
+    """
+    sv_cfg_path = Path(sv_project) / "config.yaml"
+    cfg = yaml.safe_load(sv_cfg_path.read_text()) or {}
+    training = cfg.setdefault("training", {})
+    max_epochs = int(options.get("stage1_max_epochs", 100))
+    training["max_epochs"] = max_epochs
+    training["min_epochs"] = min(training.get("min_epochs", 1) or 1, max_epochs)
+    training["early_stopping"] = True
+    training["early_stop_patience"] = int(options.get("stage1_early_stop_patience", 5))
+    # No unsupervised losses, no patch masking, no reproj for stage 1.
+    cfg.setdefault("losses", {})
+    cfg.setdefault("callbacks", {})
+    Path(out_dir, "config.yaml").write_text(yaml.safe_dump(cfg, sort_keys=False))
