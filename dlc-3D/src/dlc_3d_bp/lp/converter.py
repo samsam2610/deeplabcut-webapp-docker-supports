@@ -604,3 +604,53 @@ def _walk_all_labeled_data(dlc_dir) -> Iterator[Tuple[Path, str, List[str]]]:
                     continue
                 dest_rel = f"labeled-data/{folder.name}/{fname}"
                 yield src_png, dest_rel, row
+
+
+def _write_sv_config(
+    sv_dir: Path,
+    dlc_dir: Path,
+    bodyparts: list,
+    img_h: int,
+    img_w: int,
+) -> None:
+    """Write the single-view config.yaml for the SV-pretrain sub-project.
+
+    Source of truth is LP's canonical ``config_default.yaml`` (single-view),
+    patched with the project-specific fields. Stage-1 forces
+    ``model.backbone = vits_dino`` and ``model.model_type = heatmap`` so the
+    resulting checkpoint's backbone state-dict transfers cleanly into MVT's
+    ``HeatmapTrackerMultiviewTransformer`` (which also uses vits_dino) via
+    LP's existing ``backbone.*``-only fallback in
+    ``lightning_pose/utils/scripts.py``.
+    """
+    cfg = _load_upstream_default_config()
+
+    # ViT requires square image_resize_dims that's a multiple of 128.
+    side = max(256, (min(img_h, img_w) // 128) * 128)
+
+    data = cfg.setdefault("data", {})
+    data["data_dir"] = str(sv_dir)
+    # SV-pretrain uses the parent's videos dir (relative). Useful only if
+    # unsupervised losses are later enabled; harmless to point here otherwise.
+    data["video_dir"] = "../videos"
+    data["csv_file"] = "labels.csv"
+    data["num_keypoints"] = len(bodyparts)
+    data["keypoint_names"] = bodyparts
+    data["image_orig_dims"] = {"height": img_h, "width": img_w}
+    data["image_resize_dims"] = {"height": side, "width": side}
+    # Single-view explicitly drops view_names (LP raises if N == 1)
+    data.pop("view_names", None)
+
+    model = cfg.setdefault("model", {})
+    model["backbone"] = "vits_dino"
+    model["model_type"] = "heatmap"
+    # Carry through canonical losses_to_use=[], heatmap_loss_type=mse, etc.
+
+    cfg["_converter"] = {
+        "source_dlc_dir": str(dlc_dir),
+        "sv_pretrain": True,
+        "lp_default_ref": LP_DEFAULT_CONFIG_REF,
+    }
+
+    with (sv_dir / "config.yaml").open("w") as f:
+        yaml.safe_dump(cfg, f, sort_keys=False)

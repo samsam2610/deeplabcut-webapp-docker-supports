@@ -86,3 +86,42 @@ def test_walk_all_labeled_data_skips_ipynb_checkpoints(tmp_path):
           rows=[["labeled-data/.ipynb_checkpoints/img.png", "1"]],
           png_names=["img.png"])
     assert list(_walk_all_labeled_data(dlc)) == []
+
+
+import yaml
+
+from dlc_3d_bp.lp.converter import _write_sv_config
+
+
+def test_write_sv_config_emits_singleview_canonical_shape(tmp_path, monkeypatch):
+    sv_dir = tmp_path / "sv"
+    sv_dir.mkdir()
+    # Avoid network in tests — force the vendored fallback
+    monkeypatch.setattr("urllib.request.urlopen", lambda *a, **kw: (_ for _ in ()).throw(OSError("offline")))
+    monkeypatch.setattr("dlc_3d_bp.lp.converter._LP_DEFAULT_CACHE", tmp_path / "no-cache.yaml")
+
+    _write_sv_config(
+        sv_dir=sv_dir,
+        dlc_dir=tmp_path / "src_dlc",
+        bodyparts=["Snout", "Wrist"],
+        img_h=480,
+        img_w=640,
+    )
+    cfg = yaml.safe_load((sv_dir / "config.yaml").read_text())
+    # Single-view convention: csv_file is a string, no view_names key
+    assert cfg["data"]["csv_file"] == "labels.csv"
+    assert "view_names" not in cfg["data"]
+    # Substituted project-specific values
+    assert cfg["data"]["data_dir"] == str(sv_dir)
+    assert cfg["data"]["num_keypoints"] == 2
+    assert cfg["data"]["keypoint_names"] == ["Snout", "Wrist"]
+    assert cfg["data"]["image_orig_dims"] == {"height": 480, "width": 640}
+    # ViT-required resize dims (multiple of 128, floor 256)
+    assert cfg["data"]["image_resize_dims"]["height"] % 128 == 0
+    assert cfg["data"]["image_resize_dims"]["height"] >= 256
+    # Stage-1 model setup forces vits_dino + plain heatmap so the backbone
+    # state-dict transfers cleanly into MVT in stage 2.
+    assert cfg["model"]["backbone"] == "vits_dino"
+    assert cfg["model"]["model_type"] == "heatmap"
+    # Provenance
+    assert cfg["_converter"]["sv_pretrain"] is True
