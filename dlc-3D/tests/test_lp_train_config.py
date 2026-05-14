@@ -90,3 +90,15 @@ def test_build_config_eval_flags(tmp_path):
     cfg = yaml.safe_load(out.read_text())
     assert cfg["eval"]["predict_vids_after_training"] is True
     assert cfg["eval"]["save_vids_after_training"] is True
+
+
+def test_build_config_includes_dali_defaults(tmp_path):
+    """LP 2.1.0 requires cfg.dali for predict; build_train_config bakes defaults."""
+    base = _base_lp_config(tmp_path)
+    out = tmp_path / "out" / "config.yaml"
+    out.parent.mkdir()
+    build_train_config(base, out, options={"mvt_enabled": True, "max_epochs": 1})
+    cfg = yaml.safe_load(out.read_text())
+    assert "dali" in cfg
+    assert cfg["dali"]["base"]["predict"]["sequence_length"] == 96
+    assert cfg["dali"]["general"]["seed"] == 123456

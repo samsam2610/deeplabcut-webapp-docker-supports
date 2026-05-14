@@ -47,6 +47,19 @@ def build_train_config(
     cfg.setdefault("training", {})
     cfg.setdefault("losses", {})
     cfg.setdefault("eval", {})
+    # LP 2.1.0's predict reads cfg.dali directly; bake defaults at train time so
+    # predict doesn't need a runtime injection on the resulting model dir.
+    cfg.setdefault("dali", {
+        "general": {"seed": 123456},
+        "base": {
+            "train":   {"sequence_length": 32},
+            "predict": {"sequence_length": 96},
+        },
+        "context": {
+            "train":   {"batch_size": 16},
+            "predict": {"sequence_length": 96},
+        },
+    })
 
     # MVT toggle. LP 2.1.0 calls the supervised multi-view model
     # ``heatmap_multiview_transformer``; older naming was ``multiview_heatmap``.
