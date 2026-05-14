@@ -422,115 +422,137 @@ def _probe_image_dims(lp_dir: Path) -> Tuple[int, int]:
     return 384, 384
 
 
-def _write_lp_config(lp_dir: Path, dlc_dir: Path, views: List[str]) -> None:
-    """Write an LP 2.1.0-compatible config.yaml.
+# Pin the upstream lightning-pose default-config reference. Bump this when
+# requirements-lp.txt's lightning-pose version is upgraded.
+LP_DEFAULT_CONFIG_REF = "v2.1.0"
+LP_DEFAULT_CONFIG_URL = (
+    "https://raw.githubusercontent.com/paninski-lab/lightning-pose/"
+    "{ref}/scripts/configs/config_default.yaml"
+)
+_LP_DEFAULT_CACHE = Path("/tmp") / f"dlc3d_lp_default_{LP_DEFAULT_CONFIG_REF}.yaml"
+_LP_DEFAULT_VENDORED = Path(__file__).resolve().parent / "lp_config_default.yaml"
 
-    The shape mirrors lightning-pose 2.1.0's expected schema (see
-    ``lightning_pose/api/model_config.py`` and ``lightning_pose/train.py``):
-    a full ``data`` block (including ``image_orig_dims``/``image_resize_dims``,
-    ``downsample_factor``, ``columns_for_singleview_pca``), ``model`` (with
-    ``model_name``, ``heatmap_loss_type``), and a fully-populated ``training``
-    block (including ``min_epochs``/``max_epochs``, ``unfreezing_epoch``,
-    train/val/test probs, RNG seeds, ``num_gpus``, ``log_every_n_steps``,
-    and ``lr_scheduler_params.multisteplr.milestones``).
+
+def _load_upstream_default_config() -> dict:
+    """Return lightning-pose's canonical ``scripts/configs/config_default.yaml``
+    as a dict, fetched from the pinned upstream ref.
+
+    Tries (in order):
+      1. ``/tmp`` cache for the pinned ref (avoids repeat network on the same
+         container lifetime).
+      2. GitHub raw at ``LP_DEFAULT_CONFIG_REF``. On success, populates cache.
+      3. GitHub raw at ``main`` (best-effort newer defaults).
+      4. Vendored copy at ``dlc_3d_bp/lp/lp_config_default.yaml`` (kept in sync
+         with ``LP_DEFAULT_CONFIG_REF`` for offline / air-gapped fallback).
+
+    Raises ``RuntimeError`` only if all four sources fail.
     """
+    if _LP_DEFAULT_CACHE.is_file():
+        try:
+            return yaml.safe_load(_LP_DEFAULT_CACHE.read_text()) or {}
+        except Exception:
+            pass
+
+    import urllib.request
+
+    for ref in (LP_DEFAULT_CONFIG_REF, "main"):
+        try:
+            with urllib.request.urlopen(LP_DEFAULT_CONFIG_URL.format(ref=ref), timeout=5) as r:
+                if getattr(r, "status", 200) == 200:
+                    body = r.read().decode("utf-8")
+                    parsed = yaml.safe_load(body) or {}
+                    if ref == LP_DEFAULT_CONFIG_REF:
+                        try:
+                            _LP_DEFAULT_CACHE.parent.mkdir(parents=True, exist_ok=True)
+                            _LP_DEFAULT_CACHE.write_text(body)
+                        except Exception:
+                            pass
+                    return parsed
+        except Exception:
+            continue
+
+    if _LP_DEFAULT_VENDORED.is_file():
+        return yaml.safe_load(_LP_DEFAULT_VENDORED.read_text()) or {}
+
+    raise RuntimeError(
+        f"Cannot load LP default config: GitHub unreachable and no vendored "
+        f"fallback at {_LP_DEFAULT_VENDORED}"
+    )
+
+
+def _write_lp_config(lp_dir: Path, dlc_dir: Path, views: List[str]) -> None:
+    """Write the LP project's ``config.yaml`` by patching the upstream
+    canonical default with project-specific values.
+
+    Source of truth is lightning-pose's ``scripts/configs/config_default.yaml``
+    at the pinned ref (see :data:`LP_DEFAULT_CONFIG_REF`). Everything except
+    the substituted/derived fields is byte-identical to upstream.
+
+    Substituted fields:
+      - ``data.data_dir``                 → absolute LP project dir
+      - ``data.video_dir``                → ``"videos"`` (relative to data_dir)
+      - ``data.csv_file``                 → list of per-view CSVs (multi-view)
+                                            or single ``"<view>.csv"`` (single-view)
+      - ``data.num_keypoints`` /
+        ``data.keypoint_names``           → derived from the DLC project's bodyparts
+      - ``data.image_resize_dims``        → probed from the first labeled PNG; rounded
+                                            to a multiple of 128 for ViT-backed models
+      - ``data.view_names``               → only present for multi-view (LP requires
+                                            it absent for single-view)
+
+    Derived fields (LP 2.1.0 needs these even though they aren't in the
+    canonical default):
+      - ``data.image_orig_dims``          → probed from the first labeled PNG
+      - ``model.model_type``              → ``heatmap_multiview_transformer``
+                                            when multi-view
+      - ``model.backbone``                → ``vits_dino`` for multi-view (ViT is
+                                            required by the multi-view transformer)
+
+    A non-canonical ``_converter`` block records provenance.
+    """
+    base = _load_upstream_default_config()
+
     with (dlc_dir / "config.yaml").open() as f:
         dlc_cfg = yaml.safe_load(f) or {}
     bodyparts = dlc_cfg.get("bodyparts", []) or dlc_cfg.get("multianimalbodyparts", [])
     img_h, img_w = _probe_image_dims(lp_dir)
-
     is_multi = len(views) > 1
-    # LP 2.1.0 renamed the supervised multi-view model to
-    # ``heatmap_multiview_transformer`` (formerly ``multiview_heatmap``).
-    model_type = "heatmap_multiview_transformer" if is_multi else "heatmap_mhcrnn"
 
-    # ViT-backed models require square input. LP's HeatmapDataset additionally
-    # asserts ``image_resize_height % 128 == 0`` (see
-    # ``lightning_pose/data/datasets.py``). ``vits_dino`` is DINO ViT-S/16
-    # (patch size 16) and uses ``interpolate_pos_encoding=True``, so multiples
-    # of 128 are fine. Pick the largest multiple of 128 that fits in the
-    # original image, with a floor of 256.
+    # ── Substitute project-specific fields under data ─────────────────────
+    data = base.setdefault("data", {})
+    data["data_dir"] = str(lp_dir)
+    data["video_dir"] = "videos"
+    data["num_keypoints"] = len(bodyparts)
+    data["keypoint_names"] = bodyparts
+    data["image_orig_dims"] = {"height": img_h, "width": img_w}
+
     if is_multi:
+        # ViT-backed multi-view transformer requires image_resize_dims that are
+        # multiples of 128 (LP's HeatmapDataset asserts this).
         side = max(256, (min(img_h, img_w) // 128) * 128)
-        resize_h = resize_w = side
+        data["image_resize_dims"] = {"height": side, "width": side}
+        data["csv_file"] = [f"{v}.csv" for v in views]
+        data["view_names"] = views
     else:
-        resize_h, resize_w = img_h, img_w
+        data["image_resize_dims"] = {"height": img_h, "width": img_w}
+        data["csv_file"] = (views[0] + ".csv") if views else "CollectedData.csv"
+        # LP's ModelConfig.is_multi_view raises if view_names is present with
+        # length 1; drop the key entirely for single-view projects.
+        data.pop("view_names", None)
 
-    data_block = {
-        "image_orig_dims": {"height": img_h, "width": img_w},
-        "image_resize_dims": {"height": resize_h, "width": resize_w},
-        "data_dir": str(lp_dir),
-        "video_dir": "videos",
-        "csv_file": (
-            [f"{v}.csv" for v in views] if is_multi
-            else (views[0] + ".csv" if views else "labels.csv")
-        ),
-        "view_names": views,
-        "downsample_factor": 2,
-        "num_keypoints": len(bodyparts),
-        "keypoint_names": bodyparts,
-        "mirrored_column_matches": None,
-        "columns_for_singleview_pca": None,
-    }
-    # Note: ``camera_params_file`` is intentionally omitted from the base
-    # config. LP only needs it for the 3D reprojection loss (enabled via
-    # ``options.reproj_loss_enabled`` in :mod:`lp.train_runner`). Including
-    # it unconditionally caused the data loader to require a matching
-    # per-image calibrations.csv, which our converter doesn't produce.
+    # ── Model-block overrides only where multi-view forces them ──────────
+    model = base.setdefault("model", {})
+    if is_multi:
+        model["model_type"] = "heatmap_multiview_transformer"
+        model["backbone"] = "vits_dino"
 
-    lp_cfg = {
-        "data": data_block,
-        "model": {
-            "model_name": "dlc3d_lp_run",
-            "model_type": model_type,
-            # ``heatmap_multiview_transformer`` requires a ViT backbone
-            # (ALLOWED_TRANSFORMER_BACKBONES); ResNets aren't supported for
-            # the supervised multi-view model in LP 2.1.0. For single-view
-            # (heatmap_mhcrnn) any backbone in ALLOWED_BACKBONES works.
-            "backbone": "vits_dino" if is_multi else "resnet50_animal_apose",
-            "heatmap_loss_type": "mse",
-            "losses_to_use": [],
-        },
-        "training": {
-            "imgaug": "default",
-            "imgaug_3d": False,
-            "train_batch_size": 16,
-            "val_batch_size": 16,
-            "test_batch_size": 16,
-            "train_prob": 0.95,
-            "val_prob": 0.05,
-            "train_frames": 1,
-            "num_gpus": 1,
-            "num_workers": 4,
-            "unfreezing_epoch": 20,
-            "rng_seed_data_pt": 0,
-            "rng_seed_model_pt": 0,
-            "min_epochs": 1,
-            "max_epochs": 300,
-            "log_every_n_steps": 10,
-            "ckpt_every_n_epochs": None,
-            "early_stopping": False,
-            "lr_scheduler": "multisteplr",
-            "lr_scheduler_params": {
-                "multisteplr": {
-                    "milestones": [150, 200, 250],
-                    "gamma": 0.5,
-                },
-            },
-            "optimizer": "Adam",
-            "optimizer_params": {"learning_rate": 0.001},
-            "uniform_heatmaps_for_nan_keypoints": False,
-        },
-        "losses": {},
-        "eval": {
-            "predict_vids_after_training": False,
-            "save_vids_after_training": False,
-        },
-        "callbacks": {},
-        "_converter": {
-            "source_dlc_dir": str(dlc_dir),
-            "views": views,
-        },
+    # ── Provenance (non-canonical) ───────────────────────────────────────
+    base["_converter"] = {
+        "source_dlc_dir": str(dlc_dir),
+        "views": views,
+        "lp_default_ref": LP_DEFAULT_CONFIG_REF,
+        "lp_default_source": LP_DEFAULT_CONFIG_URL.format(ref=LP_DEFAULT_CONFIG_REF),
     }
+
     with (lp_dir / "config.yaml").open("w") as f:
-        yaml.safe_dump(lp_cfg, f, sort_keys=False)
+        yaml.safe_dump(base, f, sort_keys=False)
