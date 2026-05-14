@@ -54,6 +54,21 @@ def test_csv_to_h5_round_trip(tmp_path):
     assert df.columns.nlevels == 3
 
 
+def test_csv_to_h5_writes_table_format(tmp_path):
+    """The main webapp's /dlc/viewer/h5-info does int(storer.nrows). For fixed
+    format pytables leaves nrows=None which crashes the route, so we must
+    write table format."""
+    csv_p = tmp_path / "v" / "clip_lp.csv"
+    _write_lp_csv(csv_p, n_frames=7)
+    h5_p = csv_to_h5(csv_p)
+    with pd.HDFStore(str(h5_p), mode="r") as store:
+        key = store.keys()[0]
+        storer = store.get_storer(key)
+        assert storer.format_type == "table"
+        assert isinstance(storer.nrows, int)
+        assert storer.nrows == 7
+
+
 def test_emit_h5_sidecars_filters_metric_csvs(tmp_path):
     d = tmp_path / "out"; d.mkdir()
     pred  = d / "clip_lp.csv";              _write_lp_csv(pred)

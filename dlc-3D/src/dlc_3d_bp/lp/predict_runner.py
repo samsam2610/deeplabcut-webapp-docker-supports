@@ -187,9 +187,10 @@ def csv_to_h5(csv_path: Path | str, h5_path: Path | str | None = None) -> Path:
     LP predictions CSVs have a three-row MultiIndex header
     (``scorer / bodyparts / coords``) and the first column is the frame
     path/index. The output H5 is written with ``pd.to_hdf(key='df_with_missing',
-    mode='w')`` — the same format DLC's analyze step produces, so
-    ``pd.read_hdf`` (which the main webapp's analyzed-viewer uses) loads it
-    unchanged.
+    mode='w', format='table')`` so the main webapp's analyzed-viewer
+    (``/dlc/viewer/h5-info``) can read ``storer.nrows`` — the fixed-format
+    default leaves ``nrows = None`` and the route's ``int(nrows)`` raises
+    ``TypeError: int() argument must be ... not 'NoneType'``.
 
     Returns the path to the H5 written. Requires ``pytables`` at import time.
     """
@@ -200,7 +201,7 @@ def csv_to_h5(csv_path: Path | str, h5_path: Path | str | None = None) -> Path:
         h5_path = csv_path.with_suffix(".h5")
     h5_path = Path(h5_path)
     df = pd.read_csv(csv_path, header=[0, 1, 2], index_col=0)
-    df.to_hdf(str(h5_path), key="df_with_missing", mode="w")
+    df.to_hdf(str(h5_path), key="df_with_missing", mode="w", format="table")
     return h5_path
 
 
