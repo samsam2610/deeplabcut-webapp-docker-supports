@@ -144,3 +144,27 @@ def relocate_predictions(
         "skipped": skipped,
         "dest_dir": str(explicit_dest) if explicit_dest is not None else None,
     }
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Multi-view pairing + AVI transcoding helpers
+# ─────────────────────────────────────────────────────────────────────────────
+import yaml
+
+
+def _load_view_names(model_dir: "Path | str") -> list[str]:
+    """Return `data.view_names` from `<model_dir>/config.yaml`, or [] if missing.
+
+    Returns [] for single-view models (where view_names is missing or has 0/1 entries).
+    """
+    cfg_path = Path(model_dir) / "config.yaml"
+    if not cfg_path.is_file():
+        return []
+    try:
+        cfg = yaml.safe_load(cfg_path.read_text()) or {}
+    except Exception:
+        return []
+    views = (cfg.get("data") or {}).get("view_names") or []
+    if not isinstance(views, list):
+        return []
+    return [str(v) for v in views]
