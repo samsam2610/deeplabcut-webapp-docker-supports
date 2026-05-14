@@ -377,3 +377,57 @@ def test_predict_endpoint_rejects_dest_dir_outside_user_data(lp_app, monkeypatch
         "dest_dir": "/etc/badplace",
     })
     assert r.status_code == 403
+
+
+def test_jobs_index_augments_with_celery_state(lp_app, monkeypatch):
+    """`/lp/jobs` must surface celery_state and celery_info for each row, same
+    as the single-job route — otherwise the Jobs card shows '?' for every job."""
+    class _FakeAR:
+        def __init__(self, jid):
+            self.id = jid
+            self.state = "STARTED"
+            self.info = {"stage": "stage1_training", "last_line": "Epoch 0: 20%|..."}
+
+    class _FakeRedis:
+        def ping(self): return True
+
+    def _fake_list_recent(conn, limit=50):
+        return [
+            {"id": "job-a", "type": "train", "lp_project": "/p"},
+            {"id": "job-b", "type": "predict", "model_dir": "/m"},
+        ]
+    monkeypatch.setattr("dlc_3d_bp.lp.job_registry.list_recent", _fake_list_recent)
+    monkeypatch.setattr("dlc_3d_bp.lp_routes._redis_conn", lambda: _FakeRedis())
+    monkeypatch.setattr("dlc_3d_bp.lp.celery_app.celery.AsyncResult", lambda jid: _FakeAR(jid))
+
+    c = lp_app.test_client()
+    r = c.get("/dlc-3d/lp/jobs")
+    body = r.get_json()
+    assert r.status_code == 200
+    jobs = body["jobs"]
+    assert len(jobs) == 2
+    # Each row must carry celery_state and celery_info
+    for j in jobs:
+        assert j["celery_state"] == "STARTED"
+        assert j["celery_info"]["stage"] == "stage1_training"
+
+
+def test_cancel_endpoint_revokes_job(lp_app, monkeypatch):
+    """POST /lp/job/<id>/cancel issues a Celery revoke and returns 200."""
+    revoked = {}
+    class _FakeControl:
+        def revoke(self, jid, terminate=False, signal=None):
+            revoked["id"] = jid
+            revoked["terminate"] = terminate
+            revoked["signal"] = signal
+    class _FakeCelery:
+        control = _FakeControl()
+    monkeypatch.setattr("dlc_3d_bp.lp.celery_app.celery", _FakeCelery())
+    c = lp_app.test_client()
+    r = c.post("/dlc-3d/lp/job/abc-123/cancel")
+    assert r.status_code == 200
+    body = r.get_json()
+    assert body["ok"] is True
+    assert revoked["id"] == "abc-123"
+    assert revoked["terminate"] is True
+    assert revoked["signal"] == "SIGTERM"

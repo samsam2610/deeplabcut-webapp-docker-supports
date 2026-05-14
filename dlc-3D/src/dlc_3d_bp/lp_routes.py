@@ -114,7 +114,41 @@ def jobs_index():
     conn = _redis_conn()
     if not conn:
         return jsonify({"jobs": []})
-    return jsonify({"jobs": job_registry.list_recent(conn, limit=50)})
+    rows = job_registry.list_recent(conn, limit=50)
+    # Augment each row with live Celery state, same way /job/<id> does.
+    # Without this the Jobs card shows '?' for every state cell.
+    try:
+        from dlc_3d_bp.lp.celery_app import celery
+        for row in rows:
+            jid = row.get("id")
+            if not jid:
+                continue
+            try:
+                ar = celery.AsyncResult(jid)
+                row["celery_state"] = ar.state
+                if ar.info and isinstance(ar.info, dict):
+                    row["celery_info"] = ar.info
+            except Exception:
+                pass
+    except Exception:
+        pass
+    return jsonify({"jobs": rows})
+
+
+@lp_bp.route("/job/<job_id>/cancel", methods=["POST"])
+def job_cancel(job_id: str):
+    """Revoke a Celery task. Terminates the running subprocess if any.
+
+    Always returns 200 with ``{"ok": true}`` — Celery revoke is best-effort and
+    raises only on configuration errors. A completed/missing job still returns
+    success (idempotent).
+    """
+    try:
+        from dlc_3d_bp.lp.celery_app import celery
+        celery.control.revoke(job_id, terminate=True, signal="SIGTERM")
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
+    return jsonify({"ok": True, "job_id": job_id})
 
 
 @lp_bp.route("/eks", methods=["POST"])

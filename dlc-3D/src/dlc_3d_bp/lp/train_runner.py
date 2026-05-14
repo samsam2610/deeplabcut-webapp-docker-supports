@@ -138,10 +138,57 @@ def build_train_config(
     out_path.write_text(yaml.safe_dump(cfg, sort_keys=False))
 
 
+import re
+
+# tqdm progress line pattern: `<prefix>: NN%|<bar>| N/M [...]`.
+# The prefix is everything before the first colon (e.g., 'Epoch 0',
+# 'Predicting DataLoader 0', 'Validation DataLoader 0').
+_TQDM_RE = re.compile(r"^(?P<prefix>[^:]+):\s+(?P<pct>\d+)%\|")
+
+
+def _make_log_throttler(callback, min_interval: float = 3.0):
+    """Wrap *callback* so tqdm progress-bar updates are rate-limited.
+
+    litpose emits dozens of tqdm updates per second (~540 lines per training
+    epoch, ~284 per predict loop). Without throttling, the last-N-line tail
+    in the UI is always saturated with the current epoch's batch progress,
+    pushing structural events (config dump, epoch transitions, our stage
+    emits, errors) out of sight.
+
+    Rules per emitted line:
+      * Non-tqdm line → always pass through to ``callback``.
+      * Tqdm line with a NEW prefix → emit (signals start of a new bar).
+      * Tqdm line at 100% completion → emit (signals end of a bar).
+      * Tqdm line within ``min_interval`` seconds of the last emit for the
+        same prefix → drop.
+      * Otherwise → emit (regular throttled tick).
+    """
+    state: dict = {}
+
+    def filtered(line: str) -> None:
+        if callback is None:
+            return
+        m = _TQDM_RE.match(line)
+        if not m:
+            callback(line)
+            return
+        prefix = m.group("prefix").strip()
+        pct = int(m.group("pct"))
+        now = time.time()
+        last = state.get(prefix)
+        if last is None or pct == 100 or (now - last) >= min_interval:
+            callback(line)
+            state[prefix] = now
+        # else: throttled — drop silently
+
+    return filtered
+
+
 def run_train_subprocess(model_dir: Path | str, log_callback=None, cwd: Path | str | None = None) -> int:
     """Spawn `litpose train`. Return process returncode.
 
-    log_callback: optional callable(line: str) -> None invoked once per stdout line.
+    log_callback: optional callable(line: str) -> None invoked once per stdout
+    line, with tqdm progress lines throttled (see :func:`_make_log_throttler`).
 
     The installed `litpose` 2.1.0 CLI takes the config as a positional argument
     (not `--config`), and supports `--output_dir` for the model directory.
@@ -155,15 +202,13 @@ def run_train_subprocess(model_dir: Path | str, log_callback=None, cwd: Path | s
         text=True, bufsize=1, cwd=str(cwd) if cwd else None,
         env=env,
     )
-    last_emit = time.time()
+    sink = _make_log_throttler(log_callback) if log_callback else None
     for line in proc.stdout:  # type: ignore[union-attr]
-        if log_callback:
+        if sink is not None:
             try:
-                log_callback(line.rstrip("\n"))
+                sink(line.rstrip("\n"))
             except Exception:
                 pass
-        if time.time() - last_emit > 5:
-            last_emit = time.time()
     return proc.wait()
 
 

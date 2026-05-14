@@ -560,38 +560,124 @@ function initJobsCard() {
   if (!card) return;
   const tbody = $("#lp-jobs-tbody");
   const detail = $("#lp-jobs-detail");
-  $("#btn-close-lp-jobs")?.addEventListener("click", () => card.classList.add("hidden"));
+  $("#btn-close-lp-jobs")?.addEventListener("click", () => {
+    card.classList.add("hidden");
+    stopAutoRefresh();
+    stopDetailPoll();
+  });
+
+  const TERMINAL = new Set(["SUCCESS", "FAILURE", "REVOKED"]);
+  let autoRefreshTimer = null;
+  let detailPollAbort = null;
+
+  function stopAutoRefresh() {
+    if (autoRefreshTimer) { clearInterval(autoRefreshTimer); autoRefreshTimer = null; }
+  }
+  function stopDetailPoll() {
+    if (detailPollAbort) { detailPollAbort.aborted = true; detailPollAbort = null; }
+  }
+
+  function fmtRow(j) {
+    const created = new Date((j.created_at || 0) * 1000).toLocaleString();
+    const target  = j.lp_project || j.out || (j.in_paths || [])[0] || j.model_dir || "";
+    const stateRaw = j.celery_state || "?";
+    const stage = j.celery_info?.stage || "";
+    const stateCell = stage ? `${stateRaw} <span style="color:var(--text-dim);font-size:.65rem">· ${stage}</span>` : stateRaw;
+    const canCancel = stateRaw && !TERMINAL.has(stateRaw) && stateRaw !== "?";
+    const cancelBtn = canCancel
+      ? `<button class="btn-sm" data-cancel="${j.id}" title="Revoke this Celery task (SIGTERM)" style="opacity:.85">Cancel</button>`
+      : `<button class="btn-sm" disabled style="opacity:.3">Cancel</button>`;
+    return `
+      <td>${j.type || ""}</td>
+      <td title="${target}">${target.split("/").slice(-2).join("/")}</td>
+      <td>${created}</td>
+      <td>${stateCell}</td>
+      <td style="display:flex;gap:.25rem">
+        <button class="btn-sm" data-view="${j.id}">View</button>
+        ${cancelBtn}
+      </td>`;
+  }
 
   async function refresh() {
-    const r = await fetch("/dlc-3d/lp/jobs");
-    const body = await r.json();
+    let body;
+    try {
+      const r = await fetch("/dlc-3d/lp/jobs");
+      body = await r.json();
+    } catch (e) {
+      tbody.innerHTML = `<tr><td colspan="5" style="color:var(--text-dim)">refresh failed: ${e.message}</td></tr>`;
+      return;
+    }
+    const jobs = body.jobs || [];
     tbody.innerHTML = "";
-    for (const j of body.jobs || []) {
-      const created = new Date((j.created_at || 0) * 1000).toLocaleString();
+    if (!jobs.length) {
+      tbody.innerHTML = `<tr><td colspan="5" style="color:var(--text-dim)">no jobs yet — kick off a Convert / Train / EKS / Predict run</td></tr>`;
+      return;
+    }
+    for (const j of jobs) {
       const tr = document.createElement("tr");
-      tr.innerHTML = `
-        <td>${j.type || ""}</td>
-        <td title="${j.lp_project || j.out || (j.in_paths || []).join(",")}">${
-          (j.lp_project || j.out || (j.in_paths || [])[0] || "").split("/").slice(-2).join("/")
-        }</td>
-        <td>${created}</td>
-        <td>${j.celery_state || "?"}</td>
-        <td><button class="btn-sm" data-job="${j.id}">view</button></td>`;
+      tr.innerHTML = fmtRow(j);
       tbody.appendChild(tr);
     }
-    tbody.querySelectorAll("button[data-job]").forEach((b) => {
+    tbody.querySelectorAll("button[data-view]").forEach((b) => {
+      b.addEventListener("click", () => openDetail(b.dataset.view));
+    });
+    tbody.querySelectorAll("button[data-cancel]").forEach((b) => {
       b.addEventListener("click", async () => {
-        const r2 = await fetch(`/dlc-3d/lp/job/${b.dataset.job}`);
-        detail.hidden = false;
-        detail.textContent = JSON.stringify(await r2.json(), null, 2);
+        if (!confirm(`Cancel job ${b.dataset.cancel}?`)) return;
+        b.disabled = true; b.textContent = "…";
+        try {
+          await fetch(`/dlc-3d/lp/job/${b.dataset.cancel}/cancel`, { method: "POST" });
+        } finally {
+          refresh();
+        }
       });
     });
+    // If any job is non-terminal, keep refreshing the table every 5s
+    const hasLive = jobs.some((j) => j.celery_state && !TERMINAL.has(j.celery_state));
+    stopAutoRefresh();
+    if (hasLive && !card.classList.contains("hidden")) {
+      autoRefreshTimer = setInterval(refresh, 5000);
+    }
+  }
+
+  async function openDetail(jobId) {
+    stopDetailPoll();
+    detail.hidden = false;
+    const token = detailPollAbort = { aborted: false };
+    while (!token.aborted && !card.classList.contains("hidden")) {
+      let body;
+      try {
+        const r = await fetch(`/dlc-3d/lp/job/${jobId}`);
+        body = await r.json();
+      } catch (e) {
+        detail.textContent = `fetch failed: ${e.message}`;
+        return;
+      }
+      const info = body.celery_info || {};
+      const tail = (body.log_tail || []).slice(-30).join("\n");
+      detail.textContent =
+        `job: ${jobId}\n` +
+        `type: ${body.type || ""}\n` +
+        `state: ${body.celery_state || "?"}\n` +
+        (info.stage ? `stage: ${info.stage}\n` : "") +
+        `created: ${new Date((body.created_at || 0) * 1000).toLocaleString()}\n` +
+        `target: ${body.lp_project || body.out || (body.in_paths || []).join(", ") || body.model_dir || ""}\n` +
+        `\n--- log tail (last 30) ---\n${tail}`;
+      if (TERMINAL.has(body.celery_state)) return;
+      await new Promise((res) => setTimeout(res, 2000));
+    }
   }
 
   $("#btn-lp-jobs-refresh")?.addEventListener("click", refresh);
   new MutationObserver((muts) => {
     for (const m of muts) {
-      if (m.attributeName === "class" && !card.classList.contains("hidden")) refresh();
+      if (m.attributeName !== "class") continue;
+      if (card.classList.contains("hidden")) {
+        stopAutoRefresh();
+        stopDetailPoll();
+      } else {
+        refresh();
+      }
     }
   }).observe(card, { attributes: true, attributeFilter: ["class"] });
 }
