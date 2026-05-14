@@ -654,3 +654,67 @@ def _write_sv_config(
 
     with (sv_dir / "config.yaml").open("w") as f:
         yaml.safe_dump(cfg, f, sort_keys=False)
+
+
+def _build_sv_pretrain_project(
+    lp_dir: Path,
+    dlc_dir: Path,
+    bodyparts: list,
+) -> int:
+    """Build ``<lp_dir>/sv-pretrain/`` from every labeled row in *dlc_dir*.
+
+    1. Hardlinks every labeled PNG into ``sv-pretrain/labeled-data/<orig_folder>/<png>``.
+    2. Writes one flat ``labels.csv`` (LP single-view convention) containing
+       every labeled row, normalised to a single path column.
+    3. Writes ``sv-pretrain/config.yaml`` via ``_write_sv_config``.
+
+    Returns the number of data rows in ``labels.csv``.
+    """
+    sv = lp_dir / "sv-pretrain"
+    sv.mkdir(parents=True, exist_ok=True)
+    (sv / "labeled-data").mkdir(exist_ok=True)
+
+    # Collect all rows + first-row image to probe dims
+    header_seen: List[List[str]] = []
+    data_rows: List[List[str]] = []
+    first_png: Path | None = None
+    for src_png, dest_rel, row in _walk_all_labeled_data(dlc_dir):
+        # Hardlink PNG into the SV labeled-data tree
+        dst_png = sv / dest_rel
+        _link_or_copy(src_png, dst_png, mode="link")
+        # Force-rewrite the row's path cell to the dest_rel (so LP resolves
+        # against sv-pretrain/labeled-data/)
+        row = [dest_rel] + list(row[1:])
+        data_rows.append(row)
+        if first_png is None:
+            first_png = src_png
+
+        # Capture one header set lazily (any folder's headers work — same schema)
+        if not header_seen:
+            cc = src_png.parent.glob("CollectedData_*.csv")
+            cc_path = next(cc, None)
+            if cc_path is not None:
+                with cc_path.open(newline="") as f:
+                    for r in csv.reader(f):
+                        if r and r[0] in ("scorer", "bodyparts", "coords", "individuals"):
+                            header_seen.append(_normalize_header_row(r))
+                        else:
+                            break
+
+    # Probe image dims from any one labeled PNG (fallback to sv labeled-data scan)
+    if first_png is None:
+        img_h, img_w = _probe_image_dims(sv)
+    else:
+        img_h, img_w = _probe_image_dims(first_png.parent.parent)
+
+    # Write labels.csv: headers from any source folder + every data row
+    with (sv / "labels.csv").open("w", newline="") as f:
+        w = csv.writer(f)
+        for hrow in header_seen:
+            w.writerow(hrow)
+        for row in data_rows:
+            w.writerow(row)
+
+    _write_sv_config(sv_dir=sv, dlc_dir=dlc_dir, bodyparts=bodyparts,
+                     img_h=img_h, img_w=img_w)
+    return len(data_rows)

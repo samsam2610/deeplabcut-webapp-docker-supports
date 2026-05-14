@@ -125,3 +125,56 @@ def test_write_sv_config_emits_singleview_canonical_shape(tmp_path, monkeypatch)
     assert cfg["model"]["model_type"] == "heatmap"
     # Provenance
     assert cfg["_converter"]["sv_pretrain"] is True
+
+
+from dlc_3d_bp.lp.converter import _build_sv_pretrain_project
+
+
+def test_build_sv_pretrain_project_writes_layout(tmp_path, monkeypatch):
+    """SV pretrain dir has config.yaml + labels.csv + labeled-data/<folder>/<png>."""
+    dlc = tmp_path / "dlc"
+    dlc.mkdir()
+    (dlc / "config.yaml").write_text("bodyparts:\n  - Snout\n")
+    # Two heterogeneous source folders
+    _seed(
+        dlc / "labeled-data" / "rat_view_in_filename",
+        "CollectedData_x.csv",
+        rows=[
+            ["labeled-data", "rat_view_in_filename", "img_cam0_0000_00100.png", "10"],
+            ["labeled-data", "rat_view_in_filename", "img_cam1_0000_00100.png", "20"],
+        ],
+        png_names=["img_cam0_0000_00100.png", "img_cam1_0000_00100.png"],
+    )
+    _seed(
+        dlc / "labeled-data" / "session_cam0_20260101",
+        "CollectedData_x.csv",
+        rows=[
+            ["labeled-data/session_cam0_20260101/imgZZZ.png", "5"],
+        ],
+        png_names=["imgZZZ.png"],
+    )
+
+    # Force vendored fallback (no network)
+    monkeypatch.setattr("urllib.request.urlopen", lambda *a, **kw: (_ for _ in ()).throw(OSError("offline")))
+    monkeypatch.setattr("dlc_3d_bp.lp.converter._LP_DEFAULT_CACHE", tmp_path / "no-cache.yaml")
+
+    lp_dir = tmp_path / "lp"
+    lp_dir.mkdir()
+
+    n_rows = _build_sv_pretrain_project(lp_dir=lp_dir, dlc_dir=dlc, bodyparts=["Snout"])
+    assert n_rows == 3  # 2 + 1
+
+    sv = lp_dir / "sv-pretrain"
+    assert (sv / "config.yaml").is_file()
+    assert (sv / "labels.csv").is_file()
+    # PNGs hardlinked into sv-pretrain/labeled-data/<folder>/<png>
+    assert (sv / "labeled-data" / "rat_view_in_filename" / "img_cam0_0000_00100.png").is_file()
+    assert (sv / "labeled-data" / "session_cam0_20260101" / "imgZZZ.png").is_file()
+
+    # labels.csv: 3 header rows + 3 data rows
+    with (sv / "labels.csv").open() as f:
+        lines = f.readlines()
+    assert len(lines) == 6
+    # First data row's path cell is the dest_rel (1-col, not 3-col split)
+    data_rows = [l for l in lines if l.strip().startswith("labeled-data/")]
+    assert len(data_rows) == 3
