@@ -693,6 +693,11 @@ function initLpLauncher() {
       if (!card) return;
       card.classList.remove("hidden");
       card.scrollIntoView({ behavior: "smooth", block: "nearest" });
+      // Belt-and-suspenders: also click each card's own refresh button if it
+      // has one, so a fresh-open always pulls live data even if the
+      // MutationObserver path is intercepted by browser cache shenanigans.
+      const refreshBtn = card.querySelector("[id^='btn-'][id$='-refresh'], [id$='-jobs-refresh']");
+      refreshBtn?.click();
     });
   });
 }
