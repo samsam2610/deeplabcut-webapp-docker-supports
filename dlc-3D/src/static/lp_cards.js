@@ -148,6 +148,24 @@ function initTrainCard() {
 
   $("#btn-close-lp-train")?.addEventListener("click", () => card.classList.add("hidden"));
 
+  // Auto-fill LP project path from the active DLC project ("<dlc>-LP/").
+  // Only overwrite if the user hasn't typed something different.
+  let lastAutoFill = "";
+  const syncProjectField = () => {
+    const dlc = activeDlcProjectFromDom();
+    const auto = dlc ? dlc.replace(/\/+$/, "") + "-LP" : "";
+    if (projectEl.value === "" || projectEl.value === lastAutoFill) {
+      projectEl.value = auto;
+      lastAutoFill = auto;
+    }
+  };
+  new MutationObserver(syncProjectField).observe(card, { attributes: true, attributeFilter: ["class"] });
+  const upstream = document.getElementById("dlc-active-path");
+  if (upstream) {
+    new MutationObserver(syncProjectField).observe(upstream, { childList: true, characterData: true, subtree: true });
+  }
+  syncProjectField();
+
   $("#lp-train-pm")?.addEventListener("change", (e) => {
     $("#lp-train-pm-params").style.display = e.target.checked ? "flex" : "none";
   });

@@ -160,12 +160,20 @@ def eks_run():
 @lp_bp.route("/train", methods=["POST"])
 def train_run():
     from dlc_3d_bp.lp.tasks import lp_train
+    import dlc_3d_bp.routes as routes_mod
 
     body = request.get_json(force=True, silent=True) or {}
     project = (body.get("lp_project") or "").strip()
     options = body.get("options") or {}
+
+    # Default lp_project to <active DLC project>-LP/ when omitted.
     if not project:
-        return jsonify({"error": "lp_project required"}), 400
+        with routes_mod._state_lock:
+            active_dlc = routes_mod._active_project or ""
+        if active_dlc:
+            project = active_dlc.rstrip("/") + "-LP"
+        else:
+            return jsonify({"error": "no active DLC project — load one first or pass lp_project"}), 400
     if not _under_user_data(Path(project)):
         return jsonify({"error": "lp_project must be under /user-data"}), 403
 
