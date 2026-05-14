@@ -2,21 +2,16 @@
 
 const $ = (sel) => document.querySelector(sel);
 
-function activeDlcProjectPath() {
-  // The main dlc-3D UI exposes the active project on a known element if any.
-  // Fall back to a global hint set by the project-load flow.
-  return (window.__dlc3d_active_project__ || "").trim();
-}
-
-function defaultLpDst(src) {
-  if (!src) return "";
-  return src.replace(/\/+$/, "") + "-LP";
+function activeDlcProjectFromDom() {
+  // Reads the active DLC project path from the DOM element managed by
+  // the main webapp's dlc_project.js. Empty string when no project is loaded.
+  return (document.getElementById("dlc-active-path")?.textContent || "").trim();
 }
 
 function initConvertCard() {
   const card = $("#lp-convert-card");
   if (!card) return;
-  const srcEl = $("#lp-convert-src");
+  const activeEl = $("#lp-convert-active");
   const dstEl = $("#lp-convert-dst");
   const runEl = $("#btn-lp-convert-run");
   const resEl = $("#lp-convert-result");
@@ -24,29 +19,37 @@ function initConvertCard() {
 
   closeBtn?.addEventListener("click", () => card.classList.add("hidden"));
 
-  // Sync source field with active project when card opens
-  const sync = () => {
-    const p = activeDlcProjectPath();
-    srcEl.value = p;
-    if (!dstEl.value) dstEl.value = defaultLpDst(p);
+  const renderActive = () => {
+    const p = activeDlcProjectFromDom();
+    if (p) {
+      activeEl.textContent = p;
+      activeEl.style.color = "var(--text)";
+    } else {
+      activeEl.innerHTML = "<em>load a DLC project in the \"DeepLabCut Project Manager\" card first</em>";
+      activeEl.style.color = "var(--text-dim)";
+    }
   };
-  // Observe class changes to refresh fields when shown
-  new MutationObserver(sync).observe(card, { attributes: true, attributeFilter: ["class"] });
-  sync();
+
+  // Refresh display when the card becomes visible OR when the upstream DOM changes.
+  new MutationObserver(renderActive).observe(card, { attributes: true, attributeFilter: ["class"] });
+  const upstream = document.getElementById("dlc-active-path");
+  if (upstream) {
+    new MutationObserver(renderActive).observe(upstream, { childList: true, characterData: true, subtree: true });
+  }
+  renderActive();
 
   runEl.addEventListener("click", async () => {
     runEl.disabled = true;
     resEl.hidden = false;
     resEl.textContent = "Running…";
+    const payload = { force: $("#lp-convert-force").checked };
+    const dst = dstEl.value.trim();
+    if (dst) payload.lp_dir = dst;   // dlc_dir omitted → server uses active project
     try {
       const r = await fetch("/dlc-3d/lp/convert", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          dlc_dir: srcEl.value.trim(),
-          lp_dir:  dstEl.value.trim(),
-          force:   $("#lp-convert-force").checked,
-        }),
+        body: JSON.stringify(payload),
       });
       const body = await r.json();
       resEl.textContent = JSON.stringify(body, null, 2);

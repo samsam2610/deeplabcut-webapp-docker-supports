@@ -6,15 +6,17 @@
       Close
     </button>
   </div>
-  <p class="subtitle">Convert the active DLC project to a multi-view Lightning-Pose layout. Source project is never modified.</p>
+  <p class="subtitle">Converts the active DLC project to a multi-view Lightning-Pose layout. Source project is never modified.</p>
 
   <div class="lp-field">
-    <label>Source DLC project</label>
-    <input type="text" id="lp-convert-src" readonly>
+    <label>Active DLC project</label>
+    <div id="lp-convert-active" style="font-family:var(--mono);font-size:.78rem;padding:.3rem .5rem;background:var(--surface-2);border:1px solid var(--border);border-radius:4px;color:var(--text-dim);min-height:1.5rem">
+      <em>load a DLC project in the "DeepLabCut Project Manager" card first</em>
+    </div>
   </div>
   <div class="lp-field">
-    <label>Output LP project path</label>
-    <input type="text" id="lp-convert-dst" placeholder="auto-filled when source loads">
+    <label>Output LP project path <span style="color:var(--text-dim);font-weight:400;text-transform:none;letter-spacing:0">(optional — defaults to <code style="font-family:var(--mono);font-size:.7rem">&lt;project&gt;-LP/</code>)</span></label>
+    <input type="text" id="lp-convert-dst" placeholder="leave empty to use the default">
   </div>
   <div class="lp-field lp-checkbox">
     <input type="checkbox" id="lp-convert-force">

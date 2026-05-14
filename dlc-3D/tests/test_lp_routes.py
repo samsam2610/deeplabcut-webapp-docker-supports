@@ -83,11 +83,52 @@ def test_index_renders_with_lp_cards(lp_app):
         assert cid in html, f"missing {cid}"
 
 
-def test_convert_endpoint_validates_input(lp_app):
+def test_convert_endpoint_400_when_no_active_project_and_no_dlc_dir(lp_app, monkeypatch):
+    # Ensure dlc-3D's active-project state is empty
+    import dlc_3d_bp.routes as r_mod
+    monkeypatch.setattr(r_mod, "_active_project", None, raising=False)
     c = lp_app.test_client()
     r = c.post("/dlc-3d/lp/convert", json={})
     assert r.status_code == 400
-    assert "error" in r.get_json()
+    msg = r.get_json().get("error", "").lower()
+    assert "project" in msg  # message should reference loading a project
+
+
+def test_convert_endpoint_uses_active_project_when_dlc_dir_omitted(lp_app, monkeypatch, tmp_path):
+    """Server-side _active_project is the source of truth when client omits dlc_dir."""
+    import dlc_3d_bp.routes as r_mod
+
+    fake_active = "/user-data/fake/proj"
+    monkeypatch.setattr(r_mod, "_active_project", fake_active, raising=False)
+    monkeypatch.setattr("dlc_3d_bp.lp_routes._under_user_data", lambda p: True)
+
+    captured = {}
+    def _fake_convert(dlc, lp, force=False):
+        captured["dlc"], captured["lp"], captured["force"] = str(dlc), str(lp), force
+        return {"n_views": 0, "n_frames": 0, "n_sessions": 0, "n_calibrations": 0,
+                "warnings": [], "output_dir": str(lp)}
+    monkeypatch.setattr("dlc_3d_bp.lp.converter.convert_dlc_to_lp", _fake_convert)
+
+    c = lp_app.test_client()
+    r = c.post("/dlc-3d/lp/convert", json={})
+    assert r.status_code == 201, r.get_data(as_text=True)
+    assert captured["dlc"] == fake_active
+    # Default lp_dir = <dlc>-LP
+    assert captured["lp"] == fake_active + "-LP"
+
+
+def test_convert_endpoint_defaults_lp_dir(lp_app, monkeypatch):
+    monkeypatch.setattr("dlc_3d_bp.lp_routes._under_user_data", lambda p: True)
+    captured = {}
+    def _fake_convert(dlc, lp, force=False):
+        captured["lp"] = str(lp)
+        return {"n_views": 0, "n_frames": 0, "n_sessions": 0, "n_calibrations": 0,
+                "warnings": [], "output_dir": str(lp)}
+    monkeypatch.setattr("dlc_3d_bp.lp.converter.convert_dlc_to_lp", _fake_convert)
+    c = lp_app.test_client()
+    r = c.post("/dlc-3d/lp/convert", json={"dlc_dir": "/user-data/x/proj"})
+    assert r.status_code == 201
+    assert captured["lp"] == "/user-data/x/proj-LP"
 
 
 def test_convert_endpoint_rejects_outside_user_data(lp_app):
@@ -97,6 +138,21 @@ def test_convert_endpoint_rejects_outside_user_data(lp_app):
         "lp_dir":  "/etc-lp",
     })
     assert r.status_code == 403
+
+
+def test_lp_launcher_renders_inside_main(lp_app):
+    """Regression: LP includes must live INSIDE <main> so they inherit the
+    centering layout. card_admin.html closes </main>, so LP partials must
+    come BEFORE it in dlc_3d.html."""
+    c = lp_app.test_client()
+    r = c.get("/dlc-3d/")
+    assert r.status_code == 200
+    html = r.get_data(as_text=True)
+    end_main = html.find("</main>")
+    launcher = html.find('id="lp-launcher-card"')
+    assert launcher != -1
+    assert end_main != -1
+    assert launcher < end_main, "lp-launcher-card renders AFTER </main> — layout will break"
 
 
 def test_job_status_endpoint_returns_404_for_unknown(lp_app, monkeypatch):

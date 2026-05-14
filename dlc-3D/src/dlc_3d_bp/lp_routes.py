@@ -44,13 +44,24 @@ def health():
 @lp_bp.route("/convert", methods=["POST"])
 def convert():
     from dlc_3d_bp.lp.converter import convert_dlc_to_lp
+    import dlc_3d_bp.routes as routes_mod
 
     body = request.get_json(force=True, silent=True) or {}
     dlc = (body.get("dlc_dir") or "").strip()
     lp = (body.get("lp_dir") or "").strip()
     force = bool(body.get("force", False))
-    if not dlc or not lp:
-        return jsonify({"error": "dlc_dir and lp_dir required"}), 400
+
+    # Default dlc_dir to the server's active DLC project.
+    if not dlc:
+        with routes_mod._state_lock:
+            dlc = routes_mod._active_project or ""
+        if not dlc:
+            return jsonify({"error": "no active DLC project — load one in the DLC project card first, or pass dlc_dir"}), 400
+
+    # Default lp_dir to <dlc_dir>-LP/.
+    if not lp:
+        lp = dlc.rstrip("/") + "-LP"
+
     dlc_p, lp_p = Path(dlc), Path(lp)
     if not (_under_user_data(dlc_p) and _under_user_data(lp_p)):
         return jsonify({"error": "paths must resolve under /user-data/"}), 403
