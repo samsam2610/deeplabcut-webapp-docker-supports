@@ -216,6 +216,12 @@ def convert_dlc_to_lp(
     (lp_dir / "labeled-data").mkdir(exist_ok=True)
     (lp_dir / "videos").mkdir(exist_ok=True)
 
+    # Pull bodyparts out of the DLC config early so it's available to both
+    # _write_lp_config (called below) and _build_sv_pretrain_project.
+    with (dlc_dir / "config.yaml").open() as _f:
+        _dlc_cfg = yaml.safe_load(_f) or {}
+    bodyparts = _dlc_cfg.get("bodyparts", []) or _dlc_cfg.get("multianimalbodyparts", [])
+
     # 1. Discover sessions and views from labeled-data folder names
     # by_session[session_key][view] -> dict describing where labels/frames live
     # For view-in-folder mode: {"src_dir": <view-folder>, "collected_csv": ...}
@@ -399,7 +405,17 @@ def convert_dlc_to_lp(
     # 6. Write LP config.yaml
     _write_lp_config(lp_dir, dlc_dir, all_views)
 
-    return summary.asdict()
+    # ── 7. Build the nested SV-pretrain sub-project ─────────────────
+    try:
+        n_sv = _build_sv_pretrain_project(lp_dir, dlc_dir, bodyparts)
+    except Exception as e:
+        summary.warnings.append(f"sv-pretrain build failed: {e}")
+        n_sv = 0
+
+    summary_dict = summary.asdict()
+    summary_dict["sv_pretrain_dir"] = str(lp_dir / "sv-pretrain")
+    summary_dict["n_sv_rows"] = n_sv
+    return summary_dict
 
 
 def _probe_image_dims(lp_dir: Path) -> Tuple[int, int]:

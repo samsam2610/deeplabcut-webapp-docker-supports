@@ -178,3 +178,34 @@ def test_build_sv_pretrain_project_writes_layout(tmp_path, monkeypatch):
     # First data row's path cell is the dest_rel (1-col, not 3-col split)
     data_rows = [l for l in lines if l.strip().startswith("labeled-data/")]
     assert len(data_rows) == 3
+
+
+from dlc_3d_bp.lp.converter import convert_dlc_to_lp
+
+
+def test_convert_emits_sv_pretrain_sibling(tmp_path, monkeypatch):
+    """convert_dlc_to_lp summary includes sv_pretrain_dir + n_sv_rows."""
+    dlc = tmp_path / "dlc"
+    dlc.mkdir()
+    (dlc / "config.yaml").write_text("bodyparts:\n  - Snout\n")
+    ld = dlc / "labeled-data" / "rat_20260101"
+    _seed(
+        ld, "CollectedData_x.csv",
+        rows=[
+            ["labeled-data", "rat_20260101", "img_cam0_0000_00100.png", "10"],
+            ["labeled-data", "rat_20260101", "img_cam1_0000_00100.png", "20"],
+        ],
+        png_names=["img_cam0_0000_00100.png", "img_cam1_0000_00100.png"],
+    )
+
+    monkeypatch.setattr("urllib.request.urlopen", lambda *a, **kw: (_ for _ in ()).throw(OSError("offline")))
+    monkeypatch.setattr("dlc_3d_bp.lp.converter._LP_DEFAULT_CACHE", tmp_path / "no-cache.yaml")
+
+    lp_dir = tmp_path / "lp"
+    summary = convert_dlc_to_lp(dlc, lp_dir)
+
+    assert "sv_pretrain_dir" in summary
+    assert summary["sv_pretrain_dir"].endswith("sv-pretrain")
+    assert summary["n_sv_rows"] == 2
+    assert (Path(summary["sv_pretrain_dir"]) / "config.yaml").is_file()
+    assert (Path(summary["sv_pretrain_dir"]) / "labels.csv").is_file()
