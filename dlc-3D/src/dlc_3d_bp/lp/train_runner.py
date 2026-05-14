@@ -153,3 +153,19 @@ def run_train_subprocess(model_dir: Path | str, log_callback=None, cwd: Path | s
         if time.time() - last_emit > 5:
             last_emit = time.time()
     return proc.wait()
+
+
+def find_best_checkpoint(model_dir) -> Path | None:
+    """Return the newest ``*-best.ckpt`` under ``<model_dir>/tb_logs/.../checkpoints/``.
+
+    Falls back to any ``*.ckpt`` if no *-best is present. Returns None when
+    no checkpoint exists at all.
+    """
+    model_dir = Path(model_dir)
+    best = list(model_dir.glob("tb_logs/*/version_*/checkpoints/*-best.ckpt"))
+    if best:
+        return max(best, key=lambda p: p.stat().st_mtime)
+    any_ckpt = list(model_dir.glob("tb_logs/*/version_*/checkpoints/*.ckpt"))
+    if any_ckpt:
+        return max(any_ckpt, key=lambda p: p.stat().st_mtime)
+    return None
