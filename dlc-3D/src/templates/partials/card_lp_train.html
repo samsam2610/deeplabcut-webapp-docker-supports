@@ -39,6 +39,22 @@
   </fieldset>
 
   <fieldset class="lp-group">
+    <legend>Pretraining</legend>
+    <div class="lp-field lp-checkbox">
+      <input type="checkbox" id="lp-train-two-stage">
+      <label for="lp-train-two-stage">Pretrain ViT backbone on all labels (single-view first, then MVT)</label>
+    </div>
+    <div class="lp-row" id="lp-train-two-stage-params" style="display:none">
+      <label>Stage 1 max epochs <input type="number" id="lp-train-stage1-epochs" value="100" min="1"></label>
+      <label>Stage 1 early-stop patience <input type="number" id="lp-train-stage1-patience" value="5" min="1"></label>
+    </div>
+    <div class="lp-field" id="lp-train-stage1-override-wrap" style="display:none">
+      <label>Existing stage-1 checkpoint <span style="color:var(--text-dim);font-weight:400;text-transform:none;letter-spacing:0">(optional; skip stage 1)</span></label>
+      <input type="text" id="lp-train-stage1-override" placeholder="/user-data/.../tb_logs/.../checkpoints/epoch=...-best.ckpt">
+    </div>
+  </fieldset>
+
+  <fieldset class="lp-group">
     <legend>Training</legend>
     <div class="lp-row">
       <label>Max epochs <input type="number" id="lp-train-epochs" value="300" min="1"></label>

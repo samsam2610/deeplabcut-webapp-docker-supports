@@ -172,6 +172,10 @@ function initTrainCard() {
   $("#lp-train-reproj")?.addEventListener("change", (e) => {
     $("#lp-train-reproj-params").style.display = e.target.checked ? "flex" : "none";
   });
+  $("#lp-train-two-stage")?.addEventListener("change", (e) => {
+    $("#lp-train-two-stage-params").style.display = e.target.checked ? "flex" : "none";
+    $("#lp-train-stage1-override-wrap").style.display = e.target.checked ? "block" : "none";
+  });
 
   runEl.addEventListener("click", async () => {
     runEl.disabled = true;
@@ -191,6 +195,10 @@ function initTrainCard() {
       batch_size: +$("#lp-train-batch").value,
       predict_vids_after_training: $("#lp-train-predict-vids").checked,
       save_vids_after_training:    $("#lp-train-save-vids").checked,
+      two_stage:                 $("#lp-train-two-stage").checked,
+      stage1_max_epochs:         +$("#lp-train-stage1-epochs").value,
+      stage1_early_stop_patience:+$("#lp-train-stage1-patience").value,
+      stage1_ckpt_override:      $("#lp-train-stage1-override").value.trim(),
     };
 
     try {
@@ -205,9 +213,11 @@ function initTrainCard() {
       resEl.textContent = `Job ${jobId}: PENDING`;
       await pollJob(jobId, (j) => {
         const tail = (j.log_tail || []).slice(-30).join("\n");
+        const stage = j.celery_info?.stage || "";
         resEl.textContent =
           `state: ${j.celery_state || "PENDING"}\n` +
-          `run_dir: ${j.options?.lp_project || ""}\n` +
+          (stage ? `stage: ${stage}\n` : "") +
+          `run_dir: ${j.celery_info?.lp_project || j.options?.lp_project || ""}\n` +
           `--- log tail ---\n${tail}`;
       }, 2500);
     } finally {
