@@ -82,3 +82,70 @@ def test_invalid_mode_raises(tmp_path):
     src.write_bytes(b"x")
     with pytest.raises(ValueError):
         add_videos_to_lp(lp, [src], mode="bogus")
+
+
+def test_delete_symlink_does_not_follow_target(tmp_path):
+    from dlc_3d_bp.lp.video_adder import delete_videos_from_lp
+    lp = _make_lp(tmp_path)
+    real = tmp_path / "real.mp4"; real.write_bytes(b"keep me")
+    link = lp / "videos" / "v.mp4"
+    os.symlink(str(real), str(link))
+
+    out = delete_videos_from_lp(lp, ["v.mp4"])
+    assert out["deleted"] == ["v.mp4"]
+    assert out["missing"] == []
+    assert out["errors"] == []
+    assert not link.exists() and not link.is_symlink()
+    # Target file untouched
+    assert real.read_bytes() == b"keep me"
+
+
+def test_delete_regular_file(tmp_path):
+    from dlc_3d_bp.lp.video_adder import delete_videos_from_lp
+    lp = _make_lp(tmp_path)
+    f = lp / "videos" / "v.mp4"; f.write_bytes(b"")
+    out = delete_videos_from_lp(lp, ["v.mp4"])
+    assert out["deleted"] == ["v.mp4"]
+    assert not f.exists()
+
+
+def test_delete_broken_symlink(tmp_path):
+    from dlc_3d_bp.lp.video_adder import delete_videos_from_lp
+    lp = _make_lp(tmp_path)
+    link = lp / "videos" / "broken.mp4"
+    os.symlink("/no/such/path", str(link))
+    out = delete_videos_from_lp(lp, ["broken.mp4"])
+    assert out["deleted"] == ["broken.mp4"]
+    assert not link.is_symlink()
+
+
+def test_delete_missing_entry_reported(tmp_path):
+    from dlc_3d_bp.lp.video_adder import delete_videos_from_lp
+    lp = _make_lp(tmp_path)
+    out = delete_videos_from_lp(lp, ["ghost.mp4"])
+    assert out["deleted"] == []
+    assert out["missing"] == ["ghost.mp4"]
+    assert out["errors"] == []
+
+
+def test_delete_rejects_path_traversal(tmp_path):
+    from dlc_3d_bp.lp.video_adder import delete_videos_from_lp
+    lp = _make_lp(tmp_path)
+    sibling = tmp_path / "sibling"; sibling.mkdir()
+    secret = sibling / "secret.txt"; secret.write_text("important")
+
+    for bad in ("../sibling/secret.txt", "foo/bar.mp4", "/etc/passwd", ".."):
+        with pytest.raises(ValueError):
+            delete_videos_from_lp(lp, [bad])
+    # Sibling untouched
+    assert secret.is_file()
+
+
+def test_delete_mixed_names(tmp_path):
+    from dlc_3d_bp.lp.video_adder import delete_videos_from_lp
+    lp = _make_lp(tmp_path)
+    (lp / "videos" / "a.mp4").write_bytes(b"")
+    (lp / "videos" / "b.mp4").write_bytes(b"")
+    out = delete_videos_from_lp(lp, ["a.mp4", "ghost.mp4", "b.mp4"])
+    assert out["deleted"] == ["a.mp4", "b.mp4"]
+    assert out["missing"] == ["ghost.mp4"]

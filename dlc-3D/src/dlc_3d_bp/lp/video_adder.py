@@ -68,3 +68,48 @@ def add_videos_to_lp(
             errors.append(f"{src.name}: {e}")
 
     return {"added": added, "skipped": skipped, "errors": errors}
+
+
+def delete_videos_from_lp(lp_dir: Path | str, names: Iterable[str]) -> dict:
+    """Unlink named entries from ``<lp_dir>/videos/``.
+
+    Uses ``os.unlink`` (operates on the link, never the target). Rejects names
+    containing ``/`` or ``..`` to prevent path traversal — only basenames in the
+    videos/ dir are allowed.
+
+    Returns::
+        {"deleted": [str, ...], "missing": [str, ...], "errors": [str, ...]}
+
+    Raises:
+        FileNotFoundError: lp_dir is not an LP project.
+        ValueError:        a name contains ``/`` or ``..``.
+    """
+    lp_dir = Path(lp_dir).resolve()
+    if not (lp_dir / "config.yaml").is_file():
+        raise FileNotFoundError(f"not an LP project (no config.yaml): {lp_dir}")
+
+    videos = lp_dir / "videos"
+    videos.mkdir(exist_ok=True)
+
+    deleted: list[str] = []
+    missing: list[str] = []
+    errors:  list[str] = []
+
+    for raw in names:
+        if not raw or "/" in raw or ".." in raw.split(os.sep):
+            raise ValueError(f"invalid name (path traversal disallowed): {raw!r}")
+        path = videos / raw
+        # Treat the entry as "exists" if it's a regular file, dir, OR symlink
+        # (broken symlinks return False from .exists() but lstat works).
+        try:
+            os.lstat(str(path))
+        except FileNotFoundError:
+            missing.append(raw)
+            continue
+        try:
+            os.unlink(str(path))
+            deleted.append(raw)
+        except OSError as e:
+            errors.append(f"{raw}: {e}")
+
+    return {"deleted": deleted, "missing": missing, "errors": errors}
