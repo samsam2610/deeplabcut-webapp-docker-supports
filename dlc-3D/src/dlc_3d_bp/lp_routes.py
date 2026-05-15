@@ -50,6 +50,9 @@ def convert():
     dlc = (body.get("dlc_dir") or "").strip()
     lp = (body.get("lp_dir") or "").strip()
     force = bool(body.get("force", False))
+    mode = (body.get("mode") or ("force" if force else "fresh")).strip().lower()
+    if mode not in ("fresh", "force", "sync"):
+        return jsonify({"error": f"invalid mode {mode!r}; expected fresh|force|sync"}), 400
 
     # Default dlc_dir to the server's active DLC project.
     if not dlc:
@@ -66,7 +69,7 @@ def convert():
     if not (_under_user_data(dlc_p) and _under_user_data(lp_p)):
         return jsonify({"error": "paths must resolve under /user-data/"}), 403
     try:
-        summary = convert_dlc_to_lp(dlc_p, lp_p, force=force)
+        summary = convert_dlc_to_lp(dlc_p, lp_p, mode=mode)
     except (FileNotFoundError, ValueError) as e:
         return jsonify({"error": str(e)}), 400
     return jsonify(summary), 201

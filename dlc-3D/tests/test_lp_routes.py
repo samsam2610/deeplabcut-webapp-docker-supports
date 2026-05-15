@@ -103,8 +103,8 @@ def test_convert_endpoint_uses_active_project_when_dlc_dir_omitted(lp_app, monke
     monkeypatch.setattr("dlc_3d_bp.lp_routes._under_user_data", lambda p: True)
 
     captured = {}
-    def _fake_convert(dlc, lp, force=False):
-        captured["dlc"], captured["lp"], captured["force"] = str(dlc), str(lp), force
+    def _fake_convert(dlc, lp, **kwargs):
+        captured["dlc"], captured["lp"], captured["kwargs"] = str(dlc), str(lp), kwargs
         return {"n_views": 0, "n_frames": 0, "n_sessions": 0, "n_calibrations": 0,
                 "warnings": [], "output_dir": str(lp)}
     monkeypatch.setattr("dlc_3d_bp.lp.converter.convert_dlc_to_lp", _fake_convert)
@@ -120,7 +120,7 @@ def test_convert_endpoint_uses_active_project_when_dlc_dir_omitted(lp_app, monke
 def test_convert_endpoint_defaults_lp_dir(lp_app, monkeypatch):
     monkeypatch.setattr("dlc_3d_bp.lp_routes._under_user_data", lambda p: True)
     captured = {}
-    def _fake_convert(dlc, lp, force=False):
+    def _fake_convert(dlc, lp, **kwargs):
         captured["lp"] = str(lp)
         return {"n_views": 0, "n_frames": 0, "n_sessions": 0, "n_calibrations": 0,
                 "warnings": [], "output_dir": str(lp)}
@@ -465,3 +465,32 @@ def test_lp_videos_add_rejects_outside_user_data(tmp_path, monkeypatch):
                json={"lp_project": str(tmp_path / "proj"),
                      "video_paths": [str(tmp_path / "v.mp4")], "mode": "symlink"})
     assert r.status_code == 403
+
+
+def test_lp_convert_sync_mode_passes_through(monkeypatch, tmp_path):
+    from dlc_3d_bp import lp_routes
+    monkeypatch.setattr(lp_routes, "_USER_DATA_ROOT", str(tmp_path.resolve()))
+
+    received = {}
+
+    def fake_convert(dlc, lp, **kwargs):
+        received["dlc"] = str(dlc)
+        received["lp"] = str(lp)
+        received["kwargs"] = kwargs
+        return {"output_dir": str(lp), "n_sessions": 0, "n_views": 0, "warnings": []}
+
+    monkeypatch.setattr("dlc_3d_bp.lp.converter.convert_dlc_to_lp", fake_convert)
+
+    dlc = tmp_path / "dlc"
+    dlc.mkdir()
+    (dlc / "config.yaml").write_text("")
+    lp = tmp_path / "lp"
+    lp.mkdir()
+
+    a = Flask(__name__)
+    a.register_blueprint(lp_routes.lp_bp)
+    c = a.test_client()
+    r = c.post("/dlc-3d/lp/convert",
+               json={"dlc_dir": str(dlc), "lp_dir": str(lp), "mode": "sync"})
+    assert r.status_code == 201, r.get_data(as_text=True)
+    assert received["kwargs"].get("mode") == "sync"
