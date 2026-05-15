@@ -65,108 +65,6 @@ function initConvertCard() {
     }
   });
 
-  // ── Add-videos panel (mirrors Predict card's browser pattern) ───────
-  const avProjEl    = $("#lp-add-videos-project");
-  const avModeEl    = $("#lp-add-videos-mode");
-  const avTargetEl  = $("#lp-add-videos-target");
-  const avUpEl      = $("#lp-add-videos-up");
-  const avBrowseEl  = $("#lp-add-videos-browse-btn");
-  const avPaneEl    = $("#lp-add-videos-browser");
-  const avBatchAdd  = $("#lp-add-videos-batch-add");
-  const avBatchClr  = $("#lp-add-videos-batch-clear");
-  const avBatchList = $("#lp-add-videos-batch-list");
-  const avRunEl     = $("#btn-lp-add-videos-run");
-  const avResEl     = $("#lp-add-videos-result");
-
-  if (avProjEl && avTargetEl) {
-    const avBrowser = makeFileBrowser({ inputEl: avTargetEl, paneEl: avPaneEl, dirOnly: false });
-    const avQueue = [];
-
-    function avRenderQueue() {
-      if (!avQueue.length) {
-        avBatchList.style.display = "none";
-        avBatchList.innerHTML = "";
-        return;
-      }
-      avBatchList.style.display = "block";
-      avBatchList.innerHTML = "";
-      avQueue.forEach((p, i) => {
-        const row = document.createElement("div");
-        row.style.cssText = "display:flex;align-items:center;gap:.3rem;padding:.1rem 0";
-        const txt = document.createElement("span");
-        txt.style.cssText = "flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap";
-        txt.textContent = p;
-        const rm = document.createElement("button");
-        rm.className = "btn-sm"; rm.style.cssText = "padding:0 .35rem;font-size:.7rem;opacity:.6";
-        rm.textContent = "×"; rm.title = "Remove";
-        rm.addEventListener("click", () => { avQueue.splice(i, 1); avRenderQueue(); });
-        row.appendChild(txt); row.appendChild(rm);
-        avBatchList.appendChild(row);
-      });
-    }
-
-    function avAddToQueue(p) {
-      p = (p || "").trim();
-      if (!p) return;
-      if (!avQueue.includes(p)) avQueue.push(p);
-      avRenderQueue();
-    }
-
-    avPaneEl.addEventListener("lp-picker-dblclick", (e) => avAddToQueue(e.detail.path));
-    avBatchAdd.addEventListener("click", () => avAddToQueue(avBrowser.getHighlighted() || avTargetEl.value));
-    avBatchClr.addEventListener("click", () => { avQueue.length = 0; avRenderQueue(); });
-
-    avBrowseEl.addEventListener("click", () => {
-      // Seed from the LP project field if available, otherwise /user-data
-      const fallback = (avProjEl.value.trim() || dstEl?.value?.trim() || "/user-data");
-      avBrowser.openAt(fallback);
-    });
-    avUpEl.addEventListener("click", () => avBrowser.up());
-    avTargetEl.addEventListener("keydown", (e) => {
-      if (e.key === "Enter") {
-        e.preventDefault();
-        avBrowser.browseDir(avTargetEl.value.trim());
-        avPaneEl.classList.remove("hidden");
-      }
-    });
-
-    avRunEl.addEventListener("click", async () => {
-      const lp = avProjEl.value.trim() || dstEl?.value?.trim();
-      if (!lp) {
-        avResEl.hidden = false;
-        avResEl.textContent = "Specify the LP project (or fill the convert target above).";
-        return;
-      }
-      // Use queue if non-empty; else fall back to the target field alone
-      const paths = avQueue.length ? avQueue.slice() : (avTargetEl.value.trim() ? [avTargetEl.value.trim()] : []);
-      if (!paths.length) {
-        avResEl.hidden = false;
-        avResEl.textContent = "Queue at least one video (browse + double-click, or + Add to queue).";
-        return;
-      }
-      avRunEl.disabled = true;
-      avResEl.hidden = false;
-      avResEl.textContent = "Adding…";
-      try {
-        const r = await fetch("/dlc-3d/lp/videos/add", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            lp_project: lp,
-            video_paths: paths,
-            mode: avModeEl.value || "symlink",
-          }),
-        });
-        const j = await r.json();
-        avResEl.textContent = JSON.stringify(j, null, 2);
-        if (r.ok) { avQueue.length = 0; avRenderQueue(); }
-      } catch (e) {
-        avResEl.textContent = "Error: " + e.message;
-      } finally {
-        avRunEl.disabled = false;
-      }
-    });
-  }
 }
 
 initConvertCard();
@@ -667,6 +565,222 @@ function initJobsCard() {
 }
 
 initJobsCard();
+
+
+function initVideosCard() {
+  const card = $("#lp-videos-card");
+  if (!card) return;
+
+  const projectEl = $("#lp-videos-project");
+  const listEl    = $("#lp-videos-list");
+  const refreshEl = $("#btn-lp-videos-refresh");
+  const selAllEl  = $("#btn-lp-videos-select-all");
+  const delEl     = $("#btn-lp-videos-delete");
+  const countEl   = $("#lp-videos-selected-count");
+  const resEl     = $("#lp-videos-result");
+
+  $("#btn-close-lp-videos")?.addEventListener("click", () => card.classList.add("hidden"));
+
+  // Auto-fill project from the active DLC project (mirrors initPredictCard's logic)
+  function syncProject() {
+    const dlc = activeDlcProjectFromDom();
+    const auto = dlc ? dlc.replace(/\/+$/, "") + "-LP" : "";
+    if (!projectEl.value) projectEl.value = auto;
+  }
+
+  function fmtSize(n) {
+    if (n === null || n === undefined) return "?";
+    const units = ["B", "KB", "MB", "GB"];
+    let i = 0; let v = n;
+    while (v >= 1024 && i < units.length - 1) { v /= 1024; i++; }
+    return `${v.toFixed(v >= 100 ? 0 : 1)} ${units[i]}`;
+  }
+
+  function selectedNames() {
+    return Array.from(listEl.querySelectorAll('input[type="checkbox"]:checked'))
+      .map(cb => cb.dataset.name);
+  }
+  function updateCount() {
+    countEl.textContent = String(selectedNames().length);
+  }
+
+  async function refresh() {
+    syncProject();
+    const lp = projectEl.value.trim();
+    if (!lp) {
+      listEl.innerHTML = '<span style="color:var(--text-dim)">specify the LP project above</span>';
+      return;
+    }
+    listEl.innerHTML = '<span style="color:var(--text-dim)">Loading…</span>';
+    try {
+      const r = await fetch(`/dlc-3d/lp/videos/list?lp_project=${encodeURIComponent(lp)}`);
+      const body = await r.json();
+      if (!r.ok) { listEl.innerHTML = `<span style="color:var(--text-dim)">error: ${body.error || r.status}</span>`; return; }
+      const videos = body.videos || [];
+      if (!videos.length) {
+        listEl.innerHTML = '<span style="color:var(--text-dim)">(no videos)</span>';
+        updateCount();
+        return;
+      }
+      listEl.innerHTML = "";
+      for (const v of videos) {
+        const row = document.createElement("div");
+        row.style.cssText = "display:flex;align-items:center;gap:.4rem;padding:.1rem 0;border-bottom:1px solid rgba(255,255,255,.05)";
+        const cb = document.createElement("input");
+        cb.type = "checkbox"; cb.dataset.name = v.name; cb.style.cursor = "pointer";
+        cb.addEventListener("change", updateCount);
+        const name = document.createElement("span");
+        name.textContent = v.name;
+        name.style.cssText = "flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap";
+        const tag = document.createElement("span");
+        tag.style.cssText = "font-size:.68rem;padding:0 .3rem;border-radius:3px";
+        if (v.is_symlink) {
+          tag.textContent = v.target_exists ? "symlink" : "symlink (broken)";
+          tag.style.color = v.target_exists ? "var(--accent, #63b3ed)" : "var(--warn, #e2a050)";
+          tag.style.background = "rgba(99,179,237,.12)";
+        } else {
+          tag.textContent = "file";
+          tag.style.color = "var(--text-dim)";
+        }
+        const size = document.createElement("span");
+        size.textContent = fmtSize(v.size_bytes);
+        size.style.cssText = "color:var(--text-dim);font-size:.7rem;min-width:4rem;text-align:right";
+        row.append(cb, name, tag, size);
+        if (v.is_symlink && v.target) {
+          row.title = `→ ${v.target}`;
+        }
+        listEl.appendChild(row);
+      }
+      updateCount();
+    } catch (e) {
+      listEl.innerHTML = `<span style="color:var(--text-dim)">error: ${e.message}</span>`;
+    }
+  }
+
+  refreshEl?.addEventListener("click", refresh);
+
+  selAllEl?.addEventListener("click", () => {
+    const boxes = Array.from(listEl.querySelectorAll('input[type="checkbox"]'));
+    if (!boxes.length) return;
+    const anyUnchecked = boxes.some(b => !b.checked);
+    boxes.forEach(b => { b.checked = anyUnchecked; });
+    updateCount();
+  });
+
+  delEl?.addEventListener("click", async () => {
+    const names = selectedNames();
+    if (!names.length) { resEl.hidden = false; resEl.textContent = "Nothing selected."; return; }
+    if (!confirm(`Delete ${names.length} entry/entries from <lp>/videos/?\nSymlinks unlink only the shortcut.`)) return;
+    delEl.disabled = true; const oldText = delEl.innerHTML; delEl.textContent = "Deleting…";
+    try {
+      const r = await fetch("/dlc-3d/lp/videos/delete", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ lp_project: projectEl.value.trim(), video_names: names }),
+      });
+      const body = await r.json();
+      resEl.hidden = false;
+      resEl.textContent = JSON.stringify(body, null, 2);
+      if (r.ok) await refresh();
+    } catch (e) {
+      resEl.hidden = false; resEl.textContent = "error: " + e.message;
+    } finally {
+      delEl.disabled = false; delEl.innerHTML = oldText;
+      updateCount();
+    }
+  });
+
+  // ── Add-videos section (moved from Convert card; same shape) ────────
+  const avModeEl    = $("#lp-videos-add-mode");
+  const avTargetEl  = $("#lp-videos-add-target");
+  const avUpEl      = $("#lp-videos-add-up");
+  const avBrowseEl  = $("#lp-videos-add-browse-btn");
+  const avPaneEl    = $("#lp-videos-add-browser");
+  const avBatchAdd  = $("#lp-videos-add-batch-add");
+  const avBatchClr  = $("#lp-videos-add-batch-clear");
+  const avBatchList = $("#lp-videos-add-batch-list");
+  const avRunEl     = $("#btn-lp-videos-add-run");
+
+  if (avTargetEl) {
+    const avBrowser = makeFileBrowser({
+      inputEl: avTargetEl, paneEl: avPaneEl, dirOnly: false,
+      onPick: (p) => avAddToQueue(p),
+    });
+    const avQueue = [];
+
+    function avRenderQueue() {
+      if (!avQueue.length) {
+        avBatchList.style.display = "none";
+        avBatchList.innerHTML = "";
+        return;
+      }
+      avBatchList.style.display = "block";
+      avBatchList.innerHTML = "";
+      avQueue.forEach((p, i) => {
+        const row = document.createElement("div");
+        row.style.cssText = "display:flex;align-items:center;gap:.3rem;padding:.1rem 0";
+        const txt = document.createElement("span");
+        txt.style.cssText = "flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap";
+        txt.textContent = p;
+        const rm = document.createElement("button");
+        rm.className = "btn-sm"; rm.style.cssText = "padding:0 .35rem;font-size:.7rem;opacity:.6";
+        rm.textContent = "×";
+        rm.addEventListener("click", () => { avQueue.splice(i, 1); avRenderQueue(); });
+        row.appendChild(txt); row.appendChild(rm);
+        avBatchList.appendChild(row);
+      });
+    }
+    function avAddToQueue(p) {
+      p = (p || "").trim(); if (!p) return;
+      if (!avQueue.includes(p)) avQueue.push(p);
+      avRenderQueue();
+    }
+
+    avBatchAdd.addEventListener("click", () => avAddToQueue(avBrowser.getHighlighted() || avTargetEl.value));
+    avBatchClr.addEventListener("click", () => { avQueue.length = 0; avRenderQueue(); });
+    avBrowseEl.addEventListener("click", () => avBrowser.openAt(projectEl.value.trim() || "/user-data"));
+    avUpEl.addEventListener("click", () => avBrowser.up());
+    avTargetEl.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") { e.preventDefault(); avBrowser.browseDir(avTargetEl.value.trim()); avPaneEl.classList.remove("hidden"); }
+    });
+
+    avRunEl?.addEventListener("click", async () => {
+      const lp = projectEl.value.trim();
+      if (!lp) { resEl.hidden = false; resEl.textContent = "Specify the LP project above."; return; }
+      const paths = avQueue.length ? avQueue.slice() : (avTargetEl.value.trim() ? [avTargetEl.value.trim()] : []);
+      if (!paths.length) { resEl.hidden = false; resEl.textContent = "Queue at least one video."; return; }
+      avRunEl.disabled = true; resEl.hidden = false; resEl.textContent = "Adding…";
+      try {
+        const r = await fetch("/dlc-3d/lp/videos/add", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ lp_project: lp, video_paths: paths, mode: avModeEl.value || "symlink" }),
+        });
+        const body = await r.json();
+        resEl.textContent = JSON.stringify(body, null, 2);
+        if (r.ok) { avQueue.length = 0; avRenderQueue(); await refresh(); }
+      } catch (e) {
+        resEl.textContent = "error: " + e.message;
+      } finally {
+        avRunEl.disabled = false;
+      }
+    });
+  }
+
+  // Refresh whenever the card becomes visible (matches Jobs card pattern)
+  new MutationObserver(() => {
+    if (!card.classList.contains("hidden")) refresh();
+  }).observe(card, { attributes: true, attributeFilter: ["class"] });
+
+  // Also refresh when the active DLC project changes
+  const upstream = document.getElementById("dlc-active-path");
+  if (upstream) {
+    new MutationObserver(() => { if (!card.classList.contains("hidden")) refresh(); })
+      .observe(upstream, { childList: true, characterData: true, subtree: true });
+  }
+}
+
+initVideosCard();
 
 
 function initLpLauncher() {
