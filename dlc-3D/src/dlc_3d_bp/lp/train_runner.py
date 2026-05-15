@@ -156,6 +156,43 @@ def build_train_config(
             "freeze_until_epoch": 0,
         }
 
+    # ── Semi-supervised training (temporal loss only, first cut) ────────
+    if options.get("semi_supervised_enabled"):
+        loss_log_weight = float(options.get("temporal_log_weight", 5.0))
+        loss_epsilon    = float(options.get("temporal_epsilon", 0.0))
+        cfg.setdefault("model", {}).setdefault("losses_to_use", [])
+        if "temporal" not in cfg["model"]["losses_to_use"]:
+            cfg["model"]["losses_to_use"].append("temporal")
+        cfg.setdefault("losses", {})
+        cfg["losses"]["temporal"] = {
+            "log_weight": loss_log_weight,
+            "epsilon":    loss_epsilon,
+        }
+        cfg.setdefault("callbacks", {}).setdefault("anneal_weight", {
+            "attr_name": "total_unsupervised_importance",
+            "init_val": 0.0,
+            "increase_factor": 0.01,
+            "final_val": 1.0,
+            "freeze_until_epoch": 0,
+        })
+        # Stage-2 MVT video filter: when caller provides parent_videos_dir +
+        # stage2_dir, build videos_mvt_filtered/ and re-point data.video_dir.
+        parent_videos = options.get("parent_videos_dir")
+        stage2_dir    = options.get("stage2_dir")
+        if parent_videos and stage2_dir:
+            out_dir, kept, dropped = _build_mvt_video_subdir(
+                Path(parent_videos),
+                cfg.get("data", {}).get("view_names", []),
+                Path(stage2_dir),
+            )
+            cfg.setdefault("data", {})["video_dir"] = str(out_dir)
+            # Annotate the cfg with the filter report so the run-time log
+            # can pick it up (tasks.py emits this in the train log).
+            cfg.setdefault("metadata", {})["mvt_video_filter"] = {
+                "kept_sessions": kept,
+                "dropped_files": dropped,
+            }
+
     # Training params
     for src, dst in (("max_epochs", "max_epochs"),
                      ("batch_size", "train_batch_size"),
@@ -327,7 +364,26 @@ def build_stage1_config(
     eval_block = cfg.setdefault("eval", {})
     eval_block["predict_vids_after_training"] = False
     eval_block["save_vids_after_training"] = False
-    # No unsupervised losses, no patch masking, no reproj for stage 1.
+    # No patch masking, no reproj for stage 1.
     cfg.setdefault("losses", {})
     cfg.setdefault("callbacks", {})
+    # Optional semi-supervised temporal loss for stage 1 (SV-pretrain sees all
+    # videos in the parent's `videos/` dir; no filter applies here).
+    if options.get("semi_supervised_enabled"):
+        loss_log_weight = float(options.get("temporal_log_weight", 5.0))
+        loss_epsilon    = float(options.get("temporal_epsilon", 0.0))
+        cfg.setdefault("model", {}).setdefault("losses_to_use", [])
+        if "temporal" not in cfg["model"]["losses_to_use"]:
+            cfg["model"]["losses_to_use"].append("temporal")
+        cfg["losses"]["temporal"] = {
+            "log_weight": loss_log_weight,
+            "epsilon":    loss_epsilon,
+        }
+        cfg["callbacks"].setdefault("anneal_weight", {
+            "attr_name": "total_unsupervised_importance",
+            "init_val": 0.0,
+            "increase_factor": 0.01,
+            "final_val": 1.0,
+            "freeze_until_epoch": 0,
+        })
     Path(out_dir, "config.yaml").write_text(yaml.safe_dump(cfg, sort_keys=False))

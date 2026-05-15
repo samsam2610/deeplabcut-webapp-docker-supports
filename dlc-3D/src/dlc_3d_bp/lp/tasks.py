@@ -32,6 +32,33 @@ def _lp_train_impl(self, lp_project: str, options: dict) -> dict:
     except Exception:
         rconn = None
 
+    # ── Redelivery guard ────────────────────────────────────────────────
+    # Celery + Redis broker + acks_late=True will re-deliver any task whose
+    # original execution didn't cleanly ack (worker crash, OOM, mid-flight
+    # cancellation that didn't propagate, etc.). On redelivery the task ID
+    # is the same, so an existing log key with real training/predict
+    # progress under this ID is the signature. Bail with a clear error so
+    # the second execution doesn't burn another ~3 hours of GPU on a run
+    # the user never asked for, and so the broker stops endlessly retrying.
+    if rconn is not None:
+        try:
+            prior = rconn.lrange(log_key, 0, -1)
+        except Exception:
+            prior = []
+        _PROGRESS_MARKERS = ("Epoch ", "STAGE ", "Predicting DataLoader", "Training:")
+        if prior and any(any(m in line for m in _PROGRESS_MARKERS) for line in prior):
+            msg = (
+                f"redelivery detected: task {self.request.id} already ran "
+                f"({len(prior)} prior log lines, last: {prior[-1][:120]!r}). "
+                "Refusing to re-execute; revoke this task via /lp/job/<id>/cancel "
+                "if it shows up again."
+            )
+            try:
+                rconn.rpush(log_key, msg); rconn.ltrim(log_key, -2000, -1)
+            except Exception:
+                pass
+            raise RuntimeError(msg)
+
     def emit(line: str, **meta) -> None:
         if rconn:
             try:
@@ -79,6 +106,11 @@ def _lp_train_impl(self, lp_project: str, options: dict) -> dict:
         # Strip stage-1 keys so build_train_config doesn't see them
         for k in ("two_stage", "stage1_max_epochs", "stage1_early_stop_patience", "stage1_ckpt_override"):
             stage2_options.pop(k, None)
+        # Pass through semi-supervised + parent videos dir so build_train_config
+        # can construct the filtered videos_mvt_filtered/ subdir for MVT.
+        if stage2_options.get("semi_supervised_enabled"):
+            stage2_options.setdefault("parent_videos_dir", str(proj / "videos"))
+            stage2_options.setdefault("stage2_dir", str(stage2_dir))
         build_train_config(proj / "config.yaml", stage2_dir / "config.yaml", stage2_options)
 
         # Inject model.checkpoint into the just-written stage-2 config
@@ -172,6 +204,26 @@ def lp_predict(self, model_dir: str, videos: list, skip_viz: bool = False, overw
     except Exception:
         rconn = None
 
+    # Redelivery guard — see lp_train for the rationale. Predict tasks on
+    # 250k+ frame videos take 25+ minutes; we don't want them silently
+    # restarting after a worker reset.
+    if rconn is not None:
+        try:
+            prior = rconn.lrange(log_key, 0, -1)
+        except Exception:
+            prior = []
+        _PROGRESS_MARKERS = ("Predicting DataLoader", "transcoding", "prepared ", "relocated ")
+        if prior and any(any(m in line for m in _PROGRESS_MARKERS) for line in prior):
+            msg = (
+                f"redelivery detected: task {self.request.id} already ran "
+                f"({len(prior)} prior log lines). Refusing to re-execute."
+            )
+            try:
+                rconn.rpush(log_key, msg); rconn.ltrim(log_key, -2000, -1)
+            except Exception:
+                pass
+            raise RuntimeError(msg)
+
     def emit(line: str) -> None:
         if rconn:
             try:
@@ -187,7 +239,7 @@ def lp_predict(self, model_dir: str, videos: list, skip_viz: bool = False, overw
     # without an early emit, the Jobs card shows PENDING-with-empty-log and
     # the run looks hung.
     emit(f"preparing inputs (transcoding {len(videos)} video(s) to mp4 if needed)…")
-    prep = prepare_predict_inputs(md, videos)
+    prep = prepare_predict_inputs(md, videos, emit=emit)
     if not prep["mp4_paths"]:
         raise RuntimeError(
             f"no usable sessions after sibling resolution: {prep['sibling_warnings']}"
@@ -208,7 +260,10 @@ def lp_predict(self, model_dir: str, videos: list, skip_viz: bool = False, overw
     emit(f"relocated {relocate_info['moved']} file(s); skipped {len(relocate_info['skipped'])}")
 
     # ── Emit H5 sidecars (main webapp's analyzed-viewer uses pd.read_hdf) ─
-    h5_info = emit_h5_sidecars(relocate_info.get("dest_paths") or [])
+    # Key off prediction_csv_paths so H5s are produced even when relocation
+    # was skipped (dest existed + overwrite=False) — the fresh CSV still lives
+    # at <model_dir>/video_preds/<stem>.csv and deserves a sidecar.
+    h5_info = emit_h5_sidecars(relocate_info.get("prediction_csv_paths") or [])
     emit(f"emitted {len(h5_info['emitted'])} H5 sidecar(s)")
 
     return {
