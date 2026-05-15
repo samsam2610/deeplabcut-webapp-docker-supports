@@ -494,3 +494,60 @@ def test_lp_convert_sync_mode_passes_through(monkeypatch, tmp_path):
                json={"dlc_dir": str(dlc), "lp_dir": str(lp), "mode": "sync"})
     assert r.status_code == 201, r.get_data(as_text=True)
     assert received["kwargs"].get("mode") == "sync"
+
+
+def test_videos_list_endpoint(tmp_path, monkeypatch):
+    from dlc_3d_bp import lp_routes
+    monkeypatch.setattr(lp_routes, "_USER_DATA_ROOT", str(tmp_path))
+    lp = tmp_path / "proj"; lp.mkdir()
+    (lp / "config.yaml").write_text("d:{}\n"); (lp / "videos").mkdir()
+    (lp / "videos" / "a.mp4").write_bytes(b"123")
+
+    from flask import Flask
+    a = Flask(__name__); a.register_blueprint(lp_routes.lp_bp)
+    c = a.test_client()
+    r = c.get(f"/dlc-3d/lp/videos/list?lp_project={lp}")
+    assert r.status_code == 200
+    j = r.get_json()
+    assert j["videos"][0]["name"] == "a.mp4"
+    assert j["videos"][0]["size_bytes"] == 3
+
+
+def test_videos_list_rejects_outside_user_data(tmp_path, monkeypatch):
+    from dlc_3d_bp import lp_routes
+    monkeypatch.setattr(lp_routes, "_USER_DATA_ROOT", "/nope")
+    from flask import Flask
+    a = Flask(__name__); a.register_blueprint(lp_routes.lp_bp)
+    c = a.test_client()
+    r = c.get(f"/dlc-3d/lp/videos/list?lp_project={tmp_path / 'proj'}")
+    assert r.status_code == 403
+
+
+def test_videos_delete_endpoint(tmp_path, monkeypatch):
+    from dlc_3d_bp import lp_routes
+    monkeypatch.setattr(lp_routes, "_USER_DATA_ROOT", str(tmp_path))
+    lp = tmp_path / "proj"; lp.mkdir()
+    (lp / "config.yaml").write_text("d:{}\n"); (lp / "videos").mkdir()
+    (lp / "videos" / "v.mp4").write_bytes(b"")
+
+    from flask import Flask
+    a = Flask(__name__); a.register_blueprint(lp_routes.lp_bp)
+    c = a.test_client()
+    r = c.post("/dlc-3d/lp/videos/delete",
+               json={"lp_project": str(lp), "video_names": ["v.mp4"]})
+    assert r.status_code == 200
+    assert r.get_json()["deleted"] == ["v.mp4"]
+    assert not (lp / "videos" / "v.mp4").exists()
+
+
+def test_videos_delete_path_traversal_400(tmp_path, monkeypatch):
+    from dlc_3d_bp import lp_routes
+    monkeypatch.setattr(lp_routes, "_USER_DATA_ROOT", str(tmp_path))
+    lp = tmp_path / "proj"; lp.mkdir()
+    (lp / "config.yaml").write_text(""); (lp / "videos").mkdir()
+    from flask import Flask
+    a = Flask(__name__); a.register_blueprint(lp_routes.lp_bp)
+    c = a.test_client()
+    r = c.post("/dlc-3d/lp/videos/delete",
+               json={"lp_project": str(lp), "video_names": ["../escape.txt"]})
+    assert r.status_code == 400

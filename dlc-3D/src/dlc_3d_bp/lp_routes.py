@@ -335,3 +335,44 @@ def videos_add():
         return jsonify({"error": str(e)}), 400
 
     return jsonify({"lp_project": str(lp_p), **result}), 201
+
+
+@lp_bp.route("/videos/list", methods=["GET"])
+def videos_list():
+    from dlc_3d_bp.lp.video_lister import list_videos
+
+    lp = (request.args.get("lp_project") or "").strip()
+    if not lp:
+        return jsonify({"error": "lp_project required"}), 400
+    lp_p = Path(lp)
+    if not _under_user_data(lp_p):
+        return jsonify({"error": "lp_project must resolve under /user-data/"}), 403
+    try:
+        videos = list_videos(lp_p)
+    except FileNotFoundError as e:
+        return jsonify({"error": str(e)}), 400
+    return jsonify({"lp_project": str(lp_p), "videos": videos})
+
+
+@lp_bp.route("/videos/delete", methods=["POST"])
+def videos_delete():
+    from dlc_3d_bp.lp.video_adder import delete_videos_from_lp
+
+    body = request.get_json(force=True, silent=True) or {}
+    lp = (body.get("lp_project") or "").strip()
+    names = body.get("video_names") or []
+    if not lp:
+        return jsonify({"error": "lp_project required"}), 400
+    if not isinstance(names, list) or not names:
+        return jsonify({"error": "video_names (non-empty list) required"}), 400
+
+    lp_p = Path(lp)
+    if not _under_user_data(lp_p):
+        return jsonify({"error": "lp_project must resolve under /user-data/"}), 403
+
+    try:
+        result = delete_videos_from_lp(lp_p, names)
+    except (FileNotFoundError, ValueError) as e:
+        return jsonify({"error": str(e)}), 400
+
+    return jsonify({"lp_project": str(lp_p), **result})
