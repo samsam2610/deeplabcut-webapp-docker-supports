@@ -1,150 +1,8 @@
 // Lightning-Pose cards — Card 1 (Convert) wiring.
 
+import { makeFileBrowser } from "./components/file_browser.js";
+
 const $ = (sel) => document.querySelector(sel);
-
-// ── Shared file-picker helpers (used by Predict + Convert/Add-Videos cards) ──
-const _LP_VIDEO_EXTS = new Set([".mp4", ".avi", ".mov", ".mkv", ".wmv", ".m4v"]);
-const _LP_IMAGE_EXTS = new Set([".jpg", ".jpeg", ".png", ".bmp", ".tif", ".tiff"]);
-
-function _lpSupportedFile(name) {
-  const i = name.lastIndexOf(".");
-  if (i < 0) return false;
-  const ext = name.slice(i).toLowerCase();
-  return _LP_VIDEO_EXTS.has(ext) || _LP_IMAGE_EXTS.has(ext);
-}
-
-/** Build a directory-tree picker for any (inputEl, paneEl) pair.
- *  Mirrors analyze.js' video picker. dirOnly=true hides files entirely.
- *  Returns { browseDir, openAt, up, getHighlighted }.
- *  Emits 'lp-picker-dblclick' (bubbles:false) on paneEl on file double-click. */
-function _lpMakeBrowser({ inputEl, paneEl, dirOnly }) {
-  let highlightedRow = null;
-  let highlightedPath = "";
-  let browserLoaded = false;
-  let currentDir = "";
-
-  function setHighlight(row, path) {
-    if (highlightedRow && highlightedRow !== row) {
-      highlightedRow.style.background = "";
-      highlightedRow.style.outline = "";
-    }
-    highlightedRow = row;
-    highlightedPath = path;
-    inputEl.value = path;
-    row.style.background = "var(--accent-dim, rgba(99,179,237,.18))";
-    row.style.outline = "1px solid var(--accent, #63b3ed)";
-  }
-
-  function makeEntry(name, fullPath, isDir) {
-    const wrapper = document.createElement("div");
-    const row = document.createElement("div");
-    row.style.cssText = "display:flex;align-items:center;gap:.3rem;padding:.15rem .4rem;border-radius:3px;cursor:pointer";
-    const arrow = document.createElement("span");
-    arrow.style.cssText = "width:.8rem;color:var(--text-dim);font-size:.7rem";
-    arrow.textContent = isDir ? "▶" : "·";
-    const label = document.createElement("span");
-    label.style.cssText = "flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:var(--mono);font-size:.74rem";
-    label.textContent = name + (isDir ? "/" : "");
-    row.appendChild(arrow); row.appendChild(label);
-    wrapper.appendChild(row);
-
-    const childContainer = document.createElement("div");
-    childContainer.style.cssText = "display:none;padding-left:1rem";
-    wrapper.appendChild(childContainer);
-
-    let loaded = false, expanded = false;
-
-    if (isDir) {
-      row.addEventListener("click", async () => {
-        setHighlight(row, fullPath);
-        if (!expanded && !loaded) {
-          childContainer.innerHTML = `<span style="font-size:.72rem;color:var(--text-dim);padding:.15rem .4rem;display:block">Loading…</span>`;
-          childContainer.style.display = "block";
-          try {
-            const res = await fetch(`/fs/ls?path=${encodeURIComponent(fullPath)}`);
-            const d = await res.json();
-            childContainer.innerHTML = "";
-            if (!d.error) {
-              const vis = (d.entries || []).filter((e) =>
-                (e.type === "dir" && e.has_media !== false) ||
-                (!dirOnly && e.type === "file" && _lpSupportedFile(e.name)));
-              vis.forEach((e) =>
-                childContainer.appendChild(makeEntry(e.name, fullPath.replace(/\/+$/, "") + "/" + e.name, e.type === "dir")));
-              if (!vis.length) childContainer.innerHTML = `<span style="font-size:.72rem;color:var(--text-dim);padding:.15rem .4rem;display:block">(no supported entries)</span>`;
-            } else {
-              childContainer.innerHTML = `<span style="font-size:.72rem;color:var(--text-dim);padding:.15rem .4rem;display:block">${d.error}</span>`;
-            }
-          } catch (e) {
-            childContainer.innerHTML = `<span style="font-size:.72rem;color:var(--text-dim);padding:.15rem .4rem;display:block">Error loading.</span>`;
-          }
-          loaded = true; expanded = true; arrow.textContent = "▼";
-        } else {
-          expanded = !expanded;
-          childContainer.style.display = expanded ? "block" : "none";
-          arrow.textContent = expanded ? "▼" : "▶";
-        }
-      });
-    } else {
-      row.addEventListener("click", () => setHighlight(row, fullPath));
-    }
-
-    // Double-click: emit a custom event the parent wires to its queue handler
-    row.addEventListener("dblclick", (e) => {
-      e.stopPropagation();
-      inputEl.value = fullPath;
-      paneEl.dispatchEvent(new CustomEvent("lp-picker-dblclick", { detail: { path: fullPath }, bubbles: false }));
-      paneEl.classList.add("hidden");
-      browserLoaded = false;
-    });
-
-    return wrapper;
-  }
-
-  async function browseDir(dirPath) {
-    browserLoaded = false;
-    currentDir = dirPath;
-    inputEl.value = dirPath;
-    paneEl.innerHTML = `<span style="font-size:.8rem;color:var(--text-dim)">Loading…</span>`;
-    try {
-      const res = await fetch(`/fs/ls?path=${encodeURIComponent(dirPath)}`);
-      const data = await res.json();
-      if (data.error) { paneEl.textContent = data.error; return; }
-      paneEl.innerHTML = "";
-      const visible = (data.entries || []).filter((e) =>
-        (e.type === "dir" && e.has_media !== false) ||
-        (!dirOnly && e.type === "file" && _lpSupportedFile(e.name)));
-      if (!visible.length) {
-        const empty = document.createElement("span");
-        empty.style.cssText = "font-size:.78rem;color:var(--text-dim);padding:.3rem;display:block";
-        empty.textContent = dirOnly ? "(no subfolders)" : "(no supported video or image files)";
-        paneEl.appendChild(empty);
-      } else {
-        visible.forEach((e) =>
-          paneEl.appendChild(makeEntry(e.name, (data.path || dirPath).replace(/\/+$/, "") + "/" + e.name, e.type === "dir")));
-      }
-      browserLoaded = true;
-    } catch (err) {
-      paneEl.textContent = "Failed to load.";
-    }
-  }
-
-  function openAt(initialPath) {
-    const isHidden = paneEl.classList.contains("hidden");
-    paneEl.classList.toggle("hidden");
-    if (!isHidden) return;
-    const typed = inputEl.value.trim() || initialPath || "/user-data";
-    browseDir(typed);
-  }
-
-  function up() {
-    const cur = (inputEl.value.trim() || currentDir).replace(/\/+$/, "");
-    if (!cur) return;
-    const parent = cur.split("/").slice(0, -1).join("/") || "/";
-    if (parent !== cur) { browseDir(parent); paneEl.classList.remove("hidden"); }
-  }
-
-  return { browseDir, openAt, up, getHighlighted: () => highlightedPath };
-}
 
 function activeDlcProjectFromDom() {
   // Reads the active DLC project path from the DOM element managed by
@@ -221,7 +79,7 @@ function initConvertCard() {
   const avResEl     = $("#lp-add-videos-result");
 
   if (avProjEl && avTargetEl) {
-    const avBrowser = _lpMakeBrowser({ inputEl: avTargetEl, paneEl: avPaneEl, dirOnly: false });
+    const avBrowser = makeFileBrowser({ inputEl: avTargetEl, paneEl: avPaneEl, dirOnly: false });
     const avQueue = [];
 
     function avRenderQueue() {
@@ -559,7 +417,7 @@ function initPredictCard() {
   syncProjectField();
 
   // ── Videos picker ───────────────────────────────────────────────────
-  const videoBrowser = _lpMakeBrowser({ inputEl: targetEl, paneEl: browserEl, dirOnly: false });
+  const videoBrowser = makeFileBrowser({ inputEl: targetEl, paneEl: browserEl, dirOnly: false });
   const queue = []; // ordered, deduped
 
   function renderQueue() {
@@ -606,7 +464,7 @@ function initPredictCard() {
   });
 
   // ── Output folder picker (dir-only) ────────────────────────────────
-  const destBrowser = _lpMakeBrowser({ inputEl: destEl, paneEl: destBrowserEl, dirOnly: true });
+  const destBrowser = makeFileBrowser({ inputEl: destEl, paneEl: destBrowserEl, dirOnly: true });
   destBrowseEl.addEventListener("click", () => destBrowser.openAt(destEl.value.trim() || "/user-data"));
   destUpEl.addEventListener("click", () => destBrowser.up());
   destClearEl.addEventListener("click", () => { destEl.value = ""; destBrowserEl.classList.add("hidden"); });
