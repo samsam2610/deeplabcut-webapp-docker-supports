@@ -18,10 +18,39 @@
     <label>Output LP project path <span style="color:var(--text-dim);font-weight:400;text-transform:none;letter-spacing:0">(optional — defaults to <code style="font-family:var(--mono);font-size:.7rem">&lt;project&gt;-LP/</code>)</span></label>
     <input type="text" id="lp-convert-dst" placeholder="leave empty to use the default">
   </div>
-  <div class="lp-field lp-checkbox">
-    <input type="checkbox" id="lp-convert-force">
-    <label for="lp-convert-force">Overwrite if target directory is not empty</label>
-  </div>
+  <fieldset class="lp-field">
+    <legend>Convert mode</legend>
+    <label><input type="radio" name="lp-convert-mode" value="fresh" checked> Fresh — fail if target not empty</label>
+    <label><input type="radio" name="lp-convert-mode" value="force"> Force — overwrite all existing files</label>
+    <label><input type="radio" name="lp-convert-mode" value="sync"> Sync — add new only, keep existing</label>
+  </fieldset>
+
+  <details class="lp-field" id="lp-add-videos-section">
+    <summary style="cursor:pointer;font-weight:500">Add videos to LP project</summary>
+    <p class="subtitle" style="margin-top:.4rem">Browse for video files and place them under <code style="font-family:var(--mono);font-size:.7rem">&lt;lp&gt;/videos/</code>. Files that already exist are skipped (never overwritten).</p>
+    <div class="lp-field">
+      <label>LP project</label>
+      <input type="text" id="lp-add-videos-project" placeholder="defaults to current convert target">
+    </div>
+    <div class="lp-field">
+      <label>Mode</label>
+      <select id="lp-add-videos-mode">
+        <option value="symlink" selected>symlink (recommended)</option>
+        <option value="hardlink">hardlink (falls back to copy)</option>
+        <option value="copy">copy</option>
+      </select>
+    </div>
+    <div class="lp-field">
+      <button class="btn-sm" id="btn-lp-add-videos-browse">Browse for videos…</button>
+      <div id="lp-add-videos-browser" class="hidden" style="max-height:240px;overflow:auto;border:1px solid var(--border);border-radius:4px;padding:.4rem;margin-top:.4rem;background:var(--surface-2);font-family:var(--mono);font-size:.75rem"></div>
+    </div>
+    <div class="lp-field">
+      <label>Queue (<span id="lp-add-videos-count">0</span>)</label>
+      <ul id="lp-add-videos-queue" style="list-style:none;padding:0;margin:0;font-family:var(--mono);font-size:.75rem"></ul>
+    </div>
+    <button class="btn-primary" id="btn-lp-add-videos-run">Add videos</button>
+    <pre class="lp-result" id="lp-add-videos-result" hidden></pre>
+  </details>
 
   <button class="btn-primary" id="btn-lp-convert-run">Run conversion</button>
 

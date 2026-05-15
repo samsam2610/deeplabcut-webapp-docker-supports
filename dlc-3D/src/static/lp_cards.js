@@ -38,11 +38,14 @@ function initConvertCard() {
   }
   renderActive();
 
+  const modeEl = () =>
+    document.querySelector('input[name="lp-convert-mode"]:checked')?.value || "fresh";
+
   runEl.addEventListener("click", async () => {
     runEl.disabled = true;
     resEl.hidden = false;
     resEl.textContent = "Running…";
-    const payload = { force: $("#lp-convert-force").checked };
+    const payload = { mode: modeEl() };
     const dst = dstEl.value.trim();
     if (dst) payload.lp_dir = dst;   // dlc_dir omitted → server uses active project
     try {
@@ -57,6 +60,124 @@ function initConvertCard() {
       resEl.textContent = "Error: " + e.message;
     } finally {
       runEl.disabled = false;
+    }
+  });
+
+  // ── Add-videos panel ────────────────────────────────────────────────
+  const aProj   = $("#lp-add-videos-project");
+  const aMode   = $("#lp-add-videos-mode");
+  const aBrowse = $("#btn-lp-add-videos-browse");
+  const aList   = $("#lp-add-videos-browser");
+  const aQueueEl = $("#lp-add-videos-queue");
+  const aCountEl = $("#lp-add-videos-count");
+  const aRun    = $("#btn-lp-add-videos-run");
+  const aResult = $("#lp-add-videos-result");
+
+  let curPath = null;
+  const queue = new Set();
+
+  function renderQueue() {
+    if (!aQueueEl) return;
+    aQueueEl.innerHTML = "";
+    Array.from(queue).forEach(p => {
+      const li = document.createElement("li");
+      li.style.cssText = "display:flex;align-items:center;gap:.3rem;padding:.15rem 0";
+      const btn = document.createElement("button");
+      btn.className = "btn-sm";
+      btn.textContent = "−";
+      btn.addEventListener("click", () => { queue.delete(p); renderQueue(); });
+      const span = document.createElement("span");
+      span.textContent = p;
+      li.appendChild(btn);
+      li.appendChild(span);
+      aQueueEl.appendChild(li);
+    });
+    if (aCountEl) aCountEl.textContent = String(queue.size);
+  }
+
+  async function loadDir(path) {
+    curPath = path;
+    const url = "/dlc-3d/browse" + (path ? "?path=" + encodeURIComponent(path) : "");
+    let j;
+    try {
+      const r = await fetch(url);
+      j = await r.json();
+      if (!r.ok) { aList.textContent = "browse error: " + (j.error || r.status); return; }
+    } catch (e) {
+      aList.textContent = "browse error: " + e.message;
+      return;
+    }
+    aList.innerHTML = "";
+    const up = document.createElement("div");
+    up.textContent = "../";
+    up.style.cssText = "cursor:pointer;color:var(--accent)";
+    up.addEventListener("click", () => loadDir(j.parent_path || ""));
+    aList.appendChild(up);
+    (j.entries || []).forEach(e => {
+      const row = document.createElement("div");
+      row.style.cssText = "display:flex;align-items:center;gap:.4rem;padding:.1rem 0";
+      if (e.type === "dir") {
+        const a = document.createElement("a");
+        a.href = "#";
+        a.textContent = e.name + "/";
+        a.style.color = "var(--accent)";
+        a.addEventListener("click", ev => {
+          ev.preventDefault();
+          loadDir((j.current_path || curPath || "") + "/" + e.name);
+        });
+        row.appendChild(a);
+      } else {
+        const lower = (e.name || "").toLowerCase();
+        const isVid = lower.endsWith(".mp4") || lower.endsWith(".avi") || lower.endsWith(".mov") || lower.endsWith(".mkv");
+        const btn = document.createElement("button");
+        btn.className = "btn-sm";
+        btn.disabled = !isVid;
+        btn.textContent = "+";
+        btn.addEventListener("click", () => {
+          const full = (j.current_path || curPath || "") + "/" + e.name;
+          queue.add(full);
+          renderQueue();
+        });
+        row.appendChild(btn);
+        const span = document.createElement("span");
+        span.textContent = e.name;
+        if (!isVid) span.style.opacity = "0.5";
+        row.appendChild(span);
+      }
+      aList.appendChild(row);
+    });
+  }
+
+  aBrowse?.addEventListener("click", () => {
+    aList.classList.toggle("hidden");
+    if (!aList.classList.contains("hidden") && !curPath) {
+      const seed = aProj?.value?.trim() || dstEl?.value?.trim() || "";
+      loadDir(seed ? seed.replace(/\/+$/, "").split("/").slice(0, -1).join("/") : "");
+    }
+  });
+
+  aRun?.addEventListener("click", async () => {
+    const lp = aProj?.value?.trim() || dstEl?.value?.trim();
+    if (!lp) { aResult.hidden = false; aResult.textContent = "specify LP project"; return; }
+    if (!queue.size) { aResult.hidden = false; aResult.textContent = "queue is empty"; return; }
+    aRun.disabled = true;
+    aRun.textContent = "Adding…";
+    try {
+      const r = await fetch("/dlc-3d/lp/videos/add", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ lp_project: lp, video_paths: Array.from(queue), mode: aMode.value }),
+      });
+      const j = await r.json();
+      aResult.hidden = false;
+      aResult.textContent = JSON.stringify(j, null, 2);
+      if (r.ok) { queue.clear(); renderQueue(); }
+    } catch (e) {
+      aResult.hidden = false;
+      aResult.textContent = "error: " + e.message;
+    } finally {
+      aRun.disabled = false;
+      aRun.textContent = "Add videos";
     }
   });
 }
