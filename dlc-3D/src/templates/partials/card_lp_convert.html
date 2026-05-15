@@ -25,32 +25,52 @@
     <label><input type="radio" name="lp-convert-mode" value="sync"> Sync — add new only, keep existing</label>
   </fieldset>
 
-  <details class="lp-field" id="lp-add-videos-section">
-    <summary style="cursor:pointer;font-weight:500">Add videos to LP project</summary>
-    <p class="subtitle" style="margin-top:.4rem">Browse for video files and place them under <code style="font-family:var(--mono);font-size:.7rem">&lt;lp&gt;/videos/</code>. Files that already exist are skipped (never overwritten).</p>
-    <div class="lp-field">
-      <label>LP project</label>
-      <input type="text" id="lp-add-videos-project" placeholder="defaults to current convert target">
+<details class="lp-field" id="lp-add-videos-section">
+  <summary style="cursor:pointer;font-weight:500">Add videos to LP project</summary>
+  <p class="subtitle" style="margin-top:.4rem">
+    Browse for video files and place them under
+    <code style="font-family:var(--mono);font-size:.7rem">&lt;lp&gt;/videos/</code>.
+    Files that already exist are skipped (never overwritten).
+  </p>
+
+  <div class="lp-field">
+    <label>LP project</label>
+    <input type="text" id="lp-add-videos-project" placeholder="defaults to the convert target above">
+  </div>
+
+  <div class="lp-field">
+    <label>Mode</label>
+    <select id="lp-add-videos-mode" style="font-family:var(--mono);font-size:.78rem;padding:.3rem .5rem;background:var(--surface-2);border:1px solid var(--border);border-radius:4px;color:var(--text)">
+      <option value="symlink" selected>symlink (recommended)</option>
+      <option value="hardlink">hardlink (falls back to copy)</option>
+      <option value="copy">copy</option>
+    </select>
+  </div>
+
+  <!-- Target / Up / Browse — same layout as Predict card -->
+  <div class="lp-field">
+    <label>Target (file or folder path)</label>
+    <div style="display:flex;gap:.4rem">
+      <input type="text" id="lp-add-videos-target" placeholder="/path/to/video.mp4  or  /path/to/folder"
+        style="flex:1;font-family:var(--mono);font-size:.78rem;padding:.35rem .55rem;background:var(--surface-2);border:1px solid var(--border);border-radius:5px;color:var(--text)" />
+      <button class="btn-sm" id="lp-add-videos-up" style="padding:.2rem .45rem;font-size:.75rem" title="Go up one level">↑ Up</button>
+      <button class="btn-sm" id="lp-add-videos-browse-btn" title="Browse for videos and folders">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+        Browse
+      </button>
     </div>
-    <div class="lp-field">
-      <label>Mode</label>
-      <select id="lp-add-videos-mode">
-        <option value="symlink" selected>symlink (recommended)</option>
-        <option value="hardlink">hardlink (falls back to copy)</option>
-        <option value="copy">copy</option>
-      </select>
+    <div id="lp-add-videos-browser" class="hidden" style="margin-top:.5rem;max-height:240px;overflow-y:auto;border:1px solid var(--border);border-radius:6px;background:var(--surface-2);padding:.4rem .5rem;font-size:.77rem"></div>
+    <div style="display:flex;gap:.4rem;margin-top:.4rem;align-items:center;flex-wrap:wrap">
+      <button class="btn-sm" id="lp-add-videos-batch-add" title="Add highlighted path to the add-videos queue" style="opacity:.85">+ Add to queue</button>
+      <button class="btn-sm" id="lp-add-videos-batch-clear" title="Clear all queued paths" style="opacity:.7">✕ Clear queue</button>
+      <span style="font-size:.72rem;color:var(--text-dim)">Single-click to highlight · double-click to add instantly</span>
     </div>
-    <div class="lp-field">
-      <button class="btn-sm" id="btn-lp-add-videos-browse">Browse for videos…</button>
-      <div id="lp-add-videos-browser" class="hidden" style="max-height:240px;overflow:auto;border:1px solid var(--border);border-radius:4px;padding:.4rem;margin-top:.4rem;background:var(--surface-2);font-family:var(--mono);font-size:.75rem"></div>
-    </div>
-    <div class="lp-field">
-      <label>Queue (<span id="lp-add-videos-count">0</span>)</label>
-      <ul id="lp-add-videos-queue" style="list-style:none;padding:0;margin:0;font-family:var(--mono);font-size:.75rem"></ul>
-    </div>
-    <button class="btn-primary" id="btn-lp-add-videos-run">Add videos</button>
-    <pre class="lp-result" id="lp-add-videos-result" hidden></pre>
-  </details>
+    <div id="lp-add-videos-batch-list" style="margin-top:.4rem;display:none;border:1px solid var(--border);border-radius:5px;background:var(--surface-2);max-height:140px;overflow-y:auto;padding:.3rem .4rem;font-size:.74rem;font-family:var(--mono)"></div>
+  </div>
+
+  <button class="btn-primary" id="btn-lp-add-videos-run">Add videos</button>
+  <pre class="lp-result" id="lp-add-videos-result" hidden></pre>
+</details>
 
   <button class="btn-primary" id="btn-lp-convert-run">Run conversion</button>
 
