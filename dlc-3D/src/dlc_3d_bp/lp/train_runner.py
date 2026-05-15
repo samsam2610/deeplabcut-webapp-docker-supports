@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import datetime
 import os
+import re
 import subprocess
 import time
 from pathlib import Path
@@ -21,6 +22,62 @@ _DEFAULT_PATCH_MASKING = {
     "init_ratio": 0.0,
     "final_ratio": 0.5,
 }
+
+_CAM_RE = re.compile(r"_cam(\d+)_")
+
+
+def _build_mvt_video_subdir(parent_videos, view_names, stage2_dir):
+    """Create ``<stage2_dir>/videos_mvt_filtered/`` containing symlinks to only
+    the videos in ``parent_videos`` that have a complete sibling set across
+    ``view_names``. Returns ``(out_dir: Path, kept_sessions: int, dropped: list[str])``.
+
+    Pairing rule: for each video stem containing a ``_cam{N}_`` token, build
+    the session key by replacing that token with a placeholder. A session is
+    "complete" iff for every view in ``view_names`` the substituted filename
+    exists in ``parent_videos``. Files without a ``_cam{N}_`` token are skipped
+    silently (they're not orphans, just not multi-view candidates).
+    """
+    parent_videos = Path(parent_videos)
+    stage2_dir = Path(stage2_dir)
+    out_dir = stage2_dir / "videos_mvt_filtered"
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    # Bucket files by session key (path with the cam-token replaced by a marker)
+    by_session: dict = {}
+    untagged: list = []
+    for p in sorted(parent_videos.iterdir()):
+        if not p.is_file() and not p.is_symlink():
+            continue
+        m = _CAM_RE.search(p.name)
+        if not m:
+            untagged.append(p)
+            continue
+        view_token = f"_cam{m.group(1)}_"
+        view_name = f"cam{m.group(1)}"
+        session_key = p.name.replace(view_token, "_camX_", 1)
+        by_session.setdefault(session_key, {})[view_name] = p
+
+    kept_sessions = 0
+    dropped: list = []
+    expected = set(view_names)
+    for session_key, view_to_path in by_session.items():
+        present = set(view_to_path.keys())
+        if expected.issubset(present):
+            # Complete pair — symlink every requested view
+            for view in view_names:
+                src = view_to_path[view]
+                dst = out_dir / src.name
+                if dst.exists() or dst.is_symlink():
+                    continue
+                # symlink to the *resolved* target so cross-stage moves still work
+                os.symlink(os.path.realpath(str(src)), str(dst))
+            kept_sessions += 1
+        else:
+            # Orphan(s) — report each present view file
+            for view_name, p in view_to_path.items():
+                dropped.append(p.name)
+
+    return out_dir, kept_sessions, dropped
 
 
 def make_run_dir(lp_project: Path | str) -> Path:
@@ -107,6 +164,18 @@ def build_train_config(
         if src in options:
             cfg["training"][dst] = options[src]
 
+    # Early-stopping controls (stage 2 / single-stage). Mirror what stage 1 did:
+    # honor an explicit `early_stop_patience` from options. When unset, leave
+    # LP's canonical default in place (~5). Long runs on small val sets need a
+    # bigger patience to ride out noisy validation curves — without this, an
+    # MVT on 540/28 train/val split typically early-stops near epoch ~45 even
+    # when max_epochs=300, leaving the model undertrained.
+    if "early_stop_patience" in options:
+        cfg["training"]["early_stopping"] = True
+        cfg["training"]["early_stop_patience"] = int(options["early_stop_patience"])
+    if options.get("disable_early_stopping"):
+        cfg["training"]["early_stopping"] = False
+
     # Keep min_epochs <= max_epochs. LP 2.1.0 asserts both keys are present and
     # uses them as PL Trainer args; min_epochs > max_epochs would error.
     if "max_epochs" in options:
@@ -137,8 +206,6 @@ def build_train_config(
 
     out_path.write_text(yaml.safe_dump(cfg, sort_keys=False))
 
-
-import re
 
 # tqdm progress line pattern: `<prefix>: NN%|<bar>| N/M [...]`.
 # The prefix is everything before the first colon (e.g., 'Epoch 0',
