@@ -26,56 +26,95 @@ _DEFAULT_PATCH_MASKING = {
 _CAM_RE = re.compile(r"_cam(\d+)_")
 
 
+def _resolve_lp_compatible_source(src_path: Path) -> "Path | None":
+    """LP's video discovery (``lightning_pose.utils.io.get_videos_in_dir``)
+    accepts only ``.mp4`` files. If ``src_path`` is already an mp4 we use it
+    verbatim; if it's an avi/mov, look for a co-located ``.mp4`` (same stem)
+    next to either the symlink or its resolved target. Returns ``None`` when
+    no mp4 counterpart exists — caller logs and drops the file.
+    """
+    if src_path.suffix.lower() == ".mp4":
+        return src_path
+    # Try sibling .mp4 next to the resolved target (most likely location after
+    # an earlier predict transcode placed the .mp4 next to the .avi source).
+    target = Path(os.path.realpath(str(src_path)))
+    candidates = [target.with_suffix(".mp4"), src_path.with_suffix(".mp4")]
+    for cand in candidates:
+        if cand.is_file():
+            return cand
+    return None
+
+
 def _build_mvt_video_subdir(parent_videos, view_names, stage2_dir):
     """Create ``<stage2_dir>/videos_mvt_filtered/`` containing symlinks to only
     the videos in ``parent_videos`` that have a complete sibling set across
-    ``view_names``. Returns ``(out_dir: Path, kept_sessions: int, dropped: list[str])``.
+    ``view_names`` AND have an LP-compatible (.mp4) source available.
 
-    Pairing rule: for each video stem containing a ``_cam{N}_`` token, build
-    the session key by replacing that token with a placeholder. A session is
-    "complete" iff for every view in ``view_names`` the substituted filename
-    exists in ``parent_videos``. Files without a ``_cam{N}_`` token are skipped
-    silently (they're not orphans, just not multi-view candidates).
+    Returns ``(out_dir: Path, kept_sessions: int, dropped: list[str])``.
+
+    Pairing rule: each video stem must contain a ``_cam{N}_`` token. A session
+    is "complete" iff for every view in ``view_names`` (a) the substituted
+    filename exists in ``parent_videos`` AND (b) it has an LP-compatible mp4
+    source (the file itself if mp4, or a sibling ``<stem>.mp4`` if the
+    file is .avi/.mov). The symlink in the output dir always uses the .mp4
+    extension and points at the .mp4 source, since LP's
+    ``get_videos_in_dir`` filters to mp4-only.
+
+    Files without a ``_cam{N}_`` token are skipped silently (they're not
+    multi-view candidates). Files whose mp4 counterpart is missing are
+    dropped with a warning.
     """
     parent_videos = Path(parent_videos)
     stage2_dir = Path(stage2_dir)
     out_dir = stage2_dir / "videos_mvt_filtered"
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    # Bucket files by session key (path with the cam-token replaced by a marker)
+    # Bucket files by session key (path with the cam-token replaced by a marker).
+    # Each bucket value stores both the original path (for reporting) and the
+    # LP-compatible .mp4 source (or None if none exists).
     by_session: dict = {}
-    untagged: list = []
     for p in sorted(parent_videos.iterdir()):
         if not p.is_file() and not p.is_symlink():
             continue
         m = _CAM_RE.search(p.name)
         if not m:
-            untagged.append(p)
-            continue
+            continue  # no _cam{N}_ token → not a multi-view candidate
         view_token = f"_cam{m.group(1)}_"
         view_name = f"cam{m.group(1)}"
-        session_key = p.name.replace(view_token, "_camX_", 1)
-        by_session.setdefault(session_key, {})[view_name] = p
+        # Session key uses the .mp4 stem so .avi/.mp4 variants bucket together.
+        session_key = p.with_suffix(".mp4").name.replace(view_token, "_camX_", 1)
+        by_session.setdefault(session_key, {})[view_name] = {
+            "orig": p,
+            "mp4":  _resolve_lp_compatible_source(p),
+        }
 
     kept_sessions = 0
     dropped: list = []
     expected = set(view_names)
-    for session_key, view_to_path in by_session.items():
-        present = set(view_to_path.keys())
-        if expected.issubset(present):
-            # Complete pair — symlink every requested view
-            for view in view_names:
-                src = view_to_path[view]
-                dst = out_dir / src.name
-                if dst.exists() or dst.is_symlink():
-                    continue
-                # symlink to the *resolved* target so cross-stage moves still work
-                os.symlink(os.path.realpath(str(src)), str(dst))
-            kept_sessions += 1
-        else:
-            # Orphan(s) — report each present view file
-            for view_name, p in view_to_path.items():
-                dropped.append(p.name)
+    for session_key, view_to_entry in by_session.items():
+        present = set(view_to_entry.keys())
+        if not expected.issubset(present):
+            # Missing sibling for at least one view — drop the present orig files
+            for view_name, entry in view_to_entry.items():
+                dropped.append(entry["orig"].name)
+            continue
+        if any(view_to_entry[v]["mp4"] is None for v in view_names):
+            # All sibling files exist but at least one lacks an .mp4 counterpart
+            for v in view_names:
+                entry = view_to_entry[v]
+                if entry["mp4"] is None:
+                    dropped.append(f"{entry['orig'].name} (no .mp4 counterpart)")
+                else:
+                    dropped.append(f"{entry['orig'].name} (sibling missing .mp4)")
+            continue
+        # All views present + all have .mp4 sources → symlink them.
+        for view in view_names:
+            src_mp4 = view_to_entry[view]["mp4"]
+            dst = out_dir / src_mp4.name
+            if dst.exists() or dst.is_symlink():
+                continue
+            os.symlink(os.path.realpath(str(src_mp4)), str(dst))
+        kept_sessions += 1
 
     return out_dir, kept_sessions, dropped
 

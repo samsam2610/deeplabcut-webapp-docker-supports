@@ -87,3 +87,48 @@ def test_filter_empty_source(tmp_path):
     assert dropped == []
     assert out_dir.is_dir()
     assert not list(out_dir.iterdir())
+
+
+def test_filter_prefers_mp4_counterpart_of_avi(tmp_path):
+    """When source is .avi but a co-located .mp4 exists at the realpath of the
+    symlink target, the filter symlinks the .mp4 (LP's get_videos_in_dir is
+    mp4-only and would otherwise drop the .avi)."""
+    real_dir = tmp_path / "real"; real_dir.mkdir()
+    videos = tmp_path / "videos"; videos.mkdir()
+    stage2 = tmp_path / "stage2"; stage2.mkdir()
+
+    # Two paired sessions on disk: AVIs + matching MP4s at the real source.
+    for view in ("cam0", "cam1"):
+        avi = real_dir / f"s_{view}_x.avi"; avi.write_bytes(b"")
+        mp4 = real_dir / f"s_{view}_x.mp4"; mp4.write_bytes(b"")
+        # symlink in videos/ points at the AVI (user's mental model)
+        os.symlink(str(avi), str(videos / avi.name))
+
+    out_dir, kept, dropped = _build_mvt_video_subdir(videos, ["cam0", "cam1"], stage2)
+    kept_names = sorted(p.name for p in out_dir.iterdir())
+    # Should resolve to the .mp4 counterparts, not the .avi sources.
+    assert kept_names == ["s_cam0_x.mp4", "s_cam1_x.mp4"]
+    assert kept == 1
+    assert dropped == []
+    for entry in out_dir.iterdir():
+        assert entry.is_symlink()
+        assert os.path.realpath(str(entry)).endswith(".mp4")
+
+
+def test_filter_drops_avi_session_without_mp4_counterpart(tmp_path):
+    """An .avi-only session (no .mp4 next to the source) is dropped, with both
+    sibling files reported in `dropped`."""
+    real_dir = tmp_path / "real"; real_dir.mkdir()
+    videos = tmp_path / "videos"; videos.mkdir()
+    stage2 = tmp_path / "stage2"; stage2.mkdir()
+
+    for view in ("cam0", "cam1"):
+        avi = real_dir / f"orphan_{view}_y.avi"; avi.write_bytes(b"")
+        os.symlink(str(avi), str(videos / avi.name))
+
+    out_dir, kept, dropped = _build_mvt_video_subdir(videos, ["cam0", "cam1"], stage2)
+    assert kept == 0
+    assert list(out_dir.iterdir()) == []
+    # Both AVI files reported with the "no .mp4 counterpart" annotation
+    assert any("orphan_cam0_y.avi" in d and "no .mp4" in d for d in dropped)
+    assert any("orphan_cam1_y.avi" in d and "no .mp4" in d for d in dropped)
