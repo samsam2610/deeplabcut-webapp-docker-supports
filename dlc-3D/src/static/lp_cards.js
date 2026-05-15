@@ -285,6 +285,14 @@ function initTrainCard() {
     $("#lp-train-stage1-override-wrap").style.display = e.target.checked ? "block" : "none";
   });
 
+  const semiEl = $("#lp-train-semi-supervised");
+  const semiParamsEl = $("#lp-train-semi-supervised-params");
+  const tempLwEl = $("#lp-train-temporal-log-weight");
+  const tempEpsEl = $("#lp-train-temporal-epsilon");
+  semiEl?.addEventListener("change", () => {
+    if (semiParamsEl) semiParamsEl.style.display = semiEl.checked ? "flex" : "none";
+  });
+
   runEl.addEventListener("click", async () => {
     runEl.disabled = true;
     resEl.hidden = false;
@@ -308,6 +316,12 @@ function initTrainCard() {
       stage1_early_stop_patience:+$("#lp-train-stage1-patience").value,
       stage1_ckpt_override:      $("#lp-train-stage1-override").value.trim(),
     };
+
+    options.semi_supervised_enabled = !!semiEl?.checked;
+    if (semiEl?.checked) {
+      options.temporal_log_weight = parseFloat(tempLwEl.value) || 5.0;
+      options.temporal_epsilon    = parseFloat(tempEpsEl.value) || 0.0;
+    }
 
     try {
       const r = await fetch("/dlc-3d/lp/train", {
