@@ -1,4 +1,5 @@
 import csv
+import os
 from pathlib import Path
 import pytest
 
@@ -217,3 +218,127 @@ def test_convert_emits_canonical_keys_with_substitutions(tmp_path):
     assert "pca_multiview" in cfg["losses"]
     # Provenance recorded
     assert cfg["_converter"]["lp_default_ref"] == LP_DEFAULT_CONFIG_REF
+
+
+# ── Sync mode: additive DLC→LP conversion ───────────────────────────────
+
+def _make_view_in_filename_dlc(root: Path, sessions: list[tuple[str, list[int]]]):
+    """Build a minimal view-in-filename DLC project.
+
+    ``sessions`` is a list of (session_key, [frame_no, ...]) tuples. Each frame
+    is emitted in both cam0 and cam1.
+    """
+    root.mkdir(parents=True, exist_ok=True)
+    (root / "config.yaml").write_text("bodyparts:\n  - Snout\n")
+    for session_key, frames in sessions:
+        ld = root / "labeled-data" / session_key
+        ld.mkdir(parents=True, exist_ok=True)
+        for cam in (0, 1):
+            for order, fn in enumerate(frames):
+                (ld / f"img_cam{cam}_{order:04d}_{fn:05d}.png").write_bytes(
+                    b"\x89PNG\r\n\x1a\n"
+                )
+        cc = ld / "CollectedData_x.csv"
+        with cc.open("w") as f:
+            f.write("scorer,,,x,x\n")
+            f.write("bodyparts,,,Snout,Snout\n")
+            f.write("coords,,,x,y\n")
+            for cam in (0, 1):
+                for order, fn in enumerate(frames):
+                    f.write(
+                        f"labeled-data,{session_key},img_cam{cam}_{order:04d}_{fn:05d}.png,{fn},{fn+1}\n"
+                    )
+
+
+def test_convert_sync_preserves_existing_config_yaml(tmp_path):
+    src = tmp_path / "dlc"
+    _make_view_in_filename_dlc(src, [("rat1_20260101", [100, 200])])
+    dst = tmp_path / "lp"
+    # Fresh convert first
+    convert_dlc_to_lp(src, dst)
+    # Mutate lp/config.yaml manually
+    cfg_path = dst / "config.yaml"
+    cfg_path.write_text("custom: user-edit\n")
+    # Sync convert should not overwrite
+    convert_dlc_to_lp(src, dst, mode="sync")
+    assert cfg_path.read_text() == "custom: user-edit\n"
+
+
+def test_convert_sync_appends_new_cam_csv_rows_without_dup(tmp_path):
+    src = tmp_path / "dlc"
+    _make_view_in_filename_dlc(src, [("rat1_20260101", [100, 200])])
+    dst = tmp_path / "lp"
+    convert_dlc_to_lp(src, dst)
+    cam0_csv = dst / "cam0.csv"
+    rows_before = list(csv.reader(cam0_csv.open()))
+    data_before = [
+        r for r in rows_before if r and r[0] not in ("scorer", "bodyparts", "coords", "individuals")
+    ]
+    assert len(data_before) == 2
+
+    # Add a new session with new frames to the DLC project
+    _make_view_in_filename_dlc(src, [("rat2_20260102", [300, 400])])
+    convert_dlc_to_lp(src, dst, mode="sync")
+    rows_after = list(csv.reader(cam0_csv.open()))
+    data_after = [
+        r for r in rows_after if r and r[0] not in ("scorer", "bodyparts", "coords", "individuals")
+    ]
+    # Old rows still present, new rows appended; no duplicates by path key
+    keys = [r[0] for r in data_after]
+    assert len(keys) == len(set(keys))
+    assert len(data_after) == 4
+    # Old rows preserved verbatim
+    old_keys = {r[0] for r in data_before}
+    assert old_keys.issubset(set(keys))
+
+
+def test_convert_sync_does_not_overwrite_existing_labeled_pngs(tmp_path):
+    import time
+    src = tmp_path / "dlc"
+    _make_view_in_filename_dlc(src, [("rat1_20260101", [100, 200])])
+    dst = tmp_path / "lp"
+    convert_dlc_to_lp(src, dst)
+    pngs = list((dst / "labeled-data").rglob("img*.png"))
+    assert pngs, "expected labeled PNGs in fresh convert"
+    # Touch the existing PNG content to something distinct
+    target = pngs[0]
+    target.write_bytes(b"sentinel-marker")
+    # Force the mtime backwards so a re-link/copy would change it
+    past = time.time() - 10000
+    os.utime(target, (past, past))
+    orig_mtime = target.stat().st_mtime
+    orig_bytes = target.read_bytes()
+
+    # Sync should not overwrite existing PNGs
+    convert_dlc_to_lp(src, dst, mode="sync")
+    assert target.read_bytes() == orig_bytes
+    assert target.stat().st_mtime == orig_mtime
+
+
+def test_convert_sync_adds_new_session_when_some_exist(tmp_path):
+    src = tmp_path / "dlc"
+    _make_view_in_filename_dlc(src, [("rat1_20260101", [100, 200])])
+    dst = tmp_path / "lp"
+    convert_dlc_to_lp(src, dst)
+
+    # Add new session
+    _make_view_in_filename_dlc(src, [("rat2_20260102", [300, 400])])
+    convert_dlc_to_lp(src, dst, mode="sync")
+
+    # New session's labeled-data dir for both cams must appear
+    ld_dirs = {p.name for p in (dst / "labeled-data").iterdir() if p.is_dir()}
+    # lp_labeled_dir_name(session_key, view) — at minimum the dir name should
+    # contain the new session_key.
+    assert any("rat2_20260102" in d for d in ld_dirs), f"got dirs: {ld_dirs}"
+
+
+def test_convert_force_still_overwrites(tmp_path):
+    src = tmp_path / "dlc"
+    _make_view_in_filename_dlc(src, [("rat1_20260101", [100, 200])])
+    dst = tmp_path / "lp"
+    convert_dlc_to_lp(src, dst)
+    cfg_path = dst / "config.yaml"
+    cfg_path.write_text("custom: user-edit\n")
+    # Force mode still wipes / regenerates the config
+    convert_dlc_to_lp(src, dst, force=True)
+    assert cfg_path.read_text() != "custom: user-edit\n"

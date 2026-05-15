@@ -193,23 +193,83 @@ def _link_or_copy(src: Path, dst: Path, mode: str) -> None:
     shutil.copy2(src, dst)
 
 
+def _write_csv(dst: Path, rows: List[List[str]]) -> None:
+    """Write all rows to ``dst`` as a CSV. Helper used by sync-mode merging."""
+    with dst.open("w", newline="") as f:
+        w = csv.writer(f)
+        for row in rows:
+            w.writerow(row)
+
+
+def _write_or_merge_cam_csv(
+    dst: Path,
+    header: List[List[str]],
+    rows: List[List[str]],
+    mode: str,
+) -> None:
+    """Write the per-view cam CSV, merging additively in sync mode.
+
+    In ``sync`` mode, when ``dst`` already exists, existing rows are kept
+    verbatim and only rows whose first-column path key is not already
+    present are appended. The 3-row LP MultiIndex header is preserved.
+    """
+    if mode != "sync" or not dst.is_file():
+        _write_csv(dst, list(header) + list(rows))
+        return
+    existing_keys: set = set()
+    existing_lines: List[List[str]] = []
+    with dst.open() as f:
+        for i, row in enumerate(csv.reader(f)):
+            existing_lines.append(row)
+            # Skip the 3-row LP MultiIndex header
+            if i < 3:
+                continue
+            if row:
+                existing_keys.add(row[0])
+    new_rows = [r for r in rows if r and r[0] not in existing_keys]
+    _write_csv(dst, existing_lines + new_rows)
+
+
 def convert_dlc_to_lp(
     dlc_dir,
     lp_dir,
     link_mode: str = "link",
     force: bool = False,
+    mode: str | None = None,
 ) -> dict:
     """Convert a DLC project to LP layout. Returns a summary dict.
 
+    Args:
+        dlc_dir: Source DLC project root.
+        lp_dir: Destination LP project root.
+        link_mode: ``"link"`` (default; falls back to copy across filesystems)
+            or ``"copy"``.
+        force: Deprecated alias for ``mode="force"``. Retained for
+            back-compatibility.
+        mode: One of ``"fresh"`` (default) / ``"force"`` / ``"sync"``.
+            * ``fresh``: raise if ``lp_dir`` exists and is non-empty.
+            * ``force``: overwrite (existing behavior).
+            * ``sync``: additive — keep every existing file, only add new ones.
+              ``config.yaml`` and ``sv-pretrain/`` are skipped when present;
+              per-view ``cam{N}.csv`` files are merged by first-column key.
+
     Raises FileNotFoundError / ValueError on bad inputs.
     """
+    if mode is None:
+        mode = "force" if force else "fresh"
+    if mode not in ("fresh", "force", "sync"):
+        raise ValueError(f"invalid mode {mode!r}; expected fresh|force|sync")
+
     dlc_dir = Path(dlc_dir).resolve()
     lp_dir = Path(lp_dir).resolve()
 
     if not (dlc_dir / "config.yaml").is_file():
         raise FileNotFoundError(f"DLC config.yaml not found in {dlc_dir}")
-    if lp_dir.exists() and any(lp_dir.iterdir()) and not force:
-        raise ValueError(f"LP output dir {lp_dir} is not empty; pass force=True to overwrite")
+    if mode == "fresh" and lp_dir.exists() and any(lp_dir.iterdir()):
+        raise ValueError(
+            f"LP output dir {lp_dir} is not empty; pass mode='force' to overwrite "
+            f"or mode='sync' to add additively"
+        )
 
     summary = ConversionSummary(output_dir=str(lp_dir))
     lp_dir.mkdir(parents=True, exist_ok=True)
@@ -238,9 +298,9 @@ def convert_dlc_to_lp(
     for session_dir in ld_iter:
         if not session_dir.is_dir():
             continue
-        mode = _classify_session_folder(session_dir)
-        folder_modes[session_dir.name] = mode
-        if mode == "view-in-folder":
+        folder_mode = _classify_session_folder(session_dir)
+        folder_modes[session_dir.name] = folder_mode
+        if folder_mode == "view-in-folder":
             session_key, view = session_view_pair(session_dir.name)
             cc = next(session_dir.glob("CollectedData_*.csv"), None)
             by_session.setdefault(session_key, {})[view] = {
@@ -248,7 +308,7 @@ def convert_dlc_to_lp(
                 "collected_csv": cc,
                 "mode": "view-in-folder",
             }
-        elif mode == "view-in-filename":
+        elif folder_mode == "view-in-filename":
             session_key = session_dir.name
             cc = next(session_dir.glob("CollectedData_*.csv"), None)
             header, per_view = (([], {}) if cc is None else _read_view_in_filename_csv(cc))
@@ -281,7 +341,8 @@ def convert_dlc_to_lp(
 
     if not all_views:
         # write a minimal config and return
-        _write_lp_config(lp_dir, dlc_dir, all_views)
+        if not (mode == "sync" and (lp_dir / "config.yaml").is_file()):
+            _write_lp_config(lp_dir, dlc_dir, all_views)
         return summary.asdict()
 
     # 3. Per-view CSV builders — accumulate rows in canonical order
@@ -368,12 +429,7 @@ def convert_dlc_to_lp(
     # 4. Write per-view CSVs at LP project root
     for v in all_views:
         out_csv = lp_dir / lp_csv_for_view(v)
-        with out_csv.open("w", newline="") as f:
-            w = csv.writer(f)
-            for hrow in per_view_header[v]:
-                w.writerow(hrow)
-            for row in per_view_rows[v]:
-                w.writerow(row)
+        _write_or_merge_cam_csv(out_csv, per_view_header[v], per_view_rows[v], mode)
 
     # 5. Aggregate calibrations
     cal_entries = _list_calibrations(dlc_dir)
@@ -402,15 +458,21 @@ def convert_dlc_to_lp(
                 w.writerow([skey, f"calibrations/{skey}.toml"])
                 summary.n_calibrations += 1
 
-    # 6. Write LP config.yaml
-    _write_lp_config(lp_dir, dlc_dir, all_views)
+    # 6. Write LP config.yaml (skip in sync mode when present)
+    if not (mode == "sync" and (lp_dir / "config.yaml").is_file()):
+        _write_lp_config(lp_dir, dlc_dir, all_views)
 
     # ── 7. Build the nested SV-pretrain sub-project ─────────────────
-    try:
-        n_sv = _build_sv_pretrain_project(lp_dir, dlc_dir, bodyparts)
-    except Exception as e:
-        summary.warnings.append(f"sv-pretrain build failed: {e}")
+    sv_pretrain_dir = lp_dir / "sv-pretrain"
+    if mode == "sync" and (sv_pretrain_dir / "config.yaml").is_file():
+        # Sync mode + existing sv-pretrain → skip rebuild entirely.
         n_sv = 0
+    else:
+        try:
+            n_sv = _build_sv_pretrain_project(lp_dir, dlc_dir, bodyparts)
+        except Exception as e:
+            summary.warnings.append(f"sv-pretrain build failed: {e}")
+            n_sv = 0
 
     summary_dict = summary.asdict()
     summary_dict["sv_pretrain_dir"] = str(lp_dir / "sv-pretrain")
