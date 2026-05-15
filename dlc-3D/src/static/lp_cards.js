@@ -207,123 +207,108 @@ function initConvertCard() {
     }
   });
 
-  // ── Add-videos panel ────────────────────────────────────────────────
-  const aProj   = $("#lp-add-videos-project");
-  const aMode   = $("#lp-add-videos-mode");
-  const aBrowse = $("#btn-lp-add-videos-browse");
-  const aList   = $("#lp-add-videos-browser");
-  const aQueueEl = $("#lp-add-videos-queue");
-  const aCountEl = $("#lp-add-videos-count");
-  const aRun    = $("#btn-lp-add-videos-run");
-  const aResult = $("#lp-add-videos-result");
+  // ── Add-videos panel (mirrors Predict card's browser pattern) ───────
+  const avProjEl    = $("#lp-add-videos-project");
+  const avModeEl    = $("#lp-add-videos-mode");
+  const avTargetEl  = $("#lp-add-videos-target");
+  const avUpEl      = $("#lp-add-videos-up");
+  const avBrowseEl  = $("#lp-add-videos-browse-btn");
+  const avPaneEl    = $("#lp-add-videos-browser");
+  const avBatchAdd  = $("#lp-add-videos-batch-add");
+  const avBatchClr  = $("#lp-add-videos-batch-clear");
+  const avBatchList = $("#lp-add-videos-batch-list");
+  const avRunEl     = $("#btn-lp-add-videos-run");
+  const avResEl     = $("#lp-add-videos-result");
 
-  let curPath = null;
-  const queue = new Set();
+  if (avProjEl && avTargetEl) {
+    const avBrowser = _lpMakeBrowser({ inputEl: avTargetEl, paneEl: avPaneEl, dirOnly: false });
+    const avQueue = [];
 
-  function renderQueue() {
-    if (!aQueueEl) return;
-    aQueueEl.innerHTML = "";
-    Array.from(queue).forEach(p => {
-      const li = document.createElement("li");
-      li.style.cssText = "display:flex;align-items:center;gap:.3rem;padding:.15rem 0";
-      const btn = document.createElement("button");
-      btn.className = "btn-sm";
-      btn.textContent = "−";
-      btn.addEventListener("click", () => { queue.delete(p); renderQueue(); });
-      const span = document.createElement("span");
-      span.textContent = p;
-      li.appendChild(btn);
-      li.appendChild(span);
-      aQueueEl.appendChild(li);
-    });
-    if (aCountEl) aCountEl.textContent = String(queue.size);
-  }
-
-  async function loadDir(path) {
-    curPath = path;
-    const url = "/dlc-3d/browse" + (path ? "?path=" + encodeURIComponent(path) : "");
-    let j;
-    try {
-      const r = await fetch(url);
-      j = await r.json();
-      if (!r.ok) { aList.textContent = "browse error: " + (j.error || r.status); return; }
-    } catch (e) {
-      aList.textContent = "browse error: " + e.message;
-      return;
-    }
-    aList.innerHTML = "";
-    const up = document.createElement("div");
-    up.textContent = "../";
-    up.style.cssText = "cursor:pointer;color:var(--accent)";
-    up.addEventListener("click", () => loadDir(j.parent_path || ""));
-    aList.appendChild(up);
-    (j.entries || []).forEach(e => {
-      const row = document.createElement("div");
-      row.style.cssText = "display:flex;align-items:center;gap:.4rem;padding:.1rem 0";
-      if (e.type === "dir") {
-        const a = document.createElement("a");
-        a.href = "#";
-        a.textContent = e.name + "/";
-        a.style.color = "var(--accent)";
-        a.addEventListener("click", ev => {
-          ev.preventDefault();
-          loadDir((j.current_path || curPath || "") + "/" + e.name);
-        });
-        row.appendChild(a);
-      } else {
-        const lower = (e.name || "").toLowerCase();
-        const isVid = lower.endsWith(".mp4") || lower.endsWith(".avi") || lower.endsWith(".mov") || lower.endsWith(".mkv");
-        const btn = document.createElement("button");
-        btn.className = "btn-sm";
-        btn.disabled = !isVid;
-        btn.textContent = "+";
-        btn.addEventListener("click", () => {
-          const full = (j.current_path || curPath || "") + "/" + e.name;
-          queue.add(full);
-          renderQueue();
-        });
-        row.appendChild(btn);
-        const span = document.createElement("span");
-        span.textContent = e.name;
-        if (!isVid) span.style.opacity = "0.5";
-        row.appendChild(span);
+    function avRenderQueue() {
+      if (!avQueue.length) {
+        avBatchList.style.display = "none";
+        avBatchList.innerHTML = "";
+        return;
       }
-      aList.appendChild(row);
+      avBatchList.style.display = "block";
+      avBatchList.innerHTML = "";
+      avQueue.forEach((p, i) => {
+        const row = document.createElement("div");
+        row.style.cssText = "display:flex;align-items:center;gap:.3rem;padding:.1rem 0";
+        const txt = document.createElement("span");
+        txt.style.cssText = "flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap";
+        txt.textContent = p;
+        const rm = document.createElement("button");
+        rm.className = "btn-sm"; rm.style.cssText = "padding:0 .35rem;font-size:.7rem;opacity:.6";
+        rm.textContent = "×"; rm.title = "Remove";
+        rm.addEventListener("click", () => { avQueue.splice(i, 1); avRenderQueue(); });
+        row.appendChild(txt); row.appendChild(rm);
+        avBatchList.appendChild(row);
+      });
+    }
+
+    function avAddToQueue(p) {
+      p = (p || "").trim();
+      if (!p) return;
+      if (!avQueue.includes(p)) avQueue.push(p);
+      avRenderQueue();
+    }
+
+    avPaneEl.addEventListener("lp-picker-dblclick", (e) => avAddToQueue(e.detail.path));
+    avBatchAdd.addEventListener("click", () => avAddToQueue(avBrowser.getHighlighted() || avTargetEl.value));
+    avBatchClr.addEventListener("click", () => { avQueue.length = 0; avRenderQueue(); });
+
+    avBrowseEl.addEventListener("click", () => {
+      // Seed from the LP project field if available, otherwise /user-data
+      const fallback = (avProjEl.value.trim() || dstEl?.value?.trim() || "/user-data");
+      avBrowser.openAt(fallback);
+    });
+    avUpEl.addEventListener("click", () => avBrowser.up());
+    avTargetEl.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") {
+        e.preventDefault();
+        avBrowser.browseDir(avTargetEl.value.trim());
+        avPaneEl.classList.remove("hidden");
+      }
+    });
+
+    avRunEl.addEventListener("click", async () => {
+      const lp = avProjEl.value.trim() || dstEl?.value?.trim();
+      if (!lp) {
+        avResEl.hidden = false;
+        avResEl.textContent = "Specify the LP project (or fill the convert target above).";
+        return;
+      }
+      // Use queue if non-empty; else fall back to the target field alone
+      const paths = avQueue.length ? avQueue.slice() : (avTargetEl.value.trim() ? [avTargetEl.value.trim()] : []);
+      if (!paths.length) {
+        avResEl.hidden = false;
+        avResEl.textContent = "Queue at least one video (browse + double-click, or + Add to queue).";
+        return;
+      }
+      avRunEl.disabled = true;
+      avResEl.hidden = false;
+      avResEl.textContent = "Adding…";
+      try {
+        const r = await fetch("/dlc-3d/lp/videos/add", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            lp_project: lp,
+            video_paths: paths,
+            mode: avModeEl.value || "symlink",
+          }),
+        });
+        const j = await r.json();
+        avResEl.textContent = JSON.stringify(j, null, 2);
+        if (r.ok) { avQueue.length = 0; avRenderQueue(); }
+      } catch (e) {
+        avResEl.textContent = "Error: " + e.message;
+      } finally {
+        avRunEl.disabled = false;
+      }
     });
   }
-
-  aBrowse?.addEventListener("click", () => {
-    aList.classList.toggle("hidden");
-    if (!aList.classList.contains("hidden") && !curPath) {
-      const seed = aProj?.value?.trim() || dstEl?.value?.trim() || "";
-      loadDir(seed ? seed.replace(/\/+$/, "").split("/").slice(0, -1).join("/") : "");
-    }
-  });
-
-  aRun?.addEventListener("click", async () => {
-    const lp = aProj?.value?.trim() || dstEl?.value?.trim();
-    if (!lp) { aResult.hidden = false; aResult.textContent = "specify LP project"; return; }
-    if (!queue.size) { aResult.hidden = false; aResult.textContent = "queue is empty"; return; }
-    aRun.disabled = true;
-    aRun.textContent = "Adding…";
-    try {
-      const r = await fetch("/dlc-3d/lp/videos/add", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ lp_project: lp, video_paths: Array.from(queue), mode: aMode.value }),
-      });
-      const j = await r.json();
-      aResult.hidden = false;
-      aResult.textContent = JSON.stringify(j, null, 2);
-      if (r.ok) { queue.clear(); renderQueue(); }
-    } catch (e) {
-      aResult.hidden = false;
-      aResult.textContent = "error: " + e.message;
-    } finally {
-      aRun.disabled = false;
-      aRun.textContent = "Add videos";
-    }
-  });
 }
 
 initConvertCard();
