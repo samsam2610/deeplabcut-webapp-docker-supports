@@ -431,3 +431,37 @@ def test_cancel_endpoint_revokes_job(lp_app, monkeypatch):
     assert revoked["id"] == "abc-123"
     assert revoked["terminate"] is True
     assert revoked["signal"] == "SIGTERM"
+
+
+def test_lp_videos_add_symlink(tmp_path, monkeypatch):
+    from dlc_3d_bp import lp_routes
+    # Allow tmp_path as USER_DATA root for this test
+    monkeypatch.setattr(lp_routes, "_USER_DATA_ROOT", str(tmp_path.resolve()))
+
+    lp = tmp_path / "proj"
+    lp.mkdir()
+    (lp / "config.yaml").write_text("d:{}\n")
+    (lp / "videos").mkdir()
+    src = tmp_path / "v.mp4"
+    src.write_bytes(b"x")
+
+    a = Flask(__name__)
+    a.register_blueprint(lp_routes.lp_bp)
+    c = a.test_client()
+    r = c.post("/dlc-3d/lp/videos/add",
+               json={"lp_project": str(lp), "video_paths": [str(src)], "mode": "symlink"})
+    assert r.status_code == 201, r.get_data(as_text=True)
+    j = r.get_json()
+    assert j["added"] == [str(lp / "videos" / "v.mp4")]
+
+
+def test_lp_videos_add_rejects_outside_user_data(tmp_path, monkeypatch):
+    from dlc_3d_bp import lp_routes
+    monkeypatch.setattr(lp_routes, "_USER_DATA_ROOT", "/nope")
+    a = Flask(__name__)
+    a.register_blueprint(lp_routes.lp_bp)
+    c = a.test_client()
+    r = c.post("/dlc-3d/lp/videos/add",
+               json={"lp_project": str(tmp_path / "proj"),
+                     "video_paths": [str(tmp_path / "v.mp4")], "mode": "symlink"})
+    assert r.status_code == 403

@@ -303,3 +303,32 @@ def predict_run():
             "dest_dir": dest_dir,
         })
     return jsonify({"job_id": async_result.id, "model_dir": model_dir, "dest_dir": dest_dir}), 202
+
+
+@lp_bp.route("/videos/add", methods=["POST"])
+def videos_add():
+    from dlc_3d_bp.lp.video_adder import add_videos_to_lp
+
+    body = request.get_json(force=True, silent=True) or {}
+    lp = (body.get("lp_project") or "").strip()
+    paths = body.get("video_paths") or []
+    mode = (body.get("mode") or "symlink").strip().lower()
+
+    if not lp:
+        return jsonify({"error": "lp_project required"}), 400
+    if not isinstance(paths, list) or not paths:
+        return jsonify({"error": "video_paths (non-empty list) required"}), 400
+
+    lp_p = Path(lp)
+    if not _under_user_data(lp_p):
+        return jsonify({"error": "lp_project must resolve under /user-data/"}), 403
+    for v in paths:
+        if not _under_user_data(Path(v)):
+            return jsonify({"error": f"video path outside /user-data/: {v}"}), 403
+
+    try:
+        result = add_videos_to_lp(lp_p, [Path(v) for v in paths], mode=mode)
+    except (FileNotFoundError, ValueError) as e:
+        return jsonify({"error": str(e)}), 400
+
+    return jsonify({"lp_project": str(lp_p), **result}), 201
