@@ -1604,7 +1604,7 @@ export { FL3D_FRAME_RE, buildPairMap } from './pair_map.mjs';
       }
     });
 
-    // Auto-advance to the next unlabeled body part (napari behavior)
+    // Cycle to the next unlabeled body part on this frame (napari behavior)
     function _flAutoAdvanceBp() {
       const fname       = _fl3dActiveFname();
       const frameLabels = _flLabels[fname] || {};
