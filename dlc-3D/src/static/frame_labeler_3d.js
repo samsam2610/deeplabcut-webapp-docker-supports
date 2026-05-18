@@ -1613,14 +1613,6 @@ export { FL3D_FRAME_RE, buildPairMap } from './pair_map.mjs';
         const next = _flBodyparts[(cur + i) % _flBodyparts.length];
         if (!frameLabels[next]) { _flSelectBp(next); return; }
       }
-      // All body parts labeled on this frame → move to next frame.
-      // Use the right axis index for sync mode — _flFrameIdx is the
-      // single-canvas axis and stays at its sync-on-time value while sync nav
-      // advances _fl3dFrameNumIdx, so falling through here with the wrong
-      // axis sends the user back to ~frame 1 of the frame-number list.
-      const curIdx = _fl3dSyncOn ? _fl3dFrameNumIdx     : _flFrameIdx;
-      const total  = _fl3dSyncOn ? _fl3dFrameNumbers.length : _flFrames.length;
-      if (curIdx < total - 1) _flShowFrame(curIdx + 1);
     }
 
     // ── Chip status updates ──────────────────────────────────────
