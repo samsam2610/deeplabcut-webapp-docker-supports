@@ -31,6 +31,7 @@ export { FL3D_FRAME_RE, buildPairMap } from './pair_map.mjs';
     const flMarkerSizeInput = document.getElementById("fl3d-marker-size");
     const flMarkerSizeVal   = document.getElementById("fl3d-marker-size-val");
     const flShowNamesInput  = document.getElementById("fl3d-show-names");
+    const fl3dLockBp        = document.getElementById("fl3d-lock-bp");
 
     // ── TAPNet propagation elements ──────────────────────────────
     const flTapCheckbox      = document.getElementById("fl3d-tap-checkbox");
@@ -1606,6 +1607,9 @@ export { FL3D_FRAME_RE, buildPairMap } from './pair_map.mjs';
 
     // Cycle to the next unlabeled body part on this frame (napari behavior)
     function _flAutoAdvanceBp() {
+      // Lock BP toggle (L): when checked, stay on the current BP so the user
+      // can overwrite the marker on the next click instead of cycling away.
+      if (fl3dLockBp && fl3dLockBp.checked) return;
       const fname       = _fl3dActiveFname();
       const frameLabels = _flLabels[fname] || {};
       const cur         = _flBodyparts.indexOf(_flSelectedBp);
@@ -1680,6 +1684,13 @@ export { FL3D_FRAME_RE, buildPairMap } from './pair_map.mjs';
           _flDraw();
           return;
         }
+      }
+
+      // L — toggle "Lock body-part selection" (case-insensitive, so Shift+L works too)
+      if (e.key.toLowerCase() === "l" && fl3dLockBp) {
+        e.preventDefault();
+        fl3dLockBp.checked = !fl3dLockBp.checked;
+        return;
       }
 
       // Tab / Shift+Tab — cycle through body parts
