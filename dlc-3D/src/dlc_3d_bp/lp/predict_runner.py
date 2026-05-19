@@ -15,7 +15,13 @@ from typing import Iterable
 
 
 def list_models(lp_project: Path | str) -> list[dict]:
-    """Return [{run_id, path, has_checkpoint, has_predictions, status}, ...] sorted newest-first."""
+    """Return [{run_id, path, has_checkpoint, has_predictions, status, stage}, ...] sorted newest-first.
+
+    Two-stage runs put the inference-ready artifacts under ``<run>/stage2/`` (config.yaml,
+    tb_logs, predictions). For those, surface ``stage2/`` as ``path`` so the predict
+    subprocess gets the directory that actually contains a config.yaml. Single-stage
+    runs keep the run-root as ``path``.
+    """
     lp_project = Path(lp_project)
     models_dir = lp_project / "models"
     if not models_dir.is_dir():
@@ -24,8 +30,16 @@ def list_models(lp_project: Path | str) -> list[dict]:
     for d in sorted(models_dir.iterdir(), reverse=True):
         if not d.is_dir():
             continue
-        ckpts = list(d.glob("tb_logs/*/version_*/checkpoints/*.ckpt"))
-        preds = list(d.glob("predictions_*.csv"))
+        # Two-stage: real model dir is <run>/stage2/. Detect by presence of config.yaml there.
+        stage2 = d / "stage2"
+        if (stage2 / "config.yaml").is_file():
+            model_dir = stage2
+            stage = "two_stage"
+        else:
+            model_dir = d
+            stage = "single"
+        ckpts = list(model_dir.glob("tb_logs/*/version_*/checkpoints/*.ckpt"))
+        preds = list(model_dir.glob("predictions_*.csv"))
         status_file = d / "train_status.json"
         status = ""
         if status_file.is_file():
@@ -36,10 +50,11 @@ def list_models(lp_project: Path | str) -> list[dict]:
                 status = ""
         out.append({
             "run_id": d.name,
-            "path": str(d),
+            "path": str(model_dir),
             "has_checkpoint": bool(ckpts),
             "has_predictions": bool(preds),
             "status": status,
+            "stage": stage,
         })
     return out
 
@@ -114,6 +129,10 @@ def relocate_predictions(
     moved = 0
     skipped: list[str] = []
     dest_paths: list[str] = []
+    # Per-video prediction CSV location (dest if moved, else source in video_preds/).
+    # H5 sidecar emission keys off this so the new run yields H5s even when the
+    # rename-target already existed and overwrite=False kept the old file.
+    prediction_csv_paths: list[str] = []
 
     explicit_dest = Path(dest_dir) if dest_dir else None
 
@@ -135,13 +154,19 @@ def relocate_predictions(
         target_dir.mkdir(parents=True, exist_ok=True)
 
         for src in sorted(vp.glob(f"{stem}.csv")) + sorted(vp.glob(f"{stem}_*.csv")):
+            is_prediction_csv = src.name == f"{stem}.csv"
             dst = target_dir / _lp_name(src.name, stem)
             if dst.exists() and not overwrite:
                 skipped.append(str(src))
+                # Prediction CSV stayed in video_preds/ — record source for H5 emission.
+                if is_prediction_csv:
+                    prediction_csv_paths.append(str(src))
                 continue
             shutil.move(str(src), str(dst))
             moved += 1
             dest_paths.append(str(dst))
+            if is_prediction_csv:
+                prediction_csv_paths.append(str(dst))
 
         mp4 = labeled / f"{stem}_labeled.mp4"
         if mp4.is_file():
@@ -164,6 +189,7 @@ def relocate_predictions(
         "skipped": skipped,
         "dest_dir": str(explicit_dest) if explicit_dest is not None else None,
         "dest_paths": dest_paths,
+        "prediction_csv_paths": prediction_csv_paths,
     }
 
 
@@ -205,21 +231,23 @@ def csv_to_h5(csv_path: Path | str, h5_path: Path | str | None = None) -> Path:
     return h5_path
 
 
-def emit_h5_sidecars(dest_paths: "list[Path | str]") -> dict:
-    """For each LP predictions CSV in ``dest_paths``, write an H5 next to it.
+def emit_h5_sidecars(prediction_csv_paths: "list[Path | str]") -> dict:
+    """For each prediction CSV path, write an H5 sidecar next to it.
 
-    Skips paths that are not LP predictions (e.g., per-metric CSVs). When an
-    H5 already exists it is overwritten (LP just produced a fresh CSV).
+    Caller (``relocate_predictions``) is responsible for identifying which CSVs
+    are predictions vs. per-metric files — paths arriving here are assumed to
+    be the per-video prediction CSV (either ``<stem>_lp.csv`` at the dest or
+    ``<stem>.csv`` still in ``<model_dir>/video_preds/`` when relocation was
+    skipped). When an H5 already exists it is overwritten (a fresh predict run
+    just produced a fresh CSV).
 
     Returns ``{"emitted": [str, ...], "skipped": [str, ...]}``.
     """
     emitted: list[str] = []
     skipped: list[str] = []
-    for p in dest_paths:
+    for p in prediction_csv_paths:
         p = Path(p)
-        if p.suffix.lower() != ".csv":
-            continue
-        if not _is_lp_prediction_csv(p):
+        if p.suffix.lower() != ".csv" or not p.is_file():
             skipped.append(str(p))
             continue
         try:
@@ -324,18 +352,52 @@ def _resolve_siblings(videos: "list[Path | str]", view_names: list) -> dict:
     return {"pairs": pairs, "warnings": warnings}
 
 
-def _transcode_to_mp4(src: "Path | str") -> tuple:
-    """Remux a non-mp4 video to mp4 next to the source.
+def _probe_video_codec(path: "Path | str") -> str:
+    """Return the first video stream's codec_name (``"h264"``, ``"hevc"``, ``"mjpeg"``, …),
+    or empty string if ffprobe couldn't read the file."""
+    try:
+        r = subprocess.run(
+            ["ffprobe", "-v", "error", "-select_streams", "v:0",
+             "-show_entries", "stream=codec_name",
+             "-of", "default=nokey=1:noprint_wrappers=1", str(path)],
+            capture_output=True, text=True,
+        )
+    except FileNotFoundError:
+        return ""
+    return (r.stdout or "").strip().splitlines()[0].strip() if r.returncode == 0 and r.stdout else ""
+
+
+def _cached_mp4_is_valid(path: "Path | str") -> bool:
+    """Quick sanity probe on an existing .mp4 cache.
+
+    Returns True only if ffprobe can read at least one video stream from the file.
+    Catches truncated transcodes (missing moov atom) and zero-byte stubs.
+    """
+    p = Path(path)
+    if not p.is_file() or p.stat().st_size < 1024:
+        return False
+    return bool(_probe_video_codec(p))
+
+
+# Codecs DALI's NVDEC-backed video reader can decode. Anything else (mjpeg,
+# raw, mpeg4, etc.) must be re-encoded to H.264 — stream-copy would leave the
+# unsupported codec inside the .mp4 container and predict would fail later
+# inside lightning_pose/data/dali.py with a misleading "no valid sequences" assert.
+_DALI_COMPATIBLE_CODECS = {"h264", "hevc", "h265"}
+
+
+def _transcode_to_mp4(src: "Path | str", emit=None) -> tuple:
+    """Remux/re-encode a non-mp4 video to mp4 next to the source.
 
     Returns ``(out_path, did_transcode)``.
 
     Behaviour:
       - If src is already ``.mp4`` → returns src unchanged.
-      - If ``<stem>.mp4`` already exists next to src → returns cached path; no ffmpeg.
-      - Else runs ``ffmpeg -y -i src -c copy -movflags +faststart <stem>.mp4``.
-      - If the stream-copy fails, falls back to ``ffmpeg -y -i src -c:v libx264 -preset veryfast -crf 18 <stem>.mp4``.
-      - Raises ``FileNotFoundError`` if ffmpeg isn't on PATH.
-      - Raises ``RuntimeError`` if both stream-copy and re-encode fail.
+      - If ``<stem>.mp4`` already exists AND passes ffprobe → returns cached path; no ffmpeg.
+      - If cache is invalid (truncated, no moov, empty) → deletes it and re-transcodes.
+      - Probes source codec. If h264/hevc → stream-copy (fast remux). Otherwise
+        re-encodes to H.264 via libx264 so DALI can decode it.
+      - ``emit(line)`` is invoked with status strings before/after each ffmpeg call.
     """
     src = Path(src)
     if src.suffix.lower() == ".mp4":
@@ -343,34 +405,64 @@ def _transcode_to_mp4(src: "Path | str") -> tuple:
 
     out = src.with_suffix(".mp4")
     if out.is_file():
-        return out, False
+        if _cached_mp4_is_valid(out):
+            return out, False
+        if emit:
+            emit(f"cached mp4 {out.name} is invalid (truncated/corrupt); re-transcoding")
+        try:
+            out.unlink()
+        except OSError:
+            pass
 
-    copy_cmd = [
-        "ffmpeg", "-y", "-i", str(src),
-        "-c", "copy", "-movflags", "+faststart",
-        str(out),
-    ]
+    src_codec = _probe_video_codec(src)
+    if src_codec in _DALI_COMPATIBLE_CODECS:
+        cmd = ["ffmpeg", "-y", "-i", str(src),
+               "-c", "copy", "-movflags", "+faststart", str(out)]
+        mode = f"stream-copy ({src_codec})"
+    else:
+        # MJPEG / other → must re-encode for DALI compatibility.
+        cmd = ["ffmpeg", "-y", "-i", str(src),
+               "-c:v", "libx264", "-preset", "veryfast", "-crf", "20",
+               "-pix_fmt", "yuv420p", "-movflags", "+faststart", str(out)]
+        mode = f"re-encode (source codec '{src_codec or 'unknown'}' incompatible with DALI; libx264)"
+
+    if emit:
+        emit(f"transcoding {src.name} via {mode}…")
+    t0 = time.time()
     try:
-        r = subprocess.run(copy_cmd, capture_output=True, text=True)
+        r = subprocess.run(cmd, capture_output=True, text=True)
     except FileNotFoundError:
-        # ffmpeg not on PATH → re-raise with a clear message
         raise FileNotFoundError("ffmpeg required for transcoding; not found on PATH")
-    if r.returncode == 0 and out.is_file():
+
+    if r.returncode == 0 and out.is_file() and _cached_mp4_is_valid(out):
+        if emit:
+            sz_mb = out.stat().st_size / (1024 * 1024)
+            emit(f"transcoded {src.name} → {out.name} ({sz_mb:.0f} MB, {time.time() - t0:.0f}s)")
         return out, True
 
-    reencode_cmd = [
-        "ffmpeg", "-y", "-i", str(src),
-        "-c:v", "libx264", "-preset", "veryfast", "-crf", "18",
-        str(out),
-    ]
-    r2 = subprocess.run(reencode_cmd, capture_output=True, text=True)
-    if r2.returncode == 0 and out.is_file():
-        return out, True
+    # If stream-copy succeeded structurally but the result isn't a real video
+    # (or returncode failed), fall through to libx264 re-encode.
+    if mode.startswith("stream-copy"):
+        if emit:
+            emit(f"stream-copy of {src.name} failed validation; falling back to libx264")
+        cmd2 = ["ffmpeg", "-y", "-i", str(src),
+                "-c:v", "libx264", "-preset", "veryfast", "-crf", "20",
+                "-pix_fmt", "yuv420p", "-movflags", "+faststart", str(out)]
+        r2 = subprocess.run(cmd2, capture_output=True, text=True)
+        if r2.returncode == 0 and out.is_file() and _cached_mp4_is_valid(out):
+            if emit:
+                sz_mb = out.stat().st_size / (1024 * 1024)
+                emit(f"transcoded {src.name} → {out.name} via fallback libx264 ({sz_mb:.0f} MB, {time.time() - t0:.0f}s)")
+            return out, True
+        raise RuntimeError(
+            f"transcode failed for {src.name}: "
+            f"primary stderr tail: {(r.stderr or '').splitlines()[-3:]}, "
+            f"libx264 fallback stderr tail: {(r2.stderr or '').splitlines()[-3:]}"
+        )
 
     raise RuntimeError(
         f"transcode failed for {src.name}: "
-        f"stream-copy stderr tail: {(r.stderr or '').splitlines()[-3:]}, "
-        f"re-encode stderr tail: {(r2.stderr or '').splitlines()[-3:]}"
+        f"ffmpeg stderr tail: {(r.stderr or '').splitlines()[-3:]}"
     )
 
 
@@ -412,7 +504,7 @@ def _ensure_dali_in_config(model_dir: "Path | str") -> bool:
     return True
 
 
-def prepare_predict_inputs(model_dir: "Path | str", videos: "list[Path | str]") -> dict:
+def prepare_predict_inputs(model_dir: "Path | str", videos: "list[Path | str]", emit=None) -> dict:
     """Resolve sibling views + transcode non-mp4 inputs for litpose predict.
 
     1. Reads ``data.view_names`` from ``<model_dir>/config.yaml``.
@@ -441,11 +533,16 @@ def prepare_predict_inputs(model_dir: "Path | str", videos: "list[Path | str]") 
     mp4_paths: list = []
     transcoded: list = []
 
+    total_inputs = sum(len(g) for g in siblings["pairs"])
+    seen = 0
     for group in siblings["pairs"]:
         try:
             mp4_group = []
             for v in group:
-                out, did = _transcode_to_mp4(v)
+                seen += 1
+                if emit:
+                    emit(f"transcode step {seen}/{total_inputs}: {Path(v).name}")
+                out, did = _transcode_to_mp4(v, emit=emit)
                 if did:
                     transcoded.append(str(v))
                 mp4_group.append(out)
