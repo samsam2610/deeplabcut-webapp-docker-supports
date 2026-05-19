@@ -412,6 +412,31 @@ async function _refreshLabeledFrames() {
 // ── Init ──────────────────────────────────────────────────────────────────────
 
 document.addEventListener("DOMContentLoaded", () => {
+  // Inject a "Jobs" link into the top nav so users can jump to /jobs without
+  // leaving the dlc-3d page. base.html is baked into the image (not mounted),
+  // so we patch the rendered DOM instead of editing the template.
+  (() => {
+    const nav = document.querySelector("header.site-header nav");
+    if (!nav || nav.querySelector('a[href="/jobs"]')) return;
+    const a = document.createElement("a");
+    a.href = "/jobs";
+    a.textContent = "Jobs";
+    // Mirror the styling pattern used by the existing nav anchors in base.html.
+    a.style.cssText =
+      "font-size:.78rem;color:var(--text-dim);text-decoration:none;" +
+      "padding:.2rem .55rem;border-radius:5px;border:1px solid transparent;" +
+      "transition:all .15s";
+    a.onmouseover = () => {
+      a.style.borderColor = "var(--border)";
+      a.style.color = "var(--text)";
+    };
+    a.onmouseout = () => {
+      a.style.borderColor = "transparent";
+      a.style.color = "var(--text-dim)";
+    };
+    nav.appendChild(a);
+  })();
+
   document.getElementById("btn-open-frame-extractor")?.addEventListener("click", _openCard);
   document.getElementById("btn-close-3d-extract")?.addEventListener("click", _closeCard);
   document.getElementById("ep-extract-btn")?.addEventListener("click", _extractFrame);

@@ -666,6 +666,17 @@ document.addEventListener('DOMContentLoaded', () => Controller.init());
       vaZoomVal.textContent = _vaZoom + " %";
       _vaFitViewer();
       _vaSyncCanvas();
+      // Resizing a <canvas> via .width/.height clears its contents. _vaSyncCanvas
+      // resizes the primary overlay; _renderTileMarkers (called by
+      // _vaRenderAllSiblings) does the same for each sibling. Without these two
+      // redraw calls the primary canvas is left blank and the sibling canvases
+      // still hold marker coords mapped to the OLD display size — both visibly
+      // wrong until the user moves the mouse over the primary or toggles the
+      // overlay off and on.
+      if (_vaOverlayEnabled) {
+        _vaDrawCurrentFrame();
+        _vaRenderAllSiblings();
+      }
     });
 
     function _vaReset() {
