@@ -4,8 +4,12 @@ import { buildPairMap, FL3D_FRAME_RE } from './pair_map.mjs';
 export { FL3D_FRAME_RE, buildPairMap } from './pair_map.mjs';
 
 (function initFl3d() {
-    // Guard: bail out early if fl3d-* IDs are absent (not on the dlc-3D page).
+    // Guard: bail out early if fl3d-* IDs are absent. Check the canvas
+    // explicitly because line 22 does `flCanvas.getContext("2d")` with no
+    // null-check — if the labeler card's <canvas> isn't in the DOM yet
+    // (e.g. mid-rebuild) we'd otherwise throw on module load.
     if (!document.getElementById("fl3d-stem-select")) return;
+    if (!document.getElementById("fl3d-canvas")) return;
 
     const flCard         = document.getElementById("frame-labeler-card");
     const flOpenBtn      = document.getElementById("btn-open-frame-labeler");
@@ -1454,6 +1458,16 @@ export { FL3D_FRAME_RE, buildPairMap } from './pair_map.mjs';
 
     flCanvas.addEventListener("click", e => {
       if (!_flImgLoaded || !_flVideoStem) return;
+      // Sync-mode focus guard: in two-tile sync mode, clicks on the primary
+      // canvas while the sibling tile is focused must NOT place a marker —
+      // _fl3dActiveFname() returns the focused (sibling) fname but the click
+      // coords are in the primary's image space, so writing the label would
+      // jump the sibling's marker to the primary-click position. The row-level
+      // click handler still fires after this (bubbling) and switches focus.
+      if (_fl3dSyncOn) {
+        const primaryCam = +(flCanvas.dataset.cam || _fl3dPrimaryCam);
+        if (primaryCam !== _fl3dFocusedCam) return;
+      }
       const fname = _fl3dActiveFname();
       const { x: cx, y: cy, scale } = _fl3dPrimaryClickToImage(e);
 
@@ -1480,6 +1494,13 @@ export { FL3D_FRAME_RE, buildPairMap } from './pair_map.mjs';
     flCanvas.addEventListener("contextmenu", e => {
       e.preventDefault();
       if (!_flSelectedBp || !_flVideoStem) return;
+      // Same focus guard as the click handler — a right-click on the
+      // non-focused primary tile while sibling is focused would otherwise
+      // delete the sibling's marker for _flSelectedBp.
+      if (_fl3dSyncOn) {
+        const primaryCam = +(flCanvas.dataset.cam || _fl3dPrimaryCam);
+        if (primaryCam !== _fl3dFocusedCam) return;
+      }
       _flRemoveBpLabel(_flSelectedBp);
     });
 
