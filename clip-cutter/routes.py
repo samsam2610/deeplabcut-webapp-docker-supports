@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import csv
+import hmac
 import json
 import logging
 import re
@@ -9,7 +10,10 @@ import time
 import uuid
 from pathlib import Path
 
-from flask import Blueprint, Response, jsonify, render_template, request, stream_with_context
+from flask import (
+    Blueprint, Response, current_app, jsonify, redirect, render_template,
+    request, session, stream_with_context, url_for,
+)
 
 import config
 import processor
@@ -21,6 +25,73 @@ bp = Blueprint(
     template_folder="templates",
     static_folder="static", static_url_path="/static",
 )
+
+
+# ── Auth ──────────────────────────────────────────────────────────────────────
+# Token-based session gate. Token comes from app.config["AUTH_TOKEN"]
+# (set in create_app from CLIP_CUTTER_AUTH_TOKEN env var, default "deeplabcut").
+# Anything under the blueprint other than /login, /logout and /static must be
+# authenticated; AJAX/JSON/EventSource callers get 401, full-page navs to the
+# root get redirected to the login page.
+
+def _wants_json_response() -> bool:
+    """True if the caller is an AJAX/JSON/SSE client rather than a browser nav."""
+    if request.headers.get("X-Requested-With") == "XMLHttpRequest":
+        return True
+    accept = request.headers.get("Accept", "")
+    if "application/json" in accept or "text/event-stream" in accept:
+        return True
+    # Werkzeug content negotiation: treat JSON as preferred over HTML.
+    best = request.accept_mimetypes.best_match(
+        ["application/json", "text/html"], default=None
+    )
+    if best == "application/json" and request.accept_mimetypes[best] > \
+            request.accept_mimetypes["text/html"]:
+        return True
+    return False
+
+
+@bp.before_request
+def _require_auth():
+    endpoint = request.endpoint or ""
+    # Always allow the login/logout endpoints and Flask's static handler.
+    if endpoint in ("clip_cutter.login", "clip_cutter.logout"):
+        return None
+    if endpoint.endswith(".static") or endpoint == "static":
+        return None
+    if session.get("authed"):
+        return None
+
+    # Unauthed: decide between JSON 401 and a redirect to /login.
+    # Only direct navigations to the blueprint root should redirect; everything
+    # else is treated as an API/SSE call and gets 401 JSON.
+    is_root_nav = request.path.rstrip("/") in ("/clip-cutter", "")
+    if is_root_nav and not _wants_json_response():
+        return redirect(url_for("clip_cutter.login"))
+    if _wants_json_response() or not is_root_nav:
+        return jsonify({"error": "unauthorized"}), 401
+    return redirect(url_for("clip_cutter.login"))
+
+
+@bp.route("/login", methods=["GET", "POST"])
+def login():
+    if request.method == "POST":
+        submitted = (request.form.get("token") or "").encode("utf-8")
+        expected = current_app.config.get("AUTH_TOKEN", "").encode("utf-8")
+        if expected and hmac.compare_digest(submitted, expected):
+            session.clear()
+            session["authed"] = True
+            session.permanent = True
+            return redirect(url_for("clip_cutter.index"))
+        return redirect(url_for("clip_cutter.login", error=1))
+    error = request.args.get("error") == "1"
+    return render_template("login.html", error=error)
+
+
+@bp.route("/logout")
+def logout():
+    session.clear()
+    return redirect(url_for("clip_cutter.login"))
 
 _scan_jobs: dict[str, dict] = {}
 _jobs_lock = threading.Lock()
@@ -1074,7 +1145,14 @@ def extract():
         return jsonify({"error": f"parent CSV not found: {parent_csv}"}), 422
 
     postfix = (body.get("postfix") or "").strip()
-    result = processor.extract_clip(video_path, parent_csv, int(key_frame), output_dir, postfix=postfix)
+    start_fn = body.get("start_fn")
+    end_fn = body.get("end_fn")
+    result = processor.extract_clip(
+        video_path, parent_csv, int(key_frame), output_dir,
+        postfix=postfix,
+        start_fn=int(start_fn) if start_fn is not None else None,
+        end_fn=int(end_fn) if end_fn is not None else None,
+    )
     processor.update_parent_csv_note(parent_csv, int(key_frame), "start_reaching")
     return jsonify(result)
 
@@ -1291,11 +1369,17 @@ def add_to_queue():
     postfix = (body.get("postfix") or "").strip()
     extract_sibling = bool(body.get("extract_sibling", False))
     sibling_video_path = (body.get("sibling_video_path") or "").strip() or None
+    start_fn = body.get("start_fn")
+    end_fn = body.get("end_fn")
+    start_fn = int(start_fn) if start_fn is not None else None
+    end_fn = int(end_fn) if end_fn is not None else None
 
     ids = queue_manager.add(
         video_path, int(key_frame), postfix,
         sibling_video_path=sibling_video_path,
         extract_sibling=extract_sibling,
+        start_fn=start_fn,
+        end_fn=end_fn,
     )
     return jsonify({"ids": ids, "pending_count": queue_manager.get_status()["pending_count"]})
 
@@ -1316,14 +1400,36 @@ def trigger_queue_process():
 
 @bp.route("/queue/stream")
 def queue_stream():
+    IDLE_TIMEOUT_TICKS = 5400  # 45 minutes at 0.5 s/tick
+    HEARTBEAT_TICKS    = 30    # 15 seconds
+
     def generate():
         last = None
+        ticks_since_yield = 0
+        idle_ticks = 0
         while True:
             current = queue_manager.get_status()
             snapshot = json.dumps(current)
+            has_active = current["pending_count"] > 0 or current["processing"]
+
+            if has_active:
+                idle_ticks = 0
+            else:
+                idle_ticks += 1
+                if idle_ticks >= IDLE_TIMEOUT_TICKS:
+                    yield "event: session-expired\ndata: {}\n\n"
+                    return
+
             if snapshot != last:
                 yield f"data: {snapshot}\n\n"
                 last = snapshot
+                ticks_since_yield = 0
+            else:
+                ticks_since_yield += 1
+                if ticks_since_yield >= HEARTBEAT_TICKS:
+                    yield ": heartbeat\n\n"
+                    ticks_since_yield = 0
+
             time.sleep(0.5)
 
     return Response(

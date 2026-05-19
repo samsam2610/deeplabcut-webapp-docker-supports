@@ -350,6 +350,19 @@ function _epUpdateEnd() {
   const start = parseInt(document.getElementById("ep-start").value, 10) || 1;
   const frames = parseInt(document.getElementById("ep-frames").value, 10) || 800;
   document.getElementById("ep-end").value = start + frames - 1;
+
+  // Persist user-chosen length to the active detection and refresh its card name.
+  if (_detectionIdx !== null && typeof detections !== "undefined" && detections[_detectionIdx]) {
+    const d = detections[_detectionIdx];
+    d.extract_frames = frames;
+    const nameEl = document.getElementById("card-clipname-" + _detectionIdx);
+    if (nameEl) {
+      const suffix = d.extract_postfix ? `_${d.extract_postfix}` : "";
+      const videoName = d.video_path.split("/").pop().replace(/\.avi$/i, "");
+      nameEl.textContent = videoName + "_" + start + "_" + (start + frames - 1) + suffix + ".avi";
+    }
+    if (typeof saveDetections === "function") saveDetections();
+  }
 }
 
 // ── Tag timeline canvases ──────────────────────────────────────────────────────
@@ -794,13 +807,19 @@ function _epAutoPopulatePostfixes() {
 
     if (mappedNotes.length === 1) {
       const postfix = mappings[mappedNotes[0]];
-      if (!d.extract_postfix) {
+      // Re-assign if previously empty OR previously auto-assigned (don't overwrite manual edits).
+      const canAutoAssign = !d.extract_postfix || d.extract_postfix_auto === true;
+      if (canAutoAssign && d.extract_postfix !== postfix) {
         d.extract_postfix = postfix;
+        d.extract_postfix_auto = true;
         const nameEl = document.getElementById("card-clipname-" + i);
         if (nameEl) {
-          const videoName = d.video_path.split("/").pop().replace(/\.avi$/i, "");
-          nameEl.textContent =
-            videoName + "_" + (d.frame_number - 200) + "_" + (d.frame_number + 599) + "_" + postfix + ".avi";
+          nameEl.textContent = detClipName(d) + "_" + postfix + ".avi";
+        }
+        const pfBadge = document.getElementById("card-postfix-" + i);
+        if (pfBadge) {
+          pfBadge.textContent = "postfix: " + postfix + " (auto)";
+          pfBadge.style.display = "";
         }
         if (_detectionIdx === i) {
           const pfEl = document.getElementById("ep-postfix");
@@ -819,6 +838,26 @@ function _epAutoPopulatePostfixes() {
       }
 
     } else {
+      // No mapped note in the new window. If the postfix was auto-assigned earlier
+      // (e.g. before a keyframe move), clear it so we don't carry stale tags.
+      if (d.extract_postfix && d.extract_postfix_auto === true) {
+        d.extract_postfix = null;
+        d.extract_postfix_auto = false;
+        const nameEl = document.getElementById("card-clipname-" + i);
+        if (nameEl) {
+          nameEl.textContent = detClipName(d) + ".avi";
+        }
+        const pfBadge = document.getElementById("card-postfix-" + i);
+        if (pfBadge) {
+          pfBadge.textContent = "";
+          pfBadge.style.display = "none";
+        }
+        if (_detectionIdx === i) {
+          const pfEl = document.getElementById("ep-postfix");
+          if (pfEl) pfEl.value = "";
+        }
+        changed = true;
+      }
       if (card) card.classList.remove("has-conflict");
       if (conflictBadge) conflictBadge.style.display = "none";
     }
@@ -997,7 +1036,10 @@ function _epInitExtractPanel(videoPath, keyFrame1Based) {
     ? Math.max(1, keyFrame1Based - 200)
     : 1;
   document.getElementById("ep-start").value = start;
-  document.getElementById("ep-frames").value = 800;
+  const _storedFrames = (_detectionIdx !== null && typeof detections !== "undefined")
+    ? (parseInt(detections[_detectionIdx]?.extract_frames, 10) || 800)
+    : 800;
+  document.getElementById("ep-frames").value = _storedFrames;
   const _storedPostfix = (_detectionIdx !== null && typeof detections !== "undefined")
     ? (detections[_detectionIdx]?.extract_postfix || "")
     : "";
@@ -1054,8 +1096,19 @@ async function _epApplyNewKF(kf1) {
   const nameEl = document.getElementById("card-clipname-" + _detectionIdx);
   if (nameEl) {
     const d = detections[_detectionIdx];
-    const videoName = d.video_path.split("/").pop().replace(/\.avi$/i, "");
-    nameEl.textContent = videoName + "_" + (kf1 - 200) + "_" + (kf1 + 599) + ".avi";
+    const postfixSuffix = d.extract_postfix ? `_${d.extract_postfix}` : "";
+    nameEl.textContent = detClipName(d) + postfixSuffix + ".avi";
+  }
+  const pfBadge = document.getElementById("card-postfix-" + _detectionIdx);
+  if (pfBadge) {
+    const d = detections[_detectionIdx];
+    if (d.extract_postfix) {
+      pfBadge.textContent = "postfix: " + d.extract_postfix + (d.extract_postfix_auto ? " (auto)" : "");
+      pfBadge.style.display = "";
+    } else {
+      pfBadge.textContent = "";
+      pfBadge.style.display = "none";
+    }
   }
 
   _epUpdateSeekHighlight();
@@ -1075,10 +1128,18 @@ function _epApplyRescanKF(idx, newFrame1Based) {
   d.frame_number = newFrame1Based;
   const nameEl = document.getElementById("card-clipname-" + idx);
   if (nameEl) {
-    const videoName = d.video_path.split("/").pop().replace(/\.avi$/i, "");
     const postfixSuffix = d.extract_postfix ? `_${d.extract_postfix}` : "";
-    nameEl.textContent =
-      videoName + "_" + (newFrame1Based - 200) + "_" + (newFrame1Based + 599) + postfixSuffix + ".avi";
+    nameEl.textContent = detClipName(d) + postfixSuffix + ".avi";
+  }
+  const pfBadge = document.getElementById("card-postfix-" + idx);
+  if (pfBadge) {
+    if (d.extract_postfix) {
+      pfBadge.textContent = "postfix: " + d.extract_postfix + (d.extract_postfix_auto ? " (auto)" : "");
+      pfBadge.style.display = "";
+    } else {
+      pfBadge.textContent = "";
+      pfBadge.style.display = "none";
+    }
   }
   if (_kfCanvasVisible) _epDrawKfCanvas();
   if (typeof saveDetections === "function") saveDetections();
@@ -1640,6 +1701,8 @@ document.addEventListener("DOMContentLoaded", () => {
     const capturedIdx = _detectionIdx;
     const capturedVideoPath = _videoPath;
     const start = parseInt(document.getElementById("ep-start").value, 10);
+    const frames = parseInt(document.getElementById("ep-frames").value, 10) || 800;
+    const endFn = start + frames - 1;
     const keyFrame = start + 200;
     const postfix = document.getElementById("ep-postfix").value.trim();
 
@@ -1657,6 +1720,8 @@ document.addEventListener("DOMContentLoaded", () => {
           postfix: postfix || "",
           extract_sibling: extractSibling,
           sibling_video_path: extractSibling ? _siblingVideoPath : undefined,
+          start_fn: start,
+          end_fn: endFn,
         }),
       });
       if (!resp.ok) {
@@ -1675,6 +1740,7 @@ document.addEventListener("DOMContentLoaded", () => {
           source: "manual",
           status: "queued",
           extract_postfix: postfix || null,
+          extract_frames: frames,
           queue_item_id: data.ids[0],
           sibling_queue_item_id: data.ids[1] || null,
         };
@@ -1695,6 +1761,7 @@ document.addEventListener("DOMContentLoaded", () => {
       } else if (capturedIdx !== null && typeof detections !== "undefined" && detections[capturedIdx]) {
         detections[capturedIdx].status = "queued";
         detections[capturedIdx].extract_postfix = postfix || null;
+        detections[capturedIdx].extract_frames = frames;
         detections[capturedIdx].queue_item_id = data.ids[0];
         if (data.ids[1]) detections[capturedIdx].sibling_queue_item_id = data.ids[1];
         const card = document.getElementById("card-" + capturedIdx);
@@ -1941,12 +2008,32 @@ document.addEventListener("DOMContentLoaded", () => {
     if (e.key === "Enter") { e.preventDefault(); document.getElementById("ep-add-tag-btn").click(); }
   });
 
-  // Sync postfix input back to active tag selection
+  // Sync postfix input back to active tag selection + mark detection's postfix as manual
   document.getElementById("ep-postfix").addEventListener("input", (e) => {
     const val = e.target.value.trim();
     if (_epActivePostfixTag && val !== _epActivePostfixTag) {
       _epActivePostfixTag = null;
       _epRenderPostfixTags();
+    }
+    if (_detectionIdx !== null && typeof detections !== "undefined" && detections[_detectionIdx]) {
+      const d = detections[_detectionIdx];
+      d.extract_postfix = val || null;
+      d.extract_postfix_auto = false;
+      const nameEl = document.getElementById("card-clipname-" + _detectionIdx);
+      if (nameEl) {
+        const suffix = val ? `_${val}` : "";
+        nameEl.textContent = detClipName(d) + suffix + ".avi";
+      }
+      const pfBadge = document.getElementById("card-postfix-" + _detectionIdx);
+      if (pfBadge) {
+        if (val) {
+          pfBadge.textContent = "postfix: " + val;
+          pfBadge.style.display = "";
+        } else {
+          pfBadge.textContent = "";
+          pfBadge.style.display = "none";
+        }
+      }
     }
   });
 

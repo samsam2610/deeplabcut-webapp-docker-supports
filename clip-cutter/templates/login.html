@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>clip-cutter — sign in</title>
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  background: #0d1117; color: #cdd9e5;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-size: 13px;
+  min-height: 100vh;
+  display: flex; align-items: center; justify-content: center;
+  padding: 20px;
+}
+.card {
+  background: #161b22;
+  border: 1px solid #30363d;
+  border-radius: 6px;
+  padding: 24px 28px;
+  width: 100%;
+  max-width: 340px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+}
+h1 {
+  font-size: 15px;
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+.subtitle {
+  font-size: 11px;
+  color: #768390;
+  margin-bottom: 18px;
+}
+label {
+  display: block;
+  font-size: 11px;
+  color: #768390;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 6px;
+}
+input[type="password"] {
+  width: 100%;
+  padding: 8px 10px;
+  background: #0d1117;
+  border: 1px solid #30363d;
+  border-radius: 4px;
+  color: #cdd9e5;
+  font-size: 13px;
+  font-family: inherit;
+  outline: none;
+  transition: border-color 0.15s ease;
+}
+input[type="password"]:focus {
+  border-color: #388bfd;
+}
+button {
+  margin-top: 14px;
+  width: 100%;
+  padding: 8px 12px;
+  background: #388bfd;
+  border: 1px solid #388bfd;
+  border-radius: 4px;
+  color: #ffffff;
+  font-size: 13px;
+  font-weight: 500;
+  font-family: inherit;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+button:hover { background: #1f6feb; border-color: #1f6feb; }
+.error {
+  margin-top: 12px;
+  padding: 8px 10px;
+  background: rgba(248, 81, 73, 0.1);
+  border: 1px solid rgba(248, 81, 73, 0.4);
+  border-radius: 4px;
+  color: #f85149;
+  font-size: 12px;
+}
+</style>
+</head>
+<body>
+<div class="card">
+  <h1>clip-cutter</h1>
+  <div class="subtitle">Enter access token to continue.</div>
+  <form method="POST" action="/clip-cutter/login">
+    <label for="token">Token</label>
+    <input type="password" id="token" name="token" autocomplete="current-password" autofocus required>
+    <button type="submit">Sign in</button>
+    {% if error %}
+    <div class="error">Invalid token. Try again.</div>
+    {% endif %}
+  </form>
+</div>
+</body>
+</html>

@@ -2,9 +2,12 @@ from __future__ import annotations
 
 import base64
 import datetime
+import gc
 import json
+import logging
 import os
 import threading
+import time
 from pathlib import Path
 
 import cv2
@@ -17,14 +20,34 @@ import config
 
 # Lazy-loaded CLIP model singleton
 _model = None
+_clip_model_lock = threading.Lock()
+
+# ── GPU model idle eviction ───────────────────────────────────────────────────
+# After IDLE_LIMIT_SEC of inactivity each model is dropped and VRAM reclaimed.
+# Live scans keep their own local references, so eviction never breaks an
+# in-flight operation; on the next call the model lazy-reloads.
+_MODEL_IDLE_LIMIT_SEC = int(os.environ.get("CLIP_CUTTER_MODEL_IDLE_SEC", 30 * 60))
+_last_used: dict = {"clip": 0.0, "dino": 0.0, "dino_cuda1": 0.0}
+_evictor_started = False
+_evictor_start_lock = threading.Lock()
+
+
+def _touch(name: str) -> None:
+    _last_used[name] = time.time()
 
 
 def _get_model():
     global _model
-    if _model is None:
-        from sentence_transformers import SentenceTransformer
-        _model = SentenceTransformer("clip-ViT-B-32")
-    return _model
+    m = _model
+    if m is None:
+        with _clip_model_lock:
+            m = _model
+            if m is None:
+                from sentence_transformers import SentenceTransformer
+                m = SentenceTransformer("clip-ViT-B-32")
+                _model = m
+    _touch("clip")
+    return m
 
 
 # Lazy-loaded DINOv2 model singleton
@@ -65,7 +88,64 @@ def _get_dino_model_cuda1():
                     T.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
                 ])
                 _dino_model_cuda1 = model
+    _touch("dino_cuda1")
     return _dino_model_cuda1, _dino_transform_cuda1
+
+
+def _evict_model(name: str) -> None:
+    """Drop the singleton ref so VRAM can be reclaimed when no scan holds it."""
+    global _model, _dino_model, _dino_transform, _dino_model_cuda1, _dino_transform_cuda1
+    if name == "clip":
+        with _clip_model_lock:
+            if _model is None:
+                return
+            _model = None
+    elif name == "dino":
+        with _dino_model_lock:
+            if _dino_model is None:
+                return
+            _dino_model = None
+            _dino_transform = None
+    elif name == "dino_cuda1":
+        with _dino_model_cuda1_lock:
+            if _dino_model_cuda1 is None:
+                return
+            _dino_model_cuda1 = None
+            _dino_transform_cuda1 = None
+    else:
+        return
+    _last_used[name] = 0.0
+    gc.collect()
+    try:
+        import torch
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+    except Exception:
+        pass
+    logging.info("evicted idle model: %s", name)
+
+
+def _evictor_loop() -> None:
+    while True:
+        try:
+            time.sleep(60)
+            now = time.time()
+            for name in ("clip", "dino", "dino_cuda1"):
+                last = _last_used.get(name, 0.0)
+                if last and (now - last) > _MODEL_IDLE_LIMIT_SEC:
+                    _evict_model(name)
+        except Exception:
+            logging.exception("model evictor error")
+
+
+def start_model_evictor() -> None:
+    """Start the background idle-model evictor (idempotent)."""
+    global _evictor_started
+    with _evictor_start_lock:
+        if _evictor_started:
+            return
+        _evictor_started = True
+        threading.Thread(target=_evictor_loop, daemon=True, name="model-evictor").start()
 
 
 def embed_frames_cuda1_batch(frames: list, batch_size: int = 256) -> np.ndarray:
@@ -205,6 +285,7 @@ def _get_dino_model():
                     T.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
                 ])
                 _dino_model = model
+    _touch("dino")
     return _dino_model, _dino_transform
 
 
@@ -1385,13 +1466,16 @@ def extract_clip(
     key_frame_number: int,
     output_dir: Path | str,
     postfix: str = "",
+    start_fn: int | None = None,
+    end_fn: int | None = None,
 ) -> dict:
     """
-    Extract the 800-frame clip for a confirmed detection.
+    Extract a clip for a confirmed detection.
     Writes: {output_dir}/{stem}_{start}_{end}[_{postfix}].avi and matching .csv
     Returns dict with output paths and start/end frame numbers.
     key_frame_number is 1-based (matches CSV frame_number).
-    start/end are clamped to [1, total_frames].
+    If start_fn/end_fn are supplied (1-based) they override the default
+    key_frame ± CLIP_PRE/POST window. All values are clamped to [1, total_frames].
     """
     from config import CLIP_PRE_FRAMES, CLIP_POST_FRAMES
 
@@ -1403,8 +1487,14 @@ def extract_clip(
     total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
     cap.release()
 
-    start_fn = max(1, key_frame_number - CLIP_PRE_FRAMES)           # 1-based, clamped
-    end_fn = min(total_frames, key_frame_number + CLIP_POST_FRAMES - 1)  # 1-based, clamped
+    if start_fn is None:
+        start_fn = key_frame_number - CLIP_PRE_FRAMES
+    if end_fn is None:
+        end_fn = key_frame_number + CLIP_POST_FRAMES - 1
+    start_fn = max(1, int(start_fn))
+    end_fn = min(total_frames, int(end_fn))
+    if end_fn < start_fn:
+        end_fn = start_fn
 
     stem = video_path.stem
     clip_stem = f"{stem}_{start_fn}_{end_fn}"

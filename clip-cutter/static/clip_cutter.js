@@ -22,6 +22,20 @@ function esc(s) {
   return d.innerHTML;
 }
 
+// ── Per-detection clip-bound helpers ──────────────────────────────────────────
+// Length defaults to 800; users can override by typing in the "Frames" input.
+// The pre-window is fixed at 200, so end = start + len - 1, start = kf - 200.
+const CLIP_DEFAULT_LEN = 800;
+const CLIP_DEFAULT_PRE = 200;
+
+function detLen(d) { return Math.max(1, parseInt(d.extract_frames, 10) || CLIP_DEFAULT_LEN); }
+function detStart(d) { return d.frame_number - CLIP_DEFAULT_PRE; }
+function detEnd(d) { return detStart(d) + detLen(d) - 1; }
+function detClipName(d) {
+  const videoName = d.video_path.split("/").pop().replace(/\.avi$/i, "");
+  return `${videoName}_${detStart(d)}_${detEnd(d)}`;
+}
+
 function applyFilter() {
   const sliderEl = document.getElementById("sim-slider");
   const threshold = sliderEl ? parseFloat(sliderEl.value) : 0;
@@ -30,8 +44,9 @@ function applyFilter() {
     const sim = parseFloat(card.dataset.similarity ?? 0);
     const sourceOk =
       currentFilter === "all" ||
-      (currentFilter === "sensor+clip" && src === "sensor+clip") ||
-      (currentFilter === "clip_only" && src === "clip_only");
+      (currentFilter === "sensor+clip"    && src === "sensor+clip") ||
+      (currentFilter === "clip_only"      && src === "clip_only") ||
+      (currentFilter === "global_library" && src === "global_library");
     card.style.display = sourceOk && sim >= threshold ? "" : "none";
   });
 }
@@ -45,10 +60,28 @@ function _connectQueueStream() {
     const status = JSON.parse(e.data);
     _applyQueueStatus(status);
   };
+  _queueEs.addEventListener("session-expired", () => {
+    if (_queueEs) { _queueEs.close(); _queueEs = null; }
+    _showSessionExpired();
+  });
   _queueEs.onerror = () => {
     if (_queueEs) { _queueEs.close(); _queueEs = null; }
     setTimeout(_connectQueueStream, 5000);
   };
+}
+
+function _showSessionExpired() {
+  if (document.getElementById("session-expired-overlay")) return;
+  const overlay = document.createElement("div");
+  overlay.id = "session-expired-overlay";
+  overlay.style.cssText = "position:fixed;inset:0;background:rgba(0,0,0,0.75);display:flex;align-items:center;justify-content:center;z-index:9999;";
+  overlay.innerHTML = `
+    <div style="background:#161b22;border:1px solid #30363d;border-radius:8px;padding:24px 28px;text-align:center;max-width:320px;">
+      <p style="margin:0 0 6px;font-size:13px;color:#cdd9e5;">Session idle — queue finished.</p>
+      <p style="margin:0 0 16px;font-size:11px;color:#768390;">Reload to continue.</p>
+      <button onclick="location.reload()" style="background:#388bfd;color:#fff;border:none;border-radius:4px;padding:5px 18px;font-size:12px;cursor:pointer;">Reload</button>
+    </div>`;
+  document.body.appendChild(overlay);
 }
 
 function _applyQueueStatus(status) {
@@ -119,6 +152,8 @@ async function _queueDetection(idx) {
         postfix,
         extract_sibling: extractSibling,
         sibling_video_path: extractSibling ? _siblingVideoPath : undefined,
+        start_fn: detStart(d),
+        end_fn: detEnd(d),
       }),
     });
     if (!resp.ok) { setStatus("Queue error"); return; }
@@ -1518,6 +1553,16 @@ async function loadSavedDetections(videoPath) {
     renderDetections(data.detections);
     _updateSiblingBackfillBtn();
     applyFilter();
+    const total = (data.detections || []).length;
+    const visible = Array.from(document.querySelectorAll(".result-card"))
+      .filter(c => c.style.display !== "none").length;
+    if (total > 0 && visible === 0) {
+      currentFilter = "all";
+      document.querySelectorAll(".filter-btn").forEach(b =>
+        b.classList.toggle("active", b.dataset.filter === "all")
+      );
+      applyFilter();
+    }
     return true;
   } catch {
     return false;
@@ -1701,7 +1746,11 @@ function renderDetections(dets) {
       card.querySelectorAll("button").forEach((b) => (b.disabled = true));
     } else if (d.status === "rejected") {
       card.classList.add("rejected");
-      card.querySelectorAll("button").forEach((b) => (b.disabled = true));
+      card.querySelectorAll("button").forEach((b) => {
+        if (!b.classList.contains("keep-btn") && !b.classList.contains("reject-btn")) {
+          b.disabled = true;
+        }
+      });
     } else if (d.status === "queued") {
       card.classList.add("queued");
       card.querySelectorAll(".keep-btn, .reject-btn").forEach((b) => (b.disabled = true));
@@ -1713,9 +1762,7 @@ function renderDetections(dets) {
 }
 
 function buildResultCard(d, idx) {
-  const videoName = d.video_path.split("/").pop().replace(".avi", "");
-  const pre = 200, post = 600;
-  const clipName = `${videoName}_${d.frame_number - pre}_${d.frame_number + post - 1}`;
+  const clipName = detClipName(d);
   const isKnown = !!d.known_match;
 
   const card = document.createElement("div");
@@ -1729,6 +1776,7 @@ function buildResultCard(d, idx) {
     <div class="result-accent-bar"></div>
     <div class="result-meta">
       <div class="result-name" id="card-clipname-${idx}"></div>
+      <div class="result-postfix" id="card-postfix-${idx}" style="font-size:9px;color:#a5d6ff;display:none;margin-top:1px;"></div>
       <div class="result-row">
         <span style="font-size:9px;color:#768390;white-space:nowrap;">kf <span class="kf-num"></span></span>
         <span class="sim-pill"></span>
@@ -1745,6 +1793,11 @@ function buildResultCard(d, idx) {
   // Populate text safely
   const postfixSuffix = d.extract_postfix ? `_${d.extract_postfix}` : "";
   card.querySelector(".result-name").textContent = clipName + postfixSuffix + ".avi";
+  if (d.extract_postfix) {
+    const pfBadge = card.querySelector(".result-postfix");
+    pfBadge.textContent = "postfix: " + d.extract_postfix + (d.extract_postfix_auto ? " (auto)" : "");
+    pfBadge.style.display = "";
+  }
   card.querySelector(".kf-num").textContent = d.frame_number.toLocaleString();
   card.querySelector(".match-pill").textContent = isKnown
     ? "✓ " + d.known_match
@@ -1820,13 +1873,19 @@ async function keepDetection(idx) {
   const resp = await fetch("/clip-cutter/extract", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ video_path: d.video_path, key_frame: d.frame_number }),
+    body: JSON.stringify({
+      video_path: d.video_path,
+      key_frame: d.frame_number,
+      start_fn: detStart(d),
+      end_fn: detEnd(d),
+    }),
   });
   if (resp.ok) {
     const data = await resp.json().catch(() => ({}));
     detections[idx].status = "kept";
     if (data.avi_path) detections[idx].extract_avi_path = data.avi_path;
     const card = document.getElementById(`card-${idx}`);
+    card.classList.remove("rejected");
     card.classList.add("kept");
     card.querySelectorAll("button").forEach((b) => (b.disabled = true));
     setStatus(`Clip extracted for frame ${d.frame_number}`);
@@ -1838,11 +1897,26 @@ async function keepDetection(idx) {
 }
 
 async function rejectDetection(idx) {
-  detections[idx].status = "rejected";
+  const d = detections[idx];
   const card = document.getElementById(`card-${idx}`);
-  if (card) {
-    card.classList.add("rejected");
-    card.querySelectorAll("button").forEach(b => (b.disabled = true));
+  if (d.status === "rejected") {
+    d.status = "pending";
+    if (card) {
+      card.classList.remove("rejected");
+      card.querySelectorAll("button").forEach(b => (b.disabled = false));
+    }
+    setStatus(`Rejection cleared for frame ${d.frame_number}`);
+  } else {
+    d.status = "rejected";
+    if (card) {
+      card.classList.add("rejected");
+      card.querySelectorAll("button").forEach(b => {
+        if (!b.classList.contains("keep-btn") && !b.classList.contains("reject-btn")) {
+          b.disabled = true;
+        }
+      });
+    }
+    setStatus(`Frame ${d.frame_number} rejected — click ✗ again to undo`);
   }
   await saveDetections();
 }
@@ -1877,6 +1951,41 @@ document.addEventListener("keydown", e => {
   e.preventDefault();
   cards[next].click();
   cards[next].scrollIntoView({ block: "nearest" });
+});
+
+// ── X — reject current candidate and advance to next ──────────────────────────
+
+document.addEventListener("keydown", e => {
+  if (e.key !== "x" && e.key !== "X") return;
+  if (e.ctrlKey || e.metaKey || e.altKey) return;
+  const tag = document.activeElement?.tagName;
+  if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
+  if (document.activeElement?.isContentEditable) return;
+
+  const active = document.querySelector(".result-card.active-preview");
+  if (!active) return;
+
+  const m = active.id.match(/^card-(\d+)$/);
+  if (!m) return;
+  const idx = parseInt(m[1], 10);
+
+  e.preventDefault();
+
+  const cards = Array.from(document.querySelectorAll("#results-list .result-card"))
+    .filter(c => c.style.display !== "none");
+  const cur = cards.indexOf(active);
+
+  rejectDetection(idx);
+
+  if (cur !== -1) {
+    let nextIdx = cur + 1;
+    // Advance past any cards now hidden by the filter (e.g. once "rejected" is filtered out)
+    while (nextIdx < cards.length && cards[nextIdx].style.display === "none") nextIdx++;
+    if (nextIdx < cards.length) {
+      cards[nextIdx].click();
+      cards[nextIdx].scrollIntoView({ block: "nearest" });
+    }
+  }
 });
 
 // ── Sidebar resize ─────────────────────────────────────────────────────────────

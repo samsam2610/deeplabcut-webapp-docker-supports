@@ -50,6 +50,8 @@ def add(
     postfix: str = "",
     sibling_video_path: "str | None" = None,
     extract_sibling: bool = False,
+    start_fn: "int | None" = None,
+    end_fn: "int | None" = None,
 ) -> list[str]:
     """Add 1 or 2 queue items. Resets inactivity timer. Returns item IDs."""
     global _last_enqueue_time
@@ -63,6 +65,8 @@ def add(
         "video_path": str(video_path),
         "key_frame": int(key_frame),
         "postfix": postfix,
+        "start_fn": int(start_fn) if start_fn is not None else None,
+        "end_fn": int(end_fn) if end_fn is not None else None,
         "status": "pending",
         "enqueued_at": now_iso,
         "finished_at": None,
@@ -81,6 +85,8 @@ def add(
                 "video_path": str(sibling_video_path),
                 "key_frame": int(key_frame),
                 "postfix": postfix,
+                "start_fn": int(start_fn) if start_fn is not None else None,
+                "end_fn": int(end_fn) if end_fn is not None else None,
                 "status": "pending",
                 "enqueued_at": now_iso,
                 "finished_at": None,
@@ -136,6 +142,8 @@ def _process_one(item: dict) -> None:
         result = processor.extract_clip(
             video_path, parent_csv, item["key_frame"], output_dir,
             postfix=item["postfix"],
+            start_fn=item.get("start_fn"),
+            end_fn=item.get("end_fn"),
         )
         with _lock:
             item["status"] = "done"
