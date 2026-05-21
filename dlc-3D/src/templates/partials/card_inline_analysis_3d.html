@@ -8,45 +8,42 @@
       </div>
       <p class="subtitle">Scrub a stereo pair, run DLC on N frames forward on BOTH cameras against a warm model, and view the results on both views immediately.</p>
 
-      <!-- ── Analysis params (3D inline analysis) ───────────────────── -->
-      <div id="ia3d-analysis-params" style="border:1px solid var(--border);border-radius:8px;background:var(--surface-2);padding:.5rem .6rem;margin-bottom:.6rem">
-        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:.4rem">
-          <strong style="font-size:.8rem">Analysis</strong>
-          <span id="ia3d-warm-indicator" style="font-size:.72rem;color:var(--text-dim)">○ idle</span>
-        </div>
-        <div style="display:grid;grid-template-columns:auto 1fr auto;gap:.35rem .5rem;align-items:center;font-size:.75rem">
-          <label for="ia3d-snapshot">Snapshot</label>
-          <select id="ia3d-snapshot" style="min-width:0;font-size:.74rem"></select>
-          <button class="btn-sm" id="ia3d-refresh-snapshots" style="padding:.15rem .4rem;font-size:.72rem" title="Reload snapshots">↺</button>
-
+      <!-- ── Analysis Parameters (mirrors the 2D Inline Analysis card) ── -->
+      <div style="margin-bottom:.6rem;padding:.5rem .65rem;border:1px solid var(--border);border-radius:7px;background:var(--surface-2)">
+        <div style="font-size:.72rem;font-weight:600;color:var(--text-dim);text-transform:uppercase;letter-spacing:.05em;margin-bottom:.5rem">Analysis Parameters</div>
+        <div class="scorer-row" style="margin-bottom:.4rem">
           <label for="ia3d-shuffle">Shuffle</label>
-          <input id="ia3d-shuffle" type="number" min="0" value="1" style="width:5rem;font-size:.74rem"/>
-          <span></span>
-
-          <label for="ia3d-trainingsetindex">Trainset idx</label>
-          <input id="ia3d-trainingsetindex" type="number" min="0" value="0" style="width:5rem;font-size:.74rem"/>
-          <span></span>
-
-          <label for="ia3d-batch-size">Batch size</label>
-          <input id="ia3d-batch-size" type="number" min="1" value="8" style="width:5rem;font-size:.74rem"/>
-          <span></span>
-
-          <label for="ia3d-frames-per-click">Frames / run</label>
-          <input id="ia3d-frames-per-click" type="number" min="1" max="10000" value="500" style="width:5rem;font-size:.74rem"/>
-          <span></span>
-
-          <label for="ia3d-keep-warm-seconds">Keep warm (s)</label>
-          <input id="ia3d-keep-warm-seconds" type="number" min="30" value="300" style="width:5rem;font-size:.74rem"/>
-          <span></span>
+          <input type="number" id="ia3d-shuffle" value="1" min="1" max="20" style="width:5rem"/>
         </div>
-        <label style="display:flex;align-items:center;gap:.35rem;font-size:.73rem;margin-top:.4rem;cursor:pointer">
-          <input type="checkbox" id="ia3d-save-csv" style="accent-color:var(--accent);width:13px;height:13px"/>
-          Also write .csv
-        </label>
-        <div id="ia3d-sibling-status" style="font-size:.72rem;color:var(--text-dim);margin-top:.4rem">Pick a cam0 video to resolve its sibling.</div>
-        <button class="btn-sm" id="ia3d-btn-analyze-range" disabled
-                style="margin-top:.45rem;width:100%;padding:.35rem;font-size:.78rem">▶ Analyze both cameras</button>
-        <div id="ia3d-last-run-status" class="fe-extract-status" style="margin-top:.35rem;font-size:.73rem"></div>
+        <div class="scorer-row" style="margin-bottom:.4rem">
+          <label for="ia3d-trainingsetindex">Training set index</label>
+          <input type="number" id="ia3d-trainingsetindex" value="0" min="0" style="width:5rem"/>
+        </div>
+        <div class="scorer-row" style="margin-bottom:.4rem">
+          <label for="ia3d-snapshot">Snapshot</label>
+          <select id="ia3d-snapshot" style="flex:1;min-width:0"></select>
+          <button class="btn-sm" id="ia3d-refresh-snapshots" title="Refresh">↺</button>
+        </div>
+        <div class="scorer-row" style="margin-bottom:.4rem">
+          <label for="ia3d-batch-size">Batch size</label>
+          <input type="number" id="ia3d-batch-size" value="8" min="1" max="256" style="width:5rem"/>
+        </div>
+        <div class="scorer-row" style="margin-bottom:.4rem">
+          <label for="ia3d-frames-per-click">Frames per click</label>
+          <input type="number" id="ia3d-frames-per-click" value="500" min="1" max="10000" style="width:6rem"/>
+        </div>
+        <div class="scorer-row" style="margin-bottom:.4rem">
+          <label for="ia3d-keep-warm-seconds">Keep worker warm (s)</label>
+          <input type="number" id="ia3d-keep-warm-seconds" value="300" min="10" max="3600" style="width:6rem"/>
+          <span id="ia3d-warm-indicator" style="margin-left:auto;font-size:.74rem;color:var(--text-dim)">○ cold</span>
+        </div>
+        <div class="scorer-row" style="margin-bottom:.4rem">
+          <label for="ia3d-save-csv">Save as CSV</label>
+          <input type="checkbox" id="ia3d-save-csv" style="width:auto"/>
+        </div>
+        <div id="ia3d-sibling-status" class="subtitle" style="margin:.1rem 0 .3rem">Pick a cam0 video to resolve its sibling.</div>
+        <button id="ia3d-btn-analyze-range" class="btn-sm" disabled style="width:100%;margin-top:.3rem">▶ Analyze both cameras</button>
+        <div id="ia3d-last-run-status" class="fe-extract-status" style="margin-top:.35rem"></div>
       </div>
 
       <!-- Source tabs -->
