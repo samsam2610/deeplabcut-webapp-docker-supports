@@ -3455,6 +3455,41 @@ document.addEventListener('DOMContentLoaded', () => Controller.init());
         }
       });
 
+      // ── Initialize analysis files (both cameras) ─────────────────────
+      const initFileBtn    = document.getElementById("ia3d-init-analysis-file");
+      const initFileStatus = document.getElementById("ia3d-init-file-status");
+      async function _initStatus(v) {
+        try { return (await (await fetch(`/dlc/project/analysis-file/status?video_path=${encodeURIComponent(v)}`)).json()).initialized; }
+        catch (e) { return false; }
+      }
+      async function _refreshInitFileBtn() {
+        if (!initFileBtn) return;
+        const cam0 = _cam0Path();
+        if (!cam0) { initFileBtn.disabled = true; return; }
+        initFileBtn.disabled = false;
+        const a = await _initStatus(cam0);
+        const b = _siblingPath ? await _initStatus(_siblingPath) : true;
+        if (a && b) { initFileBtn.textContent = "✓ Analysis files ready"; initFileBtn.disabled = true; }
+        else { initFileBtn.textContent = "○ Initialize analysis files (both cameras)"; }
+      }
+      async function _initOne(v) {
+        const r = await fetch("/dlc/project/analysis-file/initialize", {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ video_path: v }),
+        });
+        return r.ok || r.status === 409;   // 409 = already initialized = fine
+      }
+      initFileBtn?.addEventListener("click", async () => {
+        const cam0 = _cam0Path(); if (!cam0) return;
+        initFileBtn.disabled = true; initFileBtn.textContent = "…";
+        const okCam0 = await _initOne(cam0);
+        const okCam1 = _siblingPath ? await _initOne(_siblingPath) : true;
+        initFileStatus.textContent = `cam0 ${okCam0 ? "✓" : "⚠"}` + (_siblingPath ? ` · cam1 ${okCam1 ? "✓" : "⚠"}` : "");
+        await _refreshInitFileBtn();
+      });
+      if (iaFrameCounter) new MutationObserver(_refreshInitFileBtn)
+        .observe(iaFrameCounter, { childList: true, characterData: true, subtree: true });
+
       // ── Cleanup ──────────────────────────────────────────────────────
       iaCloseBtn?.addEventListener("click", () => {
         _stopAllPolls();
