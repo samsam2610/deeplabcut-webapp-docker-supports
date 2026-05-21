@@ -144,3 +144,15 @@ def test_clone_css_exists_and_linked():
     assert css.is_file(), "inline_analysis_3d.css must exist"
     assert "ia3d-tile-row" in css.read_text()
     assert "inline_analysis_3d.css" in PAGE.read_text(), "must be linked in dlc_3d.html"
+
+
+def test_section_order_browser_then_params_then_player():
+    """Layout order (user request 2026-05-21): file browser (Source tabs) →
+    Analysis Parameters → Player section."""
+    html = CARD.read_text()
+    i_tabs   = html.find("<!-- Source tabs -->")
+    i_params = html.find("Analysis Parameters")
+    i_player = html.find("Player section")
+    assert 0 < i_tabs < i_params < i_player, (
+        "order must be file browser → analysis params → player viewer"
+    )
