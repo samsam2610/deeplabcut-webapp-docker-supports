@@ -138,11 +138,27 @@ already enforced and need no new work here — but the clone must not break them
 - **Warm session idle-TTL:** two `/range` submits bump `last_activity` twice;
   no special handling.
 
+## Wiring notes (discovered during planning)
+
+- The dlc-3D container is built `FROM deeplabcut-webapp-docker-flask:latest`;
+  `dlc-3D/src/static` and `dlc_3d.html` are **bind-mounted** (live), but the
+  shared nav (`card_dlc_project.html`, which defines the other cards'
+  open-buttons) is **baked into the base image** (not live-editable from this
+  module). Therefore the new card's **open button is placed in `dlc_3d.html`**
+  (module-owned, live), not in the shared nav — keeping the feature
+  self-contained.
+- The new partial `card_inline_analysis_3d.html` needs one bind-mount line in
+  the main repo's `docker-compose.yml` (mirroring the existing dlc-3D card
+  mounts) so it's live; this is the standard module convention. The new JS lands
+  in `src/static` which is already fully mounted.
+
 ## Out of scope (explicit)
 
 - No triangulated 3D plot, no calibration/Anipose triangulation.
-- No changes to the main webapp repo (`deeplabcut-webapp-docker`) — Approach A
-  reuses its API unchanged.
+- **No main-webapp backend/API/code changes.** The only main-repo touch is a
+  single `docker-compose.yml` bind-mount line for the new partial (module
+  convention; alternatively rebuild the dlc-3d image). Approach A reuses the
+  inline-analysis API unchanged.
 - No new DLC inference in the dlc-3D worker.
 - Single-animal only (matches 2D inline-analysis v1).
 - No `/range-stereo` convenience endpoint (frontend submits two `/range` calls).
