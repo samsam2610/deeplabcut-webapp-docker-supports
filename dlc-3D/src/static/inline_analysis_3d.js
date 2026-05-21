@@ -3221,3 +3221,234 @@ document.addEventListener('DOMContentLoaded', () => Controller.init());
       }
     })(); // end Video Metadata Panel
 
+    // ════════════════════════════════════════════════════════════════════
+    //  STEREO ANALYSIS DISPATCH — run DLC on BOTH cameras (cam0 + cam1) over
+    //  the same [start, n] range via the main webapp's warm inline-analysis
+    //  worker, then trigger the cloned viewer's normal discover+render path
+    //  (which already resolves + paints the sibling tile's h5).
+    // ════════════════════════════════════════════════════════════════════
+    (function () {
+      const snapSel    = document.getElementById("ia3d-snapshot");
+      const shuffleEl  = document.getElementById("ia3d-shuffle");
+      const tsiEl      = document.getElementById("ia3d-trainingsetindex");
+      const batchEl    = document.getElementById("ia3d-batch-size");
+      const framesEl   = document.getElementById("ia3d-frames-per-click");
+      const keepWarmEl = document.getElementById("ia3d-keep-warm-seconds");
+      const saveCsvEl  = document.getElementById("ia3d-save-csv");
+      const analyzeBtn = document.getElementById("ia3d-btn-analyze-range");
+      const lastRun    = document.getElementById("ia3d-last-run-status");
+      const warmInd    = document.getElementById("ia3d-warm-indicator");
+      const refreshBtn = document.getElementById("ia3d-refresh-snapshots");
+      const siblingEl  = document.getElementById("ia3d-sibling-status");
+
+      if (!analyzeBtn) return;   // markup missing — bail silently
+
+      let _snapKey   = null;
+      let _siblingPath = null;   // resolved cam1 absolute path (or null)
+      let _statusPoll = null;
+
+      // ── Snapshot loader (main webapp API; needs same active project) ──
+      async function _loadSnapshots() {
+        try {
+          const r = await fetch("/dlc/project/snapshots");
+          const data = await r.json();
+          if (!snapSel) return;
+          snapSel.innerHTML = "";
+          if (data.error) {
+            const o = document.createElement("option");
+            o.value = ""; o.textContent = "(activate the DLC project in the main webapp)";
+            snapSel.appendChild(o); return;
+          }
+          const latest = document.createElement("option");
+          latest.value = data.latest_rel_path || "-1";
+          latest.textContent = data.latest_label ? `Latest — ${data.latest_label}` : "Latest (from config)";
+          snapSel.appendChild(latest);
+          (data.snapshots || []).forEach((s) => {
+            const o = document.createElement("option");
+            o.value = s.rel_path;
+            const it = s.iteration != null ? `  ·  iter ${s.iteration.toLocaleString()}` : "";
+            const sh = s.shuffle   != null ? `  ·  sh${s.shuffle}` : "";
+            o.textContent = `${s.label}${it}${sh}`;
+            snapSel.appendChild(o);
+          });
+        } catch (e) { /* silent */ }
+      }
+      refreshBtn?.addEventListener("click", _loadSnapshots);
+      shuffleEl?.addEventListener("change", _loadSnapshots);
+      iaOpenBtn?.addEventListener("click", _loadSnapshots);
+
+      // ── Sibling resolution + Analyze-button gating ───────────────────
+      function _cam0Path() { return _iaCurrentVideoPath || _iaBrowseVideoPath || null; }
+
+      async function _refreshSibling() {
+        const cam0 = _cam0Path();
+        _siblingPath = null;
+        if (!cam0) {
+          siblingEl.textContent = "Pick a cam0 video to resolve its sibling.";
+          analyzeBtn.disabled = true;
+          return;
+        }
+        try {
+          const r = await fetch(`/dlc-3d/sibling-camera?video=${encodeURIComponent(cam0)}`);
+          const d = await r.json();
+          if (d.sibling_video_path) {
+            _siblingPath = d.sibling_video_path;
+            siblingEl.textContent = `Sibling: ${_siblingPath.split("/").pop()}`;
+            siblingEl.style.color = "var(--text-dim)";
+            analyzeBtn.disabled = false;
+          } else {
+            siblingEl.textContent = "No sibling camera found — 3D analysis disabled for this video.";
+            siblingEl.style.color = "var(--danger, #e66)";
+            analyzeBtn.disabled = true;
+          }
+        } catch (e) {
+          siblingEl.textContent = "Could not resolve sibling camera.";
+          analyzeBtn.disabled = true;
+        }
+      }
+      // Re-resolve whenever a new video is opened: the cloned viewer updates
+      // _iaCurrentVideoPath on open; poll-on-frame-counter-change is the
+      // simplest hook that fires after _iaOpenBrowseVideo runs.
+      if (iaFrameCounter) {
+        let _lastCam0 = null;
+        new MutationObserver(() => {
+          const c = _cam0Path();
+          if (c !== _lastCam0) { _lastCam0 = c; _refreshSibling(); }
+        }).observe(iaFrameCounter, { childList: true, characterData: true, subtree: true });
+      }
+
+      // ── Warm-worker session ──────────────────────────────────────────
+      async function _ensureSession() {
+        const snapshot = snapSel?.value;
+        if (!snapshot) { lastRun.textContent = "Pick a snapshot first."; return null; }
+        const r = await fetch("/dlc/project/inline-analysis/session/start", {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            snapshot_path: snapshot,
+            shuffle:       parseInt(shuffleEl?.value, 10) || 1,
+            ttl_seconds:   parseInt(keepWarmEl?.value, 10) || 300,
+            batch_size:    parseInt(batchEl?.value, 10) || 8,
+          }),
+        });
+        if (!r.ok) {
+          const d = await r.json().catch(() => ({}));
+          lastRun.textContent = d.error || `Could not start session (HTTP ${r.status})`;
+          lastRun.className = "fe-extract-status err";
+          return null;
+        }
+        _snapKey = (await r.json()).snap_key;
+        _startStatusPoll();
+        return _snapKey;
+      }
+      function _startStatusPoll() {
+        if (_statusPoll) return;
+        _statusPoll = setInterval(async () => {
+          if (!_snapKey) return;
+          try {
+            const r = await fetch(`/dlc/project/inline-analysis/session/status?snap_key=${_snapKey}`);
+            const d = await r.json();
+            const s = d.status || "absent";
+            const rem = d.idle_remaining_s || 0;
+            const mm = Math.floor(rem / 60), ss = String(rem % 60).padStart(2, "0");
+            if (warmInd) warmInd.textContent =
+              s === "ready" ? `● warm · ${mm}:${ss}` : s === "warming" ? "… warming" : `○ ${s}`;
+          } catch (e) { /* keep polling */ }
+        }, 2000);
+      }
+      function _stopStatusPoll() { if (_statusPoll) { clearInterval(_statusPoll); _statusPoll = null; } }
+
+      // ── Submit one /range, return req_id (or null) ───────────────────
+      async function _submitRange(sk, videoPath, startFrame, nFrames) {
+        const r = await fetch("/dlc/project/inline-analysis/range", {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            snap_key: sk, video_path: videoPath,
+            start_frame: startFrame, n_frames: nFrames,
+            batch_size: parseInt(batchEl?.value, 10) || 8,
+            save_as_csv: !!(saveCsvEl && saveCsvEl.checked),
+            snapshot_path: snapSel?.value || "",
+            shuffle: parseInt(shuffleEl?.value, 10) || 1,
+            trainingsetindex: parseInt(tsiEl?.value, 10) || 0,
+          }),
+        });
+        const d = await r.json().catch(() => ({}));
+        if (!r.ok) { lastRun.textContent = `Error: ${d.error || r.status}`; lastRun.className = "fe-extract-status err"; return null; }
+        return d.req_id;
+      }
+
+      // ── Poll one req_id to terminal state → {status, n_analyzed, ...} ─
+      function _pollReq(reqId) {
+        return new Promise((resolve) => {
+          const t = setInterval(async () => {
+            try {
+              const r = await fetch(`/dlc/project/inline-analysis/range/status?req_id=${reqId}`);
+              if (!r.ok) return;
+              const d = await r.json();
+              if (d.status === "done" || d.status === "error") { clearInterval(t); resolve(d); }
+            } catch (e) { /* keep polling */ }
+          }, 500);
+        });
+      }
+
+      // ── Analyze BOTH cameras ─────────────────────────────────────────
+      analyzeBtn.addEventListener("click", async () => {
+        const cam0 = _cam0Path();
+        if (!cam0)        { lastRun.textContent = "Pick a cam0 video first."; return; }
+        if (!_siblingPath) { lastRun.textContent = "No sibling camera — cannot run 3D analysis."; return; }
+        const sk = await _ensureSession();
+        if (!sk) return;
+        const startFrame = _iaCurrentFrame || 0;
+        const nFrames    = parseInt(framesEl?.value, 10) || 500;
+        lastRun.textContent = `Running both cameras (${nFrames} frames from ${startFrame})…`;
+        lastRun.className = "fe-extract-status";
+        analyzeBtn.disabled = true;
+        const [req0, req1] = await Promise.all([
+          _submitRange(sk, cam0, startFrame, nFrames),
+          _submitRange(sk, _siblingPath, startFrame, nFrames),
+        ]);
+        if (!req0 || !req1) { analyzeBtn.disabled = false; return; }
+        const [d0, d1] = await Promise.all([_pollReq(req0), _pollReq(req1)]);
+        analyzeBtn.disabled = false;
+        const errs = [d0, d1].filter(d => d.status === "error");
+        if (errs.length === 2) {
+          lastRun.textContent = `Both cameras failed: ${errs[0].error || "unknown"}`;
+          lastRun.className = "fe-extract-status err"; return;
+        }
+        lastRun.textContent = errs.length === 1
+          ? `One camera failed (${errs[0].error || "unknown"}); other: ${(d0.status==='done'?d0:d1).n_analyzed} analyzed`
+          : `Last run: cam0 ${d0.n_analyzed} analyzed/${d0.n_skipped} skipped · cam1 ${d1.n_analyzed}/${d1.n_skipped}`;
+        // Trigger the cloned viewer's normal render path. _iaDiscoverVariants on
+        // the cam0 video sets the primary; the viewer's multi-tile logic resolves
+        // + paints the cam1 sibling h5. Then force a full frame load so markers
+        // paint deterministically (same as the threshold-slider path).
+        if (typeof _iaDiscoverVariants === "function") {
+          await _iaDiscoverVariants(cam0);
+          if (iaOverlayToggle && !iaOverlayToggle.checked) {
+            iaOverlayToggle.checked = true;
+            iaOverlayToggle.dispatchEvent(new Event("change", { bubbles: true }));
+          }
+          if (typeof _iaLoadFrame === "function") await _iaLoadFrame(_iaCurrentFrame);
+        }
+      });
+
+      // ── Cleanup ──────────────────────────────────────────────────────
+      iaCloseBtn?.addEventListener("click", () => {
+        _stopStatusPoll();
+        if (_snapKey) {
+          try {
+            fetch("/dlc/project/inline-analysis/session/stop", {
+              method: "POST", headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ snap_key: _snapKey }),
+            });
+          } catch (e) { /* ignore */ }
+          _snapKey = null;
+        }
+      });
+      window.addEventListener("beforeunload", () => {
+        if (_snapKey) navigator.sendBeacon?.(
+          "/dlc/project/inline-analysis/session/stop",
+          new Blob([JSON.stringify({ snap_key: _snapKey })], { type: "application/json" }),
+        );
+      });
+    })(); // end STEREO ANALYSIS DISPATCH
+
