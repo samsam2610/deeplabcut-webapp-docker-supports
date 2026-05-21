@@ -156,3 +156,13 @@ def test_section_order_browser_then_params_then_player():
     assert 0 < i_tabs < i_params < i_player, (
         "order must be file browser → analysis params → player viewer"
     )
+
+
+def test_init_analysis_file_button_wired():
+    """3D 'Initialize analysis files (both cameras)' button + endpoint wiring."""
+    html = CARD.read_text()
+    js = JS.read_text()
+    assert 'id="ia3d-init-analysis-file"' in html
+    assert "ia3d-init-analysis-file" in js
+    assert "/dlc/project/analysis-file/initialize" in js
+    assert "/dlc/project/analysis-file/status" in js
