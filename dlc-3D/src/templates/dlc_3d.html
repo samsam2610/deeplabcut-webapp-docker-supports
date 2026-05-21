@@ -9,9 +9,16 @@
 {% endblock %}
 
 {% block content %}
-  <div style="margin:.4rem 0">
-    <button class="btn-sm" id="btn-open-inline-analysis-3d" style="padding:.25rem .7rem;font-size:.8rem">⊞ 3D Inline Analysis</button>
-  </div>
+  <!-- Defined here (module-owned) so the cloned viewer can wire its open
+       handler; inline_analysis_3d.js relocates it into the shared launcher
+       nav list at runtime (that list is baked into a main-webapp partial we
+       cannot edit from this module). Hidden until relocated. -->
+  <button id="btn-open-inline-analysis-3d" class="inspect-btn" style="width:100%;gap:.55rem;display:none">
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+      <rect x="3" y="3" width="14" height="14" rx="2"></rect><rect x="7" y="7" width="14" height="14" rx="2"></rect>
+    </svg>
+    <span>3D Inline Analysis</span>
+  </button>
   {% include "partials/session_dlc_bar.html" %}
   {% include "partials/session_anipose_bar.html" %}
 

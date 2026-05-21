@@ -22,7 +22,14 @@ def test_no_va_identifier_leaks_in_clone():
     assert "va3d-" not in src, "DOM id va3d- leaked into the clone"
     assert not re.search(r"\bva[A-Z]", src), "camelCase va* identifier leaked"
     assert "view-analyzed-3d-card" not in src
-    assert "btn-open-view-analyzed" not in src
+    # The clone wires its OWN (renamed) open button…
+    assert "btn-open-inline-analysis-3d" in src
+    # …and may reference btn-open-view-analyzed at most ONCE, solely as the
+    # nav-placement insertion anchor (not as the card's own open button).
+    assert src.count("btn-open-view-analyzed") <= 1, (
+        "btn-open-view-analyzed should appear at most once (the nav-placement "
+        "anchor); more suggests the clone's open-button rename regressed"
+    )
 
 
 def test_card_has_analysis_params_and_dual_tile():
@@ -71,3 +78,20 @@ def test_analyze_button_disabled_by_default():
     assert m and "disabled" in m.group(0), (
         "Analyze button must default disabled until a sibling is resolved"
     )
+
+
+def test_open_button_relocated_into_launcher_nav():
+    """The open button is defined in dlc_3d.html (so the cloned viewer wires its
+    click handler at module-eval) but relocated into the shared launcher nav
+    (#dlc-frame-extract-launch) at runtime — that list is baked into a
+    main-webapp partial we can't edit from this module. Guard the relocation +
+    that the button is styled to match the nav (inspect-btn). See session
+    2026-05-21.
+    """
+    page = PAGE.read_text()
+    js = JS.read_text()
+    assert 'id="btn-open-inline-analysis-3d"' in page
+    assert 'class="inspect-btn"' in page, "button must match nav-item styling"
+    assert "dlc-frame-extract-launch" in js, "JS must target the launcher nav container"
+    assert "btn-open-view-analyzed" in js, "JS should anchor after View Analyzed"
+    assert "insertAdjacentElement" in js or "appendChild" in js

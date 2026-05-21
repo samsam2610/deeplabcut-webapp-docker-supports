@@ -3472,3 +3472,28 @@ document.addEventListener('DOMContentLoaded', () => Controller.init());
       });
     })(); // end STEREO ANALYSIS DISPATCH
 
+
+    // ════════════════════════════════════════════════════════════════════
+    //  NAV PLACEMENT — relocate the open button into the shared launcher list
+    //  (#dlc-frame-extract-launch). That list is rendered by a main-webapp
+    //  partial baked into the dlc-3d image, so we can't add the button there
+    //  at the template level without forking the shared file or dropping a
+    //  dead button on the main webapp page. Moving the node preserves the
+    //  click listeners already wired by the cloned viewer + dispatch IIFE.
+    // ════════════════════════════════════════════════════════════════════
+    (function () {
+      function _ia3dPlaceNavButton() {
+        const nav = document.getElementById("dlc-frame-extract-launch");
+        const btn = document.getElementById("btn-open-inline-analysis-3d");
+        if (!nav || !btn) return;
+        if (btn.parentElement !== nav) {
+          const anchor = document.getElementById("btn-open-view-analyzed");
+          if (anchor && anchor.parentElement === nav) anchor.insertAdjacentElement("afterend", btn);
+          else nav.appendChild(btn);
+        }
+        btn.style.display = "";   // reveal now that it sits in the nav list
+      }
+      if (document.readyState === "loading")
+        document.addEventListener("DOMContentLoaded", _ia3dPlaceNavButton);
+      else _ia3dPlaceNavButton();
+    })(); // end NAV PLACEMENT
