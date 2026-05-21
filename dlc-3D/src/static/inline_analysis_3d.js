@@ -3281,6 +3281,7 @@ document.addEventListener('DOMContentLoaded', () => Controller.init());
       function _cam0Path() { return _iaCurrentVideoPath || _iaBrowseVideoPath || null; }
 
       async function _refreshSibling() {
+        if (!siblingEl) return;
         const cam0 = _cam0Path();
         _siblingPath = null;
         if (!cam0) {
@@ -3377,16 +3378,34 @@ document.addEventListener('DOMContentLoaded', () => Controller.init());
       }
 
       // ── Poll one req_id to terminal state → {status, n_analyzed, ...} ─
+      // Tracked so the close handler can clear in-flight polls; capped so a
+      // request that never reaches a terminal state can't hang the UI forever.
+      const _activePolls = new Set();
+      function _stopAllPolls() {
+        for (const t of _activePolls) clearInterval(t);
+        _activePolls.clear();
+      }
       function _pollReq(reqId) {
         return new Promise((resolve) => {
+          let elapsedMs = 0;
+          const MAX_MS = 5 * 60 * 1000;   // 5 min hard cap → treat as failed
           const t = setInterval(async () => {
+            elapsedMs += 500;
+            if (elapsedMs >= MAX_MS) {
+              clearInterval(t); _activePolls.delete(t);
+              resolve({ status: "error", error: "timed out waiting for range result" });
+              return;
+            }
             try {
               const r = await fetch(`/dlc/project/inline-analysis/range/status?req_id=${reqId}`);
               if (!r.ok) return;
               const d = await r.json();
-              if (d.status === "done" || d.status === "error") { clearInterval(t); resolve(d); }
+              if (d.status === "done" || d.status === "error") {
+                clearInterval(t); _activePolls.delete(t); resolve(d);
+              }
             } catch (e) { /* keep polling */ }
           }, 500);
+          _activePolls.add(t);
         });
       }
 
@@ -3433,6 +3452,7 @@ document.addEventListener('DOMContentLoaded', () => Controller.init());
 
       // ── Cleanup ──────────────────────────────────────────────────────
       iaCloseBtn?.addEventListener("click", () => {
+        _stopAllPolls();
         _stopStatusPoll();
         if (_snapKey) {
           try {
