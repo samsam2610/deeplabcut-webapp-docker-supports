@@ -3473,11 +3473,15 @@ document.addEventListener('DOMContentLoaded', () => Controller.init());
         else { initFileBtn.textContent = "○ Initialize analysis files (both cameras)"; }
       }
       async function _initOne(v) {
-        const r = await fetch("/dlc/project/analysis-file/initialize", {
-          method: "POST", headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ video_path: v }),
-        });
-        return r.ok || r.status === 409;   // 409 = already initialized = fine
+        try {
+          const r = await fetch("/dlc/project/analysis-file/initialize", {
+            method: "POST", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ video_path: v }),
+          });
+          return r.ok || r.status === 409;   // 409 = already initialized = fine
+        } catch (err) {
+          return false;   // network reject → _refreshInitFileBtn re-enables the button
+        }
       }
       initFileBtn?.addEventListener("click", async () => {
         const cam0 = _cam0Path(); if (!cam0) return;
