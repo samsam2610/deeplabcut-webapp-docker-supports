@@ -1,0 +1,46 @@
+/* dlc-3D/src/static/viewer_3d.css */
+.ia3d-tile-row {
+  display: flex;
+  gap: .5rem;
+  margin-bottom: .25rem;
+  align-items: flex-start;
+}
+.ia3d-tile {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  flex-basis: 0;
+  flex-grow: 100;
+}
+.ia3d-tile-header {
+  display: flex;
+  align-items: center;
+  gap: .35rem;
+  font-size: .72rem;
+  color: var(--text-dim);
+  margin-bottom: .2rem;
+  min-height: 1.4rem;
+}
+.ia3d-tile-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--mono);
+}
+.ia3d-tile-pill {
+  font-size: .65rem;
+  padding: .05rem .35rem;
+  border-radius: 3px;
+  background: var(--surface);
+  color: var(--text-dim);
+  border: 1px solid var(--border);
+  flex-shrink: 0;
+}
+.ia3d-tile-size { width: 70px; accent-color: var(--accent); flex-shrink: 0; }
+.ia3d-tile-size-val { min-width: 2.6rem; text-align: right; font-family: var(--mono); flex-shrink: 0; }
+.ia3d-tile.focused .ia3d-tile-canvas-wrap {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}

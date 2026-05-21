@@ -95,3 +95,52 @@ def test_open_button_relocated_into_launcher_nav():
     assert "dlc-frame-extract-launch" in js, "JS must target the launcher nav container"
     assert "btn-open-view-analyzed" in js, "JS should anchor after View Analyzed"
     assert "insertAdjacentElement" in js or "appendChild" in js
+
+
+# ─── 2026-05-21 follow-up fixes (markers, compare-removal, horizontal layout) ─
+
+def test_compare_and_customize_threshold_removed_from_card():
+    """Comparison-layer + per-layer-threshold UI must NOT be in the 3D card
+    (removed per user request 2026-05-21)."""
+    html = CARD.read_text()
+    for frag in [
+        "ia3d-overlay-compare-block", "ia3d-overlay-add-compare",
+        "ia3d-overlay-compare-list", "ia3d-overlay-customize-thresholds",
+        "ia3d-overlay-primary-row", "Comparison layers",
+        "Customize threshold per layer",
+    ]:
+        assert frag not in html, f"compare/customize UI reintroduced: {frag!r}"
+    # the primary picker + global threshold must remain
+    assert "ia3d-overlay-primary-select" in html
+    assert "ia3d-overlay-threshold" in html
+
+
+def test_discover_does_not_depend_on_removed_compare_dropdown():
+    """_iaDiscoverVariants must not early-return on the (removed) compare
+    dropdown — that bug silently killed all marker discovery."""
+    src = JS.read_text()
+    i = src.find("async function _iaDiscoverVariants(")
+    assert i > 0
+    body = src[i:i + 500]
+    assert "ia3d-overlay-add-compare" not in body, (
+        "_iaDiscoverVariants must not reference the removed compare dropdown"
+    )
+
+
+def test_layer_errored_cleared_and_tile_fetch_not_pre_filtered():
+    """Markers fix: successful fetch clears layer.errored, and the sibling
+    tile render fetches all VISIBLE layers (not pre-filtered on errored) so a
+    sticky errored flag self-heals."""
+    src = JS.read_text()
+    assert src.count("layer.errored = false;") >= 2
+    # the sibling fetch must NOT pre-filter on errored (only on visible)
+    assert ".filter(l => l.visible)\n" in src or ".filter(l => l.visible)" in src
+
+
+def test_clone_css_exists_and_linked():
+    """Horizontal layout: the clone needs its own .ia3d-* CSS (the va3d-
+    rename orphaned viewer_3d.css's selectors)."""
+    css = ROOT / "src" / "static" / "inline_analysis_3d.css"
+    assert css.is_file(), "inline_analysis_3d.css must exist"
+    assert "ia3d-tile-row" in css.read_text()
+    assert "inline_analysis_3d.css" in PAGE.read_text(), "must be linked in dlc_3d.html"

@@ -436,10 +436,15 @@ const Controller = {
     const sy   = tile.canvasEl.height / natH;
     const r    = Math.max(1, Math.round(_iaMarkerSize * Math.min(sx, sy)));
     const frame = (typeof _iaCurrentFrame === 'number') ? _iaCurrentFrame : (this.currentFrame || 0);
-    // Fetch poses for each visible non-errored tile layer at the current frame.
+    // Fetch poses for each visible tile layer at the current frame. We do NOT
+    // pre-filter on `errored` here: a layer that got a sticky `errored` from a
+    // transient early failure (e.g. an all-NaN frame-0 or an aborted prefetch)
+    // would otherwise be excluded from the very fetch that clears the flag
+    // (_iaFetchPosesForFrame sets errored=false on success). Filter on errored
+    // only for DRAWING, below.
     await Promise.all(
       tile.layers
-        .filter(l => l.visible && !l.errored)
+        .filter(l => l.visible)
         .map(l => _iaFetchPosesForFrame(l, frame).catch(() => null))
     );
     const visible = tile.layers.filter(l => l.visible && !l.errored);
@@ -1691,6 +1696,7 @@ document.addEventListener('DOMContentLoaded', () => Controller.init());
         const data = await r.json();
         if (!r.ok || data.error) { layer.errored = true; return null; }
         const entry = { key, poses: data.poses || [], n_bodyparts: data.n_bodyparts || 1 };
+        layer.errored = false;   // a successful fetch clears any earlier transient error (abort/race)
         layer.posesCache.set(frame, entry);
         return entry;
       } catch (e) { layer.errored = true; return null; }
@@ -1824,6 +1830,7 @@ document.addEventListener('DOMContentLoaded', () => Controller.init());
         const r    = await fetch(`/dlc/viewer/h5-info?h5=${encodeURIComponent(layer.path)}`);
         const data = await r.json();
         if (!r.ok || data.error) { layer.errored = true; return; }
+        layer.errored = false;   // success clears any earlier transient error
         layer.bodyparts = data.bodyparts || [];
         if (layer === _iaPrimary()) {
           // Keep the legacy globals in sync for any code path not yet migrated.
@@ -1933,12 +1940,10 @@ document.addEventListener('DOMContentLoaded', () => Controller.init());
       // Fetch every analyzable h5 near `videoPath` and populate the Primary <select>.
       // Default the primary to the first 'raw' entry, or the first variant otherwise.
       const select = document.getElementById("ia3d-overlay-primary-select");
-      const addCmp = document.getElementById("ia3d-overlay-add-compare");
-      if (!select || !addCmp) return;
+      if (!select) return;
 
-      // Reset both controls to their empty states.
+      // Reset the primary select to its empty state.
       select.innerHTML = '<option value="">(no h5 detected — use Browse)</option>';
-      addCmp.innerHTML = '<option value="">+ add comparison…</option>';
 
       let data;
       try {
