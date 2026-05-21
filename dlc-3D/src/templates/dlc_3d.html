@@ -9,6 +9,9 @@
 {% endblock %}
 
 {% block content %}
+  <div style="margin:.4rem 0">
+    <button class="btn-sm" id="btn-open-inline-analysis-3d" style="padding:.25rem .7rem;font-size:.8rem">⊞ 3D Inline Analysis</button>
+  </div>
   {% include "partials/session_dlc_bar.html" %}
   {% include "partials/session_anipose_bar.html" %}
 
@@ -21,6 +24,7 @@
     {% include "partials/card_train_network.html" %}
     {% include "partials/card_analyze.html" %}
     {% include "partials/card_viewer_3d.html" %}
+    {% include "partials/card_inline_analysis_3d.html" %}
     {% include "partials/card_annotator.html" %}
     {% include "partials/card_gpu_monitor.html" %}
     {% include "partials/card_dlc_config.html" %}
@@ -43,6 +47,7 @@
 {{ super() }}
 <script type="module" src="{{ url_for('dlc_3d.static', filename='enhanced_player.js') }}"></script>
 <script type="module" src="{{ url_for('dlc_3d.static', filename='viewer_3d.js') }}"></script>
+<script type="module" src="{{ url_for('dlc_3d.static', filename='inline_analysis_3d.js') }}"></script>
 <script type="module" src="{{ url_for('dlc_3d.static', filename='dlc_3d.js') }}"></script>
 <script type="module" src="{{ url_for('dlc_3d.static', filename='frame_labeler_3d.js') }}"></script>
 <script type="module" src="{{ url_for('dlc_3d.static', filename='lp_cards.js') }}"></script>
