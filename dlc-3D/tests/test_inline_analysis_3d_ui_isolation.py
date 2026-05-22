@@ -4,6 +4,7 @@ Cloned from viewer_3d.js / card_viewer_3d.html with va*->ia* rename, plus a
 stereo analysis-dispatch IIFE. These parse the source files directly (no
 runtime). See docs/superpowers/specs/2026-05-20-3d-inline-analysis-design.md.
 """
+import re
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -18,7 +19,6 @@ def test_files_exist():
 
 def test_no_va_identifier_leaks_in_clone():
     src = JS.read_text()
-    import re
     assert "va3d-" not in src, "DOM id va3d- leaked into the clone"
     assert not re.search(r"\bva[A-Z]", src), "camelCase va* identifier leaked"
     assert "view-analyzed-3d-card" not in src
@@ -73,7 +73,6 @@ def test_dispatch_runs_both_cameras_against_main_webapp_api():
 
 def test_analyze_button_disabled_by_default():
     html = CARD.read_text()
-    import re
     m = re.search(r'<button[^>]*id="ia3d-btn-analyze-range"[^>]*>', html, re.S)
     assert m and "disabled" in m.group(0), (
         "Analyze button must default disabled until a sibling is resolved"
@@ -166,3 +165,18 @@ def test_init_analysis_file_button_wired():
     assert "ia3d-init-analysis-file" in js
     assert "/dlc/project/analysis-file/initialize" in js
     assert "/dlc/project/analysis-file/status" in js
+
+
+def test_analyze_button_matches_start_analysis_style():
+    """3D Analyze button mirrors the Analyze-card 'Start Analysis' button:
+    btn-create class, outline play-triangle SVG, 'Start Analysis' label.
+    It must stay default-disabled (sibling gating)."""
+    html = CARD.read_text()
+    m = re.search(r'<button[^>]*id="ia3d-btn-analyze-range".*?</button>', html, re.S)
+    assert m, "ia3d-btn-analyze-range button not found"
+    btn = m.group(0)
+    assert "btn-create" in btn
+    assert "<svg" in btn and 'points="5 3 19 12 5 21 5 3"' in btn
+    assert "Start Analysis" in btn
+    assert "disabled" in btn, "must remain default-disabled until a sibling resolves"
+    assert "width:100%" not in btn
