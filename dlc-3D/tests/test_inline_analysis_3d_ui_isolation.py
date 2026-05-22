@@ -224,3 +224,11 @@ def test_sibling_editing_wired():
     assert "tile.pendingEdits" in body
     assert "_ia3dFlushTileEdit(tile" in body
     assert "_ia3dTileHitTest(tile" in body
+
+
+def test_sibling_render_overlays_pending_edits():
+    js = JS.read_text()
+    i = js.find("async _renderTileMarkers(tile)")
+    assert i > 0
+    body = js[i:i + 3600]
+    assert "tile.pendingEdits.get(" in body, "render must apply pending edits for the focused/edited tile"

@@ -557,19 +557,40 @@ const Controller = {
         drawFn(ctx, cx, cy, r, color);
       }
     }
-    // Primary — read-only on the sibling, so no edit/select rings.
+    // Primary — draw with pending-edit overrides where present.
     const cached = primary.posesCache.get(frame);
     if (cached) {
+      const frameEdits = tile.pendingEdits.get(frame) || {};
       const total = cached.n_bodyparts || primary.bodyparts.length || 1;
       for (const pose of cached.poses) {
         if (_iaHiddenParts.has(pose.bp)) continue;
-        const cx = Math.round(pose.x * sx);
-        const cy = Math.round(pose.y * sy);
+        const edited = pose.bp in frameEdits;
+        if (edited && (frameEdits[pose.bp].x == null || frameEdits[pose.bp].y == null)) continue;   // deleted edit — hide
+        const vx = edited ? frameEdits[pose.bp].x : pose.x;
+        const vy = edited ? frameEdits[pose.bp].y : pose.y;
+        const cx = Math.round(vx * sx);
+        const cy = Math.round(vy * sy);
         const color = _iaPaletteColor(pose.color_idx, total);
         ctx.beginPath();
         ctx.arc(cx, cy, r, 0, Math.PI * 2);
         ctx.fillStyle = color;
         ctx.fill();
+        if (edited) {
+          // White ring indicates an unsaved positional edit (mirrors _iaDrawPoseMarkers)
+          ctx.beginPath();
+          ctx.arc(cx, cy, r + 3, 0, Math.PI * 2);
+          ctx.strokeStyle = "#fff";
+          ctx.lineWidth   = 1.5;
+          ctx.stroke();
+        }
+        if (pose.bp === _iaSelectedBp) {
+          // Gold ring indicates the currently selected bodypart (mirrors _iaDrawPoseMarkers)
+          ctx.beginPath();
+          ctx.arc(cx, cy, r + (edited ? 6 : 3), 0, Math.PI * 2);
+          ctx.strokeStyle = "#facc15";
+          ctx.lineWidth   = 2;
+          ctx.stroke();
+        }
       }
     }
   },
