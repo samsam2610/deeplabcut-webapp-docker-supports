@@ -822,6 +822,13 @@ document.addEventListener('DOMContentLoaded', () => Controller.init());
       if (iaBpChips)    iaBpChips.innerHTML = "";
       if (iaOverlayCanvas) iaOverlayCanvas.style.cursor = "default";
       if (typeof _iaLocalEdits !== "undefined") _iaLocalEdits.clear();
+      // Reset Finalize-analysis state on video switch (mirrors the 2D card).
+      _ia3dFinalizeEnabled = false;
+      _ia3dLastRunStart    = null;
+      _ia3dLastRunN        = null;
+      const _ia3dFt = document.getElementById("ia3d-finalize-toggle");
+      if (_ia3dFt) _ia3dFt.checked = false;
+      document.getElementById("ia3d-finalize-controls")?.classList.add("hidden");
       _iaUpdateEditBanner();
       _iaClearPoseCache();
       if (iaOverlayCtx) iaOverlayCtx.clearRect(0, 0, iaOverlayCanvas.width, iaOverlayCanvas.height);
