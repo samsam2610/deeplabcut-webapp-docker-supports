@@ -24,6 +24,8 @@ class Tile {
     // legacy module-level _iaLayers + _iaDrawCurrentFrame path instead.
     this.layers = [];
     this.pendingEdits = new Map();   // frame → { bodypart → {x,y} }
+    this.dragging = false;   // per-tile drag state (so tiles don't cross-trigger)
+    this.dragBp   = null;
     this.markersByFrame = new Map(); // frame → markers
     this.sliderEl?.addEventListener('input', (e) => this.setWeight(parseInt(e.target.value, 10)));
   }
@@ -1355,6 +1357,53 @@ document.addEventListener('DOMContentLoaded', () => Controller.init());
         if (Math.sqrt(dx * dx + dy * dy) <= hitR) return pose.bp;
       }
       return null;
+    }
+
+    // Per-tile coord/hit-test/flush — same math as the tile-0 globals, but
+    // reading the given tile's own canvas/img/layer/pendingEdits.
+    function _ia3dTileCanvasToVideo(tile, cx, cy) {
+      const natW = tile.imgEl.naturalWidth  || 1;
+      const natH = tile.imgEl.naturalHeight || 1;
+      const sx   = tile.canvasEl.width  / natW;
+      const sy   = tile.canvasEl.height / natH;
+      return { x: cx / sx, y: cy / sy };
+    }
+
+    function _ia3dTileHitTest(tile, cx, cy) {
+      const layer = tile.layers && tile.layers[0];
+      if (!layer) return null;
+      const cached = layer.posesCache.get(_iaCurrentFrame);
+      if (!cached) return null;
+      const natW = tile.imgEl.naturalWidth  || 1;
+      const natH = tile.imgEl.naturalHeight || 1;
+      const sx   = tile.canvasEl.width  / natW;
+      const sy   = tile.canvasEl.height / natH;
+      const hitR = (_iaMarkerSize + 8) * Math.max(sx, sy);
+      const frameEdits = tile.pendingEdits.get(_iaCurrentFrame) || {};
+      for (const pose of cached.poses) {
+        const edited = pose.bp in frameEdits;
+        if (edited && frameEdits[pose.bp].x == null) continue;   // deleted marker — not hittable
+        const px = (edited ? frameEdits[pose.bp].x : pose.x) * sx;
+        const py = (edited ? frameEdits[pose.bp].y : pose.y) * sy;
+        if (Math.hypot(px - cx, py - cy) <= hitR) return pose.bp;
+      }
+      return null;
+    }
+
+    async function _ia3dFlushTileEdit(tile, frame, bp, x, y) {
+      if (!_iaIsEditable()) return;
+      const layer = tile.layers && tile.layers[0];
+      if (!layer) return;
+      try {
+        await fetch("/dlc/viewer/marker-edit", {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ h5: layer.path, frame, bp, x, y }),
+        });
+      } catch (_) {}
+    }
+
+    async function _ia3dFlushTileDelete(tile, frame, bp) {
+      return _ia3dFlushTileEdit(tile, frame, bp, null, null);
     }
 
     // Flush a single marker edit to the server (fire-and-forget)

@@ -203,3 +203,12 @@ def test_init_button_three_way_state_logic():
     assert "_siblingPath" in body
     # the note is written to the existing status line
     assert "initFileStatus" in body
+
+
+def test_per_tile_edit_helpers_exist():
+    js = JS.read_text()
+    assert "_ia3dTileCanvasToVideo" in js, "per-tile coord helper missing"
+    assert "_ia3dTileHitTest" in js, "per-tile hit-test helper missing"
+    assert "_ia3dFlushTileEdit" in js and "_ia3dFlushTileDelete" in js, "per-tile flush helpers missing"
+    assert "tile.canvasEl" in js and "tile.imgEl" in js
+    assert "this.dragging" in js and "this.dragBp" in js
