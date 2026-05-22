@@ -246,3 +246,11 @@ def test_save_adjustments_persists_all_tiles():
     assert "primaryH5Path" in body, "must save each sibling to its own resolved h5 path"
     # and the sibling save uses the marker-edits endpoint
     assert "/dlc/viewer/save-marker-edits" in body
+
+
+def test_finalize3d_minicard_present_after_curation():
+    html = CARD.read_text()
+    for needed in ["ia3d-finalize-toggle", "ia3d-finalize-controls", "ia3d-finalize-start",
+                   "ia3d-finalize-count", "ia3d-finalize-add-btn", "ia3d-finalize-status"]:
+        assert f'id="{needed}"' in html, f"missing {needed!r}"
+    assert html.find('id="ia3d-curation-panel"') < html.find('id="ia3d-finalize-toggle"')
