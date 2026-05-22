@@ -232,3 +232,17 @@ def test_sibling_render_overlays_pending_edits():
     assert i > 0
     body = js[i:i + 3600]
     assert "tile.pendingEdits.get(" in body, "render must apply pending edits for the focused/edited tile"
+
+
+def test_save_adjustments_persists_all_tiles():
+    js = JS.read_text()
+    i = js.find("iaSaveAdjBtn.addEventListener")
+    assert i > 0
+    body = js[i:i + 3000]
+    # the handler saves siblings too: iterate Controller.tiles beyond tile-0,
+    # filter to those with pending edits, and save each to its own primary h5.
+    assert "Controller.tiles" in body, "save handler must iterate the tiles"
+    assert "pendingEdits" in body, "must filter siblings with pending edits"
+    assert "primaryH5Path" in body, "must save each sibling to its own resolved h5 path"
+    # and the sibling save uses the marker-edits endpoint
+    assert "/dlc/viewer/save-marker-edits" in body
