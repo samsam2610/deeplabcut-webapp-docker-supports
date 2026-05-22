@@ -56,18 +56,17 @@ marker DISPLAY already works via `_renderTileMarkers`; tile-0 DISPLAY via the ex
 global path. This spec only adds **edit INPUT** on the focused tile and the per-tile
 coordinate/hit-test helpers above.
 
-### 2. Per-tile editing wiring — `Controller._wireTileEditing(tile)`
-Wire each tile's `canvasEl` once (called from `init()` for tile-0 and `_addSibling()` for
-siblings) with: `click` (select-or-place), `mousemove` (hover + drag), `mousedown` (drag
-start), `mouseup` (drag flush), `contextmenu` (delete), `dblclick` (clear frame). Every
-handler early-returns unless the tile is focused:
+### 2. Add sibling-tile editing — `Controller._wireSiblingEditing(tile)`
+**Tile-0's existing edit handlers stay untouched** (minimal-change). We ADD a
+`_wireSiblingEditing(tile)` for sibling tiles (cam ≠ 0), called from `_addSibling()`,
+mirroring the tile-0 handlers but parameterized to the sibling tile's elements:
+`click` (select-or-place), `mousemove` (hover + cursor), `mousedown`/`mouseup` (drag),
+`contextmenu` (delete), `dblclick` (clear frame).
 
-```js
-if (tile.cam !== Controller.focusedCam) return;   // only focused tile accepts input
-```
-
-(except the render/hover-display parts, which run whenever the overlay is on — mirroring
-Spec 1's gating discipline: display is never gated by focus, only mutation is).
+No cross-tile focus gate: **each tile edits the canvas you click** (you can place the same
+selected bodypart on cam0 by clicking cam0 and on cam1 by clicking cam1 — natural for
+stereo labeling). The existing `focused` CSS class / keyboard focus is unaffected. The
+sibling canvas already has `pointerEvents:auto` via its render; ensure it is set.
 
 ### 3. Per-tile coord + hit-test + writes
 - Coords via `_ia3dTileCanvasToVideo(tile, cx, cy)` (above) — the existing display-pixel
@@ -82,15 +81,13 @@ Spec 1's gating discipline: display is never gated by focus, only mutation is).
   x/y = delete). Selected bodypart `_iaSelectedBp` stays global (the chip list is shared).
 - After a mutation, redraw via `_renderTileMarkers(tile)` so the edit shows immediately.
 
-### 4. Replace the cam0-only handler block
-The existing tile-0-only handlers (`inline_analysis_3d.js:1418+`) and the "Per-cam editing
-scope note" comment (`1403-1417`) are replaced by `_wireTileEditing(tile)` so tile-0 flows
-through the same generalized, focus-gated path. The old globals `_iaCanvasToVideo` /
-`_iaHitTestWithEdits` are superseded by the per-tile `_ia3dTileCanvasToVideo` /
-`_ia3dTileHitTest` (which are the same math reading `tile.canvasEl`/`tile.imgEl`). The
-sibling marker DISPLAY in `_renderTileMarkers` is extended so the **focused** tile's
-primary layer also overlays `pendingEdits` + the selected-bp ring (today it draws the
-sibling primary read-only) — display-only change, no canvas-sizing change.
+### 4. Update the cam0-only scope-note comment
+The "Per-cam editing scope note" comment (`inline_analysis_3d.js:1403-1417`) — which says
+sibling editing is unsupported — is updated to reflect that sibling editing now exists via
+`_wireSiblingEditing`. Tile-0's handler block stays as-is. The sibling marker DISPLAY in
+`_renderTileMarkers` is extended so a sibling's primary layer also overlays its
+`pendingEdits` + the selected-bp ring (today it draws the sibling primary read-only) —
+display-only change, no canvas-sizing change.
 
 ### 5. Save Adjustments — persist both cameras
 Generalize the 3D Save Adjustments handler to loop `Controller.tiles`, and for each tile
@@ -109,11 +106,12 @@ The edit banner already shows per-cam counts (`cam0: N · cam1: M`).
 ## Testing
 
 Static source-assertions in `tests/test_inline_analysis_3d_ui_isolation.py`:
-- `Controller` wires editing per-tile (`_wireTileEditing` exists and is called for siblings,
-  not just tile-0); the cam0-only scope-note comment is gone.
-- Editing handlers gate on `Controller.focusedCam` (or `tile.cam === ...focused`).
+- `Controller._wireSiblingEditing` exists and is called from `_addSibling` (so siblings get
+  edit input); tile-0's existing handler block is unchanged.
 - The per-tile coord/hit-test helpers exist (`_ia3dTileCanvasToVideo` / `_ia3dTileHitTest`)
   and read `tile.canvasEl`/`tile.imgEl` (NOT the tile-0 globals).
+- The sibling editing handlers POST to `/dlc/viewer/marker-edit` with the sibling tile's
+  `layers[0].path` (not the tile-0 layer).
 - NO change to `_iaSyncCanvas` or the display-pixel render math — assert the render
   pipeline's canvas-sizing call sites are untouched (the diff for `_iaSyncCanvas` and the
   `sx = iaOverlayCanvas.width / natW` draw functions is empty).
