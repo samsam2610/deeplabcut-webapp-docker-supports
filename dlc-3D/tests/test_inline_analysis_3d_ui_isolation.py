@@ -254,3 +254,16 @@ def test_finalize3d_minicard_present_after_curation():
                    "ia3d-finalize-count", "ia3d-finalize-add-btn", "ia3d-finalize-status"]:
         assert f'id="{needed}"' in html, f"missing {needed!r}"
     assert html.find('id="ia3d-curation-panel"') < html.find('id="ia3d-finalize-toggle"')
+
+
+def test_marker_edit3d_controls_moved_below_marker_list():
+    html = CARD.read_text()
+    assert 'id="ia3d-marker-edit-banner"' not in html, "old top banner must be removed"
+    assert 'id="ia3d-marker-edit-controls"' in html
+    pos_list  = html.find('id="ia3d-bp-list-wrap"')
+    pos_ctrls = html.find('id="ia3d-marker-edit-controls"')
+    pos_cur   = html.find('id="ia3d-curation-panel"')
+    assert 0 < pos_list < pos_ctrls < pos_cur
+    for needed in ["ia3d-marker-edit-count", "ia3d-save-adjustments-btn",
+                   "ia3d-discard-adjustments-btn", "ia3d-clear-frame-btn"]:
+        assert f'id="{needed}"' in html
