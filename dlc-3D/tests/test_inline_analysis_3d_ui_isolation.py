@@ -267,3 +267,13 @@ def test_marker_edit3d_controls_moved_below_marker_list():
     for needed in ["ia3d-marker-edit-count", "ia3d-save-adjustments-btn",
                    "ia3d-discard-adjustments-btn", "ia3d-clear-frame-btn"]:
         assert f'id="{needed}"' in html
+
+
+def test_js3d_edit_gated_on_finalize():
+    js = JS.read_text()
+    assert "_ia3dFinalizeEnabled" in js
+    i = js.find("function _iaIsEditable")
+    seg = js[i:i + 120]
+    assert "_ia3dFinalizeEnabled" in seg, "_iaIsEditable must require _ia3dFinalizeEnabled"
+    assert 'getElementById("ia3d-marker-edit-controls")' in js
+    assert 'getElementById("ia3d-marker-edit-banner")' not in js

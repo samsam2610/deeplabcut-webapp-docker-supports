@@ -695,6 +695,9 @@ document.addEventListener('DOMContentLoaded', () => Controller.init());
     let _iaMarkerSize       = 6;
     // absolute path to the currently loaded original video (for annotated frames + companion CSV)
     let _iaCurrentVideoPath = null;
+    let _ia3dFinalizeEnabled = false;   // marker editing gated on the Finalize toggle
+    let _ia3dLastRunStart    = null;    // start_frame of the last submitted range
+    let _ia3dLastRunN        = null;    // n_frames of the last submitted range
     // Hook called by _iaLoadFrame so the nested curation IIFE can sync its annotation panel
     let _iaCurationFrameHook = null;
     let _iaMetadataFrameHook = null;
@@ -720,7 +723,7 @@ document.addEventListener('DOMContentLoaded', () => Controller.init());
 
     function _iaPrimary()     { return _iaLayers[0] || null; }
     function _iaCompare()     { return _iaLayers.slice(1); }
-    function _iaIsEditable()  { return _iaLayers.length === 1; }
+    function _iaIsEditable()  { return _iaLayers.length === 1 && _ia3dFinalizeEnabled; }
     function _iaLayerThreshold(layer) {
       return _iaPerLayerThresholds && layer.threshold != null
         ? layer.threshold
@@ -1380,7 +1383,7 @@ document.addEventListener('DOMContentLoaded', () => Controller.init());
     let _iaDragging    = false;
 
     // Marker-edit UI elements (may be null if not yet in DOM)
-    const iaMarkerEditBanner  = document.getElementById("ia3d-marker-edit-banner");
+    const iaMarkerEditBanner  = document.getElementById("ia3d-marker-edit-controls");
     const iaMarkerEditCount   = document.getElementById("ia3d-marker-edit-count");
     const iaSaveAdjBtn        = document.getElementById("ia3d-save-adjustments-btn");
     const iaDiscardAdjBtn     = document.getElementById("ia3d-discard-adjustments-btn");
@@ -1412,28 +1415,15 @@ document.addEventListener('DOMContentLoaded', () => Controller.init());
 
     function _iaUpdateEditBanner() {
       if (!iaMarkerEditBanner) return;
-      // Force-hide while comparison layers are active — editing is disabled.
-      // (Layers > 1 means a comparison layer is on; 0 means nothing chosen
-      // yet, which is fine — the banner just hides naturally via count=0.)
-      if (_iaLayers.length > 1) {
-        iaMarkerEditBanner.classList.add("hidden");
-        return;
-      }
-      const tiles = Controller.tiles || [];
+      // Visible only when finalize is on AND editing is allowed (no compare layers).
+      const show = _ia3dFinalizeEnabled && _iaLayers.length === 1;
+      iaMarkerEditBanner.classList.toggle("hidden", !show);
+      const tiles = (typeof Controller !== "undefined" && Controller.tiles) ? Controller.tiles : [];
       const c0 = tiles[0]?.pendingEdits.size || 0;
       const c1 = tiles[1]?.pendingEdits.size || 0;
-      const total = c0 + c1;
-      if (total === 0) {
-        iaMarkerEditBanner.classList.add("hidden");
-        return;
-      }
-      iaMarkerEditBanner.classList.remove("hidden");
       if (iaMarkerEditCount) {
-        if (tiles.length >= 2) {
-          iaMarkerEditCount.textContent = `cam0: ${c0} · cam1: ${c1} frames edited`;
-        } else {
-          iaMarkerEditCount.textContent = `${c0} frame${c0 !== 1 ? "s" : ""} edited`;
-        }
+        if (tiles.length >= 2) iaMarkerEditCount.textContent = `cam0: ${c0} · cam1: ${c1} frames edited`;
+        else iaMarkerEditCount.textContent = `${c0} frame${c0 !== 1 ? "s" : ""} edited`;
       }
     }
 
