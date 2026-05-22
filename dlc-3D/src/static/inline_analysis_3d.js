@@ -2308,7 +2308,11 @@ document.addEventListener('DOMContentLoaded', () => Controller.init());
 
     function _iaUpdateEditDisabledBanner() {
       const banner = document.getElementById("ia3d-overlay-edit-disabled-banner");
-      if (banner) banner.classList.toggle("hidden", _iaIsEditable());
+      // This notice means "editing disabled because compare layers are active",
+      // so key it off the compare-layer condition only — NOT _iaIsEditable()
+      // (which also requires the Finalize toggle and would misfire when finalize
+      // is simply off).
+      if (banner) banner.classList.toggle("hidden", _iaLayers.length === 1);
       // Re-evaluate the marker-edit banner: when compare layers are active it
       // must be force-hidden regardless of unsaved-edit count.
       _iaUpdateEditBanner();
