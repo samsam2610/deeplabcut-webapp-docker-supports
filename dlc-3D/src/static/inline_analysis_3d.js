@@ -3566,6 +3566,8 @@ document.addEventListener('DOMContentLoaded', () => Controller.init());
         if (!sk) return;
         const startFrame = _iaCurrentFrame || 0;
         const nFrames    = parseInt(framesEl?.value, 10) || 500;
+        _ia3dLastRunStart = startFrame;
+        _ia3dLastRunN     = nFrames;
         lastRun.textContent = `Running both cameras (${nFrames} frames from ${startFrame})…`;
         lastRun.className = "fe-extract-status";
         analyzeBtn.disabled = true;
@@ -3584,6 +3586,7 @@ document.addEventListener('DOMContentLoaded', () => Controller.init());
         lastRun.textContent = errs.length === 1
           ? `One camera failed (${errs[0].error || "unknown"}); other: ${(d0.status==='done'?d0:d1).n_analyzed} analyzed`
           : `Last run: cam0 ${d0.n_analyzed} analyzed/${d0.n_skipped} skipped · cam1 ${d1.n_analyzed}/${d1.n_skipped}`;
+        if (typeof _ia3dPopulateFinalizeFields === "function") _ia3dPopulateFinalizeFields();
         // Trigger the cloned viewer's normal render path. _iaDiscoverVariants on
         // the cam0 video sets the primary; the viewer's multi-tile logic resolves
         // + paints the cam1 sibling h5. Then force a full frame load so markers
@@ -3595,6 +3598,81 @@ document.addEventListener('DOMContentLoaded', () => Controller.init());
             iaOverlayToggle.dispatchEvent(new Event("change", { bubbles: true }));
           }
           if (typeof _iaLoadFrame === "function") await _iaLoadFrame(_iaCurrentFrame);
+        }
+      });
+
+      // ── Finalize Analysis: toggle (gates editing) + both-cams range copy ──
+      const ia3dFinalizeToggle   = document.getElementById("ia3d-finalize-toggle");
+      const ia3dFinalizeControls = document.getElementById("ia3d-finalize-controls");
+      const ia3dFinalizeStatus   = document.getElementById("ia3d-finalize-status");
+
+      function _ia3dPopulateFinalizeFields() {
+        const s = document.getElementById("ia3d-finalize-start"), c = document.getElementById("ia3d-finalize-count"), fpc = document.getElementById("ia3d-frames-per-click");
+        if (s) s.value = (_ia3dLastRunStart != null ? _ia3dLastRunStart : (_iaCurrentFrame || 0));
+        if (c) c.value = (_ia3dLastRunN != null ? _ia3dLastRunN : (parseInt(fpc?.value, 10) || 500));
+      }
+
+      ia3dFinalizeToggle?.addEventListener("change", () => {
+        _ia3dFinalizeEnabled = ia3dFinalizeToggle.checked;
+        ia3dFinalizeControls?.classList.toggle("hidden", !_ia3dFinalizeEnabled);
+        const ov = document.getElementById("ia3d-overlay-toggle");
+        if (_ia3dFinalizeEnabled && ov && !ov.checked) { ov.checked = true; ov.dispatchEvent(new Event("change")); }
+        if (_ia3dFinalizeEnabled) _ia3dPopulateFinalizeFields();
+        if (typeof window.__va3dRefreshMarkerBanner === "function") window.__va3dRefreshMarkerBanner();
+      });
+
+      async function _ia3dSaveLayer(h5) {
+        try {
+          const r = await fetch("/dlc/viewer/save-marker-edits", {
+            method: "POST", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ h5 }),
+          });
+          return r.ok;
+        } catch (_) { return false; }
+      }
+      async function _ia3dFinalizeOne(videoPath, sourceH5, startFrame, nFrames) {
+        const r = await fetch("/dlc/project/inline-analysis/finalize-range", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ video_path: videoPath, source_h5: sourceH5, start_frame: startFrame, n_frames: nFrames }) });
+        const d = await r.json().catch(() => ({}));
+        return r.ok ? { ok: true, n: d.n_frames_written } : { ok: false, err: d.error || r.status };
+      }
+
+      const ia3dFinalizeAddBtn = document.getElementById("ia3d-finalize-add-btn");
+      ia3dFinalizeAddBtn?.addEventListener("click", async () => {
+        const cam0Layer = _iaPrimary();
+        const cam0Video = _iaCurrentVideoPath || _iaBrowseVideoPath;
+        if (!cam0Layer || !cam0Video) {
+          if (ia3dFinalizeStatus) { ia3dFinalizeStatus.textContent = "Select a video/layer first."; ia3dFinalizeStatus.className = "fe-extract-status err"; }
+          return;
+        }
+        const startFrame = parseInt(document.getElementById("ia3d-finalize-start")?.value, 10) || 0;
+        const nFrames    = parseInt(document.getElementById("ia3d-finalize-count")?.value, 10) || 0;
+        const cam1Tile   = (typeof Controller !== "undefined") ? Controller.tiles[1] : null;
+        const cam1Layer  = cam1Tile && cam1Tile.primaryH5Path;
+        ia3dFinalizeAddBtn.disabled = true;
+        if (ia3dFinalizeStatus) { ia3dFinalizeStatus.textContent = "Finalizing…"; ia3dFinalizeStatus.className = "fe-extract-status"; }
+        try {
+          const sv0 = await _ia3dSaveLayer(cam0Layer.path);
+          const sv1 = cam1Layer ? await _ia3dSaveLayer(cam1Layer) : true;
+          if (!sv0 || !sv1) {
+            if (ia3dFinalizeStatus) {
+              ia3dFinalizeStatus.textContent = `Could not save edits (${!sv0 ? "cam0" : "cam1"}) — finalize aborted`;
+              ia3dFinalizeStatus.className = "fe-extract-status err";
+            }
+            return;   // the finally{} still re-enables the button
+          }
+          const r0 = await _ia3dFinalizeOne(cam0Video, cam0Layer.path, startFrame, nFrames);
+          let r1 = null;
+          if (_siblingPath && cam1Layer) r1 = await _ia3dFinalizeOne(_siblingPath, cam1Layer, startFrame, nFrames);
+          if (ia3dFinalizeStatus) {
+            const p0 = r0.ok ? `cam0 ✓ ${r0.n}` : `cam0 ⚠ ${r0.err}`;
+            const p1 = r1 ? (r1.ok ? ` · cam1 ✓ ${r1.n}` : ` · cam1 ⚠ ${r1.err}`) : "";
+            ia3dFinalizeStatus.textContent = `${p0}${p1}`;
+            ia3dFinalizeStatus.className = (r0.ok && (!r1 || r1.ok)) ? "fe-extract-status" : "fe-extract-status err";
+          }
+        } catch (e) {
+          if (ia3dFinalizeStatus) { ia3dFinalizeStatus.textContent = `Error: ${e}`; ia3dFinalizeStatus.className = "fe-extract-status err"; }
+        } finally {
+          ia3dFinalizeAddBtn.disabled = false;
         }
       });
 

@@ -277,3 +277,16 @@ def test_js3d_edit_gated_on_finalize():
     assert "_ia3dFinalizeEnabled" in seg, "_iaIsEditable must require _ia3dFinalizeEnabled"
     assert 'getElementById("ia3d-marker-edit-controls")' in js
     assert 'getElementById("ia3d-marker-edit-banner")' not in js
+
+
+def test_js3d_finalize_flow_and_autopopulate():
+    js = JS.read_text()
+    assert 'getElementById("ia3d-finalize-toggle")' in js
+    assert 'getElementById("ia3d-finalize-add-btn")' in js
+    assert "/dlc/project/inline-analysis/finalize-range" in js
+    assert "/dlc/viewer/save-marker-edits" in js
+    assert "_ia3dLastRunStart" in js and "_ia3dLastRunN" in js
+    assert "_ia3dPopulateFinalizeFields" in js
+    i = js.find('getElementById("ia3d-finalize-add-btn")')
+    body = js[i:i + 2600]
+    assert "_siblingPath" in body
