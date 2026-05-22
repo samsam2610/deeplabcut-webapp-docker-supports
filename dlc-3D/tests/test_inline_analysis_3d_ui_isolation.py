@@ -290,3 +290,17 @@ def test_js3d_finalize_flow_and_autopopulate():
     i = js.find('getElementById("ia3d-finalize-add-btn")')
     body = js[i:i + 2600]
     assert "_siblingPath" in body
+
+
+def test_btn_sm_disabled_styling_exists_3d():
+    css = (ROOT / "src" / "static" / "inline_analysis_3d.css").read_text()
+    assert ".btn-sm:disabled" in css, "disabled .btn-sm must be visually greyed (e.g. Init button)"
+
+
+def test_finalize3d_confirms_before_overwrite():
+    js = JS.read_text()
+    i = js.find('ia3dFinalizeAddBtn?.addEventListener')
+    assert i > 0
+    body = js[i:i + 2000]
+    assert "window.confirm" in body, "3D finalize must confirm before overwriting _analyzed"
+    assert "analysis-file/status" in body, "confirm must be gated on whether _analyzed already exists"

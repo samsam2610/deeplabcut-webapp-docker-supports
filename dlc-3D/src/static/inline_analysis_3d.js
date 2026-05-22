@@ -3656,6 +3656,24 @@ document.addEventListener('DOMContentLoaded', () => Controller.init());
         const cam1Tile   = (typeof Controller !== "undefined") ? Controller.tiles[1] : null;
         const cam1Layer  = cam1Tile && cam1Tile.primaryH5Path;
         ia3dFinalizeAddBtn.disabled = true;
+        // Confirm before overwriting existing _analyzed file(s) — only prompts
+        // when one already exists (the curated range overwrites those frames).
+        try {
+          const _chkInit = async (v) => {
+            try { return (await (await fetch(`/dlc/project/analysis-file/status?video_path=${encodeURIComponent(v)}`)).json()).initialized; }
+            catch (_) { return false; }
+          };
+          const e0 = await _chkInit(cam0Video);
+          const e1 = (_siblingPath && cam1Layer) ? await _chkInit(_siblingPath) : false;
+          if ((e0 || e1) && !window.confirm(
+              `Overwrite frames ${startFrame}–${startFrame + nFrames - 1} in the existing _analyzed file(s)` +
+              `${e0 && e1 ? " on both cameras" : (e0 ? " on cam0" : " on cam1")}?\n\n` +
+              `This replaces any curated values already saved for those frames.`)) {
+            if (ia3dFinalizeStatus) { ia3dFinalizeStatus.textContent = "Cancelled."; ia3dFinalizeStatus.className = "fe-extract-status"; }
+            ia3dFinalizeAddBtn.disabled = false;
+            return;
+          }
+        } catch (_) { /* status check failed — fall through and let finalize proceed */ }
         if (ia3dFinalizeStatus) { ia3dFinalizeStatus.textContent = "Finalizing…"; ia3dFinalizeStatus.className = "fe-extract-status"; }
         try {
           const sv0 = await _ia3dSaveLayer(cam0Layer.path);

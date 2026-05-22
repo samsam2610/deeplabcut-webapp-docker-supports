@@ -1,4 +1,12 @@
 /* dlc-3D/src/static/viewer_3d.css */
+
+/* Disabled buttons must visibly grey out (the shared .btn-sm base has no
+   :disabled rule, so a disabled button otherwise looks clickable). */
+.btn-sm:disabled {
+  opacity: .5;
+  cursor: not-allowed;
+}
+
 .ia3d-tile-row {
   display: flex;
   gap: .5rem;
