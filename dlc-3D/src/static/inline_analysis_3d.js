@@ -1699,10 +1699,9 @@ document.addEventListener('DOMContentLoaded', () => Controller.init());
           iaStatus.className   = "fe-extract-status ok";
 
           // Fan-out: save sibling tiles (tile 1+) in parallel when they have
-          // pending edits. Tile-1 editing is dormant today (its pendingEdits
-          // map is never written), so this branch is a no-op until the
-          // sibling-overlay generalisation lands. Implemented now so the save
-          // path is in place when that work arrives.
+          // pending edits. Sibling editing is live (Controller._wireSiblingEditing),
+          // so each focused-tile drag/place/delete on cam1+ persists here to its
+          // own primaryH5Path.
           const siblingTiles = (Controller.tiles || []).slice(1)
             .filter(t => t && t.pendingEdits && t.pendingEdits.size > 0);
           if (siblingTiles.length) {
