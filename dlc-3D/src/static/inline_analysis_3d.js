@@ -234,6 +234,7 @@ const Controller = {
       document.getElementById('ia3d-tile-row').appendChild(this._pendingSibling.rootEl);
       this.tiles.push(this._pendingSibling);
       this._wireFocus(this._pendingSibling);
+      this._wireSiblingEditing(this._pendingSibling);
       this._pendingSibling = null;
       return;
     }
@@ -246,6 +247,7 @@ const Controller = {
     tile.setLabel('sibling');
     this.tiles.push(tile);
     this._wireFocus(tile);
+    this._wireSiblingEditing(tile);
   },
 
   _removeSiblingTile() {
@@ -260,6 +262,94 @@ const Controller = {
 
   _wireFocus(tile) {
     tile.rootEl.addEventListener('mousedown', () => this.focusTile(tile.cam));
+  },
+  _wireSiblingEditing(tile) {
+    if (tile.cam === 0 || tile._editWired) return;   // tile-0 keeps its own handlers
+    tile._editWired = true;
+    if (!tile.canvasEl) return;
+    tile.canvasEl.style.pointerEvents = "auto";
+    const canvas = tile.canvasEl;
+    const _hasPoses = () => {
+      const layer = tile.layers && tile.layers[0];
+      const cached = layer && layer.posesCache.get(_iaCurrentFrame);
+      return !!(cached && cached.poses && cached.poses.length);
+    };
+
+    tile.canvasEl.addEventListener("click", e => {
+      if (!_iaOverlayEnabled || !_hasPoses()) return;
+      const rect = canvas.getBoundingClientRect();
+      const cx = e.clientX - rect.left, cy = e.clientY - rect.top;
+      const hit = _ia3dTileHitTest(tile, cx, cy);
+      if (hit) { _iaSelectBp(hit); return; }
+      if (!_iaIsEditable() || !_iaSelectedBp) return;
+      const { x, y } = _ia3dTileCanvasToVideo(tile, cx, cy);
+      if (!tile.pendingEdits.has(_iaCurrentFrame)) tile.pendingEdits.set(_iaCurrentFrame, {});
+      tile.pendingEdits.get(_iaCurrentFrame)[_iaSelectedBp] = { x, y };
+      this._renderTileMarkers(tile);
+      _ia3dFlushTileEdit(tile, _iaCurrentFrame, _iaSelectedBp, x, y);
+      _iaUpdateEditBanner(); _iaUpdateBpChipStatus();
+    });
+
+    canvas.addEventListener("mousedown", e => {
+      if (!_iaIsEditable() || !_iaOverlayEnabled || !_hasPoses() || e.button !== 0) return;
+      const rect = canvas.getBoundingClientRect();
+      const hit = _ia3dTileHitTest(tile, e.clientX - rect.left, e.clientY - rect.top);
+      if (!hit) return;
+      e.preventDefault();
+      tile.dragBp = hit; tile.dragging = true;
+      canvas.style.cursor = "grabbing";
+    });
+
+    canvas.addEventListener("mousemove", e => {
+      if (!_iaOverlayEnabled) return;
+      const rect = canvas.getBoundingClientRect();
+      const cx = e.clientX - rect.left, cy = e.clientY - rect.top;
+      if (tile.dragging && tile.dragBp) {
+        if (!_iaIsEditable()) return;
+        const { x, y } = _ia3dTileCanvasToVideo(tile, cx, cy);
+        if (!tile.pendingEdits.has(_iaCurrentFrame)) tile.pendingEdits.set(_iaCurrentFrame, {});
+        tile.pendingEdits.get(_iaCurrentFrame)[tile.dragBp] = { x, y };
+        this._renderTileMarkers(tile);
+        return;
+      }
+      const hit = _ia3dTileHitTest(tile, cx, cy);
+      canvas.style.cursor = hit ? "pointer" : (_iaSelectedBp ? "crosshair" : "default");
+    });
+
+    canvas.addEventListener("mouseup", async e => {
+      if (!tile.dragging || !tile.dragBp) return;
+      tile.dragging = false;
+      const rect = canvas.getBoundingClientRect();
+      const { x, y } = _ia3dTileCanvasToVideo(tile, e.clientX - rect.left, e.clientY - rect.top);
+      await _ia3dFlushTileEdit(tile, _iaCurrentFrame, tile.dragBp, x, y);
+      _iaUpdateEditBanner(); _iaUpdateBpChipStatus();
+      tile.dragBp = null;
+      canvas.style.cursor = _iaSelectedBp ? "crosshair" : "default";
+    });
+
+    canvas.addEventListener("mouseleave", () => {
+      if (tile.dragging && tile.dragBp) {
+        const edits = tile.pendingEdits.get(_iaCurrentFrame);
+        if (edits && tile.dragBp in edits) {
+          const { x, y } = edits[tile.dragBp];
+          _ia3dFlushTileEdit(tile, _iaCurrentFrame, tile.dragBp, x, y);
+          _iaUpdateEditBanner();
+        }
+        tile.dragging = false; tile.dragBp = null;
+      }
+      canvas.style.cursor = _iaSelectedBp ? "crosshair" : "default";
+    });
+
+    canvas.addEventListener("contextmenu", e => {
+      e.preventDefault();
+      if (!_iaIsEditable() || !_iaOverlayEnabled || !_iaSelectedBp) return;
+      if (!tile.layers || !tile.layers[0]) return;
+      if (!tile.pendingEdits.has(_iaCurrentFrame)) tile.pendingEdits.set(_iaCurrentFrame, {});
+      tile.pendingEdits.get(_iaCurrentFrame)[_iaSelectedBp] = { x: null, y: null };
+      this._renderTileMarkers(tile);
+      _ia3dFlushTileDelete(tile, _iaCurrentFrame, _iaSelectedBp);
+      _iaUpdateEditBanner(); _iaUpdateBpChipStatus();
+    });
   },
   focusTile(cam) {
     this.tiles.forEach(t => t.rootEl.classList.toggle('focused', t.cam === cam));
@@ -1449,21 +1539,11 @@ document.addEventListener('DOMContentLoaded', () => Controller.init());
       } catch (_) {}
     }
 
-    // ── Per-cam editing scope note ──────────────────────────────────────
-    // The canvas edit handlers below (click-to-place, drag, right-click
-    // delete, dblclick-clear-frame) all target tile-0's overlay canvas
-    // (iaOverlayCanvas = #ia3d-overlay-canvas-0) and write to the shared
-    // _iaLocalEdits map (aliased to Controller.tiles[0].pendingEdits via
-    // _iaBindTile0PendingEdits above). When sync-cam is on, edits to
-    // tile-1 are NOT yet supported — the sibling tile has no overlay
-    // canvas wiring, hit-testing, or pose data yet. Plan task 10 takes
-    // the conservative scope cut: the banner reflects per-tile state
-    // (cam0/cam1 split counts) so the UI is in the right shape, but
-    // tile-1 always shows cam1: 0 until the deferred sibling-overlay
-    // renderer lands. At that point these handlers will be generalised
-    // to read the focused tile (Controller.tiles.find(t =>
-    // t.rootEl.classList.contains('focused'))) and operate on that
-    // tile's canvas + pendingEdits map.
+    // ── Per-cam editing ─────────────────────────────────────────────────
+    // The handlers below target tile-0's overlay canvas (#ia3d-overlay-canvas-0)
+    // and write to _iaLocalEdits (aliased to Controller.tiles[0].pendingEdits).
+    // Sibling tiles get equivalent edit handlers via Controller._wireSiblingEditing,
+    // which operate on each sibling's own canvas + pendingEdits + layers[0].path.
     if (iaOverlayCanvas) {
       iaOverlayCanvas.style.pointerEvents = "auto";
 

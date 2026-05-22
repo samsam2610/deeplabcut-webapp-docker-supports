@@ -212,3 +212,15 @@ def test_per_tile_edit_helpers_exist():
     assert "_ia3dFlushTileEdit" in js and "_ia3dFlushTileDelete" in js, "per-tile flush helpers missing"
     assert "tile.canvasEl" in js and "tile.imgEl" in js
     assert "this.dragging" in js and "this.dragBp" in js
+
+
+def test_sibling_editing_wired():
+    js = JS.read_text()
+    assert "_wireSiblingEditing" in js, "sibling editing method missing"
+    assert js.count("_wireSiblingEditing(") >= 2, "must be defined and called at least once"
+    i = js.find("_wireSiblingEditing(tile)")
+    body = js[i:i + 2600]
+    assert "tile.canvasEl.addEventListener" in body
+    assert "tile.pendingEdits" in body
+    assert "_ia3dFlushTileEdit(tile" in body
+    assert "_ia3dTileHitTest(tile" in body
