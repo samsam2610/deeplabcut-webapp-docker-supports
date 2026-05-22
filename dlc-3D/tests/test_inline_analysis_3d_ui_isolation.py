@@ -180,3 +180,26 @@ def test_analyze_button_matches_start_analysis_style():
     assert "Start Analysis" in btn
     assert "disabled" in btn, "must remain default-disabled until a sibling resolves"
     assert "width:100%" not in btn
+
+
+def test_init_button_three_way_state_logic():
+    """_refreshInitFileBtn distinguishes both-exist / neither / partial, and the
+    partial branch writes a 'will generate camN only' note to the status line."""
+    js = JS.read_text()
+    i = js.find("async function _refreshInitFileBtn")
+    assert i > 0, "_refreshInitFileBtn definition not found"
+    body = js[i:i + 2500]
+    # both exist -> disabled with the 'exist' wording
+    assert "Analysis files exist" in body
+    # file-wide: the old 'ready' wording must be gone everywhere, not just in this function
+    assert "Analysis files ready" not in js, "old 'ready' wording must be replaced"
+    # partial-state note text (both directions)
+    assert "Initialize will generate cam1 only" in body
+    assert "Initialize will generate cam0 only" in body
+    # partial-state names the missing camera on the button
+    assert "Initialize cam1 analysis file" in body
+    assert "Initialize cam0 analysis file" in body
+    # partial messaging is guarded by a resolved sibling
+    assert "_siblingPath" in body
+    # the note is written to the existing status line
+    assert "initFileStatus" in body

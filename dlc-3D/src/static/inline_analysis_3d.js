@@ -3465,12 +3465,42 @@ document.addEventListener('DOMContentLoaded', () => Controller.init());
       async function _refreshInitFileBtn() {
         if (!initFileBtn) return;
         const cam0 = _cam0Path();
-        if (!cam0) { initFileBtn.disabled = true; return; }
-        initFileBtn.disabled = false;
+        if (!cam0) {
+          initFileBtn.disabled = true;
+          if (initFileStatus) initFileStatus.textContent = "";
+          return;
+        }
         const a = await _initStatus(cam0);
-        const b = _siblingPath ? await _initStatus(_siblingPath) : true;
-        if (a && b) { initFileBtn.textContent = "✓ Analysis files ready"; initFileBtn.disabled = true; }
-        else { initFileBtn.textContent = "○ Initialize analysis files (both cameras)"; }
+        const hasSibling = !!_siblingPath;
+        const b = hasSibling ? await _initStatus(_siblingPath) : true;
+
+        if (a && b) {
+          // both cameras already have analysis files
+          initFileBtn.textContent = "Analysis files exist";
+          initFileBtn.disabled = true;
+          if (initFileStatus) initFileStatus.textContent = "";
+        } else if (hasSibling && (a !== b)) {
+          // exactly one camera has a file — generate only the missing one
+          initFileBtn.disabled = false;
+          if (a) {
+            // cam0 exists, cam1 is missing
+            initFileBtn.textContent = "○ Initialize cam1 analysis file";
+            if (initFileStatus)
+              initFileStatus.textContent =
+                "cam0 already has an analysis file — Initialize will generate cam1 only.";
+          } else {
+            // cam1 exists, cam0 is missing
+            initFileBtn.textContent = "○ Initialize cam0 analysis file";
+            if (initFileStatus)
+              initFileStatus.textContent =
+                "cam1 already has an analysis file — Initialize will generate cam0 only.";
+          }
+        } else {
+          // neither camera has a file
+          initFileBtn.textContent = "○ Initialize analysis files (both cameras)";
+          initFileBtn.disabled = false;
+          if (initFileStatus) initFileStatus.textContent = "";
+        }
       }
       async function _initOne(v) {
         try {
