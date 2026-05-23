@@ -17,11 +17,14 @@
 
 import { VideoViewer } from "./components/viewer/video_viewer.js";
 import { statusNoteTimeline } from "./components/viewer/features/status_notes.js";
+import { markerEditor } from "./components/viewer/features/marker_editor.js";
 import { state } from "/static/js/state.js";
 
 // ── Module state ────────────────────────────────────────────────────────────
 
 let _viewer = null;
+let _markerEditor = null; // overlay/marker-editing feature (composed in _ensureViewer)
+let _overlayPrimaryH5 = null; // the primary .h5 path currently driving the overlay (for Save)
 
 // Frame-mode dispatch state (drives endpoints.frame for the primary tile).
 let _vaMode = null; // "video" | "frames" | "browse-video"
@@ -90,9 +93,39 @@ function _ensureViewer() {
     },
   });
 
-  // TODO(4b-2b): overlay panel — compose markerEditor here
-  //   (#va3d-overlay-toggle / #va3d-overlay-* controls, marker edit banner,
-  //    bp chips, threshold, marker size, per-cam sibling-h5 resolution).
+  // Overlay panel — kinematic pose overlay + marker editing (Phase 4b Step 2c).
+  // markerEditor renders all visible layers per tile via the viewer's drawTile
+  // hook (cam0 editable, cam1 read-only sibling) and flushes each edit to the
+  // server edit-cache via saveMarker. Consumer glue below wires the card chrome
+  // (toggle, h5 pickers, threshold) to its public API.
+  _markerEditor = markerEditor({
+    endpoints: {
+      poses:      (h5, frame, thr) =>
+        `/dlc/viewer/frame-poses/${frame}?h5=${encodeURIComponent(h5)}&threshold=${thr}`,
+      posesBatch: (h5, start, count, thr) =>
+        `/dlc/viewer/frame-poses-batch?h5=${encodeURIComponent(h5)}&start=${start}&count=${count}&threshold=${thr}`,
+      layerInfo:  (h5) => `/dlc/viewer/h5-info?h5=${encodeURIComponent(h5)}`,
+      saveMarker: (payload) => fetch("/dlc/viewer/marker-edit", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      }),
+      editCache:  (h5) => `/dlc/viewer/edit-cache?h5=${encodeURIComponent(h5)}`,
+    },
+    els: {
+      bpChips:   $("va3d-bp-chips"),
+      editBanner: $("va3d-marker-edit-banner"),
+      editCount:  $("va3d-marker-edit-count"),
+    },
+    markerSize: 6,
+    globalThreshold: 0.6,
+    poseWindow: 30,
+  });
+  _viewer.use(_markerEditor);
+
+  // Overlay consumer glue (toggle, h5 pickers, threshold, save). The bp-chip
+  // selection is handled inside markerEditor; the controls below are
+  // consumer-owned and persist across viewer rebuilds via _ensureViewer.
+  _wireOverlayChrome();
 
   // CSV status/note timeline (save variant — unlike dlc_3d.js's browse-only use,
   // this card wires saveRow so the status/note inputs can write back). The
@@ -138,6 +171,7 @@ function _ensureViewer() {
   // visible row.
   _viewer.on("videoLoad", () => {
     _scheduleMetaStripRefresh();
+    _refreshOverlayH5Variants();
   });
   _viewer.on("frameChange", () => _updateMetaStrip());
 
@@ -372,6 +406,204 @@ function _updateSyncRow() {
   }
 }
 
+// ── Overlay panel consumer glue (markerEditor chrome) ────────────────────────
+//
+// markerEditor owns the per-tile rendering (via drawTile), the bp chips, the
+// edit banner/count, and per-edit server flush. The controls below are
+// consumer-owned: the enable toggle, the primary/comparison h5 pickers, the
+// likelihood threshold, and the cache→h5 "Save Adjustments" POST. Wired once in
+// _ensureViewer (the controls live in the static card markup and persist across
+// viewer rebuilds, so a guard avoids double-binding).
+
+let _overlayChromeWired = false;
+
+function _wireOverlayChrome() {
+  if (_overlayChromeWired) return;
+  _overlayChromeWired = true;
+
+  // Overlay enable toggle → markerEditor.setOverlayEnabled + reveal controls.
+  const toggle = $("va3d-overlay-toggle");
+  toggle?.addEventListener("change", () => {
+    const on = !!toggle.checked;
+    _markerEditor?.setOverlayEnabled(on);
+    $("va3d-overlay-controls")?.classList.toggle("hidden", !on);
+    $("va3d-bp-list-wrap")?.classList.toggle("hidden", !on);
+    const st = $("va3d-overlay-status");
+    if (st) st.textContent = on ? "overlay on" : "overlay off";
+  });
+
+  // Primary h5 picker → setPrimary + per-cam sibling resolution.
+  $("va3d-overlay-primary-select")?.addEventListener("change", (e) => {
+    _applyOverlayPrimary(e.target.value);
+  });
+
+  // Add comparison → addCompare, then reset the select to its placeholder.
+  const addCompare = $("va3d-overlay-add-compare");
+  addCompare?.addEventListener("change", () => {
+    const val = addCompare.value;
+    if (val) _markerEditor?.addCompare(val);
+    addCompare.value = "";
+  });
+
+  // Likelihood threshold → setThreshold + label.
+  const thr = $("va3d-overlay-threshold");
+  thr?.addEventListener("input", () => {
+    const v = parseFloat(thr.value);
+    _markerEditor?.setThreshold(v);
+    const lbl = $("va3d-overlay-threshold-val");
+    if (lbl) lbl.textContent = v.toFixed(2);
+  });
+
+  // Marker size: markerEditor has no setMarkerSize API → update the label only.
+  // TODO: needs markerEditor.setMarkerSize to take effect on the rendered markers.
+  const ms = $("va3d-overlay-marker-size");
+  ms?.addEventListener("input", () => {
+    const lbl = $("va3d-overlay-marker-size-val");
+    if (lbl) lbl.textContent = ms.value;
+  });
+
+  // Show-all / hide-all: markerEditor has no show/hide-all API (visibility is
+  // per-chip via double-click). Leave as no-ops to avoid faking the behavior.
+  // TODO: needs markerEditor show/hide-all API.
+  $("va3d-overlay-parts-all"); // no-op
+  $("va3d-overlay-parts-none"); // no-op
+
+  // Save Adjustments: markerEditor flushes each edit to the server edit-cache as
+  // it happens; this commits the cache → primary .h5/.csv. Guard on a loaded
+  // primary with pending edits.
+  $("va3d-save-adjustments-btn")?.addEventListener("click", _vaSaveAdjustments);
+
+  // Discard / Clear Frame: markerEditor exposes no discard or clear-frame API,
+  // so leave these as no-ops for now (don't fake a partial reset).
+  // TODO: needs markerEditor discard / clear-frame API.
+  $("va3d-discard-adjustments-btn"); // no-op
+  $("va3d-clear-frame-btn"); // no-op
+}
+
+// Populate the primary + add-comparison h5 selects for the current primary
+// video, then auto-pick when exactly one variant exists. Called off videoLoad.
+async function _refreshOverlayH5Variants() {
+  const primarySel = $("va3d-overlay-primary-select");
+  const compareSel = $("va3d-overlay-add-compare");
+  if (!primarySel || !_primaryRel) return;
+  let variants = [];
+  try {
+    const data = await (await fetch(
+      `/dlc/viewer/h5-variants?video=${encodeURIComponent(_primaryRel)}`,
+    )).json();
+    variants = data.variants || [];
+  } catch (_) {
+    variants = [];
+  }
+
+  // Primary select: placeholder + one option per variant (value=path, text=label).
+  primarySel.innerHTML = "";
+  const placeholder = document.createElement("option");
+  placeholder.value = "";
+  placeholder.textContent = variants.length
+    ? "(select primary .h5…)"
+    : "(no h5 detected — use Browse)";
+  primarySel.appendChild(placeholder);
+  variants.forEach((vr) => {
+    const opt = document.createElement("option");
+    opt.value = vr.path;
+    opt.textContent = vr.label;
+    primarySel.appendChild(opt);
+  });
+
+  // Auto-pick when exactly one variant exists.
+  if (variants.length === 1) {
+    primarySel.value = variants[0].path;
+    await _applyOverlayPrimary(variants[0].path);
+  } else {
+    _overlayPrimaryH5 = null;
+    _repopulateCompareOptions(variants, "");
+  }
+}
+
+// Repopulate #va3d-overlay-add-compare with every variant except the active
+// primary. Placeholder option is always first.
+function _repopulateCompareOptions(variants, primaryPath) {
+  const compareSel = $("va3d-overlay-add-compare");
+  if (!compareSel) return;
+  compareSel.innerHTML = "";
+  const ph = document.createElement("option");
+  ph.value = "";
+  ph.textContent = "+ add comparison…";
+  compareSel.appendChild(ph);
+  (variants || [])
+    .filter((vr) => vr.path !== primaryPath)
+    .forEach((vr) => {
+      const opt = document.createElement("option");
+      opt.value = vr.path;
+      opt.textContent = vr.label;
+      compareSel.appendChild(opt);
+    });
+}
+
+// Set the markerEditor primary layer, resolve + set the per-cam sibling (cam1),
+// and refresh the comparison-options list (excluding the new primary).
+async function _applyOverlayPrimary(h5) {
+  if (!_markerEditor) return;
+  if (!h5) {
+    _overlayPrimaryH5 = null;
+    return;
+  }
+  _overlayPrimaryH5 = h5;
+  await _markerEditor.setPrimary(h5);
+
+  // Per-cam sibling resolution: ask the dlc-3d analyzed endpoint for the cam1
+  // counterpart of this primary h5; set it as the read-only sibling layer.
+  try {
+    const data = await (await fetch(
+      `/dlc-3d/analyzed/sibling-h5?primary_h5=${encodeURIComponent(h5)}&cam=1`,
+    )).json();
+    _markerEditor.setSibling(data && data.path ? data.path : null);
+  } catch (_) {
+    _markerEditor.setSibling(null);
+  }
+
+  // Refresh the comparison options to exclude the just-selected primary. Re-fetch
+  // variants (cheap, cached server-side) so the list stays correct after a
+  // primary change.
+  try {
+    const data = await (await fetch(
+      `/dlc/viewer/h5-variants?video=${encodeURIComponent(_primaryRel)}`,
+    )).json();
+    _repopulateCompareOptions(data.variants || [], h5);
+  } catch (_) {
+    _repopulateCompareOptions([], h5);
+  }
+}
+
+// Save Adjustments (consumer glue). markerEditor has written each edit to the
+// server edit-cache via saveMarker; this commits the cache → the primary .h5/.csv
+// via /dlc/viewer/save-marker-edits. Guarded: needs a primary + pending edits.
+async function _vaSaveAdjustments() {
+  const btn = $("va3d-save-adjustments-btn");
+  if (!_markerEditor || !_overlayPrimaryH5) return;
+  if (_markerEditor.getEditCount() === 0) return;
+  if (btn) btn.disabled = true;
+  try {
+    const resp = await fetch("/dlc/viewer/save-marker-edits", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ h5: _overlayPrimaryH5 }),
+    });
+    const data = await resp.json().catch(() => ({}));
+    const st = $("va3d-overlay-status");
+    if (!resp.ok || data.error) {
+      if (st) st.textContent = `Save failed: ${data.error || resp.status}`;
+    } else if (st) {
+      st.textContent = "Adjustments saved";
+    }
+  } catch (err) {
+    const st = $("va3d-overlay-status");
+    if (st) st.textContent = `Save failed: ${err.message}`;
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
 // ── Three open functions (mode + state + load) ──────────────────────────────
 
 async function _vaOpenVideo(name) {
@@ -461,7 +693,19 @@ function _resetForOpen() {
   if (metaInfo) metaInfo.textContent = "No companion CSV";
   const createFb = $("va3d-csv-create-status");
   if (createFb) createFb.textContent = "";
-  // TODO(4b-2b/2d): reset overlay / curation panels here when wired.
+  // Overlay panel reset (consumer glue). markerEditor re-derives its layers on
+  // the next setPrimary, but the consumer-owned chrome (toggle, controls
+  // visibility, primary ref, status) must be cleared between selections. The h5
+  // selects are repopulated off the next videoLoad via _refreshOverlayH5Variants.
+  _overlayPrimaryH5 = null;
+  const ovToggle = $("va3d-overlay-toggle");
+  if (ovToggle) ovToggle.checked = false;
+  _markerEditor?.setOverlayEnabled(false);
+  $("va3d-overlay-controls")?.classList.add("hidden");
+  $("va3d-bp-list-wrap")?.classList.add("hidden");
+  const ovStatus = $("va3d-overlay-status");
+  if (ovStatus) ovStatus.textContent = "";
+  // TODO(4b-2d): reset curation panel here when wired.
 }
 
 // Back button: tear down the viewer and hide the player section, returning to
@@ -469,6 +713,7 @@ function _resetForOpen() {
 function _vaBack() {
   _viewer?.destroy();
   _viewer = null;
+  _markerEditor = null; // torn down with the viewer; _ensureViewer composes a fresh one
   _resetForOpen();
   $("va3d-player-section")?.classList.add("hidden");
   const nameEl = $("va3d-selected-name");
