@@ -7,6 +7,7 @@
 //   viewer.use(statusNoteTimeline({
 //     endpoints: { csv: (videoPath) => url, saveRow: (payload) => fetchPromise },
 //     els: { statusCanvas, noteCanvas, statusChips, noteChips,
+//            statusWrap?, noteWrap?,
 //            statusBadge?, noteBadge?, statusInput?, noteInput?,
 //            statusPrev?, statusNext?, notePrev?, noteNext?,
 //            saveStatusBtn?, saveNoteBtn?, saveFeedback? },
@@ -69,6 +70,8 @@ export function statusNoteTimeline(config = {}) {
   function recolor() {
     statusColors = assignColors(uniqueValues(rows, "frame_line_status"), statusPalette);
     noteColors = assignColors(uniqueValues(rows, "note"), notePalette);
+    if (els.statusWrap) els.statusWrap.style.display = Object.keys(statusColors).length ? "" : "none";
+    if (els.noteWrap) els.noteWrap.style.display = Object.keys(noteColors).length ? "" : "none";
   }
 
   function rebuildChips() {
@@ -149,6 +152,15 @@ export function statusNoteTimeline(config = {}) {
     if (els.noteNext) els.noteNext.disabled = !nOn;
   }
 
+  function timelineSeek(e, canvas) {
+    if (!viewer || !canvas || !canvas.width) return;
+    const rect = canvas.getBoundingClientRect();
+    if (!rect.width) return;
+    const frac = Math.min(1, Math.max(0, (e.clientX - rect.left) / rect.width));
+    viewer.pause();
+    viewer.seek(Math.round(frac * Math.max(total() - 1, 0)));
+  }
+
   function nav(field, activeSet, dir) {
     if (!viewer) return;
     const fn = findMatchingFrame(rows, field, activeSet, seekToRow(curFrame()), dir);
@@ -206,6 +218,8 @@ export function statusNoteTimeline(config = {}) {
       if (els.noteNext) els.noteNext.addEventListener("click", () => nav("note", activeNote, 1), sig);
       if (els.saveStatusBtn) els.saveStatusBtn.addEventListener("click", () => save("status"), sig);
       if (els.saveNoteBtn) els.saveNoteBtn.addEventListener("click", () => save("note"), sig);
+      if (els.statusCanvas) els.statusCanvas.addEventListener("click", (e) => timelineSeek(e, els.statusCanvas), sig);
+      if (els.noteCanvas) els.noteCanvas.addEventListener("click", (e) => timelineSeek(e, els.noteCanvas), sig);
       v.on("teardown", () => { for (const d of disposers) d(); ac.abort(); });
     },
   };

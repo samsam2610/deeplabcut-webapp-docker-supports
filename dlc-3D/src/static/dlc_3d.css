@@ -130,6 +130,18 @@
 #dlc-3d-extract-card .ep-chip.active {
   outline: 2px solid var(--accent); outline-offset: 1px;
 }
+/* Library-rendered timeline chips (StatusNoteTimeline): <span class="vv-tag-chip">
+   with a per-value --chip-color. Mirror the card's .ep-chip look. */
+#dlc-3d-extract-card .vv-tag-chip {
+  display: inline-flex; align-items: center; gap: .2rem;
+  font-size: 10px; padding: 1px 6px; border-radius: 3px;
+  cursor: pointer; user-select: none; font-family: var(--mono);
+  background: var(--surface-2); color: var(--text);
+  border: 1px solid var(--chip-color, var(--border));
+}
+#dlc-3d-extract-card .vv-tag-chip.active {
+  background: var(--chip-color, var(--accent)); color: #0d1117; font-weight: 600;
+}
 #dlc-3d-extract-card #ep-status-canvas,
 #dlc-3d-extract-card #ep-note-canvas,
 #dlc-3d-extract-card #ep-status-cursor,

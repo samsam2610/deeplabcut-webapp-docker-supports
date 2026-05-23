@@ -69,6 +69,8 @@ function _ensureViewer() {
     els: {
       statusCanvas: document.getElementById("ep-status-canvas"),
       noteCanvas:   document.getElementById("ep-note-canvas"),
+      statusWrap:   document.getElementById("ep-status-bar-wrap"),
+      noteWrap:     document.getElementById("ep-note-bar-wrap"),
       statusChips:  document.getElementById("ep-status-chips"),
       noteChips:    document.getElementById("ep-note-chips"),
       statusPrev:   document.getElementById("ep-status-prev"),
@@ -177,8 +179,10 @@ function _setupSyncCamToggle(v) {
       const ex = document.getElementById("ep-extract-sibling");
       if (ex) ex.checked = true;
     }
-    // reload with/without the sibling tile to match the toggle
+    // reload with/without the sibling tile to match the toggle, preserving frame
+    const keepFrame = v.currentFrame();
     await v.load({ videoPath: _activeVideo, siblingPath: cb.checked ? _siblingVideo : null });
+    if (keepFrame > 0) v.seek(keepFrame);
     _applyCamLabels();
   });
 }

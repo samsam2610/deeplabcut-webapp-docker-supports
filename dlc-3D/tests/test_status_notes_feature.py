@@ -48,6 +48,12 @@ def test_navigates_via_viewer_seek():
     assert re.search(r"\.seek\s*\(", _src()), "prev/next nav must call viewer.seek(...)"
 
 
+def test_timeline_click_to_seek():
+    src = _src()
+    assert 'addEventListener("click"' in src or "addEventListener('click'" in src, \
+        "timeline canvases must be wired for click-to-seek"
+
+
 def test_no_hardcoded_endpoints():
     src = _src()
     for bad in ("/dlc-3d/", "/clip-cutter/", "/annotate/"):
