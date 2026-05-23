@@ -353,3 +353,10 @@ def test_skip_presets_present_and_wired():
     assert 'class="ia3d-skip-preset"' in html, "skip-size preset buttons missing"
     js = JS.read_text()
     assert "ia3d-skip-preset" in js and "setSkipN" in js, "skip presets not wired to setSkipN"
+
+
+def test_status_note_timeline_outside_curation_panel():
+    html = (ROOT / "src" / "templates" / "partials" / "card_inline_analysis_3d.html").read_text()
+    cur_start = html.index('id="ia3d-curation-panel"')
+    bars = html.index('id="ia3d-csv-bars"')
+    assert bars < cur_start, "status/note timeline must be surfaced above the curation panel"

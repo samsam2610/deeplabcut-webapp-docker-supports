@@ -259,6 +259,34 @@
 
         <span id="ia3d-status" class="fe-extract-status"></span>
 
+        <!-- Status / note timeline — always visible in the viewer (surfaced from curation) -->
+        <div id="ia3d-viewer-timeline" style="margin-top:.5rem">
+          <div id="ia3d-csv-bars" class="hidden" style="margin-top:.5rem">
+            <div id="ia3d-status-bar-wrap" class="hidden">
+              <div style="display:flex;align-items:center;gap:.4rem;margin-top:.55rem;margin-bottom:.18rem">
+                <span class="fe-csv-bar-label" style="flex:1;margin:0">Status</span>
+                <button id="ia3d-status-prev-btn" class="btn-sm" disabled title="Previous status frame" style="padding:.12rem .4rem;font-size:.72rem;line-height:1">◀</button>
+                <button id="ia3d-status-next-btn" class="btn-sm" disabled title="Next status frame" style="padding:.12rem .4rem;font-size:.72rem;line-height:1">▶</button>
+              </div>
+              <canvas id="ia3d-status-canvas" height="12"
+                style="width:100%;display:block;cursor:pointer;border-radius:3px;background:var(--surface)"
+                title="Click to jump to frame"></canvas>
+              <div id="ia3d-status-chips" class="fe-tag-filter" style="margin-top:.3rem;min-height:1rem"></div>
+            </div>
+            <div id="ia3d-note-bar-wrap" class="hidden" style="margin-top:.4rem">
+              <div style="display:flex;align-items:center;gap:.4rem;margin-top:.55rem;margin-bottom:.18rem">
+                <span class="fe-csv-bar-label" style="flex:1;margin:0">Notes</span>
+                <button id="ia3d-note-prev-btn" class="btn-sm" disabled title="Previous note frame" style="padding:.12rem .4rem;font-size:.72rem;line-height:1">◀</button>
+                <button id="ia3d-note-next-btn" class="btn-sm" disabled title="Next note frame" style="padding:.12rem .4rem;font-size:.72rem;line-height:1">▶</button>
+              </div>
+              <canvas id="ia3d-note-canvas" height="12"
+                style="width:100%;display:block;cursor:pointer;border-radius:3px;background:var(--surface)"
+                title="Click to jump to frame"></canvas>
+              <div id="ia3d-note-chips" class="fe-tag-filter" style="margin-top:.3rem;min-height:1rem"></div>
+            </div>
+          </div>
+        </div>
+
         <!-- ── Dataset Curation Panel ──────────────────────────────── -->
         <div id="ia3d-curation-panel" style="margin-top:.65rem;padding:.5rem .65rem;background:var(--surface-2);border:1px solid var(--border);border-radius:7px">
 
@@ -326,32 +354,6 @@
             <div id="ia3d-csv-loaded" class="hidden" style="display:flex;align-items:center;gap:.4rem;flex-wrap:wrap">
               <span style="font-size:.74rem;color:var(--text-dim);flex-shrink:0">CSV:</span>
               <span id="ia3d-csv-path-display" style="font-family:var(--mono);font-size:.71rem;color:var(--text-dim);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;min-width:0"></span>
-            </div>
-          </div>
-
-          <!-- Row 3b: CSV timelines — status first, notes second -->
-          <div id="ia3d-csv-bars" class="hidden" style="margin-top:.5rem">
-            <div id="ia3d-status-bar-wrap" class="hidden">
-              <div style="display:flex;align-items:center;gap:.4rem;margin-top:.55rem;margin-bottom:.18rem">
-                <span class="fe-csv-bar-label" style="flex:1;margin:0">Status</span>
-                <button id="ia3d-status-prev-btn" class="btn-sm" disabled title="Previous status frame" style="padding:.12rem .4rem;font-size:.72rem;line-height:1">◀</button>
-                <button id="ia3d-status-next-btn" class="btn-sm" disabled title="Next status frame" style="padding:.12rem .4rem;font-size:.72rem;line-height:1">▶</button>
-              </div>
-              <canvas id="ia3d-status-canvas" height="12"
-                style="width:100%;display:block;cursor:pointer;border-radius:3px;background:var(--surface)"
-                title="Click to jump to frame"></canvas>
-              <div id="ia3d-status-chips" class="fe-tag-filter" style="margin-top:.3rem;min-height:1rem"></div>
-            </div>
-            <div id="ia3d-note-bar-wrap" class="hidden" style="margin-top:.4rem">
-              <div style="display:flex;align-items:center;gap:.4rem;margin-top:.55rem;margin-bottom:.18rem">
-                <span class="fe-csv-bar-label" style="flex:1;margin:0">Notes</span>
-                <button id="ia3d-note-prev-btn" class="btn-sm" disabled title="Previous note frame" style="padding:.12rem .4rem;font-size:.72rem;line-height:1">◀</button>
-                <button id="ia3d-note-next-btn" class="btn-sm" disabled title="Next note frame" style="padding:.12rem .4rem;font-size:.72rem;line-height:1">▶</button>
-              </div>
-              <canvas id="ia3d-note-canvas" height="12"
-                style="width:100%;display:block;cursor:pointer;border-radius:3px;background:var(--surface)"
-                title="Click to jump to frame"></canvas>
-              <div id="ia3d-note-chips" class="fe-tag-filter" style="margin-top:.3rem;min-height:1rem"></div>
             </div>
           </div>
 
