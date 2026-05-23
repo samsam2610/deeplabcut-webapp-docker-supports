@@ -32,16 +32,21 @@ def test_no_va_identifier_leaks_in_clone():
     )
 
 
-def test_card_has_analysis_params_and_dual_tile():
+def test_card_has_analysis_params_and_viewer_mount():
     html = CARD.read_text()
     for needed in [
         "inline-analysis-3d-card", "btn-close-inline-analysis-3d",
         "ia3d-snapshot", "ia3d-batch-size", "ia3d-frames-per-click",
         "ia3d-keep-warm-seconds", "ia3d-btn-analyze-range",
         "ia3d-last-run-status", "ia3d-warm-indicator", "ia3d-sibling-status",
-        "ia3d-overlay-toggle", "ia3d-frame-img-0",
+        "ia3d-overlay-toggle", "ia3d-viewer-mount",
     ]:
         assert needed in html, f"missing id {needed!r}"
+    # Phase 4c: the static tile-row markup + tile template were replaced by the
+    # single VideoViewer mount — they must be gone.
+    assert "ia3d-tile-row" not in html, "old static tile-row markup must be removed"
+    assert "ia3d-tile-template" not in html, "old tile <template> must be removed"
+    assert "ia3d-frame-img-0" not in html, "old static tile-0 img must be removed"
     assert "va3d-" not in html
 
 
@@ -66,9 +71,13 @@ def test_dispatch_runs_both_cameras_against_main_webapp_api():
     assert "_submitRange(sk, cam0" in src
     assert "_submitRange(sk, _siblingPath" in src
     assert "Promise.all([_pollReq(req0), _pollReq(req1)])" in src
-    # on done: re-discovers + force-loads the frame (inherited render path)
+    # on done: re-discovers the cam0 h5 variants (auto-picks the freshly-written
+    # primary + resolves the sibling) then force-reloads the shared viewer so
+    # markers paint deterministically (Phase 4c: VideoViewer.load replaces the
+    # old direct _iaLoadFrame call).
     assert "_iaDiscoverVariants(cam0)" in src
-    assert "_iaLoadFrame(_iaCurrentFrame)" in src
+    assert "_viewer.load(" in src
+    assert "setOverlayEnabled(true)" in src
 
 
 def test_analyze_button_disabled_by_default():
@@ -126,14 +135,20 @@ def test_discover_does_not_depend_on_removed_compare_dropdown():
     )
 
 
-def test_layer_errored_cleared_and_tile_fetch_not_pre_filtered():
-    """Markers fix: successful fetch clears layer.errored, and the sibling
-    tile render fetches all VISIBLE layers (not pre-filtered on errored) so a
-    sticky errored flag self-heals."""
+def test_marker_rendering_delegated_to_library():
+    """Phase 4c: the old per-layer / sibling-tile rendering internals
+    (_iaLayers, layer.errored, _renderTileMarkers, posesCache filtering) were
+    removed — the shared markerEditor library now owns all overlay rendering.
+    The consumer must compose markerEditor and feed it the bp-chip / edit-banner
+    elements, and must NOT re-implement the removed rendering internals."""
     src = JS.read_text()
-    assert src.count("layer.errored = false;") >= 2
-    # the sibling fetch must NOT pre-filter on errored (only on visible)
-    assert ".filter(l => l.visible)\n" in src or ".filter(l => l.visible)" in src
+    assert "markerEditor(" in src, "must compose the shared markerEditor feature"
+    assert "_viewer.use(_markerEditor)" in src
+    # removed old-fork rendering internals must be gone
+    assert "_iaLayers" not in src
+    assert "_renderTileMarkers" not in src
+    assert "posesCache" not in src
+    assert "markersByFrame" not in src
 
 
 def test_clone_css_exists_and_linked():
@@ -205,46 +220,44 @@ def test_init_button_three_way_state_logic():
     assert "initFileStatus" in body
 
 
-def test_per_tile_edit_helpers_exist():
+def test_per_tile_edit_delegated_to_library():
+    """Phase 4c: the old per-tile edit helpers (_ia3dTileCanvasToVideo,
+    _ia3dTileHitTest, _ia3dFlushTileEdit/_ia3dFlushTileDelete) + the Tile
+    drag-state class were removed; the markerEditor library now owns coord
+    mapping, hit-testing, and per-edit server flush. The consumer must NOT
+    re-implement them."""
     js = JS.read_text()
-    assert "_ia3dTileCanvasToVideo" in js, "per-tile coord helper missing"
-    assert "_ia3dTileHitTest" in js, "per-tile hit-test helper missing"
-    assert "_ia3dFlushTileEdit" in js and "_ia3dFlushTileDelete" in js, "per-tile flush helpers missing"
-    assert "tile.canvasEl" in js and "tile.imgEl" in js
-    assert "this.dragging" in js and "this.dragBp" in js
+    for removed in [
+        "_ia3dTileCanvasToVideo", "_ia3dTileHitTest",
+        "_ia3dFlushTileEdit", "_ia3dFlushTileDelete",
+    ]:
+        assert removed not in js, f"removed per-tile helper leaked: {removed!r}"
+    # the library handles edit flush via the saveMarker endpoint, injected here
+    assert "/dlc/viewer/marker-edit" in js, "marker-edit flush endpoint must be wired to markerEditor"
 
 
-def test_sibling_editing_wired():
+def test_focused_cam_editing_delegated_to_library():
+    """Phase 4c: sibling (cam1) editing is now the library's focused-cam model —
+    the old consumer-side _wireSiblingEditing + Controller tile machinery were
+    removed. The consumer composes markerEditor (which wires both tiles) and the
+    sibling layer is fed via setSibling()."""
     js = JS.read_text()
-    assert "_wireSiblingEditing" in js, "sibling editing method missing"
-    assert js.count("_wireSiblingEditing(") >= 2, "must be defined and called at least once"
-    i = js.find("_wireSiblingEditing(tile)")
-    body = js[i:i + 2600]
-    assert "tile.canvasEl.addEventListener" in body
-    assert "tile.pendingEdits" in body
-    assert "_ia3dFlushTileEdit(tile" in body
-    assert "_ia3dTileHitTest(tile" in body
+    assert "_wireSiblingEditing" not in js, "old consumer-side sibling editing must be gone"
+    assert "Controller" not in js, "old Controller singleton must be gone"
+    assert "setSibling(" in js, "consumer must feed the cam1 sibling layer to markerEditor"
 
 
-def test_sibling_render_overlays_pending_edits():
+def test_save_adjustments_persists_both_cams():
     js = JS.read_text()
-    i = js.find("async _renderTileMarkers(tile)")
-    assert i > 0
-    body = js[i:i + 3600]
-    assert "tile.pendingEdits.get(" in body, "render must apply pending edits for the focused/edited tile"
-
-
-def test_save_adjustments_persists_all_tiles():
-    js = JS.read_text()
-    i = js.find("iaSaveAdjBtn.addEventListener")
-    assert i > 0
-    body = js[i:i + 3000]
-    # the handler saves siblings too: iterate Controller.tiles beyond tile-0,
-    # filter to those with pending edits, and save each to its own primary h5.
-    assert "Controller.tiles" in body, "save handler must iterate the tiles"
-    assert "pendingEdits" in body, "must filter siblings with pending edits"
-    assert "primaryH5Path" in body, "must save each sibling to its own resolved h5 path"
-    # and the sibling save uses the marker-edits endpoint
+    i = js.find("async function _iaSaveAdjustments")
+    assert i > 0, "_iaSaveAdjustments handler not found"
+    body = js[i:i + 1600]
+    # the handler saves BOTH cams: cam0 = _overlayPrimaryH5, cam1 = _siblingPrimaryH5,
+    # each gated on that cam's edit count via markerEditor.getEditCount(cam).
+    assert "getEditCount(0)" in body and "getEditCount(1)" in body, "must check per-cam edit counts"
+    assert "_overlayPrimaryH5" in body, "cam0 saves to the consumer-tracked primary h5"
+    assert "_siblingPrimaryH5" in body, "cam1 saves to the consumer-tracked sibling h5"
+    # and the save uses the marker-edits endpoint
     assert "/dlc/viewer/save-marker-edits" in body
 
 
@@ -270,26 +283,43 @@ def test_marker_edit3d_controls_moved_below_marker_list():
 
 
 def test_js3d_edit_gated_on_finalize():
+    """Phase 4c: marker editing is gated on the Finalize toggle via the
+    markerEditor master edit gate (setEditable). The old _iaIsEditable() /
+    _ia3dFinalizeEnabled module gate was removed — editing now defaults OFF and
+    the Finalize toggle flips setEditable(true)."""
     js = JS.read_text()
-    assert "_ia3dFinalizeEnabled" in js
-    i = js.find("function _iaIsEditable")
-    seg = js[i:i + 120]
-    assert "_ia3dFinalizeEnabled" in seg, "_iaIsEditable must require _ia3dFinalizeEnabled"
-    assert 'getElementById("ia3d-marker-edit-controls")' in js
-    assert 'getElementById("ia3d-marker-edit-banner")' not in js
+    # editing defaults OFF in this card
+    assert "setEditable(false)" in js, "editing must default OFF (only on when Finalize toggled)"
+    # the Finalize toggle drives setEditable
+    i = js.find('ia3d-finalize-toggle')
+    assert i > 0
+    # find the toggle change handler and confirm it calls setEditable with the
+    # checked state
+    j = js.find('ia3dFinalizeToggle?.addEventListener')
+    assert j > 0, "Finalize toggle change handler not found"
+    body = js[j:j + 500]
+    assert "setEditable(on)" in body, "Finalize toggle must drive markerEditor.setEditable"
+    # the edit-count banner element is the controls wrapper (no separate banner id)
+    assert 'editBanner: $("ia3d-marker-edit-controls")' in js
+    assert "ia3d-marker-edit-banner" not in js
 
 
 def test_js3d_finalize_flow_and_autopopulate():
     js = JS.read_text()
-    assert 'getElementById("ia3d-finalize-toggle")' in js
-    assert 'getElementById("ia3d-finalize-add-btn")' in js
+    # the finalize controls are referenced by id (via the $() id helper)
+    assert '"ia3d-finalize-toggle"' in js
+    assert '"ia3d-finalize-add-btn"' in js
     assert "/dlc/project/inline-analysis/finalize-range" in js
     assert "/dlc/viewer/save-marker-edits" in js
     assert "_ia3dLastRunStart" in js and "_ia3dLastRunN" in js
     assert "_ia3dPopulateFinalizeFields" in js
-    i = js.find('getElementById("ia3d-finalize-add-btn")')
+    # the finalize-add handler resolves the cam1 source from the sibling path /
+    # the consumer-tracked sibling h5
+    i = js.find("async function _onFinalizeAddClick")
+    assert i > 0, "_onFinalizeAddClick handler not found"
     body = js[i:i + 2600]
     assert "_siblingPath" in body
+    assert "_siblingPrimaryH5" in body, "cam1 finalize source must come from the resolved sibling h5"
 
 
 def test_btn_sm_disabled_styling_exists_3d():
@@ -299,7 +329,7 @@ def test_btn_sm_disabled_styling_exists_3d():
 
 def test_finalize3d_confirms_before_overwrite():
     js = JS.read_text()
-    i = js.find('ia3dFinalizeAddBtn?.addEventListener')
+    i = js.find("async function _onFinalizeAddClick")
     assert i > 0
     body = js[i:i + 2000]
     assert "window.confirm" in body, "3D finalize must confirm before overwriting _analyzed"

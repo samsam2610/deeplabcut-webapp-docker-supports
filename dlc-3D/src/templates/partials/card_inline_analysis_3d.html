@@ -178,42 +178,12 @@
           </div>
         </div>
 
-        <div id="ia3d-tile-row" class="ia3d-tile-row">
-          <div class="ia3d-tile focused" data-cam="0" data-weight="100" style="flex-grow:100">
-            <div class="ia3d-tile-header">
-              <span class="ia3d-tile-label" id="ia3d-tile-label-0"></span>
-              <span class="ia3d-tile-pill hidden" id="ia3d-tile-pill-0"></span>
-              <input type="range" class="ia3d-tile-size" min="50" max="500" step="25" value="100">
-              <span class="ia3d-tile-size-val">100%</span>
-            </div>
-            <div class="ia3d-tile-canvas-wrap" id="ia3d-video-wrap-0"
-                 style="position:relative;background:#000;border-radius:8px;border:1px solid var(--border)">
-              <img id="ia3d-frame-img-0" class="ia3d-frame-img" alt="" draggable="false"
-                   style="width:100%;display:block;height:auto" />
-              <!-- Canvas for hover hit-testing, label display, and drag-to-edit markers -->
-              <canvas id="ia3d-overlay-canvas-0" class="ia3d-overlay-canvas"
-                      style="position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none"></canvas>
-              <div id="ia3d-frame-spinner-0" class="fe-frame-spinner hidden"></div>
-            </div>
-          </div>
-        </div>
-
-        <template id="ia3d-tile-template">
-          <div class="ia3d-tile" data-cam="" data-weight="100" style="flex-grow:100">
-            <div class="ia3d-tile-header">
-              <span class="ia3d-tile-label"></span>
-              <span class="ia3d-tile-pill hidden"></span>
-              <input type="range" class="ia3d-tile-size" min="50" max="500" step="25" value="100">
-              <span class="ia3d-tile-size-val">100%</span>
-            </div>
-            <div class="ia3d-tile-canvas-wrap"
-                 style="position:relative;background:#000;border-radius:8px;border:1px solid var(--border)">
-              <img class="ia3d-frame-img" alt="" draggable="false" style="width:100%;display:block;height:auto" />
-              <canvas class="ia3d-overlay-canvas" style="position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none"></canvas>
-              <div class="fe-frame-spinner ia3d-frame-spinner hidden"></div>
-            </div>
-          </div>
-        </template>
+        <!-- VideoViewer (shared library) renders the camera tile(s) here.
+             Created with perTileSize:true in inline_analysis_3d.js, so it
+             generates each tile's frame img + overlay canvas + per-tile size
+             slider. The old static dual-tile markup + tile template were
+             removed in the Phase 4c library migration. -->
+        <div id="ia3d-viewer-mount"></div>
 
         <!-- Seek / timeline slider — sits directly below the canvas -->
         <input type="range" id="ia3d-seek" class="fe-seek" min="0" max="1000" value="0" step="1" style="margin-bottom:.4rem" />

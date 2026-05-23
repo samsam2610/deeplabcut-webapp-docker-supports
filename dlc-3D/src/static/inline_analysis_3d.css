@@ -52,3 +52,46 @@
   outline: 2px solid var(--accent);
   outline-offset: -2px;
 }
+
+/* ── VideoViewer (shared library) tiles in the 3D Inline Analysis card ───────────
+   Phase 4c migration: the old #ia3d-tile-row markup was replaced by a single
+   #ia3d-viewer-mount that the VideoViewer library populates with .vv-* tiles.
+   Mirrors viewer_3d.css's #va3d-viewer-mount rules (no forced aspect-ratio).
+   The legacy .ia3d-tile* rules above are kept dormant (orphaned by the mount). */
+#ia3d-viewer-mount .vv-tile-row { gap: .75rem; }
+#ia3d-viewer-mount .vv-tile { display: flex; flex-direction: column; flex: 1 1 0; min-width: 0; }
+#ia3d-viewer-mount .vv-tile-label { font-size: .72rem; color: var(--text-dim); margin-bottom: .2rem; order: -1; }
+/* Wrap is position:relative so the overlay canvas (marker editing) overlays the img. */
+#ia3d-viewer-mount .vv-tile-canvas-wrap { position: relative; }
+#ia3d-viewer-mount .vv-frame-img {
+  display: block; width: 100%; max-height: 70vh; height: auto;
+  border: 1px solid var(--border); border-radius: 8px; background: #000;
+}
+#ia3d-viewer-mount .vv-overlay-canvas {
+  position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+  /* pointer-events left to the library / MarkerEditor */
+}
+/* Focused-tile indicator for multi-view editing — only shown with a sibling tile
+   (markerEditor sets .vv-tile-focused; the focused cam accepts marker edits). */
+#ia3d-viewer-mount .vv-tile:not(:only-child).vv-tile-focused .vv-frame-img {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent);
+}
+#ia3d-viewer-mount .vv-tile-size-row { display: flex; align-items: center; gap: .35rem; margin-top: .25rem; }
+#ia3d-viewer-mount .vv-tile-size { flex: 1; accent-color: var(--accent); }
+#ia3d-viewer-mount .vv-tile-size-val {
+  font-family: var(--mono); font-size: .7rem; color: var(--text-dim);
+  min-width: 2.5rem; text-align: right;
+}
+
+/* Library-rendered timeline chips (StatusNoteTimeline). Mirror the card chip look. */
+#inline-analysis-3d-card .vv-tag-chip {
+  display: inline-flex; align-items: center; gap: .2rem;
+  font-size: 10px; padding: 1px 6px; border-radius: 3px;
+  cursor: pointer; user-select: none; font-family: var(--mono);
+  background: var(--surface-2); color: var(--text);
+  border: 1px solid var(--chip-color, var(--border));
+}
+#inline-analysis-3d-card .vv-tag-chip.active {
+  background: var(--chip-color, var(--accent)); color: #0d1117; font-weight: 600;
+}
