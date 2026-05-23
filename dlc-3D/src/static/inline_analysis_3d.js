@@ -345,6 +345,10 @@ function _wireViewerChrome(v) {
   $("ia3d-btn-play")?.addEventListener("click", () =>
     Promise.resolve().then(() => _swapPlayIcon(v.isPlaying())),
   );
+
+  const help = $("ia3d-help-btn"), helpTip = $("ia3d-help-tooltip");
+  help?.addEventListener("click", (e) => { e.stopPropagation(); helpTip?.classList.toggle("hidden"); });
+  document.addEventListener("click", () => helpTip?.classList.add("hidden"));
 }
 
 function _updateCounters(n, frameCount) {

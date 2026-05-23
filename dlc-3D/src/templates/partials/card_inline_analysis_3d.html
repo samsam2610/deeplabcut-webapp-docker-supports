@@ -235,6 +235,12 @@
           <input type="number" id="ia3d-frame-jump" class="hidden" min="0" title="Type a frame number, Enter to jump"
             style="width:5.5rem;text-align:center;font-family:var(--mono);font-size:.78rem;padding:.18rem .3rem;background:var(--surface-2);border:1px solid var(--accent);border-radius:5px;color:var(--text)" />
           <span class="fe-time-display" id="ia3d-time-display">0.000 s</span>
+          <button type="button" id="ia3d-help-btn" class="btn-sm fe-ctrl-btn" title="Keyboard shortcuts" style="margin-left:auto">?</button>
+          <div id="ia3d-help-tooltip" class="hidden" style="position:absolute;z-index:20;background:var(--surface-2);border:1px solid var(--border);border-radius:6px;padding:.5rem .7rem;font-size:.72rem;font-family:var(--mono);color:var(--text-dim);box-shadow:0 4px 16px rgba(0,0,0,.4)">
+            <div><b>Space</b> play/pause · <b>Shift+Space</b> play backward</div>
+            <div><b>← / →</b> step ±1 · <b>Shift+← / →</b> step ±skip</div>
+            <div><b>Click frame #</b> jump to frame</div>
+          </div>
         </div>
 
         <!-- Body-part chip selector (below controls; visible when overlay is on and H5 is loaded) -->

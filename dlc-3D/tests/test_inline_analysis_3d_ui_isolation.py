@@ -360,3 +360,11 @@ def test_status_note_timeline_outside_curation_panel():
     cur_start = html.index('id="ia3d-curation-panel"')
     bars = html.index('id="ia3d-csv-bars"')
     assert bars < cur_start, "status/note timeline must be surfaced above the curation panel"
+
+
+def test_size_row_left_aligned_and_help_present():
+    css = (ROOT / "src" / "static" / "inline_analysis_3d.css").read_text()
+    i = css.index(".vv-tile-size-row")
+    assert "flex-start" in css[i:i+200], "size-row must be left-aligned (justify-content:flex-start)"
+    html = (ROOT / "src" / "templates" / "partials" / "card_inline_analysis_3d.html").read_text()
+    assert 'id="ia3d-help-btn"' in html and 'id="ia3d-help-tooltip"' in html, "shortcuts help missing"

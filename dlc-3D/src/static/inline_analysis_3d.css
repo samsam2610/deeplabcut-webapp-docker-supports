@@ -80,7 +80,7 @@
 /* Per-view size slider: small + pinned ABOVE the image (order:-1, below the
    label), mirroring the old .ia3d-tile-header — not a full-width bottom bar. */
 #ia3d-viewer-mount .vv-tile-size-row {
-  order: -1; display: flex; align-items: center; justify-content: flex-end;
+  order: -1; display: flex; align-items: center; justify-content: flex-start;
   gap: .3rem; margin: 0 0 .25rem;
 }
 #ia3d-viewer-mount .vv-tile-size { flex: none; width: 72px; accent-color: var(--accent); height: 14px; }
