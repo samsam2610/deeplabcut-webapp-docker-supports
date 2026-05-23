@@ -59,7 +59,7 @@ export class VideoViewer {
     // playback / view state
     this._currentFrame = 0;
     this._frameCount = 0;
-    this._fps = fps;
+    this._fps = clampFps(fps, 15);
     this._playN = 1;
     this._playDir = 1;
     this._looping = false;
@@ -71,6 +71,7 @@ export class VideoViewer {
 
     this.tiles = [];
     this._videoPath = null;
+    this._seekToken = 0;
 
     const doc = mount.ownerDocument;
     this.rowEl = doc.createElement("div");
@@ -143,12 +144,15 @@ export class VideoViewer {
   }
 
   _clearTiles() {
+    // Features that add child DOM/listeners to tiles must rebuild on the "videoLoad"
+    // hook: load() calls this mid-session (before "teardown") and removes tile nodes wholesale.
     this.rowEl.innerHTML = "";
     this.tiles = [];
   }
 
   // ── seeking (frame-locked across tiles) ───────────────────
   async seek(n) {
+    const token = ++this._seekToken;
     const { frame, loads } = planSeek({
       n, frameCount: this._frameCount, tiles: this.tiles, framesMode: this.framesMode,
     });
@@ -158,6 +162,7 @@ export class VideoViewer {
         .filter((t) => loadCams.has(t.cam))
         .map((t) => this._loadTileFrame(t, frame, t.cam === 0)),
     );
+    if (token !== this._seekToken) return; // superseded by a newer seek
     this._currentFrame = frame;
     this._emit("frameChange", frame);
     for (const tile of this.tiles) this._emit("drawTile", tile, frame);
@@ -172,7 +177,7 @@ export class VideoViewer {
       const img = new Image();
       await new Promise((resolve, reject) => {
         img.onload = resolve;
-        img.onerror = reject;
+        img.onerror = (e) => reject(e instanceof Error ? e : new Error("frame load failed"));
         img.src = url;
       });
       if (token !== tile._loadToken) return;        // superseded by a newer seek
@@ -187,7 +192,8 @@ export class VideoViewer {
     } catch (_) {
       /* keep the previous frame on error */
     } finally {
-      if (token === tile._loadToken && tile.spinnerEl) tile.spinnerEl.classList.add("hidden");
+      // Always hide — a newer seek re-shows its own spinner synchronously before awaiting.
+      if (tile.spinnerEl) tile.spinnerEl.classList.add("hidden");
     }
   }
 
