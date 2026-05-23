@@ -40,6 +40,8 @@ export function clipExtractor(config = {}) {
   let activeTag = null;
   let lastPrimaryAvi = null;
   let lastSiblingAvi = null;
+  let running = false;
+  const ac = new AbortController(); // feature-scoped so confirmOverlap can observe teardown
 
   const setStatus = (m) => { if (els.statusDisplay) els.statusDisplay.textContent = m; };
   const siblingPath = () => { const t = viewer && viewer.getTile(1); return t ? t.videoRel : null; };
@@ -106,21 +108,25 @@ export function clipExtractor(config = {}) {
     if (els.deleteBtn) els.deleteBtn.disabled = !has;
   }
 
-  // ── overlap warning (resolve true to proceed) ──
+  // ── overlap warning (resolve true to proceed; resolves false if torn down) ──
   function confirmOverlap(conflicts) {
     return new Promise((resolve) => {
+      if (ac.signal.aborted) { resolve(false); return; }
       const w = els.warning;
       if (!w) { resolve(true); return; }
       w.innerHTML = "";
+      const onAbort = () => { w.innerHTML = ""; w.classList.add("hidden"); resolve(false); };
+      ac.signal.addEventListener("abort", onAbort, { once: true });
+      const finish = (val) => { ac.signal.removeEventListener("abort", onAbort); w.classList.add("hidden"); resolve(val); };
       const c = conflicts && conflicts[0];
       const msg = w.ownerDocument.createElement("div");
       msg.textContent = c ? `⚠ Overlaps ${c.name} by ${c.overlap_frames} fr` : "⚠ Overlap detected";
       const cancel = w.ownerDocument.createElement("button");
       cancel.textContent = "Cancel";
-      cancel.addEventListener("click", () => { w.classList.add("hidden"); resolve(false); });
+      cancel.addEventListener("click", () => finish(false));
       const keep = w.ownerDocument.createElement("button");
       keep.textContent = "Keep anyway";
-      keep.addEventListener("click", () => { w.classList.add("hidden"); resolve(true); });
+      keep.addEventListener("click", () => finish(true));
       w.appendChild(msg);
       w.appendChild(cancel);
       w.appendChild(keep);
@@ -129,22 +135,24 @@ export function clipExtractor(config = {}) {
   }
 
   async function doExtract() {
-    if (!viewer || !endpoints.extractClip) return;
+    if (!viewer || !endpoints.extractClip || running) return;
     const videoPath = viewer.videoPath();
     if (!videoPath) return;
-    const start = readStart();
-    const frames = readFrames();
-    const postfix = readPostfix();
-
-    if (endpoints.overlap) {
-      try {
-        const ov = await (await endpoints.overlap(buildOverlapRequest({ videoPath, start, preWindow }))).json();
-        if (ov.overlaps && !(await confirmOverlap(ov.conflicts))) return;
-      } catch (_) { /* overlap check best-effort */ }
-    }
-
-    setStatus("Extracting…");
+    running = true;
+    if (els.extractBtn) els.extractBtn.disabled = true;
     try {
+      const start = readStart();
+      const frames = readFrames();
+      const postfix = readPostfix();
+
+      if (endpoints.overlap) {
+        try {
+          const ov = await (await endpoints.overlap(buildOverlapRequest({ videoPath, start, preWindow }))).json();
+          if (ov.overlaps && !(await confirmOverlap(ov.conflicts))) return;
+        } catch (_) { /* overlap check best-effort */ }
+      }
+
+      setStatus("Extracting…");
       const primary = await (await endpoints.extractClip(
         buildExtractRequest({ videoPath, start, frames, postfix, preWindow }))).json();
       if (primary.error) { setStatus(primary.error); return; }
@@ -160,6 +168,9 @@ export function clipExtractor(config = {}) {
       if (config.onExtracted) config.onExtracted({ primary: lastPrimaryAvi, sibling: lastSiblingAvi });
     } catch (e) {
       setStatus("Network error: " + e.message);
+    } finally {
+      running = false;
+      if (els.extractBtn) els.extractBtn.disabled = false;
     }
   }
 
@@ -201,7 +212,6 @@ export function clipExtractor(config = {}) {
       updateEnd();
       applyEnabled();
       updateExtractActions();
-      const ac = new AbortController();
       const sig = { signal: ac.signal };
       if (els.enable) els.enable.addEventListener("change", applyEnabled, sig);
       if (els.startInput) els.startInput.addEventListener("input", updateEnd, sig);
@@ -210,7 +220,21 @@ export function clipExtractor(config = {}) {
       if (els.renameBtn) els.renameBtn.addEventListener("click", doRename, sig);
       if (els.deleteBtn) els.deleteBtn.addEventListener("click", doDelete, sig);
       if (els.addTagBtn) els.addTagBtn.addEventListener("click", addNewTag, sig);
-      v.on("teardown", () => ac.abort());
+      if (els.newTagInput) {
+        els.newTagInput.addEventListener("keydown", (e) => {
+          if (e.key === "Enter") { e.preventDefault(); addNewTag(); }
+        }, sig);
+      }
+      // Reset the produced-clip handles when a new video loads, so Rename/Delete never
+      // act on a clip from the previous video.
+      const disposers = [
+        v.on("videoLoad", () => {
+          lastPrimaryAvi = null;
+          lastSiblingAvi = null;
+          updateExtractActions();
+        }),
+      ];
+      v.on("teardown", () => { for (const d of disposers) d(); ac.abort(); });
     },
   };
 }
