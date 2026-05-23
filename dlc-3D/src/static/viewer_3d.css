@@ -61,6 +61,12 @@
   position: absolute; top: 0; left: 0; width: 100%; height: 100%;
   /* pointer-events left to the library / MarkerEditor (2c) */
 }
+/* Focused-tile indicator for multi-view editing — only shown with a sibling tile
+   (markerEditor sets .vv-tile-focused; the focused cam accepts marker edits). */
+#va3d-viewer-mount .vv-tile:not(:only-child).vv-tile-focused .vv-frame-img {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent);
+}
 #va3d-viewer-mount .vv-tile-size-row { display: flex; align-items: center; gap: .35rem; margin-top: .25rem; }
 #va3d-viewer-mount .vv-tile-size { flex: 1; accent-color: var(--accent); }
 #va3d-viewer-mount .vv-tile-size-val {

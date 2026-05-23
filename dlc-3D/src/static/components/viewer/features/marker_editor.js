@@ -41,27 +41,40 @@ export function markerEditor(config = {}) {
   let viewer = null;
   let overlayEnabled = false;
   let layers = [];          // cam-0 layers; [0] = editable primary, [1+] = read-only comparisons
-  let siblingLayers = [];   // cam-1 read-only layers
+  let siblingLayers = [];   // cam-1 layers; [0] = editable primary (when focused), [1+] = comparisons
   let allBodyParts = [];
   let selectedBp = null;
   const hiddenParts = new Set();
-  let editsObj = {};        // { [frame]: { [bp]: {x,y} } }; x===null,y===null = deleted
+  // Per-cam edit store (frame-labeler focused-tile model): edits for the focused
+  // cam land in editsByCam[cam] and flush to that cam's own primary .h5.
+  const editsByCam = { 0: {}, 1: {} }; // { [cam]: { [frame]: { [bp]: {x,y} } } }; x===null,y===null = deleted
+  let focusedCam = 0;       // which cam tile accepts edit input (default cam0 → identical to pre-focus behavior)
   let currentFrame = 0;
   let layerId = 0;
   let prefetchCtrl = null;
   let dragging = false;
   let dragBp = null;
+  let dragCam = 0;          // cam whose marker is being dragged
   let didDrag = false;
   let frameToken = 0;
 
-  const isEditable = () => layers.length === 1;             // editing only without comparisons
-  const primary = () => layers[0] || null;
+  // ── per-cam accessors (cam0 = layers, cam1 = siblingLayers) ──
+  const layersFor = (cam) => (cam === 0 ? layers : siblingLayers);
+  const primaryForCam = (cam) => layersFor(cam)[0] || null;
+  // A cam is editable only without comparison layers on that cam (parity with the
+  // single-cam rule, applied per side).
+  const isEditableCam = (cam) => layersFor(cam).length === 1;
+  const editsFor = (cam) => (editsByCam[cam] || (editsByCam[cam] = {}));
+
+  const isEditable = () => isEditableCam(focusedCam);
+  const primary = () => layers[0] || null;  // cam0 primary — timeline/prefetch anchor
   const thrOf = (layer) => layerThreshold(layer, globalThreshold, perLayer);
-  const curPoses = () => {
-    const p = primary();
+  const curPosesForCam = (cam) => {
+    const p = primaryForCam(cam);
     const c = p && p.posesCache.get(currentFrame);
     return c ? c.poses : [];
   };
+  const curPoses = () => curPosesForCam(focusedCam);
 
   function makeLayer(path, label) {
     return { id: "layer_" + layerId++, path, label, posesCache: new Map(), bodyparts: [], errored: false };
@@ -152,9 +165,11 @@ export function markerEditor(config = {}) {
     if (!overlayEnabled) return;
     const scale = scaleFor(img.naturalWidth, img.naturalHeight, canvas.width, canvas.height);
     const r = markerRadius(markerSize, scale);
-    const tileLayers = tile.cam === 0 ? layers : siblingLayers;
-    const editableTile = tile.cam === 0 && isEditable();
-    const fEdits = editableTile ? frameEditsOf(editsObj, frame) : {};
+    const tileLayers = layersFor(tile.cam);
+    // Only the focused tile shows edit overlays + selection ring (frame-labeler
+    // focused-tile pattern); each tile reads its OWN cam's edits.
+    const editableTile = tile.cam === focusedCam && isEditableCam(tile.cam);
+    const fEdits = editableTile ? frameEditsOf(editsFor(tile.cam), frame) : {};
     // draw comparison layers first (high index → 0) so the primary lands on top
     for (let idx = tileLayers.length - 1; idx >= 0; idx--) {
       const layer = tileLayers[idx];
@@ -200,7 +215,9 @@ export function markerEditor(config = {}) {
   function recomputeBodyparts() {
     const set = [];
     const seen = new Set();
-    for (const l of layers) for (const bp of l.bodyparts) if (!seen.has(bp)) { seen.add(bp); set.push(bp); }
+    for (const l of [...layers, ...siblingLayers]) {
+      for (const bp of l.bodyparts) if (!seen.has(bp)) { seen.add(bp); set.push(bp); }
+    }
     allBodyParts = set;
     if (!selectedBp && allBodyParts.length) selectedBp = allBodyParts[0];
   }
@@ -241,37 +258,41 @@ export function markerEditor(config = {}) {
 
   function selectBp(bp) {
     selectedBp = bp;
-    const t = viewer && viewer.getTile(0);
+    const t = viewer && viewer.getTile(focusedCam);
     if (t && t.canvasEl) t.canvasEl.style.cursor = bp ? "crosshair" : "default";
     updateBpChips();
     renderAll();
   }
 
   // ── edit banner ──
+  // Reflects the FOCUSED cam's edits (hidden when that cam has comparison layers,
+  // since editing is disabled while comparing).
   function updateEditBanner() {
     if (!els.editBanner) return;
-    if (layers.length > 1) { els.editBanner.classList.add("hidden"); return; } // disabled w/ comparisons
-    const n = editedFrameCount(editsObj);
+    if (!isEditableCam(focusedCam)) { els.editBanner.classList.add("hidden"); return; }
+    const n = editedFrameCount(editsFor(focusedCam));
     els.editBanner.classList.toggle("hidden", n === 0);
     if (els.editCount) els.editCount.textContent = `${n} frame${n !== 1 ? "s" : ""} edited`;
   }
 
-  // ── server flush ──
-  async function flushEdit(frame, bp, x, y) {
-    if (!isEditable() || !primary() || !endpoints.saveMarker) return;
-    try { await endpoints.saveMarker(buildMarkerEditPayload(primary().path, frame, bp, x, y)); } catch (_) { /* edit lives locally */ }
+  // ── server flush (per-cam: edits flush to that cam's own primary .h5) ──
+  async function flushEdit(cam, frame, bp, x, y) {
+    const p = primaryForCam(cam);
+    if (!isEditableCam(cam) || !p || !endpoints.saveMarker) return;
+    try { await endpoints.saveMarker(buildMarkerEditPayload(p.path, frame, bp, x, y)); } catch (_) { /* edit lives locally */ }
   }
-  const flushDelete = (frame, bp) => flushEdit(frame, bp, null, null);
+  const flushDelete = (cam, frame, bp) => flushEdit(cam, frame, bp, null, null);
 
-  async function loadEditCache(h5Path) {
+  async function loadEditCache(cam, h5Path) {
     if (!endpoints.editCache) return;
     try {
       const data = await (await fetch(endpoints.editCache(h5Path))).json();
-      editsObj = {};
+      const obj = {};
       for (const [k, bpEdits] of Object.entries(data.cache || {})) {
         const fn = parseInt(String(k).split("_")[1], 10);
-        if (!Number.isNaN(fn)) editsObj[fn] = bpEdits;
+        if (!Number.isNaN(fn)) obj[fn] = bpEdits;
       }
+      editsByCam[cam] = obj;
       updateEditBanner();
     } catch (_) { /* non-critical */ }
   }
@@ -305,56 +326,89 @@ export function markerEditor(config = {}) {
   function endDrag() {
     if (!dragging) return;
     dragging = false;
-    const fe = frameEditsOf(editsObj, currentFrame)[dragBp];
-    if (fe) flushEdit(currentFrame, dragBp, fe.x, fe.y);
+    const fe = frameEditsOf(editsFor(dragCam), currentFrame)[dragBp];
+    if (fe) flushEdit(dragCam, currentFrame, dragBp, fe.x, fe.y);
     dragBp = null;
     updateEditBanner();
     updateBpChips();
   }
 
-  function wirePrimaryCanvas(sig) {
-    const tile = viewer.getTile(0);
+  // Switch which cam tile accepts edit input. Moves the edit cursor, retoggles the
+  // .vv-tile-focused class, and redraws so the selection ring + edit overlays follow.
+  function setFocusedCam(cam) {
+    if (!viewer || cam === focusedCam) return;
+    const old = viewer.getTile(focusedCam);
+    if (old && old.canvasEl) old.canvasEl.style.cursor = "default";
+    focusedCam = cam;
+    for (let i = 0; ; i++) {
+      const t = viewer.getTile(i);
+      if (!t) break;
+      if (t.rootEl) t.rootEl.classList.toggle("vv-tile-focused", t.cam === focusedCam);
+      if (t.canvasEl && t.cam === focusedCam) {
+        t.canvasEl.style.cursor = selectedBp && isEditableCam(cam) ? "crosshair" : "default";
+      }
+    }
+    updateEditBanner();
+    updateBpChips();
+    renderAll();
+  }
+
+  // Wire one tile's overlay canvas for editing. Attached to EVERY tile on each
+  // videoLoad; the handlers self-gate on `cam === focusedCam`, so only the focused
+  // tile mutates — and each operates on its OWN cam's poses + edits + primary .h5
+  // (frame-labeler focused-tile pattern). Clicking an unfocused tile focuses it via
+  // the tile-root listener, which (by bubbling) runs AFTER this canvas click's gate
+  // returns — so the first click only focuses, the next edits.
+  function wireTileCanvas(tile, sig) {
     if (!tile || !tile.canvasEl) return;
+    const cam = tile.cam;
     const canvas = tile.canvasEl;
     canvas.style.pointerEvents = "auto"; // base sets the overlay canvas to pointer-events:none
+
     canvas.addEventListener("mousedown", (e) => {
-      if (!overlayEnabled || !isEditable() || e.button !== 0) return;
+      if (!overlayEnabled || e.button !== 0 || cam !== focusedCam || !isEditableCam(cam)) return;
       const { cx, cy } = canvasPos(canvas, e);
-      const hit = hitTest(curPoses(), cx, cy, tileScale(tile), markerSize, frameEditsOf(editsObj, currentFrame), 8);
-      if (hit) { dragging = true; dragBp = hit; didDrag = false; selectBp(hit); }
+      const hit = hitTest(curPosesForCam(cam), cx, cy, tileScale(tile), markerSize, frameEditsOf(editsFor(cam), currentFrame), 8);
+      if (hit) { dragging = true; dragBp = hit; dragCam = cam; didDrag = false; selectBp(hit); }
     }, sig);
     canvas.addEventListener("mousemove", (e) => {
-      if (!dragging) return;
+      if (!dragging || dragCam !== cam) return;
       didDrag = true;
       const { cx, cy } = canvasPos(canvas, e);
       const { x, y } = canvasToVideo(cx, cy, tileScale(tile));
-      editsObj = setEdit(editsObj, currentFrame, dragBp, x, y);
+      editsByCam[cam] = setEdit(editsFor(cam), currentFrame, dragBp, x, y);
       renderTile(tile, currentFrame);
     }, sig);
     canvas.addEventListener("mouseup", endDrag, sig);
     canvas.addEventListener("mouseleave", endDrag, sig);
     canvas.addEventListener("click", (e) => {
-      if (!overlayEnabled || !isEditable() || !selectedBp) return;
+      if (!overlayEnabled || cam !== focusedCam || !isEditableCam(cam) || !selectedBp) return;
       if (didDrag) { didDrag = false; return; }
       const { cx, cy } = canvasPos(canvas, e);
-      const hit = hitTest(curPoses(), cx, cy, tileScale(tile), markerSize, frameEditsOf(editsObj, currentFrame), 8);
+      const hit = hitTest(curPosesForCam(cam), cx, cy, tileScale(tile), markerSize, frameEditsOf(editsFor(cam), currentFrame), 8);
       if (hit) return; // clicking an existing marker selects via mousedown, not place
       const { x, y } = canvasToVideo(cx, cy, tileScale(tile));
-      editsObj = setEdit(editsObj, currentFrame, selectedBp, x, y);
-      flushEdit(currentFrame, selectedBp, x, y);
+      editsByCam[cam] = setEdit(editsFor(cam), currentFrame, selectedBp, x, y);
+      flushEdit(cam, currentFrame, selectedBp, x, y);
       renderTile(tile, currentFrame);
       updateEditBanner();
       updateBpChips();
     }, sig);
     canvas.addEventListener("contextmenu", (e) => {
-      if (!overlayEnabled || !isEditable() || !selectedBp) return;
+      if (!overlayEnabled || cam !== focusedCam || !isEditableCam(cam) || !selectedBp) return;
       e.preventDefault();
-      editsObj = deleteEdit(editsObj, currentFrame, selectedBp);
-      flushDelete(currentFrame, selectedBp);
+      editsByCam[cam] = deleteEdit(editsFor(cam), currentFrame, selectedBp);
+      flushDelete(cam, currentFrame, selectedBp);
       renderTile(tile, currentFrame);
       updateEditBanner();
       updateBpChips();
     }, sig);
+
+    // Focus-on-click: runs after the canvas click bubbles up (so the first click
+    // on an unfocused tile only focuses, it does not place a marker).
+    if (tile.rootEl) {
+      tile.rootEl.addEventListener("click", () => { if (cam !== focusedCam) setFocusedCam(cam); }, sig);
+    }
   }
 
   function onKeyDown(e) {
@@ -367,24 +421,25 @@ export function markerEditor(config = {}) {
       selectBp(nextBodypart(allBodyParts, selectedBp, e.shiftKey));
       return;
     }
-    if (!isEditable() || !selectedBp) return;
+    if (!isEditableCam(focusedCam) || !selectedBp) return;
+    const cam = focusedCam;
     if (e.key === "Backspace" || e.key === "Delete") {
       e.preventDefault();
-      editsObj = deleteEdit(editsObj, currentFrame, selectedBp);
-      flushDelete(currentFrame, selectedBp);
+      editsByCam[cam] = deleteEdit(editsFor(cam), currentFrame, selectedBp);
+      flushDelete(cam, currentFrame, selectedBp);
       renderAll();
       updateEditBanner();
       updateBpChips();
       return;
     }
-    const pose = curPoses().find((p) => p.bp === selectedBp);
-    const base = frameEditsOf(editsObj, currentFrame)[selectedBp] || (pose ? { x: pose.x, y: pose.y } : null);
+    const pose = curPosesForCam(cam).find((p) => p.bp === selectedBp);
+    const base = frameEditsOf(editsFor(cam), currentFrame)[selectedBp] || (pose ? { x: pose.x, y: pose.y } : null);
     if (!base) return;
     const moved = nudge(base, e.key, e.shiftKey);
     if (moved) {
       e.preventDefault();
-      editsObj = setEdit(editsObj, currentFrame, selectedBp, moved.x, moved.y);
-      flushEdit(currentFrame, selectedBp, moved.x, moved.y);
+      editsByCam[cam] = setEdit(editsFor(cam), currentFrame, selectedBp, moved.x, moved.y);
+      flushEdit(cam, currentFrame, selectedBp, moved.x, moved.y);
       renderAll();
       updateEditBanner();
     }
@@ -397,8 +452,15 @@ export function markerEditor(config = {}) {
       const sig = { signal: ac.signal };
       const disposers = [
         v.on("videoLoad", () => {
-          // tiles are freshly recreated on load — re-wire the (new) primary canvas
-          wirePrimaryCanvas(sig);
+          // tiles are freshly recreated on load — reset focus to cam0 + re-wire ALL tiles'
+          // canvases (each self-gates on focusedCam, so only the focused tile edits)
+          focusedCam = 0;
+          for (let i = 0; ; i++) {
+            const t = v.getTile(i);
+            if (!t) break;
+            wireTileCanvas(t, sig);
+            if (t.rootEl) t.rootEl.classList.toggle("vv-tile-focused", t.cam === focusedCam);
+          }
         }),
         v.on("frameChange", (frame) => { onFrame(frame); }),
         v.on("drawTile", (tile, frame) => { renderTile(tile, frame); }),
@@ -415,12 +477,12 @@ export function markerEditor(config = {}) {
 
     async setPrimary(h5Path) {
       abortPrefetch();
-      editsObj = {}; // drop prior primary's edits; loadEditCache repopulates when available
+      editsByCam[0] = {}; // drop prior cam0 edits; loadEditCache repopulates when available
       layers = [makeLayer(h5Path, "main")];
       await loadLayerInfo(layers[0]);
       recomputeBodyparts();
       rebuildBpChips();
-      await loadEditCache(h5Path);
+      await loadEditCache(0, h5Path);
       updateEditBanner();
       onFrame(currentFrame);
     },
@@ -444,10 +506,20 @@ export function markerEditor(config = {}) {
     },
 
     async setSibling(h5Path) {
+      editsByCam[1] = {}; // drop prior cam1 edits; loadEditCache repopulates when available
       siblingLayers = h5Path ? [makeLayer(h5Path, "sibling")] : [];
-      if (h5Path) await loadLayerInfo(siblingLayers[0]);
+      if (h5Path) {
+        await loadLayerInfo(siblingLayers[0]);
+        await loadEditCache(1, h5Path); // cam1 is editable when focused → load its edit-cache
+      }
+      recomputeBodyparts(); // surface cam1's bodyparts for focused-cam editing
+      rebuildBpChips();
+      updateEditBanner();
       onFrame(currentFrame);
     },
+
+    setFocusedCam,
+    getFocusedCam: () => focusedCam,
 
     setThreshold(v) {
       abortPrefetch();
@@ -458,6 +530,8 @@ export function markerEditor(config = {}) {
     },
 
     selectBp,
-    getEditCount: () => editedFrameCount(editsObj),
+    // Edit count for a cam (defaults to the focused cam). cam0 default keeps the
+    // pre-focus single-cam consumers (viewer_3d) unchanged.
+    getEditCount: (cam) => editedFrameCount(editsFor(cam ?? focusedCam)),
   };
 }

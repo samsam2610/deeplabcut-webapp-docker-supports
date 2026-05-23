@@ -357,6 +357,51 @@ def test_sibling_tile_renders_markers_for_primary_layer(page, base_url):
     assert found, f"tile-1 overlay never showed markers across probed frames; last={last}"
 
 
+def test_focused_sibling_tile_editing_routes_to_cam1_h5(page, base_url):
+    """Multi-view focused-tile editing (adapted from the 3D frame labeler): clicking
+    the sibling tile focuses it (first click focuses only), and a marker placed there
+    is recorded against the CAM1 h5 — not cam0. Edits are mocked so nothing persists."""
+    page.goto(base_url, wait_until="domcontentloaded")
+    _open_card(page)
+    _select_sync_video(page)
+    _wait_two_tiles(page)
+    _enable_overlay_primary(page)
+
+    def _focus():
+        return page.evaluate(
+            "() => Array.from(document.querySelectorAll('%s .vv-tile'))"
+            ".map(t => t.classList.contains('vv-tile-focused'))" % MOUNT
+        )
+    # cam0 focused by default
+    assert _focus() == [True, False], _focus()
+
+    calls = []
+    page.route("**/dlc/viewer/marker-edit",
+               lambda r: (calls.append(r.request.post_data_json),
+                          r.fulfill(status=200, content_type="application/json", body="{}")))
+
+    # First click on the sibling tile focuses it — and must NOT place a marker.
+    # (Element .click() scrolls into view + clicks the tile center; the canvas's own
+    # click handler is gated on the OLD focus and returns, so only focus changes.)
+    page.query_selector_all(f"{MOUNT} .vv-tile")[1].click()
+    page.wait_for_timeout(250)
+    assert _focus() == [False, True], _focus()
+    assert len(calls) == 0, f"focus click must not edit; got {calls}"
+
+    # Placing a marker on the focused sibling canvas routes to the cam1 h5.
+    c1 = page.query_selector_all(f"{MOUNT} .vv-overlay-canvas")[1]
+    cb = c1.bounding_box()
+    page.mouse.click(cb["x"] + 6, cb["y"] + 6)
+    page.wait_for_timeout(400)
+    page.unroute("**/dlc/viewer/marker-edit")
+    assert len(calls) == 1, f"expected one marker-edit on the focused sibling; got {calls}"
+    h5 = calls[-1].get("h5", "")
+    assert "cam1" in h5 and "cam0" not in h5, f"edit must target cam1 h5, got {h5!r}"
+    # Banner reflects the (cam1) edit.
+    assert page.is_visible("#va3d-marker-edit-banner")
+    assert "1 frame" in page.text_content("#va3d-marker-edit-count")
+
+
 def test_both_cams_label_hidden_when_curation_off(page, base_url):
     page.goto(base_url, wait_until="domcontentloaded")
     _open_card(page)
