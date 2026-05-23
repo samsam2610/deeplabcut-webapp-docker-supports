@@ -51,6 +51,7 @@ export function markerEditor(config = {}) {
   let dragging = false;
   let dragBp = null;
   let didDrag = false;
+  let frameToken = 0;
 
   const isEditable = () => layers.length === 1;             // editing only without comparisons
   const primary = () => layers[0] || null;
@@ -109,6 +110,10 @@ export function markerEditor(config = {}) {
     } catch (_) { /* abort/network — non-critical */ } finally {
       prefetchCtrl = null;
     }
+  }
+
+  function abortPrefetch() {
+    if (prefetchCtrl) { prefetchCtrl.abort(); prefetchCtrl = null; }
   }
 
   // ── rendering ──
@@ -270,8 +275,10 @@ export function markerEditor(config = {}) {
   // ── frame lifecycle ──
   async function onFrame(frame) {
     currentFrame = frame;
+    const my = ++frameToken;
     if (!overlayEnabled) { renderAll(); return; }
     await fetchAllForFrame(frame);
+    if (my !== frameToken) return; // superseded by a newer seek
     renderAll();
     updateBpChips();
     prefetch(frame);
@@ -283,13 +290,23 @@ export function markerEditor(config = {}) {
     return { cx: e.clientX - rect.left, cy: e.clientY - rect.top };
   }
 
+  function endDrag() {
+    if (!dragging) return;
+    dragging = false;
+    const fe = frameEditsOf(editsObj, currentFrame)[dragBp];
+    if (fe) flushEdit(currentFrame, dragBp, fe.x, fe.y);
+    dragBp = null;
+    updateEditBanner();
+    updateBpChips();
+  }
+
   function wirePrimaryCanvas(sig) {
     const tile = viewer.getTile(0);
     if (!tile || !tile.canvasEl) return;
     const canvas = tile.canvasEl;
     canvas.style.pointerEvents = "auto"; // base sets the overlay canvas to pointer-events:none
     canvas.addEventListener("mousedown", (e) => {
-      if (!overlayEnabled || !isEditable()) return;
+      if (!overlayEnabled || !isEditable() || e.button !== 0) return;
       const { cx, cy } = canvasPos(canvas, e);
       const hit = hitTest(curPoses(), cx, cy, tileScale(tile), markerSize, frameEditsOf(editsObj, currentFrame), 8);
       if (hit) { dragging = true; dragBp = hit; didDrag = false; selectBp(hit); }
@@ -302,15 +319,8 @@ export function markerEditor(config = {}) {
       editsObj = setEdit(editsObj, currentFrame, dragBp, x, y);
       renderTile(tile, currentFrame);
     }, sig);
-    canvas.addEventListener("mouseup", () => {
-      if (!dragging) return;
-      dragging = false;
-      const fe = frameEditsOf(editsObj, currentFrame)[dragBp];
-      if (fe) flushEdit(currentFrame, dragBp, fe.x, fe.y);
-      dragBp = null;
-      updateEditBanner();
-      updateBpChips();
-    }, sig);
+    canvas.addEventListener("mouseup", endDrag, sig);
+    canvas.addEventListener("mouseleave", endDrag, sig);
     canvas.addEventListener("click", (e) => {
       if (!overlayEnabled || !isEditable() || !selectedBp) return;
       if (didDrag) { didDrag = false; return; }
@@ -382,7 +392,7 @@ export function markerEditor(config = {}) {
         v.on("drawTile", (tile, frame) => { renderTile(tile, frame); }),
       ];
       v.mount.addEventListener("keydown", onKeyDown, sig);
-      v.on("teardown", () => { for (const d of disposers) d(); ac.abort(); });
+      v.on("teardown", () => { for (const d of disposers) d(); ac.abort(); abortPrefetch(); viewer = null; });
     },
 
     setOverlayEnabled(on) {
@@ -392,6 +402,8 @@ export function markerEditor(config = {}) {
     },
 
     async setPrimary(h5Path) {
+      abortPrefetch();
+      editsObj = {}; // drop prior primary's edits; loadEditCache repopulates when available
       layers = [makeLayer(h5Path, "main")];
       await loadLayerInfo(layers[0]);
       recomputeBodyparts();
@@ -426,6 +438,7 @@ export function markerEditor(config = {}) {
     },
 
     setThreshold(v) {
+      abortPrefetch();
       globalThreshold = Number(v);
       for (const l of layers) l.posesCache.clear();
       for (const l of siblingLayers) l.posesCache.clear();
