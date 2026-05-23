@@ -334,3 +334,15 @@ def test_finalize3d_confirms_before_overwrite():
     body = js[i:i + 2000]
     assert "window.confirm" in body, "3D finalize must confirm before overwriting _analyzed"
     assert "analysis-file/status" in body, "confirm must be gated on whether _analyzed already exists"
+
+
+def test_granular_player_controls_present():
+    """Clip-cutter-style granular controls: play-backward + click-to-jump to an
+    exact frame (the numeric fps/step/skip-N inputs already cover step granularity)."""
+    html = (ROOT / "src" / "templates" / "partials" / "card_inline_analysis_3d.html").read_text()
+    assert 'id="ia3d-btn-play-back"' in html, "play-backward button missing"
+    assert 'id="ia3d-frame-jump"' in html, "frame-jump input missing"
+    js = JS.read_text()
+    # play-back wires the library's reverse direction; frame-jump seeks to the typed frame
+    assert "setPlayDir(-1)" in js, "play-back must drive VideoViewer.setPlayDir(-1)"
+    assert 'ia3d-btn-play-back' in js and 'ia3d-frame-jump' in js, "granular controls not wired"

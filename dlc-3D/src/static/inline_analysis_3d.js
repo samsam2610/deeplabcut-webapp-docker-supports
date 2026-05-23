@@ -212,8 +212,18 @@ function _wireViewerChrome(v) {
   v.setPlayStep($("ia3d-play-step")?.value || 1);
   v.setFps($("ia3d-play-fps")?.value || 5);
 
-  // Play / pause (with icon swap).
-  $("ia3d-btn-play")?.addEventListener("click", () => v.togglePlay());
+  // Play / pause forward (sets +1 direction when starting; toggles otherwise).
+  $("ia3d-btn-play")?.addEventListener("click", () => {
+    if (!v.isPlaying()) v.setPlayDir(1);
+    v.togglePlay();
+  });
+  // Play backward — starts/continues playback with -1 direction (reverses if
+  // already playing forward). Pause via the play/pause button.
+  $("ia3d-btn-play-back")?.addEventListener("click", () => {
+    v.setPlayDir(-1);
+    if (!v.isPlaying()) v.play();
+    Promise.resolve().then(() => _swapPlayIcon(v.isPlaying()));
+  });
   // Step ∓1.
   $("ia3d-btn-prev")?.addEventListener("click", () => v.step(-1));
   $("ia3d-btn-next")?.addEventListener("click", () => v.step(1));
@@ -239,6 +249,33 @@ function _wireViewerChrome(v) {
     v.seek(n);
   });
   seek?.addEventListener("change", () => { _seekDragging = false; });
+
+  // Frame-jump: click the counter to type an exact frame and Enter to jump
+  // (granular seek, mirrors clip-cutter's clickable frame number).
+  const counter = $("ia3d-frame-counter");
+  const jump = $("ia3d-frame-jump");
+  const _closeJump = (doSeek) => {
+    if (!jump || jump.classList.contains("hidden")) return;
+    if (doSeek) {
+      const n = Math.max(0, Math.min(parseInt(jump.value, 10) || 0, Math.max(v.frameCount() - 1, 0)));
+      v.seek(n);
+    }
+    jump.classList.add("hidden");
+    if (counter) counter.classList.remove("hidden");
+  };
+  counter?.addEventListener("click", () => {
+    if (!jump || !v.frameCount()) return;
+    jump.value = String(v.currentFrame());
+    jump.classList.remove("hidden");
+    counter.classList.add("hidden");
+    jump.focus(); jump.select();
+  });
+  jump?.addEventListener("keydown", (e) => {
+    e.stopPropagation(); // don't let arrows/space reach viewer keynav
+    if (e.key === "Enter") _closeJump(true);
+    else if (e.key === "Escape") _closeJump(false);
+  });
+  jump?.addEventListener("blur", () => _closeJump(true));
 
   // Zoom.
   const zoom = $("ia3d-zoom");

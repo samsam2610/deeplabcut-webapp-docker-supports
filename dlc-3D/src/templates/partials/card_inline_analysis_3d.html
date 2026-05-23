@@ -190,6 +190,9 @@
 
         <!-- Controls row — pinned below the timeline; min-height prevents jitter from chip changes -->
         <div class="fe-controls" style="flex:none;min-height:2.4rem;align-items:center">
+          <button id="ia3d-btn-play-back" class="btn-sm fe-ctrl-btn" title="Play backward">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" stroke="none"><polygon points="19 3 5 12 19 21 19 3"/></svg>
+          </button>
           <button id="ia3d-btn-play" class="btn-sm fe-ctrl-btn" title="Play / Pause (Space)">
             <svg id="ia3d-play-icon" width="14" height="14" viewBox="0 0 24 24" fill="currentColor" stroke="none"><polygon points="5 3 19 12 5 21 5 3"/></svg>
             <svg id="ia3d-pause-icon" width="14" height="14" viewBox="0 0 24 24" fill="currentColor" stroke="none" class="hidden"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg>
@@ -222,7 +225,9 @@
           <button id="ia3d-btn-skip-fwd" class="btn-sm fe-ctrl-btn" title="Skip forward N frames (Ctrl+→)">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><polyline points="5 18 11 12 5 6"/><polyline points="11 18 17 12 11 6"/></svg>
           </button>
-          <span class="fe-frame-counter" id="ia3d-frame-counter">Frame 0 / 0</span>
+          <span class="fe-frame-counter" id="ia3d-frame-counter" title="Click to jump to a frame" style="cursor:pointer">Frame 0 / 0</span>
+          <input type="number" id="ia3d-frame-jump" class="hidden" min="0" title="Type a frame number, Enter to jump"
+            style="width:5.5rem;text-align:center;font-family:var(--mono);font-size:.78rem;padding:.18rem .3rem;background:var(--surface-2);border:1px solid var(--accent);border-radius:5px;color:var(--text)" />
           <span class="fe-time-display" id="ia3d-time-display">0.000 s</span>
         </div>
 
