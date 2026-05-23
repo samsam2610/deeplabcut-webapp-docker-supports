@@ -31,6 +31,8 @@ test("hitTest: edits override position; deleted edits are skipped", () => {
   assert.equal(hitTest(poses, 50, 25, HALF, 6, moved, 8), null); // original spot now empty
   const deleted = { a: { x: null, y: null } };
   assert.equal(hitTest(poses, 50, 25, HALF, 6, deleted, 8), null);
+  const halfNull = { a: { x: 50, y: null } };
+  assert.equal(hitTest(poses, 50, 25, HALF, 6, halfNull, 8), null); // half-null = deleted
 });
 
 test("resolvePose merges an edit over a pose", () => {
@@ -52,6 +54,11 @@ test("setEdit / deleteEdit are immutable; frameEditsOf + editedFrameCount", () =
   assert.deepEqual(frameEditsOf(e3, 5), e3[5]);
   assert.deepEqual(frameEditsOf(e3, 99), {});
   assert.equal(editedFrameCount({ 5: {}, 7: {} }), 2);
+  // existing bp entries are deep-copied, not shared across versions
+  const s1 = setEdit({}, 5, "a", 1, 2);
+  const s2 = setEdit(s1, 5, "c", 3, 4);
+  assert.notEqual(s2[5].a, s1[5].a);
+  assert.deepEqual(s1[5], { a: { x: 1, y: 2 } });
 });
 
 test("nudge: WASD ±1 / ±10, null for other keys", () => {
@@ -62,6 +69,8 @@ test("nudge: WASD ±1 / ±10, null for other keys", () => {
   assert.deepEqual(nudge(b, "s", false), { x: 10, y: 21 });
   assert.deepEqual(nudge(b, "D", true), { x: 20, y: 20 });   // shift = 10, case-insensitive
   assert.equal(nudge(b, "x", false), null);
+  assert.equal(nudge({ x: null, y: null }, "a", false), null); // deleted base → null
+  assert.equal(nudge(null, "a", false), null);                 // absent base → null
 });
 
 test("nextBodypart cycles forward/backward and handles edges", () => {
@@ -87,6 +96,7 @@ test("allCached: every frame in the window present with matching key", () => {
   assert.equal(allCached(cache, 10, 30, 100, "other"), false); // key changed
   cache.delete(25);
   assert.equal(allCached(cache, 10, 30, 100, "k"), false);     // a gap
+  assert.equal(allCached(new Map(), 100, 30, 100, "k"), true); // past end → vacuously cached
 });
 
 test("layerThreshold + poseCacheKey + payload", () => {

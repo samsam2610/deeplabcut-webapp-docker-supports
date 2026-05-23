@@ -48,7 +48,10 @@ export function resolvePose(pose, frameEdits = {}) {
 
 // ── local edits (immutable plain-object ops) ──
 export function setEdit(edits, frame, bp, x, y) {
-  return { ...edits, [frame]: { ...(edits[frame] || {}), [bp]: { x, y } } };
+  const frameDict = {};
+  for (const [k, v] of Object.entries(edits[frame] || {})) frameDict[k] = { ...v };
+  frameDict[bp] = { x, y };
+  return { ...edits, [frame]: frameDict };
 }
 
 export function deleteEdit(edits, frame, bp) {
@@ -65,6 +68,7 @@ export function editedFrameCount(edits) {
 
 // ── WASD nudge ──
 export function nudge(base, key, shift) {
+  if (!base || base.x == null || base.y == null) return null; // can't nudge a deleted/absent marker
   const step = shift ? 10 : 1;
   let dx = 0;
   let dy = 0;
@@ -109,7 +113,7 @@ export function layerThreshold(layer, globalThreshold, perLayer) {
 }
 
 export function poseCacheKey(h5Path, threshold) {
-  return `${h5Path}:${threshold.toFixed(2)}`;
+  return `${h5Path}:${Number(threshold).toFixed(2)}`;
 }
 
 // ── save-marker payload (x===null,y===null for delete) ──
