@@ -5,6 +5,7 @@ import { resolveKey, clampPlayStep, clampFps }
 
 test("space → playPause", () => {
   assert.deepEqual(resolveKey({ key: " " }), { type: "playPause" });
+  assert.deepEqual(resolveKey({ key: "Spacebar" }), { type: "playPause" });
 });
 
 test("arrows → single step; ctrl+arrows → skip step", () => {

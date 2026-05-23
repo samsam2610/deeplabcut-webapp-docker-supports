@@ -3,6 +3,7 @@
 // Feature keys (Tab, WASD, Delete) are intentionally NOT handled here.
 
 export function resolveKey({ key, ctrlKey = false }) {
+  // "Spacebar" is the legacy key name some old WebViews send (pre-KeyboardEvent spec).
   if (key === " " || key === "Spacebar") return { type: "playPause" };
   if (key === "ArrowLeft") {
     return ctrlKey ? { type: "stepSkip", dir: -1 } : { type: "step", delta: -1 };

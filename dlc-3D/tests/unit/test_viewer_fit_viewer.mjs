@@ -22,3 +22,8 @@ test("zoom below 100% never produces a positive margin", () => {
   assert.deepEqual(fitViewerSize({ baseW: 800, maxW: 2000, zoom: 50 }),
     { width: 400, marginLeft: 0 });
 });
+
+test("maxW narrower than baseW clamps width, no margin", () => {
+  assert.deepEqual(fitViewerSize({ baseW: 800, maxW: 600, zoom: 100 }),
+    { width: 600, marginLeft: 0 });
+});

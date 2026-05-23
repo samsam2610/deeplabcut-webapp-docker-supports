@@ -9,7 +9,7 @@ export function planSeek({ n, frameCount, tiles, framesMode = false }) {
   const loads = [];
   for (const t of tiles) {
     if (!t.videoRel) continue;
-    if (t.cam !== 0 && framesMode) continue; // sibling has no labeled-frame folder
+    if (t.cam !== 0 && framesMode) continue; // non-primary tiles have no frames-mode folder
     loads.push({ cam: t.cam, videoRel: t.videoRel, frame });
   }
   return { frame, loads };
