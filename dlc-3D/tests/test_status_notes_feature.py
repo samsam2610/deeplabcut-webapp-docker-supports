@@ -30,6 +30,7 @@ def test_returns_attach():
 
 @pytest.mark.parametrize("name", [
     "uniqueValues", "assignColors", "findMatchingFrame", "rowForFrame",
+    "isInterestingAnnotation", "applySavedRow", "buildSaveRowPayload",
 ])
 def test_imports_reducer(name):
     assert re.search(

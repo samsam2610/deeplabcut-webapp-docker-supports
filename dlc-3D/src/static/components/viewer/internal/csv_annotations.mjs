@@ -2,6 +2,8 @@
 // Operates purely in CSV frame_number space; no DOM, no fetch.
 // Status value "0" and empty values are treated as "no annotation".
 
+// Note: the `frame_line_status` field treats "0" as "no annotation" (project convention);
+// other fields only skip empty values.
 export function uniqueValues(rows, field) {
   const out = [];
   const seen = new Set();

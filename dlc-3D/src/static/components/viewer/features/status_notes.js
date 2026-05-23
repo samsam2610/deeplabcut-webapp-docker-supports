@@ -29,11 +29,12 @@ export function statusNoteTimeline(config = {}) {
   const endpoints = config.endpoints || {};
   const statusPalette = (config.palette && config.palette.status) || DEFAULT_STATUS_PALETTE;
   const notePalette = (config.palette && config.palette.note) || DEFAULT_NOTE_PALETTE;
-  const frameBase = config.frameBase || 0;
+  const frameBase = config.frameBase ?? 0;
 
   let viewer = null;
   let rows = [];
   let csvPath = null;
+  let loadGen = 0;
   let statusColors = {};
   let noteColors = {};
   const activeStatus = new Set();
@@ -45,6 +46,7 @@ export function statusNoteTimeline(config = {}) {
   const curFrame = () => (viewer ? viewer.currentFrame() : 0);
 
   async function loadCsv(videoPath) {
+    const gen = ++loadGen;
     rows = [];
     csvPath = null;
     activeStatus.clear();
@@ -52,10 +54,12 @@ export function statusNoteTimeline(config = {}) {
     if (endpoints.csv && videoPath) {
       try {
         const data = await (await fetch(endpoints.csv(videoPath))).json();
+        if (gen !== loadGen) return; // superseded by a newer load
         rows = data.rows || [];
         csvPath = data.csv_path || null;
       } catch (_) { rows = []; }
     }
+    if (gen !== loadGen) return;
     recolor();
     rebuildChips();
     redraw(curFrame());
@@ -153,6 +157,8 @@ export function statusNoteTimeline(config = {}) {
 
   async function save(kind) {
     if (!viewer || !csvPath || !endpoints.saveRow) return;
+    if (kind === "note" && !els.noteInput) return;     // nothing to save without the input
+    if (kind === "status" && !els.statusInput) return;
     const frame = curFrame();
     const existing = rowForFrame(rows, seekToRow(frame));
     const note = els.noteInput ? els.noteInput.value.trim()
@@ -171,6 +177,7 @@ export function statusNoteTimeline(config = {}) {
       recolor();
       rebuildChips();
       redraw(frame);
+      updateBadges(frame);
       if (els.saveFeedback) {
         els.saveFeedback.textContent = "Saved";
         setTimeout(() => {
@@ -185,14 +192,21 @@ export function statusNoteTimeline(config = {}) {
   return {
     attach(v) {
       viewer = v;
-      v.on("videoLoad", (e) => loadCsv(e && e.videoPath));
-      v.on("frameChange", (frame) => { updateBadges(frame); redraw(frame); });
-      if (els.statusPrev) els.statusPrev.addEventListener("click", () => nav("frame_line_status", activeStatus, -1));
-      if (els.statusNext) els.statusNext.addEventListener("click", () => nav("frame_line_status", activeStatus, 1));
-      if (els.notePrev) els.notePrev.addEventListener("click", () => nav("note", activeNote, -1));
-      if (els.noteNext) els.noteNext.addEventListener("click", () => nav("note", activeNote, 1));
-      if (els.saveStatusBtn) els.saveStatusBtn.addEventListener("click", () => save("status"));
-      if (els.saveNoteBtn) els.saveNoteBtn.addEventListener("click", () => save("note"));
+      // Capture bus disposers + an AbortController for DOM listeners so the feature
+      // fully detaches on viewer "teardown" (the canonical feature-teardown pattern).
+      const disposers = [
+        v.on("videoLoad", (e) => loadCsv(e && e.videoPath)),
+        v.on("frameChange", (frame) => { updateBadges(frame); redraw(frame); }),
+      ];
+      const ac = new AbortController();
+      const sig = { signal: ac.signal };
+      if (els.statusPrev) els.statusPrev.addEventListener("click", () => nav("frame_line_status", activeStatus, -1), sig);
+      if (els.statusNext) els.statusNext.addEventListener("click", () => nav("frame_line_status", activeStatus, 1), sig);
+      if (els.notePrev) els.notePrev.addEventListener("click", () => nav("note", activeNote, -1), sig);
+      if (els.noteNext) els.noteNext.addEventListener("click", () => nav("note", activeNote, 1), sig);
+      if (els.saveStatusBtn) els.saveStatusBtn.addEventListener("click", () => save("status"), sig);
+      if (els.saveNoteBtn) els.saveNoteBtn.addEventListener("click", () => save("note"), sig);
+      v.on("teardown", () => { for (const d of disposers) d(); ac.abort(); });
     },
   };
 }
