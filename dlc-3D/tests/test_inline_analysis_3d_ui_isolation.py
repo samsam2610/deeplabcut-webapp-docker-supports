@@ -386,3 +386,18 @@ def test_inline_keyboard_scoped_to_card():
     js = JS.read_text()
     assert 'keyboardTarget' in js and 'inline-analysis-3d-card' in js, \
         "inline viewer must scope keyboard to the card element so shortcuts survive button clicks"
+
+
+def test_surfaced_timeline_wraps_not_hidden_class():
+    """The surfaced status/note bar wraps must NOT use class="hidden"
+    (.hidden is display:none !important, which statusNoteTimeline's style.display
+    reveal cannot override). They start as inline display:none, which the feature
+    toggles by content."""
+    html = (ROOT / "src" / "templates" / "partials" / "card_inline_analysis_3d.html").read_text()
+    for wid in ("ia3d-status-bar-wrap", "ia3d-note-bar-wrap"):
+        i = html.index(f'id="{wid}"')
+        tag = html[i-40:i+90]
+        assert 'class="hidden"' not in tag, f"{wid} must not use class=hidden (blocks the timeline reveal)"
+    # the bars container must be visible (not hidden) so the surfaced timeline shows
+    j = html.index('id="ia3d-csv-bars"')
+    assert 'class="hidden"' not in html[j-20:j+60], "#ia3d-csv-bars must not be class=hidden once surfaced"
