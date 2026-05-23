@@ -37,26 +37,15 @@
       <!-- ── Player section (shown after a video is clicked) ── -->
       <div id="dlc3d-player-section" style="display:none;margin-top:.75rem">
 
-        <!-- Dual cameras side-by-side -->
+        <!-- Dual cameras rendered by the shared VideoViewer -->
         <div id="cam-displays">
           <div id="ep-zoom-controls">
             <span style="font-size:10px">🔍</span>
             <input type="range" id="ep-zoom-3d" min="50" max="200" step="10" value="100">
             <span id="ep-zoom-3d-pct">100%</span>
           </div>
-          <div class="cam-wrap" id="cam1-wrap">
-            <div class="cam-label" id="cam1-label">Primary camera</div>
-            <div class="cam-frame-wrap" id="cam1-frame-wrap">
-              <img id="ep-frame" src="" alt="" style="display:none">
-              <span id="no-video-msg">Select a video from the list above.</span>
-            </div>
-          </div>
-          <div class="cam-wrap" id="ep-cam2-wrap" style="display:none">
-            <div class="cam-label" id="cam2-label">Sibling camera</div>
-            <div class="cam-frame-wrap">
-              <img id="ep-cam2-frame" src="" alt="">
-            </div>
-          </div>
+          <div id="ep-viewer-mount"></div>
+          <span id="no-video-msg">Select a video from the list above.</span>
         </div>
 
         <!-- Controls row -->

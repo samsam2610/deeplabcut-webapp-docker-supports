@@ -77,6 +77,13 @@
   padding: 2rem 0;
 }
 
+/* VideoViewer tiles in the 3D-Extract card (parity with the old .cam-wrap look) */
+#ep-viewer-mount .vv-tile-row { gap: 1rem; }
+#ep-viewer-mount .vv-tile { display: flex; flex-direction: column; }
+#ep-viewer-mount .vv-tile-label { font-size: .72rem; color: var(--text-dim); margin-bottom: .2rem; order: -1; }
+#ep-viewer-mount .vv-frame-img { max-width: 100%; border: 1px solid var(--border); border-radius: 6px; background: #000; }
+#ep-viewer-mount .vv-overlay-canvas { /* extract card has no overlay; harmless */ }
+
 /* ── Sync cam row toggle ── */
 #dlc-3d-extract-card label.toggle {
   display: flex;
