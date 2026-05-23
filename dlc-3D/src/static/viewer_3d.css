@@ -44,3 +44,39 @@
   outline: 2px solid var(--accent);
   outline-offset: -2px;
 }
+
+/* ── VideoViewer (shared library) tiles in the View-Analyzed card ───────────────
+   Mirrors the 4a #ep-viewer-mount .vv-* approach (dlc_3d.css) but scoped to the
+   analyzed card's mount. No forced aspect-ratio (4a lesson: it clipped tiles). */
+#va3d-viewer-mount .vv-tile-row { gap: .75rem; }
+#va3d-viewer-mount .vv-tile { display: flex; flex-direction: column; flex: 1 1 0; min-width: 0; }
+#va3d-viewer-mount .vv-tile-label { font-size: .72rem; color: var(--text-dim); margin-bottom: .2rem; order: -1; }
+/* Wrap is position:relative so the overlay canvas (2c marker editing) overlays the img. */
+#va3d-viewer-mount .vv-tile-canvas-wrap { position: relative; }
+#va3d-viewer-mount .vv-frame-img {
+  display: block; width: 100%; max-height: 70vh; height: auto;
+  border: 1px solid var(--border); border-radius: 8px; background: #000;
+}
+#va3d-viewer-mount .vv-overlay-canvas {
+  position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+  /* pointer-events left to the library / MarkerEditor (2c) */
+}
+#va3d-viewer-mount .vv-tile-size-row { display: flex; align-items: center; gap: .35rem; margin-top: .25rem; }
+#va3d-viewer-mount .vv-tile-size { flex: 1; accent-color: var(--accent); }
+#va3d-viewer-mount .vv-tile-size-val {
+  font-family: var(--mono); font-size: .7rem; color: var(--text-dim);
+  min-width: 2.5rem; text-align: right;
+}
+
+/* Library-rendered timeline chips (StatusNoteTimeline): <span class="vv-tag-chip">
+   with a per-value --chip-color. Mirror the 4a card chip look. */
+#view-analyzed-3d-card .vv-tag-chip {
+  display: inline-flex; align-items: center; gap: .2rem;
+  font-size: 10px; padding: 1px 6px; border-radius: 3px;
+  cursor: pointer; user-select: none; font-family: var(--mono);
+  background: var(--surface-2); color: var(--text);
+  border: 1px solid var(--chip-color, var(--border));
+}
+#view-analyzed-3d-card .vv-tag-chip.active {
+  background: var(--chip-color, var(--accent)); color: #0d1117; font-weight: 600;
+}

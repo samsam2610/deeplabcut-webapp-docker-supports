@@ -16,6 +16,7 @@
 "use strict";
 
 import { VideoViewer } from "./components/viewer/video_viewer.js";
+import { statusNoteTimeline } from "./components/viewer/features/status_notes.js";
 import { state } from "/static/js/state.js";
 
 // ── Module state ────────────────────────────────────────────────────────────
@@ -92,9 +93,54 @@ function _ensureViewer() {
   // TODO(4b-2b): overlay panel — compose markerEditor here
   //   (#va3d-overlay-toggle / #va3d-overlay-* controls, marker edit banner,
   //    bp chips, threshold, marker size, per-cam sibling-h5 resolution).
-  // TODO(4b-2c): CSV annotation panel — compose statusNoteTimeline here
-  //   (#va3d-metadata-panel, #va3d-status-*/#va3d-note-* canvases + chips + nav,
-  //    #va3d-annot-* save rows, create-csv glue).
+
+  // CSV status/note timeline (save variant — unlike dlc_3d.js's browse-only use,
+  // this card wires saveRow so the status/note inputs can write back). The
+  // timeline reads the companion CSV for the current primary video; frame_number
+  // maps 1:1 to viewer seek-frames (frameBase 0).
+  _viewer.use(statusNoteTimeline({
+    endpoints: {
+      csv: (videoPath) => `/annotate/csv?path=${encodeURIComponent(videoPath)}`,
+      saveRow: (payload) => fetch("/annotate/save-row", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      }),
+    },
+    els: {
+      statusCanvas:  $("va3d-status-canvas"),
+      noteCanvas:    $("va3d-note-canvas"),
+      statusChips:   $("va3d-status-chips"),
+      noteChips:     $("va3d-note-chips"),
+      statusWrap:    $("va3d-status-bar-wrap"),
+      noteWrap:      $("va3d-note-bar-wrap"),
+      statusPrev:    $("va3d-status-prev-btn"),
+      statusNext:    $("va3d-status-next-btn"),
+      notePrev:      $("va3d-note-prev-btn"),
+      noteNext:      $("va3d-note-next-btn"),
+      statusInput:   $("va3d-status-input"),
+      noteInput:     $("va3d-note-input"),
+      saveStatusBtn: $("va3d-save-status-btn"),
+      saveNoteBtn:   $("va3d-save-note-btn"),
+      saveFeedback:  $("va3d-annot-save-status"),
+      statusBadge:   $("va3d-meta-frame-status"),
+      noteBadge:     $("va3d-meta-frame-note"),
+    },
+    fps: _fps,
+    frameBase: 0,
+  }));
+
+  // Metadata-strip reveal glue (consumer-owned — not part of statusNoteTimeline).
+  // statusNoteTimeline toggles #va3d-status-bar-wrap / #va3d-note-bar-wrap by
+  // content once its async CSV load resolves. There's no "csv-loaded" event, so
+  // poll the wrap visibility a few times after videoLoad (covers the fetch
+  // latency) to reveal the metadata frame row + update the CSV-info text.
+  // Also refresh on frameChange so the per-frame badges stay paired with a
+  // visible row.
+  _viewer.on("videoLoad", () => {
+    _scheduleMetaStripRefresh();
+  });
+  _viewer.on("frameChange", () => _updateMetaStrip());
+
   // TODO(4b-2d): dataset curation — compose curation glue here
   //   (#va3d-curation-*, #va3d-extract-frame-btn, batch add, both-cams,
   //    Finalize toggle).
@@ -201,6 +247,75 @@ function _updateCounters(n, frameCount) {
     } else {
       time.textContent = _frameFiles[n] || "";
     }
+  }
+}
+
+// Metadata-strip reveal glue. statusNoteTimeline reveals the status/note
+// bar-wraps by content; mirror that here on the metadata strip: when either
+// wrap is visible (CSV had interesting rows), show the per-frame note/status
+// row and label the strip "companion CSV loaded"; otherwise hide the row and
+// label it "No companion CSV". Consumer-owned (not part of statusNoteTimeline).
+function _updateMetaStrip() {
+  const statusWrap = $("va3d-status-bar-wrap");
+  const noteWrap = $("va3d-note-bar-wrap");
+  const visible = (el) => el && el.style.display !== "none";
+  const hasCsv = visible(statusWrap) || visible(noteWrap);
+  const row = $("va3d-meta-frame-row");
+  if (row) row.style.display = hasCsv ? "flex" : "none";
+  const info = $("va3d-meta-csv-info");
+  if (info) info.textContent = hasCsv ? "companion CSV loaded" : "No companion CSV";
+}
+
+// Poll the meta strip a few times after a load() to catch statusNoteTimeline's
+// async CSV resolution (it has no completion event). Cheap + idempotent.
+function _scheduleMetaStripRefresh() {
+  [0, 150, 400, 900].forEach((ms) => setTimeout(_updateMetaStrip, ms));
+}
+
+// Re-run the viewer's CSV load for the current selection. statusNoteTimeline
+// loads the CSV off the "videoLoad" event, so a frame-preserving reload re-pulls
+// it (used by the create-CSV glue once a fresh CSV is written server-side).
+async function _reloadCsv() {
+  if (!_viewer || !_primaryRel) return;
+  const keepFrame = _viewer.currentFrame();
+  const framesMode = _vaMode === "frames";
+  const sync = $("va3d-sync-cam");
+  await _viewer.load({
+    videoPath: _primaryRel,
+    frameCount: _frameCount,
+    framesMode,
+    siblingPath: sync?.checked && !framesMode ? undefined : null,
+  });
+  if (keepFrame > 0) _viewer.seek(keepFrame);
+  _applyCamLabels();
+}
+
+// Create-CSV glue (consumer-owned — not part of statusNoteTimeline). POSTs a
+// new companion CSV for the current primary video, then re-pulls it via the
+// viewer reload. Guarded: needs a loaded video (frames mode has no real video
+// path, so it's excluded).
+async function _vaCreateCsv() {
+  const btn = $("va3d-create-csv-btn");
+  const fb = $("va3d-csv-create-status");
+  if (!_primaryRel || _vaMode === "frames") {
+    if (fb) fb.textContent = "Open a video first.";
+    return;
+  }
+  if (btn) btn.disabled = true;
+  if (fb) fb.textContent = "Creating…";
+  try {
+    const resp = await fetch("/annotate/create-csv", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ video_path: _primaryRel, fps: _fps, frame_count: _frameCount }),
+    });
+    const data = await resp.json();
+    if (!resp.ok || data.error) throw new Error(data.error || `status ${resp.status}`);
+    if (fb) fb.textContent = "Created";
+    await _reloadCsv();
+  } catch (err) {
+    if (fb) fb.textContent = `Error: ${err.message}`;
+  } finally {
+    if (btn) btn.disabled = false;
   }
 }
 
@@ -337,7 +452,16 @@ function _resetForOpen() {
   _frameCount = 0;
   _siblingAvailable = false;
   _setStatus("");
-  // TODO(4b-2b/2c/2d): reset overlay / CSV / curation panels here when wired.
+  // CSV meta-strip reset (consumer glue). statusNoteTimeline resets its own
+  // chips/bars/badges off each load()'s "videoLoad", so we only clear the
+  // consumer-owned metadata strip here.
+  const metaRow = $("va3d-meta-frame-row");
+  if (metaRow) metaRow.style.display = "none";
+  const metaInfo = $("va3d-meta-csv-info");
+  if (metaInfo) metaInfo.textContent = "No companion CSV";
+  const createFb = $("va3d-csv-create-status");
+  if (createFb) createFb.textContent = "";
+  // TODO(4b-2b/2d): reset overlay / curation panels here when wired.
 }
 
 // Back button: tear down the viewer and hide the player section, returning to
@@ -555,6 +679,11 @@ function _wireLauncher() {
   // Back + refresh.
   $("va3d-btn-back")?.addEventListener("click", _vaBack);
   $("va3d-refresh-btn")?.addEventListener("click", _vaLoadContent);
+
+  // Create-CSV (consumer glue). Static listener — the button lives in the card
+  // markup and persists across viewer rebuilds; _vaCreateCsv guards when no
+  // video is loaded.
+  $("va3d-create-csv-btn")?.addEventListener("click", _vaCreateCsv);
 
   // Card open / close. The #btn-open-view-analyzed trigger is shared with the
   // upstream viewer.js; only wire ours when the va3d card is present.
