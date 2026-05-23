@@ -49,6 +49,7 @@ export function markerEditor(config = {}) {
   // cam land in editsByCam[cam] and flush to that cam's own primary .h5.
   const editsByCam = { 0: {}, 1: {} }; // { [cam]: { [frame]: { [bp]: {x,y} } } }; x===null,y===null = deleted
   let focusedCam = 0;       // which cam tile accepts edit input (default cam0 → identical to pre-focus behavior)
+  let editingAllowed = true; // master edit gate (consumers may gate editing, e.g. inline's Finalize toggle); default on
   let currentFrame = 0;
   let layerId = 0;
   let prefetchCtrl = null;
@@ -61,9 +62,9 @@ export function markerEditor(config = {}) {
   // ── per-cam accessors (cam0 = layers, cam1 = siblingLayers) ──
   const layersFor = (cam) => (cam === 0 ? layers : siblingLayers);
   const primaryForCam = (cam) => layersFor(cam)[0] || null;
-  // A cam is editable only without comparison layers on that cam (parity with the
-  // single-cam rule, applied per side).
-  const isEditableCam = (cam) => layersFor(cam).length === 1;
+  // A cam is editable when editing is allowed globally and that cam has no
+  // comparison layers (parity with the single-cam rule, applied per side).
+  const isEditableCam = (cam) => editingAllowed && layersFor(cam).length === 1;
   const editsFor = (cam) => (editsByCam[cam] || (editsByCam[cam] = {}));
 
   const isEditable = () => isEditableCam(focusedCam);
@@ -520,6 +521,20 @@ export function markerEditor(config = {}) {
 
     setFocusedCam,
     getFocusedCam: () => focusedCam,
+
+    // Master edit gate. When off, markers still display (read-only) — no edit
+    // overlays, selection ring, or input. Consumers use this for gated-editing
+    // workflows (e.g. the inline card's Finalize toggle). Defaults on.
+    setEditable(on) {
+      editingAllowed = !!on;
+      const t = viewer && viewer.getTile(focusedCam);
+      if (t && t.canvasEl) {
+        t.canvasEl.style.cursor = editingAllowed && selectedBp && isEditableCam(focusedCam) ? "crosshair" : "default";
+      }
+      updateEditBanner();
+      renderAll();
+    },
+    isEditable: () => isEditableCam(focusedCam),
 
     setThreshold(v) {
       abortPrefetch();
