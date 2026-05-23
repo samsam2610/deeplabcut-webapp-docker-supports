@@ -2,14 +2,16 @@
 // (space / arrows / ctrl+arrows) and _vaPlayStep / _vaPlaybackFps clamps.
 // Feature keys (Tab, WASD, Delete) are intentionally NOT handled here.
 
-export function resolveKey({ key, ctrlKey = false }) {
+export function resolveKey({ key, ctrlKey = false, shiftKey = false }) {
   // "Spacebar" is the legacy key name some old WebViews send (pre-KeyboardEvent spec).
-  if (key === " " || key === "Spacebar") return { type: "playPause" };
+  if (key === " " || key === "Spacebar") {
+    return shiftKey ? { type: "playPauseDir", dir: -1 } : { type: "playPause" };
+  }
   if (key === "ArrowLeft") {
-    return ctrlKey ? { type: "stepSkip", dir: -1 } : { type: "step", delta: -1 };
+    return (ctrlKey || shiftKey) ? { type: "stepSkip", dir: -1 } : { type: "step", delta: -1 };
   }
   if (key === "ArrowRight") {
-    return ctrlKey ? { type: "stepSkip", dir: 1 } : { type: "step", delta: 1 };
+    return (ctrlKey || shiftKey) ? { type: "stepSkip", dir: 1 } : { type: "step", delta: 1 };
   }
   return null;
 }

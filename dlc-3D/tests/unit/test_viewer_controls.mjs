@@ -40,3 +40,11 @@ test("clampTileWeight: 50..500, default 100 on NaN", () => {
   assert.equal(clampTileWeight("999"), 500);  // clamped down to 500
   assert.equal(clampTileWeight("x"), 100);    // NaN -> default
 });
+
+test("shift+space → play backward; shift+arrows → skip step", () => {
+  assert.deepEqual(resolveKey({ key: " ", shiftKey: true }), { type: "playPauseDir", dir: -1 });
+  assert.deepEqual(resolveKey({ key: "Spacebar", shiftKey: true }), { type: "playPauseDir", dir: -1 });
+  assert.deepEqual(resolveKey({ key: "ArrowLeft", shiftKey: true }),  { type: "stepSkip", dir: -1 });
+  assert.deepEqual(resolveKey({ key: "ArrowRight", shiftKey: true }), { type: "stepSkip", dir: 1 });
+  assert.deepEqual(resolveKey({ key: " " }), { type: "playPause" });
+});
