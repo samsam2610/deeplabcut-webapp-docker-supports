@@ -1,5 +1,5 @@
 // Pure HSV→RGB palette used for multi-layer overlay marker colors.
-// Ported verbatim from the original viewer_3d.js (_vaHsvToRgb / _vaPaletteColor).
+// Ported from the original viewer_3d.js (_vaHsvToRgb / _vaPaletteColor).
 
 export function hsvToRgb(h, s, v) {
   const i = Math.floor(h * 6);
@@ -8,6 +8,7 @@ export function hsvToRgb(h, s, v) {
   const q = v * (1 - f * s);
   const t = v * (1 - (1 - f) * s);
   let r, g, b;
+      // Guard against h<0: JS % can yield negatives; double-modulo keeps i in 0..5.
   switch (((i % 6) + 6) % 6) {
     case 0: r = v; g = t; b = p; break;
     case 1: r = q; g = v; b = p; break;

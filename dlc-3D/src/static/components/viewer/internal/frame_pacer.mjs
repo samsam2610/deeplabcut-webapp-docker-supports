@@ -18,6 +18,7 @@ export function nextFrame({ current, playN, playDir, lo, hi, looping }) {
   return { frame: next, stop: false };
 }
 
+// fps must be > 0; fps=0 yields Infinity (a setTimeout(Infinity) would never fire).
 // Remaining delay (ms) for a target fps after a frame took elapsedMs to load.
 export function frameDelayMs(fps, elapsedMs) {
   return Math.max(0, Math.round(1000 / fps) - elapsedMs);

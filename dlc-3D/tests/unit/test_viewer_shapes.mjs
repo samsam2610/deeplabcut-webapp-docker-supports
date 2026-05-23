@@ -26,6 +26,7 @@ test("SHAPE_ORDER and shapeForLayer mapping", () => {
   assert.equal(shapeForLayer(0), "circle-filled");
   assert.equal(shapeForLayer(2), "square");
   assert.equal(shapeForLayer(99), "triangle"); // clamps to last
+  assert.equal(shapeForLayer(-1), "circle-filled"); // clamps to first, not undefined
 });
 
 test("circle-filled fills an arc with the color", () => {
@@ -52,6 +53,14 @@ test("unknown shape falls back to circle-filled", () => {
   drawShape("nope", ctx, 0, 0, 1, "x");
   assert.ok(names(ctx).includes("arc"));
   assert.ok(names(ctx).includes("fill"));
+});
+
+test("diamond fills a 4-point path", () => {
+  const dia = makeCtx();
+  drawShape("diamond", dia, 10, 20, 5, "blue");
+  assert.equal(dia.calls.filter((c) => c.name === "lineTo").length, 3);
+  assert.ok(dia.calls.some((c) => c.name === "fill"));
+  assert.equal(dia.props.fillStyle, "blue");
 });
 
 test("SHAPE_FN has an entry for every SHAPE_ORDER name", () => {

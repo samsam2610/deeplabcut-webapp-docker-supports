@@ -52,5 +52,5 @@ export function drawShape(name, ctx, x, y, r, color) {
 // Layer index → shape name (clamped to the last shape), matching
 // viewer_3d.js _SHAPE_ORDER[Math.min(i, _SHAPE_ORDER.length - 1)].
 export function shapeForLayer(i) {
-  return SHAPE_ORDER[Math.min(i, SHAPE_ORDER.length - 1)];
+  return SHAPE_ORDER[Math.max(0, Math.min(i, SHAPE_ORDER.length - 1))];
 }
