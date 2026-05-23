@@ -67,3 +67,10 @@ def test_keydown_passes_shift_and_handles_playdir():
 def test_load_autofocuses_mount():
     src = (ROOT / "src" / "static" / "components" / "viewer" / "video_viewer.js").read_text()
     assert "this.mount.focus" in src, "load() must auto-focus the mount so keyboard works without a click"
+
+def test_keyboard_target_configurable():
+    src = (ROOT / "src" / "static" / "components" / "viewer" / "video_viewer.js").read_text()
+    assert "keyboardTarget" in src, "VideoViewer must accept a keyboardTarget config"
+    assert "this._keyboardTarget" in src, "keyboard listener must use the configurable target"
+    assert "this._keyboardTarget.addEventListener" in src, "keydown must attach to the configurable target"
+    assert "this._keyboardTarget.removeEventListener" in src, "destroy must detach from the configurable target"

@@ -61,12 +61,13 @@ class Tile {
 }
 
 export class VideoViewer {
-  constructor({ mount, endpoints, fps = 15, storagePrefix = "vv", keymap = resolveKey, perTileSize = false } = {}) {
+  constructor({ mount, endpoints, fps = 15, storagePrefix = "vv", keymap = resolveKey, perTileSize = false, keyboardTarget } = {}) {
     if (!mount) throw new Error("VideoViewer: `mount` element is required");
     if (!endpoints || typeof endpoints.frame !== "function") {
       throw new Error("VideoViewer: `endpoints.frame(videoPath, n)` is required");
     }
     this.mount = mount;
+    this._keyboardTarget = keyboardTarget || mount;
     this.endpoints = endpoints;
     this.storagePrefix = storagePrefix;
     this._resolveKey = keymap;
@@ -100,7 +101,7 @@ export class VideoViewer {
 
     if (!mount.getAttribute("tabindex")) mount.setAttribute("tabindex", "0");
     this._onKeyDown = (e) => this._handleKeyDown(e);
-    mount.addEventListener("keydown", this._onKeyDown);
+    this._keyboardTarget.addEventListener("keydown", this._onKeyDown);
   }
 
   // ── hook bus ──────────────────────────────────────────────
@@ -302,7 +303,7 @@ export class VideoViewer {
   // ── teardown ──────────────────────────────────────────────
   destroy() {
     this._stop();
-    this.mount.removeEventListener("keydown", this._onKeyDown);
+    this._keyboardTarget.removeEventListener("keydown", this._onKeyDown);
     this._emit("teardown");
     this._clearTiles();
   }

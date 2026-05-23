@@ -91,6 +91,7 @@ function _ensureViewer() {
 
   _viewer = new VideoViewer({
     mount,
+    keyboardTarget: document.getElementById("inline-analysis-3d-card"),
     perTileSize: true,
     fps: 30,
     storagePrefix: "ia3d",

@@ -380,3 +380,9 @@ def test_clip_extractor_composed():
     js = JS.read_text()
     assert "clipExtractor(" in js, "clipExtractor not composed"
     assert "/dlc-3d/extract-clip" in js, "extractClip endpoint not injected"
+
+
+def test_inline_keyboard_scoped_to_card():
+    js = JS.read_text()
+    assert 'keyboardTarget' in js and 'inline-analysis-3d-card' in js, \
+        "inline viewer must scope keyboard to the card element so shortcuts survive button clicks"
