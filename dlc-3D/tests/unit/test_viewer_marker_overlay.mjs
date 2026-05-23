@@ -4,10 +4,22 @@ import {
   scaleFor, videoToCanvas, canvasToVideo, markerRadius,
   hitTest, resolvePose, setEdit, deleteEdit, frameEditsOf, editedFrameCount,
   nudge, nextBodypart, prefetchWindow, allCached, layerThreshold,
-  poseCacheKey, buildMarkerEditPayload,
+  poseCacheKey, buildMarkerEditPayload, parsePoseJson,
 } from "../../src/static/components/viewer/internal/marker_overlay.mjs";
 
 const HALF = { sx: 0.5, sy: 0.5 };
+
+test("parsePoseJson tolerates non-finite literals (NaN/Infinity → null)", () => {
+  // numpy-emitted bodies the browser's JSON.parse would otherwise reject
+  const body = '{"poses":[{"bp":"a","x":NaN,"y":NaN,"lh":NaN},{"bp":"b","x":3.5,"y":Infinity,"lh":-Infinity}],"n_bodyparts":2}';
+  const d = parsePoseJson(body);
+  assert.equal(d.n_bodyparts, 2);
+  assert.equal(d.poses[0].x, null);   // NaN → null
+  assert.equal(d.poses[1].x, 3.5);    // real value preserved
+  assert.equal(d.poses[1].y, null);   // Infinity → null
+  assert.equal(d.poses[1].lh, null);  // -Infinity → null
+  assert.deepEqual(parsePoseJson('{"poses":[],"n_bodyparts":1}'), { poses: [], n_bodyparts: 1 });
+});
 
 test("scale + coordinate transforms", () => {
   assert.deepEqual(scaleFor(800, 600, 400, 300), { sx: 0.5, sy: 0.5 });

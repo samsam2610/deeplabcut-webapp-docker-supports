@@ -107,6 +107,14 @@ export function allCached(cache, fromFrame, windowSize, frameCount, key) {
   return true;
 }
 
+// Parse a pose-endpoint JSON body that may contain non-finite literals (NaN /
+// Infinity / -Infinity, emitted by numpy/pandas for undetected frames). The browser's
+// JSON.parse rejects those, so sanitize them to null first. Without this, a single
+// undetected frame throws and the consumer would permanently disable the pose layer.
+export function parsePoseJson(text) {
+  return JSON.parse(text.replace(/\bNaN\b/g, "null").replace(/-?\bInfinity\b/g, "null"));
+}
+
 // ── layer threshold + cache key ──
 export function layerThreshold(layer, globalThreshold, perLayer) {
   return (perLayer && layer.threshold != null) ? layer.threshold : globalThreshold;

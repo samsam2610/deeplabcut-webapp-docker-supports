@@ -25,6 +25,7 @@ import {
   scaleFor, canvasToVideo, markerRadius, hitTest, resolvePose,
   setEdit, deleteEdit, frameEditsOf, editedFrameCount, nudge, nextBodypart,
   prefetchWindow, allCached, layerThreshold, poseCacheKey, buildMarkerEditPayload,
+  parsePoseJson,
 } from "../internal/marker_overlay.mjs";
 import { paletteColor } from "../internal/palette.mjs";
 import { drawShape, shapeForLayer } from "../internal/shapes.mjs";
@@ -67,13 +68,22 @@ export function markerEditor(config = {}) {
   }
 
   // ── pose fetch + cache + prefetch ──
+  // The frame-poses endpoints emit non-finite JSON literals (NaN / Infinity, from
+  // numpy) for frames with no/low-confidence detections. The browser's response.json()
+  // REJECTS those (invalid JSON), so parse leniently — otherwise one NaN frame would
+  // throw and permanently mark the whole layer errored (disabling all rendering).
+  async function fetchPosesJson(url, opts) {
+    const text = await (await fetch(url, opts)).text();
+    return parsePoseJson(text);
+  }
+
   async function fetchLayerFrame(layer, frame) {
     if (!endpoints.poses) return null;
     const key = poseCacheKey(layer.path, thrOf(layer));
     const cached = layer.posesCache.get(frame);
     if (cached && cached.key === key) return cached;
     try {
-      const data = await (await fetch(endpoints.poses(layer.path, frame, thrOf(layer)))).json();
+      const data = await fetchPosesJson(endpoints.poses(layer.path, frame, thrOf(layer)));
       if (data.error) { layer.errored = true; return null; }
       const entry = { key, poses: data.poses || [], n_bodyparts: data.n_bodyparts || 1 };
       layer.posesCache.set(frame, entry);
@@ -102,8 +112,8 @@ export function markerEditor(config = {}) {
     if (count <= 0) return;
     prefetchCtrl = new AbortController();
     try {
-      const data = await (await fetch(endpoints.posesBatch(p.path, start, count, thrOf(p)),
-        { signal: prefetchCtrl.signal })).json();
+      const data = await fetchPosesJson(endpoints.posesBatch(p.path, start, count, thrOf(p)),
+        { signal: prefetchCtrl.signal });
       for (const [fnStr, fd] of Object.entries(data.frames || {})) {
         p.posesCache.set(parseInt(fnStr, 10), { key, poses: fd.poses || [], n_bodyparts: fd.n_bodyparts || 1 });
       }
@@ -163,6 +173,8 @@ export function markerEditor(config = {}) {
           if (rp.deleted) continue;
           px = rp.x; py = rp.y; edited = rp.edited;
         }
+        // Non-finite coords (NaN/null from undetected frames) → no marker.
+        if (!Number.isFinite(px) || !Number.isFinite(py)) continue;
         const cx = Math.round(px * scale.sx);
         const cy = Math.round(py * scale.sy);
         const color = paletteColor(pose.color_idx, cached.n_bodyparts);
