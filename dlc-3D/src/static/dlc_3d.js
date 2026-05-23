@@ -1,17 +1,23 @@
 // dlc_3d.js — inline file browser, project loader, extract button handler.
 "use strict";
 
-import { openPlayer, getCurrentFrame, getVideoPath, getSiblingPath, isSyncCamEnabled, epLoadFrameAt } from "./enhanced_player.js";
+import { VideoViewer } from "./components/viewer/video_viewer.js";
+import { statusNoteTimeline } from "./components/viewer/features/status_notes.js";
+import { frameExtractor } from "./components/viewer/features/frame_extractor.js";
 
 // ── State ─────────────────────────────────────────────────────────────────────
 
 let _projectPath        = null;
 let _activeSession      = null;
 let _activeVideo        = null;
+let _siblingVideo       = null;
+let _calibrationExists  = false;
 let _loadToken          = 0;
 let _browserCurrentPath = null;
 let _browserParentPath  = null;
-let _batchStopRequested = false;
+
+let _viewer             = null;
+let _frameExtractor     = null;
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -40,13 +46,157 @@ function _sessionKeyFromVideoPath(videoPath) {
   return null;
 }
 
+// ── VideoViewer composition ─────────────────────────────────────────────────
+
+function _ensureViewer() {
+  if (_viewer) return _viewer;
+  const mount = document.getElementById("ep-viewer-mount");
+  _viewer = new VideoViewer({
+    mount,
+    fps: 15,
+    storagePrefix: "dlc3d-extract",
+    endpoints: {
+      videoInfo: (v) => `/dlc-3d/video-info?video=${encodeURIComponent(v)}`,
+      frame:     (v, n) => `/dlc-3d/frame?video=${encodeURIComponent(v)}&n=${n}`,
+      // sibling discovery is handled by the consumer (we pass siblingPath to load()
+      // only when sync-cam is enabled), so endpoints.sibling is intentionally omitted.
+    },
+  });
+
+  // status/note timeline (browse-only — no save-row in this card)
+  _viewer.use(statusNoteTimeline({
+    endpoints: { csv: (v) => `/dlc-3d/csv?video=${encodeURIComponent(v)}` },
+    els: {
+      statusCanvas: document.getElementById("ep-status-canvas"),
+      noteCanvas:   document.getElementById("ep-note-canvas"),
+      statusChips:  document.getElementById("ep-status-chips"),
+      noteChips:    document.getElementById("ep-note-chips"),
+      statusPrev:   document.getElementById("ep-status-prev"),
+      statusNext:   document.getElementById("ep-status-next"),
+      notePrev:     document.getElementById("ep-note-prev"),
+      noteNext:     document.getElementById("ep-note-next"),
+    },
+  }));
+
+  // frame extractor (single + batch + sibling) → /dlc-3d/save-frame
+  _frameExtractor = frameExtractor({
+    endpoints: {
+      saveFrame: (payload) => fetch("/dlc-3d/save-frame", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      }),
+    },
+    els: {
+      extractBtn:     document.getElementById("ep-extract-btn"),
+      batchBtn:       document.getElementById("ep-batch-extract-btn"),
+      batchStopBtn:   document.getElementById("ep-batch-stop-btn"),
+      batchCount:     document.getElementById("ep-batch-count"),
+      batchStep:      document.getElementById("ep-batch-step"),
+      extractSibling: document.getElementById("ep-extract-sibling"),
+      statusDisplay:  document.getElementById("extract-status"),
+    },
+    onSaved: () => _refreshLabeledFrames(),
+  });
+  _viewer.use(_frameExtractor);
+
+  _wireViewerChrome(_viewer);
+  return _viewer;
+}
+
+function _wireViewerChrome(v) {
+  const $ = (id) => document.getElementById(id);
+  const stepSize = () => Math.max(1, parseInt($("ep-step")?.value, 10) || 10);
+
+  // Initialise viewer state from the card's existing control defaults so behaviour
+  // matches the old player (loop ON by default — #ep-loop carries .active in markup).
+  v.setSkipN(stepSize());
+  v.setPlayStep($("ep-playn")?.value || 1);
+  v.setLooping($("ep-loop")?.classList.contains("active") ?? true);
+
+  $("ep-skip-start")?.addEventListener("click", () => v.seek(0));
+  $("ep-skip-end")?.addEventListener("click", () => v.seek(v.frameCount() - 1));
+  $("ep-back1")?.addEventListener("click", () => v.step(-1));
+  $("ep-fwd1")?.addEventListener("click", () => v.step(1));
+  $("ep-back")?.addEventListener("click", () => v.step(-stepSize()));
+  $("ep-fwd")?.addEventListener("click", () => v.step(stepSize()));
+  $("ep-play")?.addEventListener("click", () => { v.setPlayDir(1); v.togglePlay(); });
+  $("ep-play-back")?.addEventListener("click", () => { v.setPlayDir(-1); v.togglePlay(); });
+  $("ep-loop")?.addEventListener("click", (e) => {
+    const on = !e.currentTarget.classList.contains("active");
+    e.currentTarget.classList.toggle("active", on);
+    v.setLooping(on);
+  });
+  $("ep-step")?.addEventListener("input", () => { v.setSkipN(stepSize()); v.setPlayStep(stepSize()); });
+  $("ep-playn")?.addEventListener("input", (e) => v.setPlayStep(e.target.value));
+  document.querySelectorAll(".ep-step-preset").forEach((p) =>
+    p.addEventListener("click", () => { const s = $("ep-step"); if (s) { s.value = p.value; s.dispatchEvent(new Event("input")); } }));
+
+  const seek = $("ep-seek");
+  seek?.addEventListener("input", () => v.seek(parseInt(seek.value, 10) || 0));
+
+  const zoom = $("ep-zoom-3d");
+  zoom?.addEventListener("input", () => {
+    v.setZoom(parseInt(zoom.value, 10) || 100);
+    const pct = $("ep-zoom-3d-pct"); if (pct) pct.textContent = zoom.value + "%";
+  });
+
+  v.on("videoLoad", ({ frameCount }) => {
+    if (seek) { seek.min = 0; seek.max = Math.max(frameCount - 1, 0); }
+    const tot = $("ep-frame-total"); if (tot) tot.textContent = String(frameCount);
+    $("no-video-msg")?.style.setProperty("display", "none");
+    $("ep-extract-btn")?.removeAttribute("disabled");
+    $("ep-batch-extract-btn")?.removeAttribute("disabled");
+  });
+  v.on("frameChange", (n) => {
+    if (seek) seek.value = String(n);
+    const num = $("ep-frame-num"); if (num) num.textContent = String(n + 1); // 1-based display
+  });
+}
+
+function _setupSyncCamToggle(v) {
+  const row = document.getElementById("sync-cam-row");
+  const cb = document.getElementById("ep-sync-cam");
+  const sibLabel = document.getElementById("ep-extract-sibling-label");
+  if (!cb) return;
+  // show the sync-cam row only when a sibling exists
+  if (row) row.style.display = _siblingVideo ? "flex" : "none";
+  // reset toggle state to OFF on each (re)selection — matches the old player's
+  // per-video reset (sync cam starts disabled, sibling-extract label hidden).
+  cb.checked = false;
+  if (sibLabel) sibLabel.style.display = "none";
+  if (cb._wired) return; cb._wired = true;
+  cb.addEventListener("change", async () => {
+    if (cb.checked && !_calibrationExists) {
+      cb.checked = false;
+      const st = document.getElementById("extract-status");
+      if (st) st.textContent = "Cannot enable Sync Cam: calibration.toml not found in recording folder.";
+      return;
+    }
+    if (sibLabel) sibLabel.style.display = cb.checked ? "flex" : "none";
+    if (cb.checked) {
+      const ex = document.getElementById("ep-extract-sibling");
+      if (ex) ex.checked = true;
+    }
+    // reload with/without the sibling tile to match the toggle
+    await v.load({ videoPath: _activeVideo, siblingPath: cb.checked ? _siblingVideo : null });
+    _applyCamLabels();
+  });
+}
+
 // ── Extractor reset ───────────────────────────────────────────────────────────
 
 function _resetExtractorUI() {
   _projectPath        = null;
   _activeVideo        = null;
+  _siblingVideo       = null;
+  _calibrationExists  = false;
   _activeSession      = null;
   _browserCurrentPath = null;
+
+  // Tear down the shared viewer so a re-open rebuilds cleanly.
+  _viewer?.destroy();
+  _viewer = null;
+  _frameExtractor = null;
 
   document.getElementById("dlc3d-player-section").style.display = "none";
   const browser = document.getElementById("dlc3d-file-browser");
@@ -63,11 +213,12 @@ function _resetExtractorUI() {
   _setStatus("");
   const labeledWrap = document.getElementById("labeled-wrap");
   if (labeledWrap) labeledWrap.style.display = "none";
-  const batchBtn  = document.getElementById("ep-batch-extract-btn");
-  const batchStop = document.getElementById("ep-batch-stop-btn");
-  if (batchBtn)  batchBtn.disabled = true;
-  if (batchStop) batchStop.classList.add("hidden");
-  _batchStopRequested = false;
+  const extractBtn = document.getElementById("ep-extract-btn");
+  const batchBtn   = document.getElementById("ep-batch-extract-btn");
+  const batchStop  = document.getElementById("ep-batch-stop-btn");
+  if (extractBtn) extractBtn.disabled = true;
+  if (batchBtn)   batchBtn.disabled = true;
+  if (batchStop)  batchStop.classList.add("hidden");
 }
 
 // ── Card open / close ─────────────────────────────────────────────────────────
@@ -211,9 +362,8 @@ async function _selectVideo(videoPath) {
 
   document.getElementById("dlc3d-player-section").style.display = "";
 
-  const camIdx = videoPath.match(/_cam(\d+)_/)?.[1] ?? "?";
-  document.getElementById("cam1-label").textContent = `Camera ${camIdx} (primary)`;
-
+  // Sibling-camera discovery (consumer-owned — the viewer's sibling endpoint is
+  // intentionally omitted so we control when the 2nd tile appears via sync-cam).
   let siblingPath        = null;
   let calibrationExists  = false;
   try {
@@ -225,157 +375,33 @@ async function _selectVideo(videoPath) {
     }
   } catch (e) { console.warn("[dlc_3d] sibling-camera fetch failed:", e); }
 
-  if (siblingPath) {
-    const sibCamIdx = siblingPath.match(/_cam(\d+)_/)?.[1] ?? "?";
-    document.getElementById("cam2-label").textContent = `Camera ${sibCamIdx} (sibling)`;
-  }
+  _siblingVideo      = siblingPath || null;
+  _calibrationExists = !!calibrationExists;
 
   _setStatus("");
-  await openPlayer(videoPath, siblingPath, calibrationExists);
+  const v = _ensureViewer();
+  _setupSyncCamToggle(v);                       // wires #ep-sync-cam (calibration-gated)
+  const syncOn = document.getElementById("ep-sync-cam")?.checked;
+  await v.load({ videoPath, siblingPath: syncOn ? _siblingVideo : null });
+  _applyCamLabels();
   _refreshLabeledFrames();
 }
 
-// ── Extract ───────────────────────────────────────────────────────────────────
-
-function _setBatchUIRunning(running) {
-  const single = document.getElementById("ep-extract-btn");
-  const batch  = document.getElementById("ep-batch-extract-btn");
-  const stop   = document.getElementById("ep-batch-stop-btn");
-  if (single) single.disabled = running;
-  if (batch)  batch.disabled  = running;
-  if (stop)   stop.classList.toggle("hidden", !running);
-}
-
-async function _extractBatch() {
-  const primaryVideo = getVideoPath();
-  const siblingPath  = getSiblingPath();
-  if (!primaryVideo || !_projectPath) {
-    if (!_projectPath) _setStatus("No project loaded.");
-    return;
+// Re-label the viewer's generated tiles with the camera indices (parity with the
+// old "Camera N (primary)" / "Camera N (sibling)" labels). Tiles are rebuilt on
+// every load(), so this runs after each load.
+function _applyCamLabels() {
+  if (!_viewer) return;
+  const t0 = _viewer.getTile(0);
+  if (t0 && t0.labelEl) {
+    const idx = (_activeVideo || "").match(/_cam(\d+)_/)?.[1] ?? "?";
+    t0.labelEl.textContent = `Camera ${idx} (primary)`;
   }
-
-  let frameCount;
-  try {
-    const resp = await fetch(`/dlc-3d/video-info?video=${encodeURIComponent(primaryVideo)}`);
-    if (!resp.ok) { _setStatus("Cannot load video info"); return; }
-    const info = await resp.json();
-    if (typeof info.frame_count !== "number") { _setStatus("Invalid video info"); return; }
-    frameCount = info.frame_count;
-  } catch (e) { _setStatus("Network error: " + e.message); return; }
-
-  const startFrame = getCurrentFrame();
-  const requested  = Math.max(2, parseInt(document.getElementById("ep-batch-count").value, 10) || 10);
-  const step       = Math.max(1, parseInt(document.getElementById("ep-batch-step").value,  10) || 1);
-  const maxCount   = Math.floor((frameCount - 1 - startFrame) / step) + 1;
-  const count      = Math.min(requested, maxCount);
-  if (count < 1) { _setStatus("No frames available from this position."); return; }
-
-  const extractSibling   = isSyncCamEnabled()
-    ? (document.getElementById("ep-extract-sibling")?.checked ?? true)
-    : false;
-  const siblingExtracted = extractSibling && !!siblingPath;
-  const clamped          = count < requested;
-
-  _batchStopRequested = false;
-  _setBatchUIRunning(true);
-
-  let saved = 0, skipped = 0, aborted = false, errored = false;
-  let calibrationCopied = false;
-  for (let i = 0; i < count; i++) {
-    if (_batchStopRequested) { aborted = true; break; }
-    const targetFrame = startFrame + i * step;
-    _setStatus(`Saving… ${i + 1}/${count}`);
-    const body = {
-      primary_video:        primaryVideo,
-      primary_frame_number: targetFrame,
-      extract_sibling:      extractSibling,
-    };
-    if (siblingExtracted) {
-      body.sibling_video        = siblingPath;
-      body.sibling_frame_number = targetFrame;
-    }
-    try {
-      const resp = await fetch("/dlc-3d/save-frame", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-      });
-      const data = await resp.json();
-      if (resp.ok) {
-        saved   += (data.saved   || []).length;
-        skipped += (data.skipped || []).length;
-        if (data.calibration_copied) calibrationCopied = true;
-      } else {
-        _setStatus(`Server error at frame ${targetFrame}: ${data.error || resp.status}`);
-        errored = true;
-        break;
-      }
-    } catch (e) {
-      _setStatus(`Network error at frame ${targetFrame}: ${e.message}`);
-      errored = true;
-      break;
-    }
-    if (i < count - 1) await epLoadFrameAt(targetFrame + step);
+  const t1 = _viewer.getTile(1);
+  if (t1 && t1.labelEl) {
+    const idx = (_siblingVideo || "").match(/_cam(\d+)_/)?.[1] ?? "?";
+    t1.labelEl.textContent = `Camera ${idx} (sibling)`;
   }
-
-  _setBatchUIRunning(false);
-  if (!errored) {
-    const sibTag    = siblingExtracted ? " (×2 sibling)" : "";
-    const clampTag  = clamped ? ` (clamped from ${requested})` : "";
-    const calibTag  = calibrationCopied ? " — calibration.toml copied" : "";
-    _setStatus(aborted
-      ? `Stopped — saved ${saved}${sibTag}, skipped ${skipped}${clampTag}${calibTag}`
-      : `Done — saved ${saved}${sibTag}, skipped ${skipped}${clampTag}${calibTag}`);
-  }
-  _refreshLabeledFrames();
-}
-
-async function _extractFrame() {
-  const primaryVideo   = getVideoPath();
-  const primaryFrame   = getCurrentFrame();
-  const siblingPath    = getSiblingPath();
-  const extractSibling = isSyncCamEnabled()
-    ? (document.getElementById("ep-extract-sibling")?.checked ?? true)
-    : false;
-
-  if (!primaryVideo || primaryFrame == null || !_projectPath) {
-    if (!_projectPath) _setStatus("No project loaded.");
-    return;
-  }
-
-  const extractBtn = document.getElementById("ep-extract-btn");
-  if (extractBtn) extractBtn.disabled = true;
-  _setStatus("Saving…");
-
-  const body = {
-    primary_video:        primaryVideo,
-    primary_frame_number: primaryFrame,
-    extract_sibling:      extractSibling,
-  };
-  if (extractSibling && siblingPath) {
-    body.sibling_video        = siblingPath;
-    body.sibling_frame_number = primaryFrame;
-  }
-
-  let data;
-  try {
-    const resp = await fetch("/dlc-3d/save-frame", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-    });
-    data = await resp.json();
-    if (!resp.ok) { _setStatus(data.error || "Save failed"); return; }
-  } catch (e) { _setStatus("Network error: " + e.message); return; }
-  finally { if (extractBtn) extractBtn.disabled = false; }
-
-  const calibTag = data.calibration_copied ? " — calibration.toml copied" : "";
-  if (data.saved && data.saved.length > 0) {
-    _setStatus(`Saved: ${data.saved.join(", ")}${calibTag}`);
-  } else if (data.skipped && data.skipped.length > 0) {
-    _setStatus(`Frame ${primaryFrame} already extracted — skipped.${calibTag}`);
-  }
-  _refreshLabeledFrames();
 }
 
 // ── Labeled frames display ────────────────────────────────────────────────────
@@ -439,9 +465,8 @@ document.addEventListener("DOMContentLoaded", () => {
 
   document.getElementById("btn-open-frame-extractor")?.addEventListener("click", _openCard);
   document.getElementById("btn-close-3d-extract")?.addEventListener("click", _closeCard);
-  document.getElementById("ep-extract-btn")?.addEventListener("click", _extractFrame);
-  document.getElementById("ep-batch-extract-btn")?.addEventListener("click", _extractBatch);
-  document.getElementById("ep-batch-stop-btn")?.addEventListener("click", () => { _batchStopRequested = true; });
+  // Extract / Batch / Stop buttons are wired by the frameExtractor feature
+  // (in _ensureViewer) once a video is selected — no static listeners here.
 
   document.getElementById("dlc3d-browse-btn")?.addEventListener("click", () => {
     const browser   = document.getElementById("dlc3d-file-browser");
