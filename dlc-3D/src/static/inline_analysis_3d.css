@@ -124,3 +124,10 @@
 #inline-analysis-3d-card .vv-tag-chip.active {
   background: var(--chip-color, var(--accent)); color: #0d1117; font-weight: 600;
 }
+
+#inline-analysis-3d-card .ia3d-skip-preset {
+  width: 28px; padding: 2px 0; font-size: .68rem; font-family: var(--mono);
+  text-align: center; border: 1px solid var(--border); border-radius: 10px;
+  background: transparent; color: var(--text-dim); cursor: pointer;
+}
+#inline-analysis-3d-card .ia3d-skip-preset.active { border-color: var(--accent); color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, transparent); }

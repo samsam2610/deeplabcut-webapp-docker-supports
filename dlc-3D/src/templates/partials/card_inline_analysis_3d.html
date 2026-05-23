@@ -222,6 +222,12 @@
           <input type="number" id="ia3d-skip-n" value="10" min="1" max="9999" step="1"
             title="Frames to skip (Ctrl+← / Ctrl+→)"
             style="width:72px;text-align:center;font-family:var(--mono);font-size:.78rem;padding:.18rem .3rem;background:var(--surface-2);border:1px solid var(--border);border-radius:5px;color:var(--text)" />
+          <span class="ia3d-skip-presets" style="display:inline-flex;gap:.2rem">
+            <button type="button" class="ia3d-skip-preset" data-n="1">1</button>
+            <button type="button" class="ia3d-skip-preset" data-n="5">5</button>
+            <button type="button" class="ia3d-skip-preset" data-n="10">10</button>
+            <button type="button" class="ia3d-skip-preset" data-n="30">30</button>
+          </span>
           <button id="ia3d-btn-skip-fwd" class="btn-sm fe-ctrl-btn" title="Skip forward N frames (Ctrl+→)">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><polyline points="5 18 11 12 5 6"/><polyline points="11 18 17 12 11 6"/></svg>
           </button>

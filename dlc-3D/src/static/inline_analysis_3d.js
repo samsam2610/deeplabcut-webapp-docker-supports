@@ -234,6 +234,24 @@ function _wireViewerChrome(v) {
   // Prevent arrow keys in the skip-N field from bubbling to viewer keynav.
   $("ia3d-skip-n")?.addEventListener("keydown", (e) => e.stopPropagation());
 
+  // Skip-size presets (clip-cutter's quick step levels): set skip-N + mark active.
+  const _syncSkipPresets = () => {
+    const n = skipN();
+    document.querySelectorAll("#inline-analysis-3d-card .ia3d-skip-preset").forEach((b) => {
+      b.classList.toggle("active", parseInt(b.dataset.n, 10) === n);
+    });
+  };
+  document.querySelectorAll("#inline-analysis-3d-card .ia3d-skip-preset").forEach((b) => {
+    b.addEventListener("click", () => {
+      const skip = $("ia3d-skip-n");
+      if (skip) skip.value = b.dataset.n;
+      v.setSkipN(parseInt(b.dataset.n, 10));
+      _syncSkipPresets();
+    });
+  });
+  $("ia3d-skip-n")?.addEventListener("input", _syncSkipPresets);
+  _syncSkipPresets();
+
   // Playback rate + step.
   $("ia3d-play-fps")?.addEventListener("input", (e) => v.setFps(e.target.value));
   $("ia3d-play-step")?.addEventListener("input", (e) => v.setPlayStep(e.target.value));

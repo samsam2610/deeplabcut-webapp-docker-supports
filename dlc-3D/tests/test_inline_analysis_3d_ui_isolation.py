@@ -346,3 +346,10 @@ def test_granular_player_controls_present():
     # play-back wires the library's reverse direction; frame-jump seeks to the typed frame
     assert "setPlayDir(-1)" in js, "play-back must drive VideoViewer.setPlayDir(-1)"
     assert 'ia3d-btn-play-back' in js and 'ia3d-frame-jump' in js, "granular controls not wired"
+
+
+def test_skip_presets_present_and_wired():
+    html = (ROOT / "src" / "templates" / "partials" / "card_inline_analysis_3d.html").read_text()
+    assert 'class="ia3d-skip-preset"' in html, "skip-size preset buttons missing"
+    js = JS.read_text()
+    assert "ia3d-skip-preset" in js and "setSkipN" in js, "skip presets not wired to setSkipN"
