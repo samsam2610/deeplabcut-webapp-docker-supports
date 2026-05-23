@@ -86,3 +86,25 @@
 #view-analyzed-3d-card .vv-tag-chip.active {
   background: var(--chip-color, var(--accent)); color: #0d1117; font-weight: 600;
 }
+
+/* Body-part chips (markerEditor sets class vv-bp-chip + a --bp-color per chip). */
+#view-analyzed-3d-card .vv-bp-chip {
+  display: inline-flex; align-items: center; gap: .35rem;
+  padding: .26rem .55rem; border-radius: 6px;
+  border: 1px solid var(--border); background: var(--surface-2);
+  color: var(--text-dim); font-family: var(--mono); font-size: .75rem;
+  cursor: pointer; user-select: none;
+  transition: border-color .15s, background .15s, color .15s;
+}
+#view-analyzed-3d-card .vv-bp-chip::before {
+  content: ""; width: 8px; height: 8px; border-radius: 50%;
+  background: var(--bp-color, var(--accent-dim)); flex-shrink: 0;
+}
+#view-analyzed-3d-card .vv-bp-chip:hover { border-color: var(--bp-color, var(--accent)); color: var(--text); }
+#view-analyzed-3d-card .vv-bp-chip.active {
+  border-color: var(--bp-color, var(--accent));
+  background: color-mix(in srgb, var(--bp-color, var(--accent)) 16%, transparent);
+  color: var(--text);
+}
+#view-analyzed-3d-card .vv-bp-chip.labeled { font-weight: 600; color: var(--text); }
+#view-analyzed-3d-card .vv-bp-chip.vis-hidden { opacity: .45; }

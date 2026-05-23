@@ -77,12 +77,41 @@
   border-color: var(--accent);
   box-shadow: 0 0 0 2px var(--accent);
 }
-#ia3d-viewer-mount .vv-tile-size-row { display: flex; align-items: center; gap: .35rem; margin-top: .25rem; }
-#ia3d-viewer-mount .vv-tile-size { flex: 1; accent-color: var(--accent); }
-#ia3d-viewer-mount .vv-tile-size-val {
-  font-family: var(--mono); font-size: .7rem; color: var(--text-dim);
-  min-width: 2.5rem; text-align: right;
+/* Per-view size slider: small + pinned ABOVE the image (order:-1, below the
+   label), mirroring the old .ia3d-tile-header — not a full-width bottom bar. */
+#ia3d-viewer-mount .vv-tile-size-row {
+  order: -1; display: flex; align-items: center; justify-content: flex-end;
+  gap: .3rem; margin: 0 0 .25rem;
 }
+#ia3d-viewer-mount .vv-tile-size { flex: none; width: 72px; accent-color: var(--accent); height: 14px; }
+#ia3d-viewer-mount .vv-tile-size-val {
+  font-family: var(--mono); font-size: .68rem; color: var(--text-dim);
+  min-width: 2.4rem; text-align: right;
+}
+
+/* Body-part chips (markerEditor sets class vv-bp-chip + a --bp-color per chip).
+   Without this the chips render uncolored. Colored dot = the bp's palette color;
+   active/labeled/vis-hidden mirror the old fl-bp-chip states. */
+#inline-analysis-3d-card .vv-bp-chip {
+  display: inline-flex; align-items: center; gap: .35rem;
+  padding: .26rem .55rem; border-radius: 6px;
+  border: 1px solid var(--border); background: var(--surface-2);
+  color: var(--text-dim); font-family: var(--mono); font-size: .75rem;
+  cursor: pointer; user-select: none;
+  transition: border-color .15s, background .15s, color .15s;
+}
+#inline-analysis-3d-card .vv-bp-chip::before {
+  content: ""; width: 8px; height: 8px; border-radius: 50%;
+  background: var(--bp-color, var(--accent-dim)); flex-shrink: 0;
+}
+#inline-analysis-3d-card .vv-bp-chip:hover { border-color: var(--bp-color, var(--accent)); color: var(--text); }
+#inline-analysis-3d-card .vv-bp-chip.active {
+  border-color: var(--bp-color, var(--accent));
+  background: color-mix(in srgb, var(--bp-color, var(--accent)) 16%, transparent);
+  color: var(--text);
+}
+#inline-analysis-3d-card .vv-bp-chip.labeled { font-weight: 600; color: var(--text); }
+#inline-analysis-3d-card .vv-bp-chip.vis-hidden { opacity: .45; }
 
 /* Library-rendered timeline chips (StatusNoteTimeline). Mirror the card chip look. */
 #inline-analysis-3d-card .vv-tag-chip {
