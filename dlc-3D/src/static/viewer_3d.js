@@ -1,13 +1,11 @@
 // viewer_3d.js — "View Analyzed" card consumer module.
 //
-// Phase 4b Step 2a (CORE only): thin consumer that composes the shared
-// VideoViewer library (player + multi-tile frame-locked seek + sync-cam),
-// plus the launcher (content list, Project/Browse tabs, folder browser, the
-// three open functions covering the 3 frame modes).
-//
-// The overlay panel, CSV annotation timeline, and dataset-curation tools are
-// STUBBED here — see the TODO(4b-2b/2c/2d) markers below; their DOM stays inert
-// until later steps wire markerEditor / statusNoteTimeline / curation glue.
+// Thin consumer that composes the shared VideoViewer library (player + multi-
+// tile frame-locked seek + sync-cam) with three feature modules — markerEditor
+// (kinematic pose overlay + marker editing), statusNoteTimeline (companion-CSV
+// status/note bars), plus consumer-owned dataset-curation glue (Extract Frame /
+// Add to Dataset / Batch Add) — and the launcher (content list, Project/Browse
+// tabs, folder browser, the three open functions covering the 3 frame modes).
 //
 // Mirrors the dlc_3d.js (4a) pattern: a VideoViewer instance with injected
 // endpoints, an _ensureViewer() builder, a _wireViewerChrome() binder, and a
@@ -175,9 +173,9 @@ function _ensureViewer() {
   });
   _viewer.on("frameChange", () => _updateMetaStrip());
 
-  // TODO(4b-2d): dataset curation — compose curation glue here
-  //   (#va3d-curation-*, #va3d-extract-frame-btn, batch add, both-cams,
-  //    Finalize toggle).
+  // Dataset-curation consumer glue (Phase 4b Step 2d): master toggle + Extract
+  // Frame / Add to Dataset / Batch Add, with both-cams fan-out in sync mode.
+  _wireCurationChrome();
 
   _wireViewerChrome(_viewer);
   return _viewer;
@@ -245,6 +243,7 @@ function _wireViewerChrome(v) {
     });
     if (keepFrame > 0) v.seek(keepFrame);
     _applyCamLabels();
+    _updateBothCamsVisibility();
   });
 
   // ── Frame-driven UI updates ──────────────────────────────────────────────
@@ -253,6 +252,7 @@ function _wireViewerChrome(v) {
     _updateCounters(0, frameCount);
     _applyCamLabels();
     _updateSyncRow();
+    _updateBothCamsVisibility();
   });
 
   v.on("frameChange", (n) => {
@@ -604,6 +604,236 @@ async function _vaSaveAdjustments() {
   }
 }
 
+// ── Dataset-curation consumer glue ───────────────────────────────────────────
+//
+// Mirrors the old viewer_3d.js curation block: a master toggle (#va3d-curation-
+// toggle) reveals the curation controls; Extract Frame / Add to Dataset / Batch
+// Add write frames into labeled-data via the curator endpoints. In sync mode with
+// "both cams" ticked, extraction fans out to both tiles atomically via
+// /dlc-3d/save-frame (raw PNGs + calibration copy); otherwise the single-cam
+// curator endpoints are used. Wired once in _ensureViewer (the controls live in
+// the static card markup and persist across viewer rebuilds, so a guard avoids
+// double-binding). Frames mode has no real video, so all three actions no-op
+// with a hint.
+
+let _curationChromeWired = false;
+let _curationMsgTimer = null;
+
+// Curation status line with a 4s auto-clear for success messages (errors stay
+// until the next action). Single source of truth for #va3d-curation-status.
+function _curStatus(msg, isErr = false) {
+  const el = $("va3d-curation-status");
+  if (!el) return;
+  el.textContent = msg || "";
+  el.className = "fe-extract-status" + (isErr ? " err" : "");
+  if (_curationMsgTimer) clearTimeout(_curationMsgTimer);
+  if (msg && !isErr) {
+    _curationMsgTimer = setTimeout(() => { el.textContent = ""; }, 4000);
+  }
+}
+
+// Reveal #va3d-both-cams-label only when a sibling tile is mounted and curation
+// is enabled (parity with the old _va3dUpdateBothCamsVisibility — syncOn is
+// modelled as "a 2nd tile exists" in the library).
+function _updateBothCamsVisibility() {
+  const both = $("va3d-both-cams-label");
+  if (!both) return;
+  const curationOn = !!$("va3d-curation-toggle")?.checked;
+  const syncOn = !!_viewer && _viewer.tiles.length > 1;
+  both.style.display = (syncOn && curationOn) ? "inline-flex" : "none";
+}
+
+// True when extraction should fan out to both cams: the "both cams" box is ticked
+// and a sibling tile is currently mounted.
+function _shouldDoubleUp() {
+  const cb = $("va3d-both-cams");
+  return !!(cb && cb.checked && _viewer && _viewer.tiles.length > 1);
+}
+
+// Per-mode single-cam curator body (matches the old _videoRequestBody): browse
+// mode sends the absolute video_path, project-video mode sends the basename.
+function _curatorBody(frameNum) {
+  const n = (frameNum !== undefined) ? frameNum : _viewer.currentFrame();
+  const body = { frame_number: n };
+  if (_vaMode === "browse-video" && _browsePath) body.video_path = _browsePath;
+  else if (_vaMode === "video" && _videoName) body.video_name = _videoName;
+  return body;
+}
+
+// Atomic both-cams extraction → /dlc-3d/save-frame (primary + sibling PNGs into
+// labeled-data/<session>/ with cam-tagged names + a calibration copy). Returns
+// { ok, body } / { ok:false, error }.
+async function _saveFramePair(frameNum) {
+  const t0 = _viewer?.getTile(0);
+  const t1 = _viewer?.getTile(1);
+  if (!t0?.videoRel || !t1?.videoRel) return { ok: false, error: "missing tile videoRel" };
+  try {
+    const r = await fetch("/dlc-3d/save-frame", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        primary_video: t0.videoRel,
+        primary_frame_number: frameNum,
+        extract_sibling: true,
+        sibling_video: t1.videoRel,
+        sibling_frame_number: frameNum,
+      }),
+    });
+    if (!r.ok) {
+      let err;
+      try { err = (await r.clone().json()).error; } catch { err = await r.text(); }
+      return { ok: false, error: err || `HTTP ${r.status}` };
+    }
+    return { ok: true, body: await r.json() };
+  } catch (err) {
+    return { ok: false, error: err.message };
+  }
+}
+
+// Format a /dlc-3d/save-frame response body into a user status line.
+function _pairSavedMsg(data) {
+  const saved = (data.saved || []).join(", ");
+  const skipped = (data.skipped || []).length;
+  const folder = data.session_folder || "";
+  const calNote = data.calibration_copied ? " + calibration" : "";
+  const dup = (n) => `${n} duplicate${n !== 1 ? "s" : ""}`;
+  if (saved && skipped) return `Saved ${saved} (${folder}${calNote}); ${dup(skipped)} skipped`;
+  if (saved) return `Saved ${saved} (${folder}${calNote})`;
+  return `All frames already extracted (${dup(skipped)})`;
+}
+
+function _wireCurationChrome() {
+  if (_curationChromeWired) return;
+  _curationChromeWired = true;
+
+  // Master toggle → reveal controls + sync the both-cams label.
+  const toggle = $("va3d-curation-toggle");
+  toggle?.addEventListener("change", () => {
+    $("va3d-curation-controls")?.classList.toggle("hidden", !toggle.checked);
+    _updateBothCamsVisibility();
+  });
+
+  // Extract Frame: raw PNG(s) into labeled-data (no CSV entry).
+  const extractBtn = $("va3d-extract-frame-btn");
+  extractBtn?.addEventListener("click", async () => {
+    if (!_vaMode || _vaMode === "frames") {
+      _curStatus("No video loaded — open a video first.", true);
+      return;
+    }
+    extractBtn.disabled = true;
+    _curStatus("Extracting…");
+    if (_shouldDoubleUp()) {
+      const res = await _saveFramePair(_viewer.currentFrame());
+      if (res.ok) _curStatus(_pairSavedMsg(res.body || {}));
+      else _curStatus(`Extract failed: ${res.error || "unknown"}`, true);
+    } else {
+      try {
+        const r = await fetch("/dlc/curator/extract-frame", {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(_curatorBody()),
+        });
+        const data = await r.json();
+        if (!r.ok) throw new Error(data.error || `HTTP ${r.status}`);
+        _curStatus(data.duplicate
+          ? `Already extracted: ${data.saved}`
+          : `Saved ${data.saved} (${data.folder}, #${data.frame_count})`);
+      } catch (err) {
+        _curStatus(`Extract failed: ${err.message}`, true);
+      }
+    }
+    extractBtn.disabled = false;
+  });
+
+  // Add to Dataset: in sync+both-cams mode this saves raw PNG pairs (no CSV, per
+  // the dlc-3d workflow); single-cam writes a blank CollectedData CSV/H5 entry.
+  const addBtn = $("va3d-add-to-dataset-btn");
+  addBtn?.addEventListener("click", async () => {
+    if (!_vaMode || _vaMode === "frames") {
+      _curStatus("No video loaded — open a video first.", true);
+      return;
+    }
+    addBtn.disabled = true;
+    if (_shouldDoubleUp()) {
+      _curStatus("Saving frame pair…");
+      const res = await _saveFramePair(_viewer.currentFrame());
+      if (res.ok) _curStatus(_pairSavedMsg(res.body || {}));
+      else _curStatus(`Save failed: ${res.error || "unknown"}`, true);
+    } else {
+      _curStatus("Adding to dataset…");
+      try {
+        const r = await fetch("/dlc/curator/add-to-dataset", {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(_curatorBody()),
+        });
+        const data = await r.json();
+        if (!r.ok) throw new Error(data.error || `HTTP ${r.status}`);
+        const h5note = data.h5_updated ? " + H5" : "";
+        _curStatus(data.duplicate
+          ? `Already in dataset: ${data.saved}`
+          : `Added ${data.saved} to CSV${h5note} (${data.frame_count} frames)`);
+      } catch (err) {
+        _curStatus(`Failed: ${err.message}`, true);
+      }
+    }
+    addBtn.disabled = false;
+  });
+
+  // Batch Add: add `count` frames spaced `step` apart, starting at the current
+  // frame. Seeks the player to each frame as it goes (so the user sees progress);
+  // both-cams mode aborts on the first error, single-cam mode tallies errors.
+  const batchBtn = $("va3d-batch-add-btn");
+  batchBtn?.addEventListener("click", async () => {
+    if (!_vaMode || _vaMode === "frames") {
+      _curStatus("No video loaded — open a video first.", true);
+      return;
+    }
+    const count = Math.max(1, parseInt($("va3d-batch-count")?.value, 10) || 10);
+    const step = Math.max(1, parseInt($("va3d-batch-step")?.value, 10) || 30);
+    batchBtn.disabled = true;
+    const doubleUp = _shouldDoubleUp();
+    let added = 0, dupes = 0, errors = 0;
+    const start = _viewer.currentFrame();
+    let lastFrame = start, aborted = false;
+    for (let i = 0; i < count; i++) {
+      const frameNum = start + i * step;
+      if (frameNum >= _frameCount) break;
+      lastFrame = frameNum;
+      _curStatus(`Batch adding… ${i + 1}/${count} (frame ${frameNum})`);
+      await _viewer.seek(frameNum);
+      if (doubleUp) {
+        const res = await _saveFramePair(frameNum);
+        if (!res.ok) {
+          errors++;
+          _curStatus(`Batch aborted at frame ${frameNum}: ${res.error || ""}`, true);
+          aborted = true;
+          break;
+        }
+        const data = res.body || {};
+        added += (data.saved || []).length;
+        dupes += (data.skipped || []).length;
+      } else {
+        try {
+          const r = await fetch("/dlc/curator/add-to-dataset", {
+            method: "POST", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(_curatorBody(frameNum)),
+          });
+          const data = await r.json();
+          if (!r.ok) { errors++; continue; }
+          if (data.duplicate) dupes++; else added++;
+        } catch (_) { errors++; }
+      }
+    }
+    if (lastFrame !== _viewer.currentFrame()) await _viewer.seek(lastFrame);
+    batchBtn.disabled = false;
+    if (!aborted) {
+      const parts = [];
+      if (added) parts.push(`${added} added`);
+      if (dupes) parts.push(`${dupes} duplicate${dupes !== 1 ? "s" : ""}`);
+      if (errors) parts.push(`${errors} error${errors !== 1 ? "s" : ""}`);
+      _curStatus(`Batch done: ${parts.join(", ") || "nothing to add"}.`, errors > 0 && added === 0);
+    }
+  });
+}
+
 // ── Three open functions (mode + state + load) ──────────────────────────────
 
 async function _vaOpenVideo(name) {
@@ -705,7 +935,14 @@ function _resetForOpen() {
   $("va3d-bp-list-wrap")?.classList.add("hidden");
   const ovStatus = $("va3d-overlay-status");
   if (ovStatus) ovStatus.textContent = "";
-  // TODO(4b-2d): reset curation panel here when wired.
+  // Curation panel reset (consumer glue). The handlers persist across rebuilds;
+  // clear the toggle, hide the controls + both-cams label, and clear the status.
+  const curToggle = $("va3d-curation-toggle");
+  if (curToggle) curToggle.checked = false;
+  $("va3d-curation-controls")?.classList.add("hidden");
+  const bothLabel = $("va3d-both-cams-label");
+  if (bothLabel) bothLabel.style.display = "none";
+  _curStatus("");
 }
 
 // Back button: tear down the viewer and hide the player section, returning to
