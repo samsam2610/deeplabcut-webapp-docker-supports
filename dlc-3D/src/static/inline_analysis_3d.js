@@ -91,7 +91,10 @@ function _ensureViewer() {
 
   _viewer = new VideoViewer({
     mount,
-    keyboardTarget: document.getElementById("inline-analysis-3d-card"),
+    // Document-scoped so shortcuts work whenever this card is open, regardless of
+    // which element has focus (the base gates on viewer visibility). Card-scoped
+    // would die the moment focus left the card (e.g. clicking the page body).
+    keyboardTarget: document,
     perTileSize: true,
     fps: 30,
     storagePrefix: "ia3d",

@@ -382,10 +382,12 @@ def test_clip_extractor_composed():
     assert "/dlc-3d/extract-clip" in js, "extractClip endpoint not injected"
 
 
-def test_inline_keyboard_scoped_to_card():
+def test_inline_keyboard_document_scoped():
     js = JS.read_text()
-    assert 'keyboardTarget' in js and 'inline-analysis-3d-card' in js, \
-        "inline viewer must scope keyboard to the card element so shortcuts survive button clicks"
+    # Document-scoped (not mount/card-scoped) so shortcuts work regardless of which
+    # element has focus while the card is open; the base gates on viewer visibility.
+    assert "keyboardTarget: document" in js, \
+        "inline viewer must use document keyboardTarget so shortcuts work regardless of focus"
 
 
 def test_surfaced_timeline_wraps_not_hidden_class():

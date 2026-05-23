@@ -74,3 +74,12 @@ def test_keyboard_target_configurable():
     assert "this._keyboardTarget" in src, "keyboard listener must use the configurable target"
     assert "this._keyboardTarget.addEventListener" in src, "keydown must attach to the configurable target"
     assert "this._keyboardTarget.removeEventListener" in src, "destroy must detach from the configurable target"
+
+
+def test_keydown_visibility_gated():
+    src = (ROOT / "src" / "static" / "components" / "viewer" / "video_viewer.js").read_text()
+    # A document-scoped keyboardTarget must stay inert while the viewer is hidden:
+    # _handleKeyDown bails when the mount is not visible (offsetParent === null).
+    i = src.index("_handleKeyDown(e) {")  # the method def, not the constructor's call site
+    body = src[i:i+400]
+    assert "offsetParent === null" in body, "_handleKeyDown must gate on viewer visibility (offsetParent)"

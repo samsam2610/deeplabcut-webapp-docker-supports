@@ -286,6 +286,11 @@ export class VideoViewer {
 
   // ── keyboard ──────────────────────────────────────────────
   _handleKeyDown(e) {
+    // Ignore when the viewer isn't visible — lets a document-scoped keyboardTarget
+    // (consumers that want shortcuts to work regardless of focus) stay inert while
+    // their card is hidden. For a mount-scoped target this is a benign no-op
+    // (a focused mount is visible).
+    if (this.mount.offsetParent === null) return;
     const t = e.target;
     if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA")) return;
     const intent = this._resolveKey({ key: e.key, ctrlKey: e.ctrlKey, shiftKey: e.shiftKey });
