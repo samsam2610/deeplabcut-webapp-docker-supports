@@ -150,6 +150,12 @@ export class VideoViewer {
 
     this._emit("videoLoad", { videoPath, frameCount: this._frameCount, tiles: this.tiles });
     await this.seek(0);
+    // Auto-focus so keyboard shortcuts work without an explicit click. Guarded:
+    // only when no input/textarea is focused (don't steal focus while typing).
+    const ae = this.mount.ownerDocument.activeElement;
+    if (!ae || (ae.tagName !== "INPUT" && ae.tagName !== "TEXTAREA")) {
+      try { this.mount.focus({ preventScroll: true }); } catch (_) { /* jsdom/no-op */ }
+    }
   }
 
   _createTile(desc) {
@@ -281,10 +287,14 @@ export class VideoViewer {
   _handleKeyDown(e) {
     const t = e.target;
     if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA")) return;
-    const intent = this._resolveKey({ key: e.key, ctrlKey: e.ctrlKey });
+    const intent = this._resolveKey({ key: e.key, ctrlKey: e.ctrlKey, shiftKey: e.shiftKey });
     if (!intent) return;
     e.preventDefault();
-    if (intent.type === "playPause") this.togglePlay();
+    if (intent.type === "playPause") { if (!this._playing) this.setPlayDir(1); this.togglePlay(); }
+    else if (intent.type === "playPauseDir") {
+      if (this._playing) this.pause();
+      else { this.setPlayDir(intent.dir); this.play(); }
+    }
     else if (intent.type === "step") this.step(intent.delta);
     else if (intent.type === "stepSkip") this.stepSkip(intent.dir);
   }

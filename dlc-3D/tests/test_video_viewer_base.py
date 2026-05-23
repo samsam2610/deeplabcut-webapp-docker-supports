@@ -56,3 +56,14 @@ def test_per_tile_sizing_sets_flex_grow():
 def test_hook_event_emitted(event):
     src = _src()
     assert f'"{event}"' in src or f"'{event}'" in src, f'VideoViewer must emit the "{event}" hook event'
+
+
+def test_keydown_passes_shift_and_handles_playdir():
+    src = (ROOT / "src" / "static" / "components" / "viewer" / "video_viewer.js").read_text()
+    assert "shiftKey: e.shiftKey" in src, "keydown must pass shiftKey to resolveKey"
+    assert 'intent.type === "playPauseDir"' in src, "base must handle playPauseDir intent"
+    assert "setPlayDir(1)" in src, "Space must set forward direction before toggling"
+
+def test_load_autofocuses_mount():
+    src = (ROOT / "src" / "static" / "components" / "viewer" / "video_viewer.js").read_text()
+    assert "this.mount.focus" in src, "load() must auto-focus the mount so keyboard works without a click"
