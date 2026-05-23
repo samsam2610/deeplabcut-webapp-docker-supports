@@ -9,7 +9,8 @@
 //     endpoints: { saveFrame: (payload) => fetchPromise },
 //     els: { extractBtn?, batchBtn?, batchStopBtn?, batchCount?, batchStep?,
 //            extractSibling?, statusDisplay? },
-//     onSaved?: () => void,   // called after a save/batch completes (e.g. refresh labeled list)
+//     onSaved?: () => void,   // called after a save/batch attempt (even on a partial/errored
+//                             // batch — any frames saved before the error are on disk)
 //   }));
 
 import {
@@ -78,29 +79,31 @@ export function frameExtractor(config = {}) {
     setBatchRunning(true);
 
     let saved = 0, skipped = 0, aborted = false, errored = false, calibCopied = false;
-    for (let i = 0; i < frames.length; i++) {
-      if (stopRequested) { aborted = true; break; }
-      const targetFrame = frames[i];
-      setStatus(`Saving… ${i + 1}/${count}`);
-      try {
-        const payload = buildSaveFramePayload({
-          primaryVideo, frameNumber: targetFrame, extractSibling, siblingVideo: sib,
-        });
-        const data = await (await endpoints.saveFrame(payload)).json();
-        if (data.error) { setStatus(`Server error at frame ${targetFrame}: ${data.error}`); errored = true; break; }
-        saved += (data.saved || []).length;
-        skipped += (data.skipped || []).length;
-        if (data.calibration_copied) calibCopied = true;
-      } catch (e) {
-        setStatus(`Network error at frame ${targetFrame}: ${e.message}`);
-        errored = true;
-        break;
+    try {
+      for (let i = 0; i < frames.length; i++) {
+        if (stopRequested) { aborted = true; break; }
+        const targetFrame = frames[i];
+        setStatus(`Saving… ${i + 1}/${count}`);
+        try {
+          const payload = buildSaveFramePayload({
+            primaryVideo, frameNumber: targetFrame, extractSibling, siblingVideo: sib,
+          });
+          const data = await (await endpoints.saveFrame(payload)).json();
+          if (data.error) { setStatus(`Server error at frame ${targetFrame}: ${data.error}`); errored = true; break; }
+          saved += (data.saved || []).length;
+          skipped += (data.skipped || []).length;
+          if (data.calibration_copied) calibCopied = true;
+        } catch (e) {
+          setStatus(`Network error at frame ${targetFrame}: ${e.message}`);
+          errored = true;
+          break;
+        }
+        if (i < frames.length - 1) await viewer.seek(frames[i + 1]);
       }
-      if (i < frames.length - 1) await viewer.seek(targetFrame + step);
+    } finally {
+      running = false;
+      setBatchRunning(false);
     }
-
-    running = false;
-    setBatchRunning(false);
     if (!errored) {
       const sibTag = (extractSibling && sib) ? " (×2 sibling)" : "";
       const clampTag = clamped ? ` (clamped from ${requested})` : "";
@@ -120,7 +123,7 @@ export function frameExtractor(config = {}) {
       if (els.extractBtn) els.extractBtn.addEventListener("click", saveFrame, sig);
       if (els.batchBtn) els.batchBtn.addEventListener("click", saveBatch, sig);
       if (els.batchStopBtn) els.batchStopBtn.addEventListener("click", () => { stopRequested = true; }, sig);
-      v.on("teardown", () => ac.abort());
+      v.on("teardown", () => { stopRequested = true; ac.abort(); });
     },
   };
 }
