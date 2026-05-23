@@ -4,6 +4,18 @@
 **Status:** Approved (pre-approved for implementation)
 **Scope:** Frontend-only JS library. Migrate dlc-3D's three viewer forks onto it. clip-cutter frozen as the origin. Python backends stay parallel (endpoints injected via config).
 
+> **Update (2026-05-23):** Phase 3 implemented FOUR features, not the originally-listed set:
+> `StatusNoteTimeline`, `FrameExtractor`, `ClipExtractor`, `MarkerEditor`.
+> - The single "ExtractModule" was split into **FrameExtractor** (add frames to `labeled-data/`)
+>   and **ClipExtractor** (trim the master clip, behind an unchecked-by-default toggle), per the
+>   two distinct extract workflows.
+> - **CurationModule was dropped:** the inline-analysis "curation block" is ~95% composition of
+>   `StatusNoteTimeline` + `FrameExtractor` (which already does both-cams) under a consumer-side
+>   "curation mode" show/hide toggle — no genuinely-new reusable logic. "Finalize-analysis"
+>   (`/dlc/project/inline-analysis/finalize-range`) is a separate feature, not curation, and is
+>   not part of this library.
+> See the phase plans in `docs/superpowers/plans/2026-05-2[23]-video-viewer-library-phase*`.
+
 ---
 
 ## 1. Background & motivation
