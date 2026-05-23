@@ -368,3 +368,15 @@ def test_size_row_left_aligned_and_help_present():
     assert "flex-start" in css[i:i+200], "size-row must be left-aligned (justify-content:flex-start)"
     html = (ROOT / "src" / "templates" / "partials" / "card_inline_analysis_3d.html").read_text()
     assert 'id="ia3d-help-btn"' in html and 'id="ia3d-help-tooltip"' in html, "shortcuts help missing"
+
+
+def test_clip_extractor_composed():
+    html = (ROOT / "src" / "templates" / "partials" / "card_inline_analysis_3d.html").read_text()
+    for el in ("ia3d-clip-enable", "ia3d-clip-panel", "ia3d-clip-start",
+               "ia3d-clip-frames", "ia3d-clip-extract-btn"):
+        assert f'id="{el}"' in html, f"missing clip element {el}"
+    i = html.index('id="ia3d-clip-enable"')
+    assert "checked" not in html[i-120:i+120], "clip-extract enable must be UNCHECKED by default"
+    js = JS.read_text()
+    assert "clipExtractor(" in js, "clipExtractor not composed"
+    assert "/dlc-3d/extract-clip" in js, "extractClip endpoint not injected"

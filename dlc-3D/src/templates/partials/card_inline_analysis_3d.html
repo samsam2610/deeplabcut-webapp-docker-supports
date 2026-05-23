@@ -404,6 +404,29 @@
         </div>
         <!-- ── end Dataset Curation Panel ──────────────────────────── -->
 
+        <!-- ── Create Clip (trim current range, both cams) ──────────── -->
+        <div id="ia3d-clip-panel-wrap" style="margin-top:.65rem;padding:.5rem .65rem;background:var(--surface-2);border:1px solid var(--border);border-radius:7px">
+          <label style="display:flex;align-items:center;gap:.45rem;font-size:.8rem;font-weight:500;cursor:pointer;user-select:none">
+            <input type="checkbox" id="ia3d-clip-enable" style="accent-color:var(--accent);width:14px;height:14px"/>
+            Create Clip
+          </label>
+          <div id="ia3d-clip-panel" class="hidden" style="margin-top:.5rem;display:flex;flex-direction:column;gap:.4rem">
+            <div style="display:flex;align-items:center;gap:.4rem;flex-wrap:wrap;font-size:.78rem;color:var(--text-dim)">
+              <label>start <input type="number" id="ia3d-clip-start" min="0" value="0" style="width:5.5rem;font-family:var(--mono);background:var(--surface);border:1px solid var(--border);border-radius:5px;color:var(--text);padding:.2rem .3rem"></label>
+              <label>length <input type="number" id="ia3d-clip-frames" min="1" value="800" style="width:5rem;font-family:var(--mono);background:var(--surface);border:1px solid var(--border);border-radius:5px;color:var(--text);padding:.2rem .3rem"></label>
+              <label>end <input type="number" id="ia3d-clip-end" readonly style="width:5.5rem;font-family:var(--mono);background:var(--surface-2);border:1px solid var(--border);border-radius:5px;color:var(--text-dim);padding:.2rem .3rem"></label>
+              <label style="display:flex;align-items:center;gap:.3rem"><input type="checkbox" id="ia3d-clip-sibling" checked style="accent-color:var(--accent)">both cams</label>
+            </div>
+            <div style="display:flex;align-items:center;gap:.4rem;flex-wrap:wrap">
+              <input type="text" id="ia3d-clip-postfix" placeholder="postfix (optional)" style="flex:1;min-width:120px;font-size:.78rem;background:var(--surface);border:1px solid var(--border);border-radius:5px;color:var(--text);padding:.22rem .4rem">
+              <button class="btn-sm btn-create" id="ia3d-clip-extract-btn">Extract Clip</button>
+              <button class="btn-sm" id="ia3d-clip-rename-btn" style="opacity:.8">Rename</button>
+              <button class="btn-sm" id="ia3d-clip-delete-btn" style="opacity:.7">Delete</button>
+            </div>
+            <span id="ia3d-clip-status" class="fe-extract-status"></span>
+          </div>
+        </div>
+
         <!-- ── Finalize Analysis Panel ─────────────────────────────── -->
         <div id="ia3d-finalize-panel" style="margin-top:.65rem;padding:.5rem .65rem;background:var(--surface-2);border:1px solid var(--border);border-radius:7px">
           <label style="display:flex;align-items:center;gap:.45rem;font-size:.8rem;font-weight:500;cursor:pointer;user-select:none">

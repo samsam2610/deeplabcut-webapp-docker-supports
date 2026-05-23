@@ -19,6 +19,7 @@
 import { VideoViewer } from "./components/viewer/video_viewer.js";
 import { statusNoteTimeline } from "./components/viewer/features/status_notes.js";
 import { markerEditor } from "./components/viewer/features/marker_editor.js";
+import { clipExtractor } from "./components/viewer/features/clip_extractor.js";
 import { state } from "/static/js/state.js";
 
 // ── Module state ────────────────────────────────────────────────────────────
@@ -180,6 +181,38 @@ function _ensureViewer() {
     },
     fps: _fps,
     frameBase: 0,
+  }));
+
+  // Clip creation: trim the current frame range → <stem>/clip folder via the
+  // dlc-3d backend. The library feature calls extractClip once per cam; remap its
+  // payload (start_fn/end_fn) to the backend's (start_frame/n_frames). Enable
+  // checkbox is unchecked by default; the panel stays hidden until enabled.
+  _viewer.use(clipExtractor({
+    storagePrefix: "ia3d",
+    defaultFrames: 800,
+    endpoints: {
+      extractClip: (p) => fetch("/dlc-3d/extract-clip", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          video_path: p.video_path, start_frame: p.start_fn,
+          n_frames: (p.end_fn - p.start_fn + 1), postfix: p.postfix,
+        }),
+      }),
+      rename: (p) => fetch("/dlc-3d/extract-clip/rename", {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(p),
+      }),
+      del: (p) => fetch("/dlc-3d/extract-clip/delete", {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(p),
+      }),
+    },
+    els: {
+      enable: $("ia3d-clip-enable"), panel: $("ia3d-clip-panel"),
+      startInput: $("ia3d-clip-start"), framesInput: $("ia3d-clip-frames"),
+      endDisplay: $("ia3d-clip-end"), postfixInput: $("ia3d-clip-postfix"),
+      extractBtn: $("ia3d-clip-extract-btn"), renameBtn: $("ia3d-clip-rename-btn"),
+      deleteBtn: $("ia3d-clip-delete-btn"), extractSibling: $("ia3d-clip-sibling"),
+      statusDisplay: $("ia3d-clip-status"),
+    },
   }));
 
   // Metadata-strip reveal glue (consumer-owned — not part of statusNoteTimeline).
@@ -951,6 +984,10 @@ function _resetForOpen() {
   const finStatus = $("ia3d-finalize-status");
   if (finStatus) { finStatus.textContent = ""; finStatus.className = "fe-extract-status"; }
   _markerEditor?.setEditable(false);
+  // Clip panel reset: collapse on new video selection.
+  const clipEnable = $("ia3d-clip-enable");
+  if (clipEnable) clipEnable.checked = false;
+  $("ia3d-clip-panel")?.classList.add("hidden");
 }
 
 // Back button: tear down the viewer and hide the player section.
