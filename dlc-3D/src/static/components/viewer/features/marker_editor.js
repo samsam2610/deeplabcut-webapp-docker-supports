@@ -157,8 +157,12 @@ export function markerEditor(config = {}) {
     if (!tile || !tile.canvasEl || !tile.imgEl) return;
     const canvas = tile.canvasEl;
     const img = tile.imgEl;
-    const w = img.clientWidth || img.naturalWidth;
-    const h = img.clientHeight || img.naturalHeight;
+    // Size the backing store to the img's RENDERED (border-box) size — what the
+    // canvas is displayed at (100% of the wrap). offsetWidth/Height (not
+    // clientWidth/Height) so backing == displayed exactly: clientWidth excludes
+    // the 1px frame border, which would otherwise scale every marker ~1%.
+    const w = img.offsetWidth || img.naturalWidth;
+    const h = img.offsetHeight || img.naturalHeight;
     if (w) canvas.width = w;
     if (h) canvas.height = h;
     const ctx = canvas.getContext("2d");

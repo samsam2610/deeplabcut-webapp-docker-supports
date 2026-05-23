@@ -20,12 +20,17 @@ import { fitViewerSize } from "./internal/fit_viewer.mjs";
 import { resolveKey, clampPlayStep, clampFps, clampTileWeight } from "./internal/controls.mjs";
 import { nextFrame, frameDelayMs } from "./internal/frame_pacer.mjs";
 
+// The label is a SIBLING of the canvas-wrap (a direct child of .vv-tile), NOT
+// inside it: the wrap is inline-block (not flex), so a nested label would be
+// ignored by `order` and add its height to the wrap — making the height:100%
+// overlay canvas taller than the image and stretching every marker downward.
+// Keeping the wrap tight to the image keeps overlay coords 1:1 with the frame.
 const TILE_HTML = `
+  <div class="vv-tile-label"></div>
   <div class="vv-tile-canvas-wrap" style="position:relative;display:inline-block;">
     <img class="vv-frame-img" style="display:block;max-width:100%;">
     <canvas class="vv-overlay-canvas" style="position:absolute;top:0;left:0;pointer-events:none;"></canvas>
     <div class="vv-frame-spinner hidden"></div>
-    <div class="vv-tile-label"></div>
   </div>`;
 
 const SIZE_HTML = `<div class="vv-tile-size-row"><input type="range" class="vv-tile-size" min="50" max="500" step="25" value="100"><span class="vv-tile-size-val">100%</span></div>`;

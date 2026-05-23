@@ -171,6 +171,42 @@ def test_seek_advances_both_tiles(page, base_url):
     assert page.evaluate("() => window.__vaViewer.currentFrame()") > 0
 
 
+def test_overlay_canvas_matches_image_no_marker_shift(page, base_url):
+    """Regression: each overlay canvas's backing store must match its displayed
+    box, and the canvas must cover the image (not extend past it). Otherwise
+    markers drawn in backing-store px get CSS-scaled and shift — most visibly in
+    sync mode where small tiles amplify a constant excess. Root cause was the
+    .vv-tile-label nesting inside the inline-block .vv-tile-canvas-wrap, inflating
+    it so the height:100% canvas stretched."""
+    page.goto(base_url, wait_until="domcontentloaded")
+    _open_card(page)
+    _select_sync_video(page)
+    _wait_two_tiles(page)
+    _enable_overlay_primary(page)
+    page.evaluate("() => window.__vaViewer.seek(0)")
+    page.wait_for_timeout(800)
+    geo = page.evaluate(
+        """() => Array.from(document.querySelectorAll('%s .vv-tile')).map(t => {
+            const img = t.querySelector('.vv-frame-img');
+            const cv  = t.querySelector('.vv-overlay-canvas');
+            const ir = img.getBoundingClientRect(), cr = cv.getBoundingClientRect();
+            return {
+              backW: cv.width, backH: cv.height,
+              dispW: cr.width, dispH: cr.height,
+              imgW: ir.width, imgH: ir.height,
+            };
+        })""" % MOUNT
+    )
+    assert len(geo) == 2, geo
+    for g in geo:
+        # canvas displayed box must match its backing store (markers map 1:1, no scale).
+        # backing = img.offsetWidth/Height (border-box) == the displayed canvas box.
+        assert 0.98 <= g["dispH"] / g["backH"] <= 1.02, f"canvas vertical stretch (marker shift): {g}"
+        assert 0.98 <= g["dispW"] / g["backW"] <= 1.02, f"canvas horizontal stretch (marker shift): {g}"
+        # and the canvas must cover the image box, not extend past it
+        assert g["dispH"] <= g["imgH"] + 2, f"canvas taller than image (overlay misaligned): {g}"
+
+
 def test_per_tile_size_slider_updates_flex_grow(page, base_url):
     page.goto(base_url, wait_until="domcontentloaded")
     _open_card(page)
