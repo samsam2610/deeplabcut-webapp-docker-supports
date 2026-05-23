@@ -17,7 +17,7 @@ import { makeEventBus } from "./internal/event_bus.mjs";
 import { planTiles } from "./internal/tile_layout.mjs";
 import { planSeek } from "./internal/seek_plan.mjs";
 import { fitViewerSize } from "./internal/fit_viewer.mjs";
-import { resolveKey, clampPlayStep, clampFps } from "./internal/controls.mjs";
+import { resolveKey, clampPlayStep, clampFps, clampTileWeight } from "./internal/controls.mjs";
 import { nextFrame, frameDelayMs } from "./internal/frame_pacer.mjs";
 
 const TILE_HTML = `
@@ -27,6 +27,8 @@ const TILE_HTML = `
     <div class="vv-frame-spinner hidden"></div>
     <div class="vv-tile-label"></div>
   </div>`;
+
+const SIZE_HTML = `<div class="vv-tile-size-row"><input type="range" class="vv-tile-size" min="50" max="500" step="25" value="100"><span class="vv-tile-size-val">100%</span></div>`;
 
 class Tile {
   constructor(cam, videoRel, label, rootEl) {
@@ -39,12 +41,22 @@ class Tile {
     this.labelEl = rootEl.querySelector(".vv-tile-label");
     this.spinnerEl = rootEl.querySelector(".vv-frame-spinner");
     this._loadToken = 0;
+    this.weight = 100;
+    this.sizeSliderEl = rootEl.querySelector(".vv-tile-size");
+    this.sizeValEl = rootEl.querySelector(".vv-tile-size-val");
     if (this.labelEl) this.labelEl.textContent = label || "";
+  }
+
+  setWeight(pct) {
+    this.weight = pct;
+    if (this.rootEl) this.rootEl.style.flexGrow = String(pct);
+    if (this.sizeSliderEl) this.sizeSliderEl.value = String(pct);
+    if (this.sizeValEl) this.sizeValEl.textContent = pct + "%";
   }
 }
 
 export class VideoViewer {
-  constructor({ mount, endpoints, fps = 15, storagePrefix = "vv", keymap = resolveKey } = {}) {
+  constructor({ mount, endpoints, fps = 15, storagePrefix = "vv", keymap = resolveKey, perTileSize = false } = {}) {
     if (!mount) throw new Error("VideoViewer: `mount` element is required");
     if (!endpoints || typeof endpoints.frame !== "function") {
       throw new Error("VideoViewer: `endpoints.frame(videoPath, n)` is required");
@@ -53,6 +65,7 @@ export class VideoViewer {
     this.endpoints = endpoints;
     this.storagePrefix = storagePrefix;
     this._resolveKey = keymap;
+    this._perTileSize = perTileSize;
     this._bus = makeEventBus();
     this._features = [];
 
@@ -138,9 +151,16 @@ export class VideoViewer {
     const wrap = this.mount.ownerDocument.createElement("div");
     wrap.className = "vv-tile";
     wrap.dataset.cam = String(desc.cam);
-    wrap.innerHTML = TILE_HTML;
+    wrap.innerHTML = TILE_HTML + (this._perTileSize ? SIZE_HTML : "");
     this.rowEl.appendChild(wrap);
-    return new Tile(desc.cam, desc.videoRel, desc.label, wrap);
+    const tile = new Tile(desc.cam, desc.videoRel, desc.label, wrap);
+    tile.setWeight(100); // baseline flex-grow (benign for single-tile consumers)
+    if (tile.sizeSliderEl) {
+      // No AbortController: tile DOM is wiped on _clearTiles/destroy via rowEl.innerHTML = "",
+      // so these listeners are GC'd with their nodes.
+      tile.sizeSliderEl.addEventListener("input", () => tile.setWeight(clampTileWeight(tile.sizeSliderEl.value)));
+    }
+    return tile;
   }
 
   _clearTiles() {
@@ -201,6 +221,10 @@ export class VideoViewer {
   step(delta) { return this.seek(this._currentFrame + delta); }
   stepSkip(dir) { return this.seek(this._currentFrame + dir * this._skipN); }
   setSkipN(n) { this._skipN = Math.max(1, parseInt(n, 10) || 1); }
+
+  // ── per-tile sizing (optional, off unless perTileSize config set) ──
+  setTileWeight(i, pct) { const t = this.tiles[i]; if (t) t.setWeight(clampTileWeight(pct)); }
+  equalizeTiles() { for (const t of this.tiles) t.setWeight(100); }
 
   // ── playback ──────────────────────────────────────────────
   setFps(v) { this._fps = clampFps(v, this._fps); }

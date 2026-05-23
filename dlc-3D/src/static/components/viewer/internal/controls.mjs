@@ -23,3 +23,8 @@ export function clampFps(v, def = 5) {
   const n = parseInt(v, 10);
   return Math.max(1, Math.min(120, isNaN(n) ? def : n));
 }
+
+export function clampTileWeight(v, def = 100) {
+  const n = parseInt(v, 10);
+  return Math.max(50, Math.min(500, isNaN(n) ? def : n));
+}

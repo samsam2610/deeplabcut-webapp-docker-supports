@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { resolveKey, clampPlayStep, clampFps }
+import { resolveKey, clampPlayStep, clampFps, clampTileWeight }
   from "../../src/static/components/viewer/internal/controls.mjs";
 
 test("space → playPause", () => {
@@ -32,4 +32,11 @@ test("clampFps: 1..120, default 5 on NaN", () => {
   assert.equal(clampFps("0"), 1);
   assert.equal(clampFps("999"), 120);
   assert.equal(clampFps(""), 5);
+});
+
+test("clampTileWeight: 50..500, default 100 on NaN", () => {
+  assert.equal(clampTileWeight("100"), 100);
+  assert.equal(clampTileWeight("25"), 50);    // clamped up to 50
+  assert.equal(clampTileWeight("999"), 500);  // clamped down to 500
+  assert.equal(clampTileWeight("x"), 100);    // NaN -> default
 });

@@ -38,9 +38,18 @@ def test_imports_reducer(name, module):
         f"VideoViewer must import {name} from internal/{module}.mjs (no re-implementation)"
 
 
-@pytest.mark.parametrize("method", ["load", "seek", "step", "play", "pause", "use", "on", "destroy"])
+@pytest.mark.parametrize("method", [
+    "load", "seek", "step", "play", "pause", "use", "on", "destroy",
+    "setTileWeight", "equalizeTiles",
+])
 def test_public_method_present(method):
     assert re.search(rf"\b{method}\s*\(", _src()), f"VideoViewer must define `{method}(`"
+
+
+def test_per_tile_sizing_sets_flex_grow():
+    src = _src()
+    assert "flexGrow" in src, \
+        "VideoViewer must drive per-tile sizing via flex-grow (setWeight sets rootEl.style.flexGrow)"
 
 
 @pytest.mark.parametrize("event", ["videoLoad", "frameChange", "drawTile", "teardown"])
