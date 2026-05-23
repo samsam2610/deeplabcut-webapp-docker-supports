@@ -592,3 +592,107 @@ def csv_route():
 
     rows.sort(key=lambda r: r["frame_number"])
     return jsonify({"rows": rows, "csv_path": str(csv_path), "csv_exists": True})
+
+
+# ── Clip extraction ───────────────────────────────────────────────────────────
+
+def _clip_output_path(video_path: Path, start_frame: int, n_frames: int, postfix: str) -> Path:
+    stem = video_path.stem
+    end_frame = start_frame + n_frames
+    name = f"{stem}_{start_frame}_{end_frame}"
+    safe = "".join(c for c in (postfix or "") if c.isalnum() or c in "-_")[:64]
+    if safe:
+        name += f"_{safe}"
+    return video_path.parent / stem / f"{name}.avi"
+
+
+def _trim_frames_cv2(src: Path, out: Path, start_frame: int, n_frames: int) -> int:
+    """Frame-exact trim [start_frame, start_frame+n_frames) → out. Returns frames written."""
+    cap = cv2.VideoCapture(str(src))
+    if not cap.isOpened():
+        raise ValueError(f"cannot open {src}")
+    fps = cap.get(cv2.CAP_PROP_FPS) or 30.0
+    w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+    h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+    total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+    start_frame = max(0, start_frame)
+    n_frames = max(0, min(n_frames, max(total - start_frame, 0)))
+    out.parent.mkdir(parents=True, exist_ok=True)
+    vw = cv2.VideoWriter(str(out), cv2.VideoWriter_fourcc(*"MJPG"), fps, (w, h))
+    cap.set(cv2.CAP_PROP_POS_FRAMES, start_frame)
+    written = 0
+    for _ in range(n_frames):
+        ok, frame = cap.read()
+        if not ok:
+            break
+        vw.write(frame)
+        written += 1
+    vw.release()
+    cap.release()
+    return written
+
+
+@bp.route("/extract-clip", methods=["POST"])
+def extract_clip():
+    body = request.get_json(force=True, silent=True) or {}
+    proj = body.get("project") or request.args.get("project") or ""
+    video_path = (body.get("video_path") or "").strip()
+    start_frame = body.get("start_frame")
+    n_frames = body.get("n_frames")
+    if not video_path or start_frame is None or n_frames is None:
+        return jsonify({"error": "video_path, start_frame, n_frames required"}), 400
+    src = _resolve_video_path(video_path, proj) or Path(video_path)
+    if not src.exists():
+        return jsonify({"error": f"video not found: {src.name}"}), 404
+    postfix = (body.get("postfix") or "").strip()
+    try:
+        out = _clip_output_path(src, int(start_frame), int(n_frames), postfix)
+        written = _trim_frames_cv2(src, out, int(start_frame), int(n_frames))
+        result = {"avi_path": str(out), "n_frames": written}
+        sib = (body.get("sibling_video") or "").strip()
+        if sib:
+            sib_src = _resolve_video_path(sib, proj) or Path(sib)
+            if sib_src.exists():
+                sib_out = _clip_output_path(sib_src, int(start_frame), int(n_frames), postfix)
+                _trim_frames_cv2(sib_src, sib_out, int(start_frame), int(n_frames))
+                result["sibling_avi_path"] = str(sib_out)
+        return jsonify(result)
+    except Exception as e:  # noqa: BLE001 — surface trim failures to the UI
+        return jsonify({"error": str(e)}), 500
+
+
+@bp.route("/extract-clip/rename", methods=["POST"])
+def extract_clip_rename():
+    body = request.get_json(force=True, silent=True) or {}
+    avi_path = (body.get("avi_path") or "").strip()
+    postfix = (body.get("postfix") or "").strip()
+    if not avi_path:
+        return jsonify({"error": "avi_path required"}), 400
+    p = Path(avi_path)
+    if not p.exists():
+        return jsonify({"error": f"file not found: {p.name}"}), 404
+    video_stem = p.parent.name
+    m = re.match(r"^_(\d+)_(\d+)", p.stem[len(video_stem):])
+    if not m:
+        return jsonify({"error": "cannot parse frame numbers from filename"}), 422
+    new_stem = f"{video_stem}_{m.group(1)}_{m.group(2)}"
+    safe = "".join(c for c in postfix if c.isalnum() or c in "-_")[:64]
+    if safe:
+        new_stem += f"_{safe}"
+    new_avi = p.parent / f"{new_stem}.avi"
+    if new_avi != p:
+        p.rename(new_avi)
+    return jsonify({"avi_path": str(new_avi)})
+
+
+@bp.route("/extract-clip/delete", methods=["POST"])
+def extract_clip_delete():
+    body = request.get_json(force=True, silent=True) or {}
+    avi_path = (body.get("avi_path") or "").strip()
+    if not avi_path:
+        return jsonify({"error": "avi_path required"}), 400
+    p = Path(avi_path)
+    if not p.exists():
+        return jsonify({"error": f"file not found: {p.name}"}), 404
+    p.unlink()
+    return jsonify({"ok": True})
