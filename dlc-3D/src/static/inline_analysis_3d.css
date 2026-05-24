@@ -89,41 +89,51 @@
   min-width: 2.4rem; text-align: right;
 }
 
-/* Body-part chips (markerEditor sets class vv-bp-chip + a --bp-color per chip).
-   Without this the chips render uncolored. Colored dot = the bp's palette color;
-   active/labeled/vis-hidden mirror the old fl-bp-chip states. */
-#inline-analysis-3d-card .vv-bp-chip {
-  display: inline-flex; align-items: center; gap: .35rem;
-  padding: .26rem .55rem; border-radius: 6px;
+/* Marker chips (vv-bp-chip, --bp-color) AND status/note tag chips (vv-tag-chip,
+   --chip-color) styled to match the frame labeler's .fl-bp-chip: a colored dot +
+   pill, brighten on hover, subtle tint when active. Each chip's --bp-color /
+   --chip-color drives the dot + accents. */
+#inline-analysis-3d-card .vv-bp-chip,
+#inline-analysis-3d-card .vv-tag-chip {
+  display: inline-flex; align-items: center; gap: .32rem;
+  padding: .28rem .6rem; border-radius: 6px;
   border: 1px solid var(--border); background: var(--surface-2);
   color: var(--text-dim); font-family: var(--mono); font-size: .75rem;
   cursor: pointer; user-select: none;
   transition: border-color .15s, background .15s, color .15s;
 }
-#inline-analysis-3d-card .vv-bp-chip::before {
-  content: ""; width: 8px; height: 8px; border-radius: 50%;
-  background: var(--bp-color, var(--accent-dim)); flex-shrink: 0;
+#inline-analysis-3d-card .vv-bp-chip::before,
+#inline-analysis-3d-card .vv-tag-chip::before {
+  content: ""; width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0;
+  background: var(--bp-color, var(--chip-color, var(--accent-dim)));
 }
-#inline-analysis-3d-card .vv-bp-chip:hover { border-color: var(--bp-color, var(--accent)); color: var(--text); }
-#inline-analysis-3d-card .vv-bp-chip.active {
-  border-color: var(--bp-color, var(--accent));
-  background: color-mix(in srgb, var(--bp-color, var(--accent)) 16%, transparent);
+#inline-analysis-3d-card .vv-bp-chip:hover,
+#inline-analysis-3d-card .vv-tag-chip:hover {
+  border-color: var(--bp-color, var(--chip-color, var(--accent))); color: var(--text);
+}
+#inline-analysis-3d-card .vv-bp-chip.active,
+#inline-analysis-3d-card .vv-tag-chip.active {
+  border-color: var(--bp-color, var(--chip-color, var(--accent)));
+  background: color-mix(in srgb, var(--bp-color, var(--chip-color, var(--accent))) 14%, transparent);
   color: var(--text);
 }
 #inline-analysis-3d-card .vv-bp-chip.labeled { font-weight: 600; color: var(--text); }
 #inline-analysis-3d-card .vv-bp-chip.vis-hidden { opacity: .45; }
 
-/* Library-rendered timeline chips (StatusNoteTimeline). Mirror the card chip look. */
-#inline-analysis-3d-card .vv-tag-chip {
-  display: inline-flex; align-items: center; gap: .2rem;
-  font-size: 10px; padding: 1px 6px; border-radius: 3px;
-  cursor: pointer; user-select: none; font-family: var(--mono);
-  background: var(--surface-2); color: var(--text);
-  border: 1px solid var(--chip-color, var(--border));
+/* Main timeline (seek slider) — bigger + visible track (base .fe-seek is 4px). */
+#inline-analysis-3d-card .fe-seek {
+  height: 9px; border-radius: 6px; accent-color: var(--accent);
+  background: var(--surface); border: 1px solid var(--border);
 }
-#inline-analysis-3d-card .vv-tag-chip.active {
-  background: var(--chip-color, var(--accent)); color: #0d1117; font-weight: 600;
+
+/* Status / note timeline bars — recessed dark track so they stand out from the
+   card (the canvases were background:var(--surface), identical to .card's bg). */
+#inline-analysis-3d-card #ia3d-status-canvas,
+#inline-analysis-3d-card #ia3d-note-canvas {
+  background: var(--bg) !important;
+  border: 1px solid var(--border); border-radius: 4px;
 }
+#inline-analysis-3d-card .fe-csv-bar-label { color: var(--text); font-weight: 600; }
 
 #inline-analysis-3d-card .ia3d-skip-preset {
   width: 28px; padding: 2px 0; font-size: .68rem; font-family: var(--mono);
