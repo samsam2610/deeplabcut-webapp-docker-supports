@@ -292,7 +292,9 @@ function _applyTimelineWidth(g) {
   for (const id of ["ia3d-seek-canvas", "ia3d-status-canvas", "ia3d-note-canvas", "ia3d-finalize-coverage"]) {
     const c = $(id);
     if (!c) continue;
-    c.style.width = overflowing ? g.width + "px" : "";
+    // Restore the template's inline width:100% on reset (clearing to "" would
+    // erase that inline declaration → canvas falls back to its backing-store px).
+    c.style.width = overflowing ? g.width + "px" : "100%";
     c.style.marginLeft = overflowing ? g.marginLeft + "px" : "";
   }
   _redrawSeekTimeline();
