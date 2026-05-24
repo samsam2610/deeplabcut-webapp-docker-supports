@@ -222,5 +222,8 @@ export function statusNoteTimeline(config = {}) {
       if (els.noteCanvas) els.noteCanvas.addEventListener("click", (e) => timelineSeek(e, els.noteCanvas), sig);
       v.on("teardown", () => { for (const d of disposers) d(); ac.abort(); });
     },
+    // Force a redraw at the current frame — consumers call this after resizing
+    // the status/note canvases (e.g. when viewer zoom widens the timelines).
+    redraw() { redraw(curFrame()); },
   };
 }

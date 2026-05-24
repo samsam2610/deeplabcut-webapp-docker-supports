@@ -58,3 +58,11 @@ def test_no_hardcoded_endpoints():
     src = _src()
     for bad in ("/dlc-3d/", "/clip-cutter/", "/annotate/"):
         assert bad not in src, f"endpoints must be injected, not hardcoded ({bad})"
+
+
+def test_exposes_public_redraw():
+    src = _src()
+    # the feature returns a redraw() method so consumers can force a re-render
+    # after they resize the status/note canvases (viewer zoom widens the bars)
+    assert re.search(r"\bredraw\s*\(\s*\)\s*\{", src), \
+        "factory result must expose a public `redraw()` method"
