@@ -46,6 +46,7 @@ let _siblingAvailable = false; // true once a sibling tile has been discovered f
 // Finalize-window keyframe state.
 let _finalizeKW = null;        // shared keyframe-window controller for the finalize panel
 let _clipKW = null;            // shared keyframe-window controller for the clip panel
+let _lastFinalizeClip = null;  // { start, n, cams:[{video,avi}] } from the last Finalize-and-extract
 
 // Main timeline canvas state (Task 3: canvas-based seek).
 let _coverageBuckets = null;   // 0/1 array; null until Task 4 fetches coverage data
@@ -1796,8 +1797,6 @@ async function _onFinalizeAddClick() {
   finally { if (btn) btn.disabled = false; }
 }
 
-let _lastFinalizeClip = null;   // { start, n, cams: [{ video, avi }, …] } from the last Finalize-and-extract
-
 function _finalizeClipBtnsEnabled(on) {
   const r = $("ia3d-finalize-clip-rename-btn"), d = $("ia3d-finalize-clip-delete-btn");
   if (r) r.disabled = !on;
@@ -1825,9 +1824,14 @@ async function _onFinalizeAndExtractClick() {
         if (c.avi) okCount++;
       } catch (_) { c.avi = null; }
     }
-    _lastFinalizeClip = { start: r.start, n: r.n, cams };
-    _finalizeClipBtnsEnabled(true);
-    if (st) st.textContent = `${st.textContent} · clip ✓ (${okCount} cam${okCount !== 1 ? "s" : ""})`;
+    if (okCount > 0) {
+      _lastFinalizeClip = { start: r.start, n: r.n, cams };
+      _finalizeClipBtnsEnabled(true);
+      if (st) st.textContent = `${st.textContent} · clip ✓ (${okCount} cam${okCount !== 1 ? "s" : ""})`;
+    } else if (st) {
+      st.textContent = `${st.textContent} · clip ⚠ failed`;
+      st.className = "fe-extract-status err";
+    }
   } finally {
     if (btn) btn.disabled = false;
   }
