@@ -83,3 +83,17 @@ def test_keydown_visibility_gated():
     i = src.index("_handleKeyDown(e) {")  # the method def, not the constructor's call site
     body = src[i:i+400]
     assert "offsetParent === null" in body, "_handleKeyDown must gate on viewer visibility (offsetParent)"
+
+
+def test_setzoom_returns_row_geometry():
+    src = _src()
+    assert "setZoom" in src
+    # returns the geometry it applied (the destructuring `const { width, marginLeft }
+    # = fitViewerSize(...)` uses `=`, not `return`, so this only matches the return).
+    assert re.search(r"return\s*\{\s*width\s*,\s*marginLeft\s*\}", src), \
+        "setZoom must return { width, marginLeft }"
+    # and returns null on the no-image early-out — scoped to the span between the
+    # method open and its geometry return, so it's robust to indentation.
+    m = re.search(r"setZoom\s*\([^)]*\)\s*\{(.*?)return\s*\{\s*width", src, re.S)
+    assert m and re.search(r"return\s+null", m.group(1)), \
+        "setZoom must return null on the no-image early-out (so callers can reset)"

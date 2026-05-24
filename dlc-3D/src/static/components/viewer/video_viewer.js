@@ -275,13 +275,14 @@ export class VideoViewer {
   setZoom(pct) {
     this._zoom = pct;
     const primary = this.getTile(0);
-    if (!primary || !primary.imgEl || !primary.imgEl.naturalWidth) return;
+    if (!primary || !primary.imgEl || !primary.imgEl.naturalWidth) return null;
     const baseW = this.mount.clientWidth || primary.imgEl.naturalWidth;
     const view = this.mount.ownerDocument.defaultView || window;
     const maxW = Math.max(baseW, (view.innerWidth || baseW) - 32);
     const { width, marginLeft } = fitViewerSize({ baseW, maxW, zoom: pct });
     this.rowEl.style.width = width + "px";
     this.rowEl.style.marginLeft = marginLeft < 0 ? `${marginLeft}px` : "";
+    return { width, marginLeft };   // consumers mirror this onto their own timelines
   }
 
   // ── keyboard ──────────────────────────────────────────────
