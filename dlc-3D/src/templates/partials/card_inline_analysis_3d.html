@@ -447,7 +447,8 @@
           <div id="ia3d-finalize-controls" class="hidden" style="margin-top:.5rem">
             <div style="display:flex;align-items:center;gap:.5rem;flex-wrap:wrap;margin-bottom:.35rem">
               <span style="font-size:.76rem;color:var(--text-dim)">Keyframe</span>
-              <span id="ia3d-finalize-keyframe" style="font-family:var(--mono);font-size:.78rem;color:var(--text);min-width:3rem">0</span>
+              <input type="number" id="ia3d-finalize-keyframe" min="0" value="0"
+                style="width:5rem;font-family:var(--mono);font-size:.78rem;background:var(--surface);border:1px solid var(--border);border-radius:5px;color:var(--text);padding:.18rem .3rem" />
               <label style="display:flex;align-items:center;gap:.3rem;font-size:.74rem;color:var(--text-dim);cursor:pointer;user-select:none">
                 <input type="checkbox" id="ia3d-finalize-lock" style="accent-color:var(--accent);width:13px;height:13px"/>
                 Lock (l)
@@ -458,10 +459,10 @@
               <input type="number" id="ia3d-finalize-before" value="200" min="0"
                 style="width:4.4rem;font-size:.76rem;background:var(--surface);border:1px solid var(--border);border-radius:5px;color:var(--text);padding:.22rem .4rem" />
               <label style="font-size:.74rem;color:var(--text-dim)">after</label>
-              <input type="number" id="ia3d-finalize-after" value="200" min="0"
+              <input type="number" id="ia3d-finalize-after" value="599" min="0"
                 style="width:4.4rem;font-size:.76rem;background:var(--surface);border:1px solid var(--border);border-radius:5px;color:var(--text);padding:.22rem .4rem" />
               <label style="font-size:.74rem;color:var(--text-dim)">length</label>
-              <input type="number" id="ia3d-finalize-length" value="401" min="1"
+              <input type="number" id="ia3d-finalize-length" value="800" min="1"
                 style="width:4.9rem;font-size:.76rem;background:var(--surface);border:1px solid var(--border);border-radius:5px;color:var(--text);padding:.22rem .4rem" />
             </div>
             <div style="display:flex;align-items:center;gap:.5rem;flex-wrap:wrap;margin-bottom:.4rem">

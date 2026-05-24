@@ -560,11 +560,18 @@ def test_finalize_keyframe_window_markup():
 
 def test_finalize_keyframe_glue_wired():
     js = JS.read_text()
-    assert ("syncWindow" in js and "finalizeRange" in js and "keyframe_window.mjs" in js), \
-        "must import syncWindow + finalizeRange from keyframe_window.mjs"
-    assert "finalizeRange(" in js and "syncWindow(" in js
-    assert "_finalizeKeyframe" in js and "_finalizeLocked" in js
-    assert re.search(r'e\.key\s*===\s*"l"', js) or re.search(r"\.key\s*===\s*'l'", js), \
-        "must wire an 'l' key shortcut for the finalize lock"
+    # keyframe_window.mjs is still used (by keyframe_window_ui.js which the consumer imports)
+    assert "keyframe_window_ui" in js, "must import makeKeyframeWindow from keyframe_window_ui"
     assert "ia3d-finalize-start" not in js and "ia3d-finalize-count" not in js
     assert "_ia3dLastRun" not in js, "old last-run finalize autopopulate state must be removed"
+
+
+def test_finalize_keyframe_editable_and_uses_shared_controller():
+    html = CARD.read_text()
+    js = JS.read_text()
+    assert re.search(r'<input[^>]*id="ia3d-finalize-keyframe"', html), "finalize keyframe must be an <input>"
+    assert "makeKeyframeWindow" in js and "keyframe_window_ui" in js
+    assert '"finalize_window"' in js or "'finalize_window'" in js
+    assert "_finalizeKW" in js
+    assert "_refreshFinalizeWindow" not in js and "_onFinalizeWindowInput" not in js
+    assert "_setFinalizeLock" not in js and "_finalizeKeyframe" not in js

@@ -21,7 +21,7 @@ import { statusNoteTimeline } from "./components/viewer/features/status_notes.js
 import { markerEditor } from "./components/viewer/features/marker_editor.js";
 import { clipExtractor } from "./components/viewer/features/clip_extractor.js";
 import { coverageRects, coverageFrameRects, nearestCoveredFrame, xToFrame, nextCoveredBucket, bucketToFrame, frameToBucket } from "./components/viewer/internal/coverage_timeline.mjs";
-import { syncWindow, finalizeRange } from "./components/viewer/internal/keyframe_window.mjs";
+import { makeKeyframeWindow } from "./keyframe_window_ui.js";
 import { state } from "/static/js/state.js";
 
 // ── Module state ────────────────────────────────────────────────────────────
@@ -44,8 +44,7 @@ let _frameCount = 0;
 let _siblingAvailable = false; // true once a sibling tile has been discovered for the current selection
 
 // Finalize-window keyframe state.
-let _finalizeKeyframe = 0;     // keyframe frame# for the finalize window (= current frame unless locked)
-let _finalizeLocked = false;   // when true the keyframe is frozen while navigating
+let _finalizeKW = null;        // shared keyframe-window controller for the finalize panel
 
 // Main timeline canvas state (Task 3: canvas-based seek).
 let _coverageBuckets = null;   // 0/1 array; null until Task 4 fetches coverage data
@@ -420,6 +419,17 @@ function _wireViewerChrome(v) {
   $("ia3d-finalize-next")?.addEventListener("click", () => _finalizeNav(1));
   v.on("frameChange", () => _redrawFinalizeCoverage());
 
+  _finalizeKW = makeKeyframeWindow({
+    viewer: v,
+    panelEl: $("ia3d-finalize-controls"),
+    settingKey: "finalize_window",
+    els: {
+      keyframe: $("ia3d-finalize-keyframe"), lock: $("ia3d-finalize-lock"),
+      before: $("ia3d-finalize-before"), after: $("ia3d-finalize-after"),
+      length: $("ia3d-finalize-length"), range: $("ia3d-finalize-range"),
+    },
+  });
+
   // Frame-jump: click the counter to type an exact frame and Enter to jump
   // (granular seek, mirrors clip-cutter's clickable frame number).
   const counter = $("ia3d-frame-counter");
@@ -491,10 +501,6 @@ function _wireViewerChrome(v) {
     _redrawSeekTimeline();
     _updateCounters(n, v.frameCount());
     _swapPlayIcon(v.isPlaying());
-  });
-
-  v.on("frameChange", (n) => {
-    if (!_finalizeLocked) { _finalizeKeyframe = n; _refreshFinalizeWindow(); }
   });
 
   // Keep the play/pause icon in sync even when playback stops on its own.
@@ -1185,9 +1191,7 @@ function _resetForOpen() {
   if (bothLabel) bothLabel.style.display = "none";
   _curStatus("");
   // Finalize panel reset (inline-only). The toggle gates marker editing via
-  // setEditable — turn editing OFF + uncheck + hide controls + reset lock state
-  // (mirrors the old _iaReset's Finalize-state reset at inline line ~825).
-  _finalizeLocked = false;
+  // setEditable — turn editing OFF + uncheck + hide controls.
   const finToggle = $("ia3d-finalize-toggle");
   if (finToggle) finToggle.checked = false;
   $("ia3d-finalize-controls")?.classList.add("hidden");
@@ -1685,43 +1689,8 @@ async function _onAnalyzeClick() {
 
 // ── Finalize Analysis: toggle (gates editing) + both-cams range copy ──
 
-function _finalizeWindowVals() {
-  return {
-    before: parseInt($("ia3d-finalize-before")?.value, 10) || 0,
-    after:  parseInt($("ia3d-finalize-after")?.value, 10) || 0,
-    length: parseInt($("ia3d-finalize-length")?.value, 10) || 1,
-  };
-}
-
-function _refreshFinalizeWindow() {
-  const kfEl = $("ia3d-finalize-keyframe");
-  if (kfEl) kfEl.textContent = String(_finalizeKeyframe);
-  const { before, after } = _finalizeWindowVals();
-  const r = finalizeRange(_finalizeKeyframe, before, after, _viewer ? _viewer.frameCount() : 0);
-  const rng = $("ia3d-finalize-range");
-  if (rng) rng.textContent = `frames ${r.start}–${r.end} (${r.n})`;
-}
-
-function _onFinalizeWindowInput(edited) {
-  const out = syncWindow(edited, _finalizeWindowVals());
-  const b = $("ia3d-finalize-before"), a = $("ia3d-finalize-after"), l = $("ia3d-finalize-length");
-  if (b) b.value = out.before;
-  if (a) a.value = out.after;
-  if (l) l.value = out.length;
-  _refreshFinalizeWindow();
-}
-
-function _setFinalizeLock(on) {
-  _finalizeLocked = !!on;
-  const cb = $("ia3d-finalize-lock");
-  if (cb) cb.checked = _finalizeLocked;
-  if (!_finalizeLocked && _viewer) _finalizeKeyframe = _viewer.currentFrame();
-  _refreshFinalizeWindow();
-}
-
 function _ia3dPopulateFinalizeFields() {
-  // keyframe = current frame, unlocked; before/after keep their input defaults.
-  _setFinalizeLock(false);   // sets _finalizeKeyframe = current frame + refreshes the range
+  _finalizeKW?.load();   // keyframe=current frame, before/after from the per-project setting
 }
 
 async function _ia3dSaveLayer(h5) {
@@ -1758,8 +1727,7 @@ async function _onFinalizeAddClick() {
     if (ia3dFinalizeStatus) { ia3dFinalizeStatus.textContent = "Select a video/layer first."; ia3dFinalizeStatus.className = "fe-extract-status err"; }
     return;
   }
-  const { before, after } = _finalizeWindowVals();
-  const rng = finalizeRange(_finalizeKeyframe, before, after, _viewer ? _viewer.frameCount() : 0);
+  const rng = _finalizeKW ? _finalizeKW.getRange() : { start: 0, n: 0 };
   const startFrame = rng.start, nFrames = rng.n;
   const cam1Layer = _siblingPrimaryH5;
   if (ia3dFinalizeAddBtn) ia3dFinalizeAddBtn.disabled = true;
@@ -1895,22 +1863,6 @@ function _wireStereoDispatch() {
   });
 
   $("ia3d-finalize-add-btn")?.addEventListener("click", _onFinalizeAddClick);
-  $("ia3d-finalize-before")?.addEventListener("input", () => _onFinalizeWindowInput("before"));
-  $("ia3d-finalize-after")?.addEventListener("input", () => _onFinalizeWindowInput("after"));
-  $("ia3d-finalize-length")?.addEventListener("input", () => _onFinalizeWindowInput("length"));
-  ["ia3d-finalize-before", "ia3d-finalize-after", "ia3d-finalize-length"].forEach((id) =>
-    $(id)?.addEventListener("keydown", (e) => e.stopPropagation()));
-  $("ia3d-finalize-lock")?.addEventListener("change", (e) => _setFinalizeLock(e.target.checked));
-  document.addEventListener("keydown", (e) => {
-    if (!(e.key === "l" || e.key === "L")) return;
-    if (!$("ia3d-finalize-toggle")?.checked) return;
-    const card = $("inline-analysis-3d-card");
-    if (!card || card.offsetParent === null) return;
-    const t = e.target;
-    if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.tagName === "SELECT")) return;
-    e.preventDefault();
-    _setFinalizeLock(!_finalizeLocked);
-  });
 
   $("ia3d-init-analysis-file")?.addEventListener("click", _onInitFileClick);
 
