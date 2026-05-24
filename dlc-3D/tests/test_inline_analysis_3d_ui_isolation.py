@@ -575,3 +575,17 @@ def test_finalize_keyframe_editable_and_uses_shared_controller():
     assert "_finalizeKW" in js
     assert "_refreshFinalizeWindow" not in js and "_onFinalizeWindowInput" not in js
     assert "_setFinalizeLock" not in js and "_finalizeKeyframe" not in js
+
+
+def test_clip_uses_keyframe_window_with_hidden_bridge():
+    html = CARD.read_text()
+    js = JS.read_text()
+    for need in ["ia3d-clip-keyframe", "ia3d-clip-lock", "ia3d-clip-before",
+                 "ia3d-clip-after", "ia3d-clip-length", "ia3d-clip-range"]:
+        assert need in html, f"missing clip keyframe element {need!r}"
+    assert re.search(r'id="ia3d-clip-start"[^>]*type="hidden"', html) or \
+           re.search(r'type="hidden"[^>]*id="ia3d-clip-start"', html), "clip-start must be a hidden bridge input"
+    assert re.search(r'id="ia3d-clip-frames"[^>]*type="hidden"', html) or \
+           re.search(r'type="hidden"[^>]*id="ia3d-clip-frames"', html), "clip-frames must be a hidden bridge input"
+    assert '"clip_window"' in js or "'clip_window'" in js
+    assert "_clipKW" in js

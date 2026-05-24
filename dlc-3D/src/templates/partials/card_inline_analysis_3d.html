@@ -423,9 +423,17 @@
           </label>
           <div id="ia3d-clip-panel" class="hidden" style="margin-top:.5rem;display:flex;flex-direction:column;gap:.4rem">
             <div style="display:flex;align-items:center;gap:.4rem;flex-wrap:wrap;font-size:.78rem;color:var(--text-dim)">
-              <label>start <input type="number" id="ia3d-clip-start" min="0" value="0" style="width:5.5rem;font-family:var(--mono);background:var(--surface);border:1px solid var(--border);border-radius:5px;color:var(--text);padding:.2rem .3rem"></label>
-              <label>length <input type="number" id="ia3d-clip-frames" min="1" value="800" style="width:5rem;font-family:var(--mono);background:var(--surface);border:1px solid var(--border);border-radius:5px;color:var(--text);padding:.2rem .3rem"></label>
-              <label>end <input type="number" id="ia3d-clip-end" readonly style="width:5.5rem;font-family:var(--mono);background:var(--surface-2);border:1px solid var(--border);border-radius:5px;color:var(--text-dim);padding:.2rem .3rem"></label>
+              <span style="font-size:.74rem;color:var(--text-dim)">keyframe</span>
+              <input type="number" id="ia3d-clip-keyframe" min="0" value="0"
+                style="width:5rem;font-family:var(--mono);font-size:.78rem;background:var(--surface);border:1px solid var(--border);border-radius:5px;color:var(--text);padding:.18rem .3rem" />
+              <label style="display:flex;align-items:center;gap:.3rem;font-size:.74rem;color:var(--text-dim)"><input type="checkbox" id="ia3d-clip-lock" style="accent-color:var(--accent);width:13px;height:13px"/> Lock (l)</label>
+              <label style="font-size:.74rem;color:var(--text-dim)">before <input type="number" id="ia3d-clip-before" min="0" value="200" style="width:4.2rem;font-family:var(--mono);background:var(--surface);border:1px solid var(--border);border-radius:5px;color:var(--text);padding:.2rem .3rem"></label>
+              <label style="font-size:.74rem;color:var(--text-dim)">after <input type="number" id="ia3d-clip-after" min="0" value="599" style="width:4.2rem;font-family:var(--mono);background:var(--surface);border:1px solid var(--border);border-radius:5px;color:var(--text);padding:.2rem .3rem"></label>
+              <label style="font-size:.74rem;color:var(--text-dim)">length <input type="number" id="ia3d-clip-length" min="1" value="800" style="width:4.7rem;font-family:var(--mono);background:var(--surface);border:1px solid var(--border);border-radius:5px;color:var(--text);padding:.2rem .3rem"></label>
+              <span id="ia3d-clip-range" style="font-size:.72rem;color:var(--text-dim);font-family:var(--mono)">frames 0–0 (0)</span>
+              <input type="hidden" id="ia3d-clip-start" value="0" />
+              <input type="hidden" id="ia3d-clip-frames" value="800" />
+              <input type="hidden" id="ia3d-clip-end" value="0" />
               <label style="display:flex;align-items:center;gap:.3rem"><input type="checkbox" id="ia3d-clip-sibling" checked style="accent-color:var(--accent)">both cams</label>
             </div>
             <div style="display:flex;align-items:center;gap:.4rem;flex-wrap:wrap">

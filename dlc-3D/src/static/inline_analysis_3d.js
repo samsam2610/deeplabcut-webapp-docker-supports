@@ -45,6 +45,7 @@ let _siblingAvailable = false; // true once a sibling tile has been discovered f
 
 // Finalize-window keyframe state.
 let _finalizeKW = null;        // shared keyframe-window controller for the finalize panel
+let _clipKW = null;            // shared keyframe-window controller for the clip panel
 
 // Main timeline canvas state (Task 3: canvas-based seek).
 let _coverageBuckets = null;   // 0/1 array; null until Task 4 fetches coverage data
@@ -234,6 +235,8 @@ function _ensureViewer() {
       statusDisplay: $("ia3d-clip-status"),
     },
   }));
+  // Load clip_window persisted setting when the panel is first enabled.
+  $("ia3d-clip-enable")?.addEventListener("change", (ev) => { if (ev.target.checked) _clipKW?.load(); });
 
   // Metadata-strip reveal glue (consumer-owned — not part of statusNoteTimeline).
   // Poll the wrap visibility a few times after videoLoad (covers the CSV fetch
@@ -427,6 +430,23 @@ function _wireViewerChrome(v) {
       keyframe: $("ia3d-finalize-keyframe"), lock: $("ia3d-finalize-lock"),
       before: $("ia3d-finalize-before"), after: $("ia3d-finalize-after"),
       length: $("ia3d-finalize-length"), range: $("ia3d-finalize-range"),
+    },
+  });
+
+  _clipKW = makeKeyframeWindow({
+    viewer: v,
+    panelEl: $("ia3d-clip-panel"),
+    settingKey: "clip_window",
+    els: {
+      keyframe: $("ia3d-clip-keyframe"), lock: $("ia3d-clip-lock"),
+      before: $("ia3d-clip-before"), after: $("ia3d-clip-after"),
+      length: $("ia3d-clip-length"), range: $("ia3d-clip-range"),
+    },
+    onChange: (r) => {
+      const s = $("ia3d-clip-start"), f = $("ia3d-clip-frames"), e = $("ia3d-clip-end");
+      if (s) s.value = r.start;
+      if (f) f.value = r.n;
+      if (e) e.value = r.end;
     },
   });
 
