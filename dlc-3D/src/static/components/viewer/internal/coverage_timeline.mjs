@@ -26,3 +26,30 @@ export function xToFrame(px, width, frameCount) {
   const frac = Math.min(1, Math.max(0, px / width));
   return Math.min(frameCount - 1, Math.max(0, Math.round(frac * (frameCount - 1))));
 }
+
+// Index of the next (dir=1) / previous (dir=-1) covered-RUN start relative to
+// fromBucket, or null. A run start is a covered bucket whose predecessor is not
+// covered. Forward skips the rest of the current run; backward returns the
+// nearest run start strictly before fromBucket.
+export function nextCoveredBucket(buckets, fromBucket, dir) {
+  const n = buckets.length;
+  const isStart = (i) => !!buckets[i] && (i === 0 || !buckets[i - 1]);
+  if (dir < 0) {
+    for (let i = Math.min(fromBucket - 1, n - 1); i >= 0; i--) if (isStart(i)) return i;
+    return null;
+  }
+  for (let i = Math.max(fromBucket + 1, 0); i < n; i++) if (isStart(i)) return i;
+  return null;
+}
+
+// Map a bucket index → frame index (clamped to 0..frameCount-1).
+export function bucketToFrame(bucket, nBuckets, frameCount) {
+  if (nBuckets <= 0 || frameCount <= 0) return 0;
+  return Math.min(frameCount - 1, Math.max(0, Math.round((bucket / nBuckets) * frameCount)));
+}
+
+// Map a frame index → bucket index (clamped to 0..nBuckets-1).
+export function frameToBucket(frame, frameCount, nBuckets) {
+  if (frameCount <= 0 || nBuckets <= 0) return 0;
+  return Math.min(nBuckets - 1, Math.max(0, Math.floor((frame / frameCount) * nBuckets)));
+}
