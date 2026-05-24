@@ -1759,8 +1759,8 @@ async function _onFinalizeAddClick() {
     return;
   }
   const { before, after } = _finalizeWindowVals();
-  const _rng = finalizeRange(_finalizeKeyframe, before, after, _viewer ? _viewer.frameCount() : 0);
-  const startFrame = _rng.start, nFrames = _rng.n;
+  const rng = finalizeRange(_finalizeKeyframe, before, after, _viewer ? _viewer.frameCount() : 0);
+  const startFrame = rng.start, nFrames = rng.n;
   const cam1Layer = _siblingPrimaryH5;
   if (ia3dFinalizeAddBtn) ia3dFinalizeAddBtn.disabled = true;
   // Confirm before overwriting existing _analyzed file(s). Uses analysis-file/status.
@@ -1907,7 +1907,7 @@ function _wireStereoDispatch() {
     const card = $("inline-analysis-3d-card");
     if (!card || card.offsetParent === null) return;
     const t = e.target;
-    if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA")) return;
+    if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.tagName === "SELECT")) return;
     e.preventDefault();
     _setFinalizeLock(!_finalizeLocked);
   });
