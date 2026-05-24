@@ -589,3 +589,16 @@ def test_clip_uses_keyframe_window_with_hidden_bridge():
            re.search(r'type="hidden"[^>]*id="ia3d-clip-frames"', html), "clip-frames must be a hidden bridge input"
     assert '"clip_window"' in js or "'clip_window'" in js
     assert "_clipKW" in js
+
+
+def test_finalize_clip_controls_present():
+    html = CARD.read_text()
+    for need in ["ia3d-finalize-clip-postfix", "ia3d-finalize-clip-sibling",
+                 "ia3d-finalize-clip-btn", "ia3d-finalize-clip-rename-btn",
+                 "ia3d-finalize-clip-delete-btn"]:
+        assert need in html, f"missing finalize-clip element {need!r}"
+    assert re.search(r'id="ia3d-finalize-clip-rename-btn"[^>]*\bdisabled', html) or \
+           re.search(r'\bdisabled[^>]*id="ia3d-finalize-clip-rename-btn"', html)
+    assert re.search(r'id="ia3d-finalize-clip-delete-btn"[^>]*\bdisabled', html) or \
+           re.search(r'\bdisabled[^>]*id="ia3d-finalize-clip-delete-btn"', html)
+    assert "ia3d-finalize-add-btn" in html

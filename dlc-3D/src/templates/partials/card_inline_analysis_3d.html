@@ -480,6 +480,21 @@
                 Add range to _analyzed
               </button>
             </div>
+            <div style="display:flex;align-items:center;gap:.5rem;flex-wrap:wrap;margin-bottom:.35rem">
+              <input type="text" id="ia3d-finalize-clip-postfix" placeholder="postfix (optional)"
+                style="flex:1;min-width:110px;font-size:.76rem;background:var(--surface);border:1px solid var(--border);border-radius:5px;color:var(--text);padding:.22rem .4rem" />
+              <label style="display:flex;align-items:center;gap:.3rem;font-size:.74rem;color:var(--text-dim);cursor:pointer;user-select:none">
+                <input type="checkbox" id="ia3d-finalize-clip-sibling" checked style="accent-color:var(--accent);width:13px;height:13px"/> both cams
+              </label>
+            </div>
+            <div style="display:flex;align-items:center;gap:.4rem;flex-wrap:wrap;margin-bottom:.4rem">
+              <button class="btn-sm btn-create" id="ia3d-finalize-clip-btn"
+                title="Finalize this range into _analyzed AND extract a clip from it">Finalize and extract clip</button>
+              <button class="btn-sm" id="ia3d-finalize-clip-rename-btn" disabled style="opacity:.8"
+                title="Rename the extracted clip with the postfix">Rename clip</button>
+              <button class="btn-sm" id="ia3d-finalize-clip-delete-btn" disabled style="opacity:.7"
+                title="Delete the clip AND un-finalize its frames from _analyzed">Delete clip</button>
+            </div>
             <div style="display:flex;align-items:center;gap:.4rem;margin:.1rem 0 .15rem">
               <span style="flex:1;font-size:.7rem;color:var(--text-dim);font-family:var(--mono)">Finalized frames (_analyzed)</span>
               <button id="ia3d-finalize-prev" class="btn-sm" disabled title="Previous finalized region" style="padding:.12rem .4rem;font-size:.72rem;line-height:1">◀</button>
