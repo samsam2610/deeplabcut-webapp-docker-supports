@@ -420,3 +420,9 @@ def test_coverage_fetch_wired_and_threshold_recomputes():
     assert "_refreshCoverage" in js, "coverage refresh helper missing"
     i = js.find('$("ia3d-overlay-threshold")')
     assert i > 0 and "_refreshCoverage" in js[i:i+400], "threshold change must refresh coverage (debounced)"
+
+
+def test_coverage_bar_draw_and_seek_helpers_factored():
+    js = JS.read_text()
+    assert "function _drawCoverageBar(" in js, "shared coverage-bar draw helper missing"
+    assert "function _wireSeekCanvas(" in js, "shared seek-canvas wiring helper missing"

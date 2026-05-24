@@ -250,6 +250,39 @@ function _ensureViewer() {
   return _viewer;
 }
 
+// Draw a coverage bar onto `canvas`: paint covered buckets in markColor, then the
+// playhead at the viewer's current frame. (Track bg comes from CSS.)
+function _drawCoverageBar(canvas, buckets, markColor) {
+  if (!canvas || !_viewer) return;
+  const w = Math.round(canvas.getBoundingClientRect().width) || canvas.clientWidth || 600;
+  canvas.width = w;
+  const h = canvas.height || 14;
+  const ctx = canvas.getContext("2d");
+  ctx.clearRect(0, 0, w, h);
+  if (buckets && buckets.length) {
+    ctx.fillStyle = markColor;
+    for (const r of coverageRects(buckets, w)) ctx.fillRect(r.x, 0, r.w, h);
+  }
+  const fc = _viewer.frameCount();
+  if (fc > 0) {
+    const x = Math.round((_viewer.currentFrame() / Math.max(fc - 1, 1)) * w);
+    ctx.save(); ctx.globalAlpha = 0.85; ctx.fillStyle = "#fff"; ctx.fillRect(x, 0, 2, h); ctx.restore();
+  }
+}
+// Wire click + drag-to-seek on a coverage/seek canvas.
+function _wireSeekCanvas(canvas) {
+  if (!canvas) return;
+  let dragging = false;
+  const toX = (e) => {
+    const r = canvas.getBoundingClientRect();
+    _viewer?.seek(xToFrame(e.clientX - r.left, r.width, _viewer.frameCount()));
+  };
+  canvas.addEventListener("mousedown", (e) => { dragging = true; _viewer?.pause(); toX(e); });
+  document.addEventListener("mousemove", (e) => { if (dragging) toX(e); });
+  document.addEventListener("mouseup", () => { dragging = false; });
+}
+const _accentColor = () => getComputedStyle(document.documentElement).getPropertyValue("--accent").trim() || "#6ee7b7";
+
 function _wireViewerChrome(v) {
   const skipN = () => Math.max(1, parseInt($("ia3d-skip-n")?.value, 10) || 10);
 
@@ -304,32 +337,8 @@ function _wireViewerChrome(v) {
 
   // Main timeline canvas: dark track + marker-coverage marks + playhead; click/drag to seek.
   const seekCanvas = $("ia3d-seek-canvas");
-  function _drawSeekTimeline() {
-    if (!seekCanvas) return;
-    const w = Math.round(seekCanvas.getBoundingClientRect().width) || seekCanvas.clientWidth || 600;
-    seekCanvas.width = w;
-    const h = seekCanvas.height || 14;
-    const ctx = seekCanvas.getContext("2d");
-    ctx.clearRect(0, 0, w, h);
-    if (_coverageBuckets && _coverageBuckets.length) {
-      ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue("--accent").trim() || "#6ee7b7";
-      for (const r of coverageRects(_coverageBuckets, w)) ctx.fillRect(r.x, 0, r.w, h);
-    }
-    const fc = v.frameCount();
-    if (fc > 0) {
-      const x = Math.round((v.currentFrame() / Math.max(fc - 1, 1)) * w);
-      ctx.save(); ctx.globalAlpha = 0.85; ctx.fillStyle = "#fff"; ctx.fillRect(x, 0, 2, h); ctx.restore();
-    }
-  }
-  _redrawSeekTimeline = _drawSeekTimeline;
-  let _seekDragging = false;
-  const _seekToX = (e) => {
-    const rect = seekCanvas.getBoundingClientRect();
-    v.seek(xToFrame(e.clientX - rect.left, rect.width, v.frameCount()));
-  };
-  seekCanvas?.addEventListener("mousedown", (e) => { _seekDragging = true; v.pause(); _seekToX(e); });
-  document.addEventListener("mousemove", (e) => { if (_seekDragging) _seekToX(e); });
-  document.addEventListener("mouseup", () => { _seekDragging = false; });
+  _wireSeekCanvas(seekCanvas);
+  _redrawSeekTimeline = () => _drawCoverageBar(seekCanvas, _coverageBuckets, _accentColor());
 
   // Frame-jump: click the counter to type an exact frame and Enter to jump
   // (granular seek, mirrors clip-cutter's clickable frame number).
@@ -389,7 +398,7 @@ function _wireViewerChrome(v) {
 
   // ── Frame-driven UI updates ──────────────────────────────────────────────
   v.on("videoLoad", ({ frameCount }) => {
-    _drawSeekTimeline();
+    _redrawSeekTimeline();
     _updateCounters(0, frameCount);
     _applyCamLabels();
     _updateSyncRow();
@@ -397,7 +406,7 @@ function _wireViewerChrome(v) {
   });
 
   v.on("frameChange", (n) => {
-    _drawSeekTimeline();
+    _redrawSeekTimeline();
     _updateCounters(n, v.frameCount());
     _swapPlayIcon(v.isPlaying());
   });
