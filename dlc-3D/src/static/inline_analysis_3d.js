@@ -1218,6 +1218,8 @@ function _resetForOpen() {
   const finStatus = $("ia3d-finalize-status");
   if (finStatus) { finStatus.textContent = ""; finStatus.className = "fe-extract-status"; }
   _markerEditor?.setEditable(false);
+  _lastFinalizeClip = null;
+  _finalizeClipBtnsEnabled(false);
   // Clip panel reset: collapse on new video selection.
   const clipEnable = $("ia3d-clip-enable");
   if (clipEnable) clipEnable.checked = false;
@@ -1739,56 +1741,133 @@ async function _initStatus(v) {
   catch (e) { return false; }
 }
 
-async function _onFinalizeAddClick() {
-  const ia3dFinalizeStatus = $("ia3d-finalize-status");
-  const ia3dFinalizeAddBtn = $("ia3d-finalize-add-btn");
+// Finalize the current keyframe-window range into both cams' _analyzed.
+// Returns { ok, start, n }. Shared by the Add-range and Finalize-and-extract
+// buttons; callers manage their own button disabled-state.
+async function _doFinalizeAdd() {
+  const st = $("ia3d-finalize-status");
   const cam0H5 = _overlayPrimaryH5, cam0Video = _cam0Path();
   if (!cam0H5 || !cam0Video) {
-    if (ia3dFinalizeStatus) { ia3dFinalizeStatus.textContent = "Select a video/layer first."; ia3dFinalizeStatus.className = "fe-extract-status err"; }
-    return;
+    if (st) { st.textContent = "Select a video/layer first."; st.className = "fe-extract-status err"; }
+    return { ok: false, start: 0, n: 0 };
   }
   const rng = _finalizeKW ? _finalizeKW.getRange() : { start: 0, n: 0 };
   const startFrame = rng.start, nFrames = rng.n;
   const cam1Layer = _siblingPrimaryH5;
-  if (ia3dFinalizeAddBtn) ia3dFinalizeAddBtn.disabled = true;
-  // Confirm before overwriting existing _analyzed file(s). Uses analysis-file/status.
   try {
     const e0 = await _initStatus(cam0Video);
     const e1 = (_siblingPath && cam1Layer) ? await _initStatus(_siblingPath) : false;
-    if ((e0||e1) && !window.confirm(
-        `Overwrite frames ${startFrame}–${startFrame+nFrames-1} in the existing _analyzed file(s)` +
-        `${e0&&e1?" on both cameras":(e0?" on cam0":" on cam1")}?\n\nThis replaces any curated values already saved for those frames.`)) {
-      if (ia3dFinalizeStatus) { ia3dFinalizeStatus.textContent = "Cancelled."; ia3dFinalizeStatus.className = "fe-extract-status"; }
-      if (ia3dFinalizeAddBtn) ia3dFinalizeAddBtn.disabled = false;
-      return;
+    if ((e0 || e1) && !window.confirm(
+        `Overwrite frames ${startFrame}–${startFrame + nFrames - 1} in the existing _analyzed file(s)` +
+        `${e0 && e1 ? " on both cameras" : (e0 ? " on cam0" : " on cam1")}?\n\nThis replaces any curated values already saved for those frames.`)) {
+      if (st) { st.textContent = "Cancelled."; st.className = "fe-extract-status"; }
+      return { ok: false, start: startFrame, n: nFrames };
     }
-  } catch (_) { /* status check failed — fall through and let finalize proceed */ }
-  if (ia3dFinalizeStatus) { ia3dFinalizeStatus.textContent = "Finalizing…"; ia3dFinalizeStatus.className = "fe-extract-status"; }
+  } catch (_) { /* status check failed — proceed */ }
+  if (st) { st.textContent = "Finalizing…"; st.className = "fe-extract-status"; }
   try {
     const sv0 = await _ia3dSaveLayer(cam0H5);
     const sv1 = cam1Layer ? await _ia3dSaveLayer(cam1Layer) : true;
     if (!sv0 || !sv1) {
-      if (ia3dFinalizeStatus) {
-        ia3dFinalizeStatus.textContent = `Could not save edits (${!sv0?"cam0":"cam1"}) — finalize aborted`;
-        ia3dFinalizeStatus.className = "fe-extract-status err";
-      }
-      return; // the finally{} still re-enables the button
+      if (st) { st.textContent = `Could not save edits (${!sv0 ? "cam0" : "cam1"}) — finalize aborted`; st.className = "fe-extract-status err"; }
+      return { ok: false, start: startFrame, n: nFrames };
     }
     const r0 = await _ia3dFinalizeOne(cam0Video, cam0H5, startFrame, nFrames);
     let r1 = null;
     if (_siblingPath && cam1Layer) r1 = await _ia3dFinalizeOne(_siblingPath, cam1Layer, startFrame, nFrames);
-    if (ia3dFinalizeStatus) {
+    if (st) {
       const p0 = r0.ok ? `cam0 ✓ ${r0.n}` : `cam0 ⚠ ${r0.err}`;
       const p1 = r1 ? (r1.ok ? ` · cam1 ✓ ${r1.n}` : ` · cam1 ⚠ ${r1.err}`) : "";
-      ia3dFinalizeStatus.textContent = `${p0}${p1}`;
-      ia3dFinalizeStatus.className = (r0.ok && (!r1||r1.ok)) ? "fe-extract-status" : "fe-extract-status err";
+      st.textContent = `${p0}${p1}`;
+      st.className = (r0.ok && (!r1 || r1.ok)) ? "fe-extract-status" : "fe-extract-status err";
     }
     _refreshFinalizeCoverage();
+    return { ok: !!(r0.ok && (!r1 || r1.ok)), start: startFrame, n: nFrames };
   } catch (e) {
-    if (ia3dFinalizeStatus) { ia3dFinalizeStatus.textContent = `Error: ${e}`; ia3dFinalizeStatus.className = "fe-extract-status err"; }
-  } finally {
-    if (ia3dFinalizeAddBtn) ia3dFinalizeAddBtn.disabled = false;
+    if (st) { st.textContent = `Error: ${e}`; st.className = "fe-extract-status err"; }
+    return { ok: false, start: startFrame, n: nFrames };
   }
+}
+
+async function _onFinalizeAddClick() {
+  const btn = $("ia3d-finalize-add-btn");
+  if (btn) btn.disabled = true;
+  try { await _doFinalizeAdd(); }
+  finally { if (btn) btn.disabled = false; }
+}
+
+let _lastFinalizeClip = null;   // { start, n, cams: [{ video, avi }, …] } from the last Finalize-and-extract
+
+function _finalizeClipBtnsEnabled(on) {
+  const r = $("ia3d-finalize-clip-rename-btn"), d = $("ia3d-finalize-clip-delete-btn");
+  if (r) r.disabled = !on;
+  if (d) d.disabled = !on;
+}
+
+async function _onFinalizeAndExtractClick() {
+  const st = $("ia3d-finalize-status"), btn = $("ia3d-finalize-clip-btn");
+  if (btn) btn.disabled = true;
+  try {
+    const r = await _doFinalizeAdd();
+    if (!r.ok) return;
+    const postfix = $("ia3d-finalize-clip-postfix")?.value || "";
+    const both = $("ia3d-finalize-clip-sibling")?.checked;
+    const cams = [{ video: _cam0Path() }];
+    if (both && _siblingPath) cams.push({ video: _siblingPath });
+    let okCount = 0;
+    for (const c of cams) {
+      try {
+        const resp = await (await fetch("/dlc-3d/extract-clip", {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ video_path: c.video, start_frame: r.start, n_frames: r.n, postfix }),
+        })).json();
+        c.avi = resp.avi_path || null;
+        if (c.avi) okCount++;
+      } catch (_) { c.avi = null; }
+    }
+    _lastFinalizeClip = { start: r.start, n: r.n, cams };
+    _finalizeClipBtnsEnabled(true);
+    if (st) st.textContent = `${st.textContent} · clip ✓ (${okCount} cam${okCount !== 1 ? "s" : ""})`;
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
+async function _onFinalizeClipRename() {
+  if (!_lastFinalizeClip) return;
+  const st = $("ia3d-finalize-status");
+  const postfix = $("ia3d-finalize-clip-postfix")?.value || "";
+  for (const c of _lastFinalizeClip.cams) {
+    if (!c.avi) continue;
+    try {
+      const resp = await (await fetch("/dlc-3d/extract-clip/rename", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ avi_path: c.avi, postfix }),
+      })).json();
+      if (resp.avi_path) c.avi = resp.avi_path;
+    } catch (_) { /* best effort */ }
+  }
+  if (st) { st.textContent = "Clip renamed."; st.className = "fe-extract-status"; }
+}
+
+async function _onFinalizeClipDelete() {
+  if (!_lastFinalizeClip) return;
+  const { start, n, cams } = _lastFinalizeClip;
+  if (!window.confirm(
+      `Delete the extracted clip and REMOVE frames ${start}–${start + n - 1} from the _analyzed file(s)?\n\nThis un-finalizes those frames (sets them back to no-data).`)) return;
+  const st = $("ia3d-finalize-status");
+  for (const c of cams) {
+    if (c.avi) {
+      try { await fetch("/dlc-3d/extract-clip/delete", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ avi_path: c.avi }) }); } catch (_) { /* best effort */ }
+    }
+    try {
+      await fetch("/dlc/project/inline-analysis/unfinalize-range", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ video_path: c.video, start_frame: start, n_frames: n }) });
+    } catch (_) { /* best effort */ }
+  }
+  _refreshFinalizeCoverage();
+  _lastFinalizeClip = null;
+  _finalizeClipBtnsEnabled(false);
+  if (st) { st.textContent = "Clip deleted; frames un-finalized."; st.className = "fe-extract-status"; }
 }
 
 async function _refreshInitFileBtn() {
@@ -1883,6 +1962,9 @@ function _wireStereoDispatch() {
   });
 
   $("ia3d-finalize-add-btn")?.addEventListener("click", _onFinalizeAddClick);
+  $("ia3d-finalize-clip-btn")?.addEventListener("click", _onFinalizeAndExtractClick);
+  $("ia3d-finalize-clip-rename-btn")?.addEventListener("click", _onFinalizeClipRename);
+  $("ia3d-finalize-clip-delete-btn")?.addEventListener("click", _onFinalizeClipDelete);
 
   $("ia3d-init-analysis-file")?.addEventListener("click", _onInitFileClick);
 

@@ -313,10 +313,11 @@ def test_js3d_finalize_flow_and_autopopulate():
     assert "/dlc/project/inline-analysis/finalize-range" in js
     assert "/dlc/viewer/save-marker-edits" in js
     assert "_ia3dPopulateFinalizeFields" in js
-    # the finalize-add handler resolves the cam1 source from the sibling path /
-    # the consumer-tracked sibling h5
-    i = js.find("async function _onFinalizeAddClick")
-    assert i > 0, "_onFinalizeAddClick handler not found"
+    # _onFinalizeAddClick exists (thin wrapper); the finalize core is in _doFinalizeAdd
+    assert "async function _onFinalizeAddClick" in js, "_onFinalizeAddClick handler not found"
+    # the finalize core resolves the cam1 source from the sibling path / consumer-tracked sibling h5
+    i = js.find("async function _doFinalizeAdd")
+    assert i > 0, "_doFinalizeAdd core not found"
     body = js[i:i + 2600]
     assert "_siblingPath" in body
     assert "_siblingPrimaryH5" in body, "cam1 finalize source must come from the resolved sibling h5"
@@ -329,11 +330,15 @@ def test_btn_sm_disabled_styling_exists_3d():
 
 def test_finalize3d_confirms_before_overwrite():
     js = JS.read_text()
-    i = js.find("async function _onFinalizeAddClick")
-    assert i > 0
+    # The confirm logic lives in _doFinalizeAdd (the factored core); _onFinalizeAddClick
+    # is the thin Add-range wrapper that calls it.
+    i = js.find("async function _doFinalizeAdd")
+    assert i > 0, "_doFinalizeAdd core not found"
     body = js[i:i + 2000]
     assert "window.confirm" in body, "3D finalize must confirm before overwriting _analyzed"
-    assert "analysis-file/status" in body, "confirm must be gated on whether _analyzed already exists"
+    # the confirm is gated on _initStatus() which wraps analysis-file/status
+    assert "_initStatus(" in body, "confirm must be gated on _initStatus (which calls analysis-file/status)"
+    assert "analysis-file/status" in js, "analysis-file/status endpoint must exist somewhere in the module"
 
 
 def test_granular_player_controls_present():
@@ -439,8 +444,8 @@ def test_finalize_coverage_bar_present_and_wired():
     assert "/dlc/project/analysis-file/status" in js
     ti = js.find('ia3dFinalizeToggle?.addEventListener')
     assert ti > 0 and "_refreshFinalizeCoverage" in js[ti:ti+400], "toggle must refresh finalize coverage"
-    fi = js.find("async function _onFinalizeAddClick")
-    assert fi > 0 and "_refreshFinalizeCoverage" in js[fi:fi+3200], "finalize-add must refresh coverage"
+    fi = js.find("async function _doFinalizeAdd")
+    assert fi > 0 and "_refreshFinalizeCoverage" in js[fi:fi+3200], "finalize-add core must refresh coverage"
 
 
 def test_bp_chip_height_reserved():
@@ -602,3 +607,15 @@ def test_finalize_clip_controls_present():
     assert re.search(r'id="ia3d-finalize-clip-delete-btn"[^>]*\bdisabled', html) or \
            re.search(r'\bdisabled[^>]*id="ia3d-finalize-clip-delete-btn"', html)
     assert "ia3d-finalize-add-btn" in html
+
+
+def test_finalize_clip_glue_wired():
+    js = JS.read_text()
+    assert "_doFinalizeAdd" in js, "finalize core must be factored into _doFinalizeAdd"
+    assert "_lastFinalizeClip" in js
+    assert "/dlc-3d/extract-clip" in js
+    assert "/dlc-3d/extract-clip/rename" in js
+    assert "/dlc-3d/extract-clip/delete" in js
+    assert "/dlc/project/inline-analysis/unfinalize-range" in js
+    assert "_onFinalizeAndExtractClick" in js and "_onFinalizeClipRename" in js and "_onFinalizeClipDelete" in js
+    assert re.search(r"_onFinalizeClipDelete[\s\S]{0,400}window\.confirm", js)
