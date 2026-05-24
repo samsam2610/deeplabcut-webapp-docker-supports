@@ -23,7 +23,7 @@ export function syncWindow(edited, { before, after, length }) {
 // [0, frameCount-1]. n is the (clamped) inclusive frame count.
 export function finalizeRange(keyframe, before, after, frameCount) {
   const k = toInt(keyframe, 0), b = toInt(before, 0), a = toInt(after, 0);
-  const last = Math.max(0, (Number(frameCount) | 0) - 1);
+  const last = Math.max(0, toInt(frameCount, 0) - 1);
   const start = Math.min(Math.max(k - b, 0), last);
   const end = Math.min(Math.max(k + a, 0), last);
   return { start, end, n: end - start + 1 };
