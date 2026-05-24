@@ -149,4 +149,5 @@
 
 #inline-analysis-3d-card #ia3d-seek-canvas {
   background: var(--bg); border: 1px solid var(--border); border-radius: 4px;
+  margin-top: .9rem;  /* breathing room between the video tiles and the timeline */
 }
