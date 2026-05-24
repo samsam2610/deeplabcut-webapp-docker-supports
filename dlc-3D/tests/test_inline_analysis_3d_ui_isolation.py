@@ -412,3 +412,11 @@ def test_main_timeline_is_canvas():
     js = JS.read_text()
     assert "coverage_timeline.mjs" in js, "must import the coverage reducer"
     assert "ia3d-seek-canvas" in js and "coverageRects" in js and "xToFrame" in js
+
+
+def test_coverage_fetch_wired_and_threshold_recomputes():
+    js = JS.read_text()
+    assert "/dlc/viewer/pose-coverage" in js, "coverage endpoint not fetched"
+    assert "_refreshCoverage" in js, "coverage refresh helper missing"
+    i = js.find('$("ia3d-overlay-threshold")')
+    assert i > 0 and "_refreshCoverage" in js[i:i+400], "threshold change must refresh coverage (debounced)"

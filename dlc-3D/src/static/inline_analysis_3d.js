@@ -51,6 +51,10 @@ let _ia3dLastRunN = null;
 let _coverageBuckets = null;   // 0/1 array; null until Task 4 fetches coverage data
 let _redrawSeekTimeline = () => {};  // replaced in _wireViewerChrome with the real draw fn
 
+// Task 4: likelihood-filtered coverage cache + debounce timer.
+const _coverageCache = new Map(); // keyed by "<h5>:<threshold.toFixed(2)>"
+let _coverageTimer = null;        // debounce handle for threshold changes
+
 // Browse-tab folder navigator state.
 let _iaBrowsePath = null;
 const _IA_VIDEO_EXTS = new Set([".mp4", ".avi", ".mov", ".mkv", ".mpg", ".mpeg"]);
@@ -536,7 +540,7 @@ function _wireOverlayChrome() {
   if (_overlayChromeWired) return;
   _overlayChromeWired = true;
 
-  // Overlay enable toggle → markerEditor.setOverlayEnabled + reveal controls.
+  // Overlay enable toggle → markerEditor.setOverlayEnabled + reveal controls + coverage refresh.
   const toggle = $("ia3d-overlay-toggle");
   toggle?.addEventListener("change", () => {
     const on = !!toggle.checked;
@@ -545,6 +549,7 @@ function _wireOverlayChrome() {
     $("ia3d-bp-list-wrap")?.classList.toggle("hidden", !on);
     const st = $("ia3d-overlay-status");
     if (st) st.textContent = on ? "overlay on" : "overlay off";
+    _refreshCoverage();
   });
 
   // Primary h5 picker → setPrimary + per-cam sibling resolution.
@@ -552,13 +557,14 @@ function _wireOverlayChrome() {
     _applyOverlayPrimary(e.target.value);
   });
 
-  // Likelihood threshold → setThreshold + label.
+  // Likelihood threshold → setThreshold + label + coverage refresh (debounced).
   const thr = $("ia3d-overlay-threshold");
   thr?.addEventListener("input", () => {
     const v = parseFloat(thr.value);
     _markerEditor?.setThreshold(v);
     const lbl = $("ia3d-overlay-threshold-val");
     if (lbl) lbl.textContent = v.toFixed(2);
+    _refreshCoverageDebounced();
   });
 
   // Marker size: markerEditor has no setMarkerSize API → update the label only.
@@ -656,6 +662,33 @@ async function _applyOverlayPrimary(h5) {
     _siblingPrimaryH5 = null;
     _markerEditor.setSibling(null);
   }
+  _refreshCoverage();
+}
+
+// Fetch likelihood-filtered marker-coverage for the active primary h5 + current
+// threshold, cache by (h5, threshold), and redraw the main timeline. No-op unless
+// the overlay is on with a primary h5.
+async function _refreshCoverage() {
+  const on = $("ia3d-overlay-toggle")?.checked;
+  if (!on || !_overlayPrimaryH5) { _coverageBuckets = null; _redrawSeekTimeline(); return; }
+  const thr = parseFloat($("ia3d-overlay-threshold")?.value ?? "0.6");
+  const key = `${_overlayPrimaryH5}:${thr.toFixed(2)}`;
+  if (_coverageCache.has(key)) { _coverageBuckets = _coverageCache.get(key); _redrawSeekTimeline(); return; }
+  const w = Math.max(200, Math.round($("ia3d-seek-canvas")?.getBoundingClientRect().width || 600));
+  try {
+    const data = await (await fetch(
+      `/dlc/viewer/pose-coverage?h5=${encodeURIComponent(_overlayPrimaryH5)}&threshold=${thr}&buckets=${w}`,
+    )).json();
+    const buckets = data.buckets || [];
+    _coverageCache.set(key, buckets);
+    const curThr = parseFloat($("ia3d-overlay-threshold")?.value ?? "0.6");
+    if (`${_overlayPrimaryH5}:${curThr.toFixed(2)}` === key) { _coverageBuckets = buckets; _redrawSeekTimeline(); }
+  } catch (_) { /* leave timeline without coverage */ }
+}
+
+function _refreshCoverageDebounced() {
+  if (_coverageTimer) clearTimeout(_coverageTimer);
+  _coverageTimer = setTimeout(_refreshCoverage, 200);
 }
 
 // Save Adjustments (consumer glue). markerEditor has written each edit to the
@@ -980,7 +1013,9 @@ function _resetForOpen() {
   if (metaInfo) metaInfo.textContent = "No companion CSV";
   const createFb = $("ia3d-csv-create-status");
   if (createFb) createFb.textContent = "";
-  // Overlay panel reset.
+  // Overlay panel reset (Task 4: also clear coverage cache + buckets on video switch).
+  _coverageBuckets = null;
+  _coverageCache.clear();
   _overlayPrimaryH5 = null;
   _siblingPrimaryH5 = null;
   const ovToggle = $("ia3d-overlay-toggle");
