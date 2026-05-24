@@ -426,3 +426,18 @@ def test_coverage_bar_draw_and_seek_helpers_factored():
     js = JS.read_text()
     assert "function _drawCoverageBar(" in js, "shared coverage-bar draw helper missing"
     assert "function _wireSeekCanvas(" in js, "shared seek-canvas wiring helper missing"
+
+
+def test_finalize_coverage_bar_present_and_wired():
+    html = (ROOT / "src" / "templates" / "partials" / "card_inline_analysis_3d.html").read_text()
+    fc = html.index('id="ia3d-finalize-controls"')
+    cov = html.index('id="ia3d-finalize-coverage"')
+    assert cov > fc, "finalize coverage canvas must be inside the finalize controls"
+    js = JS.read_text()
+    assert "_refreshFinalizeCoverage" in js, "finalize coverage refresh helper missing"
+    assert "mode=presence" in js, "must request presence-mode coverage"
+    assert "/dlc/project/analysis-file/status" in js
+    ti = js.find('ia3dFinalizeToggle?.addEventListener')
+    assert ti > 0 and "_refreshFinalizeCoverage" in js[ti:ti+400], "toggle must refresh finalize coverage"
+    fi = js.find("async function _onFinalizeAddClick")
+    assert fi > 0 and "_refreshFinalizeCoverage" in js[fi:fi+2600], "finalize-add must refresh coverage"

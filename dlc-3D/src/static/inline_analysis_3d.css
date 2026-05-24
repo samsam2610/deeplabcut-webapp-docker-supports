@@ -151,3 +151,7 @@
   background: var(--bg); border: 1px solid var(--border); border-radius: 4px;
   margin-top: .9rem;  /* breathing room between the video tiles and the timeline */
 }
+
+#inline-analysis-3d-card #ia3d-finalize-coverage {
+  background: var(--bg); border: 1px solid var(--border); border-radius: 4px;
+}

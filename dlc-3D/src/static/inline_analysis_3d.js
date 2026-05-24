@@ -51,6 +51,10 @@ let _ia3dLastRunN = null;
 let _coverageBuckets = null;   // 0/1 array; null until Task 4 fetches coverage data
 let _redrawSeekTimeline = () => {};  // replaced in _wireViewerChrome with the real draw fn
 
+// Finalize coverage bar state — presence-mode coverage of the _analyzed file.
+let _finalizeCoverageBuckets = null;
+let _redrawFinalizeCoverage = () => {};
+
 // Task 4: likelihood-filtered coverage cache + debounce timer.
 const _coverageCache = new Map(); // keyed by "<h5>:<threshold.toFixed(2)>"
 let _coverageTimer = null;        // debounce handle for threshold changes
@@ -339,6 +343,12 @@ function _wireViewerChrome(v) {
   const seekCanvas = $("ia3d-seek-canvas");
   _wireSeekCanvas(seekCanvas);
   _redrawSeekTimeline = () => _drawCoverageBar(seekCanvas, _coverageBuckets, _accentColor());
+
+  // Finalize coverage canvas: presence-mode coverage of the _analyzed file (amber).
+  const finalizeCanvas = $("ia3d-finalize-coverage");
+  _wireSeekCanvas(finalizeCanvas);
+  _redrawFinalizeCoverage = () => _drawCoverageBar(finalizeCanvas, _finalizeCoverageBuckets, "#fbbf24");
+  v.on("frameChange", () => _redrawFinalizeCoverage());
 
   // Frame-jump: click the counter to type an exact frame and Enter to jump
   // (granular seek, mirrors clip-cutter's clickable frame number).
@@ -700,6 +710,26 @@ function _refreshCoverageDebounced() {
   _coverageTimer = setTimeout(_refreshCoverage, 200);
 }
 
+// Coverage of the canonical _analyzed file (presence, no threshold) for the
+// finalize bar. Resolves the _analyzed h5 via analysis-file/status; always
+// refetches on its triggers (toggle-on, after each finalize-add) — the file
+// changes and the backend cache is mtime-keyed.
+async function _refreshFinalizeCoverage() {
+  const on = $("ia3d-finalize-toggle")?.checked;
+  const cam0Video = _cam0Path();
+  if (!on || !cam0Video) { _finalizeCoverageBuckets = null; _redrawFinalizeCoverage(); return; }
+  try {
+    const st = await (await fetch(`/dlc/project/analysis-file/status?video_path=${encodeURIComponent(cam0Video)}`)).json();
+    if (!st.initialized || !st.h5_path) { _finalizeCoverageBuckets = null; _redrawFinalizeCoverage(); return; }
+    const w = Math.max(200, Math.round($("ia3d-finalize-coverage")?.getBoundingClientRect().width || 600));
+    const data = await (await fetch(
+      `/dlc/viewer/pose-coverage?h5=${encodeURIComponent(st.h5_path)}&mode=presence&buckets=${w}`,
+    )).json();
+    _finalizeCoverageBuckets = data.buckets || [];
+    _redrawFinalizeCoverage();
+  } catch (_) { _finalizeCoverageBuckets = null; _redrawFinalizeCoverage(); }
+}
+
 // Save Adjustments (consumer glue). markerEditor has written each edit to the
 // server edit-cache via saveMarker; this commits the cache → the primary .h5/.csv
 // for BOTH cams (cam0 = _overlayPrimaryH5, cam1 = _siblingPrimaryH5) via
@@ -1024,6 +1054,7 @@ function _resetForOpen() {
   if (createFb) createFb.textContent = "";
   // Overlay panel reset (Task 4: also clear coverage cache + buckets on video switch).
   _coverageBuckets = null;
+  _finalizeCoverageBuckets = null;
   _coverageCache.clear();
   _overlayPrimaryH5 = null;
   _siblingPrimaryH5 = null;
@@ -1570,33 +1601,32 @@ async function _ia3dFinalizeOne(videoPath, sourceH5, startFrame, nFrames) {
   return r.ok ? { ok: true, n: d.n_frames_written } : { ok: false, err: d.error || r.status };
 }
 
+// ── Initialize / finalize analysis-file helpers ──────────────────
+// Check whether the _analyzed file exists for a given video path.
+async function _initStatus(v) {
+  try { return (await (await fetch(`/dlc/project/analysis-file/status?video_path=${encodeURIComponent(v)}`)).json()).initialized; }
+  catch (e) { return false; }
+}
+
 async function _onFinalizeAddClick() {
   const ia3dFinalizeStatus = $("ia3d-finalize-status");
   const ia3dFinalizeAddBtn = $("ia3d-finalize-add-btn");
-  // cam0 source = the consumer-tracked primary h5; cam0 video = current path.
-  const cam0H5 = _overlayPrimaryH5;
-  const cam0Video = _cam0Path();
+  const cam0H5 = _overlayPrimaryH5, cam0Video = _cam0Path();
   if (!cam0H5 || !cam0Video) {
     if (ia3dFinalizeStatus) { ia3dFinalizeStatus.textContent = "Select a video/layer first."; ia3dFinalizeStatus.className = "fe-extract-status err"; }
     return;
   }
   const startFrame = parseInt($("ia3d-finalize-start")?.value, 10) || 0;
-  const nFrames    = parseInt($("ia3d-finalize-count")?.value, 10) || 0;
-  // cam1 source = the consumer-tracked resolved sibling h5 (from _applyOverlayPrimary).
-  const cam1Layer  = _siblingPrimaryH5;
+  const nFrames = parseInt($("ia3d-finalize-count")?.value, 10) || 0;
+  const cam1Layer = _siblingPrimaryH5;
   if (ia3dFinalizeAddBtn) ia3dFinalizeAddBtn.disabled = true;
-  // Confirm before overwriting existing _analyzed file(s).
+  // Confirm before overwriting existing _analyzed file(s). Uses analysis-file/status.
   try {
-    const _chkInit = async (v) => {
-      try { return (await (await fetch(`/dlc/project/analysis-file/status?video_path=${encodeURIComponent(v)}`)).json()).initialized; }
-      catch (_) { return false; }
-    };
-    const e0 = await _chkInit(cam0Video);
-    const e1 = (_siblingPath && cam1Layer) ? await _chkInit(_siblingPath) : false;
-    if ((e0 || e1) && !window.confirm(
-        `Overwrite frames ${startFrame}–${startFrame + nFrames - 1} in the existing _analyzed file(s)` +
-        `${e0 && e1 ? " on both cameras" : (e0 ? " on cam0" : " on cam1")}?\n\n` +
-        `This replaces any curated values already saved for those frames.`)) {
+    const e0 = await _initStatus(cam0Video);
+    const e1 = (_siblingPath && cam1Layer) ? await _initStatus(_siblingPath) : false;
+    if ((e0||e1) && !window.confirm(
+        `Overwrite frames ${startFrame}–${startFrame+nFrames-1} in the existing _analyzed file(s)` +
+        `${e0&&e1?" on both cameras":(e0?" on cam0":" on cam1")}?\n\nThis replaces any curated values already saved for those frames.`)) {
       if (ia3dFinalizeStatus) { ia3dFinalizeStatus.textContent = "Cancelled."; ia3dFinalizeStatus.className = "fe-extract-status"; }
       if (ia3dFinalizeAddBtn) ia3dFinalizeAddBtn.disabled = false;
       return;
@@ -1608,10 +1638,10 @@ async function _onFinalizeAddClick() {
     const sv1 = cam1Layer ? await _ia3dSaveLayer(cam1Layer) : true;
     if (!sv0 || !sv1) {
       if (ia3dFinalizeStatus) {
-        ia3dFinalizeStatus.textContent = `Could not save edits (${!sv0 ? "cam0" : "cam1"}) — finalize aborted`;
+        ia3dFinalizeStatus.textContent = `Could not save edits (${!sv0?"cam0":"cam1"}) — finalize aborted`;
         ia3dFinalizeStatus.className = "fe-extract-status err";
       }
-      return;   // the finally{} still re-enables the button
+      return; // the finally{} still re-enables the button
     }
     const r0 = await _ia3dFinalizeOne(cam0Video, cam0H5, startFrame, nFrames);
     let r1 = null;
@@ -1620,19 +1650,14 @@ async function _onFinalizeAddClick() {
       const p0 = r0.ok ? `cam0 ✓ ${r0.n}` : `cam0 ⚠ ${r0.err}`;
       const p1 = r1 ? (r1.ok ? ` · cam1 ✓ ${r1.n}` : ` · cam1 ⚠ ${r1.err}`) : "";
       ia3dFinalizeStatus.textContent = `${p0}${p1}`;
-      ia3dFinalizeStatus.className = (r0.ok && (!r1 || r1.ok)) ? "fe-extract-status" : "fe-extract-status err";
+      ia3dFinalizeStatus.className = (r0.ok && (!r1||r1.ok)) ? "fe-extract-status" : "fe-extract-status err";
     }
+    _refreshFinalizeCoverage();
   } catch (e) {
     if (ia3dFinalizeStatus) { ia3dFinalizeStatus.textContent = `Error: ${e}`; ia3dFinalizeStatus.className = "fe-extract-status err"; }
   } finally {
     if (ia3dFinalizeAddBtn) ia3dFinalizeAddBtn.disabled = false;
   }
-}
-
-// ── Initialize analysis files (both cameras) ─────────────────────
-async function _initStatus(v) {
-  try { return (await (await fetch(`/dlc/project/analysis-file/status?video_path=${encodeURIComponent(v)}`)).json()).initialized; }
-  catch (e) { return false; }
 }
 
 async function _refreshInitFileBtn() {
@@ -1721,8 +1746,9 @@ function _wireStereoDispatch() {
     _markerEditor?.setEditable(on);
     $("ia3d-finalize-controls")?.classList.toggle("hidden", !on);
     const ov = $("ia3d-overlay-toggle");
-    if (on && ov && !ov.checked) { ov.checked = true; ov.dispatchEvent(new Event("change")); }
+    if (on&&ov&&!ov.checked){ov.checked=true;ov.dispatchEvent(new Event("change"));}
     if (on) _ia3dPopulateFinalizeFields();
+    _refreshFinalizeCoverage();
   });
 
   $("ia3d-finalize-add-btn")?.addEventListener("click", _onFinalizeAddClick);
