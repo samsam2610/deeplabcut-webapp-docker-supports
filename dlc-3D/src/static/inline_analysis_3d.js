@@ -1860,18 +1860,23 @@ async function _onFinalizeClipDelete() {
   if (!window.confirm(
       `Delete the extracted clip and REMOVE frames ${start}–${start + n - 1} from the _analyzed file(s)?\n\nThis un-finalizes those frames (sets them back to no-data).`)) return;
   const st = $("ia3d-finalize-status");
+  let unfinalizeOk = true;
   for (const c of cams) {
     if (c.avi) {
       try { await fetch("/dlc-3d/extract-clip/delete", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ avi_path: c.avi }) }); } catch (_) { /* best effort */ }
     }
     try {
-      await fetch("/dlc/project/inline-analysis/unfinalize-range", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ video_path: c.video, start_frame: start, n_frames: n }) });
-    } catch (_) { /* best effort */ }
+      const ur = await fetch("/dlc/project/inline-analysis/unfinalize-range", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ video_path: c.video, start_frame: start, n_frames: n }) });
+      if (!ur.ok) unfinalizeOk = false;
+    } catch (_) { unfinalizeOk = false; }
   }
   _refreshFinalizeCoverage();
   _lastFinalizeClip = null;
   _finalizeClipBtnsEnabled(false);
-  if (st) { st.textContent = "Clip deleted; frames un-finalized."; st.className = "fe-extract-status"; }
+  if (st) {
+    if (unfinalizeOk) { st.textContent = "Clip deleted; frames un-finalized."; st.className = "fe-extract-status"; }
+    else { st.textContent = "Clip deleted, but un-finalize FAILED — _analyzed may still contain those frames."; st.className = "fe-extract-status err"; }
+  }
 }
 
 async function _refreshInitFileBtn() {
