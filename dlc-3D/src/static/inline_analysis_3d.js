@@ -20,7 +20,7 @@ import { VideoViewer } from "./components/viewer/video_viewer.js";
 import { statusNoteTimeline } from "./components/viewer/features/status_notes.js";
 import { markerEditor } from "./components/viewer/features/marker_editor.js";
 import { clipExtractor } from "./components/viewer/features/clip_extractor.js";
-import { coverageRects, xToFrame, nextCoveredBucket, bucketToFrame, frameToBucket, xToBucket } from "./components/viewer/internal/coverage_timeline.mjs";
+import { coverageRects, coverageFrameRects, nearestCoveredFrame, xToFrame, nextCoveredBucket, bucketToFrame, frameToBucket } from "./components/viewer/internal/coverage_timeline.mjs";
 import { state } from "/static/js/state.js";
 
 // ── Module state ────────────────────────────────────────────────────────────
@@ -258,18 +258,24 @@ function _ensureViewer() {
 
 // Draw a coverage bar onto `canvas`: paint covered buckets in markColor, then the
 // playhead at the viewer's current frame. (Track bg comes from CSS.)
-function _drawCoverageBar(canvas, buckets, markColor) {
+function _drawCoverageBar(canvas, buckets, frames, markColor) {
   if (!canvas || !_viewer) return;
   const w = Math.round(canvas.getBoundingClientRect().width) || canvas.clientWidth || 600;
   canvas.width = w;
   const h = canvas.height || 14;
+  const fc = _viewer.frameCount();
   const ctx = canvas.getContext("2d");
   ctx.clearRect(0, 0, w, h);
   if (buckets && buckets.length) {
     ctx.fillStyle = markColor;
-    for (const r of coverageRects(buckets, w)) ctx.fillRect(r.x, 0, r.w, h);
+    // Draw marks in FRAME space (positioned by frames[]) so each mark sits exactly
+    // where clicking it seeks + where the playhead lands. Fall back to bucket space
+    // only if the endpoint didn't supply per-bucket frames.
+    const rects = (frames && frames.length)
+      ? coverageFrameRects(buckets, frames, fc, w)
+      : coverageRects(buckets, w);
+    for (const r of rects) ctx.fillRect(r.x, 0, r.w, h);
   }
-  const fc = _viewer.frameCount();
   if (fc > 0) {
     const x = Math.round((_viewer.currentFrame() / Math.max(fc - 1, 1)) * w);
     ctx.save(); ctx.globalAlpha = 0.85; ctx.fillStyle = "#fff"; ctx.fillRect(x, 0, 2, h); ctx.restore();
@@ -291,14 +297,18 @@ function _wireSeekCanvas(canvas, getCoverage) {
   const snap = (e) => {
     if (!_viewer) return;
     const r = canvas.getBoundingClientRect();
-    const px = e.clientX - r.left;
+    const fc = _viewer.frameCount();
+    const F = xToFrame(e.clientX - r.left, r.width, fc);
     const cov = getCoverage && getCoverage();
     const buckets = cov && cov.buckets, frames = cov && cov.frames;
     if (buckets && buckets.length && frames && frames.length) {
-      const bk = xToBucket(px, r.width, buckets.length);
-      if (buckets[bk] && frames[bk] >= 0) { _viewer.seek(frames[bk]); return; }
+      // Snap to the nearest real covered frame when the click lands on/near a mark
+      // (within ~one bucket); otherwise free-seek so the rest of the bar still scrubs.
+      const cf = nearestCoveredFrame(frames, F);
+      const bucketFrames = Math.ceil(fc / buckets.length);
+      if (cf != null && Math.abs(cf - F) <= bucketFrames) { _viewer.seek(cf); return; }
     }
-    _viewer.seek(xToFrame(px, r.width, _viewer.frameCount()));
+    _viewer.seek(F);
   };
   canvas.addEventListener("mousedown", (e) => { dragging = true; _viewer?.pause(); snap(e); });
   document.addEventListener("mousemove", (e) => { if (dragging) free(e); });
@@ -361,13 +371,13 @@ function _wireViewerChrome(v) {
   // Main timeline canvas: dark track + marker-coverage marks + playhead; click/drag to seek.
   const seekCanvas = $("ia3d-seek-canvas");
   _wireSeekCanvas(seekCanvas, () => ({ buckets: _coverageBuckets, frames: _coverageFrames }));
-  _redrawSeekTimeline = () => _drawCoverageBar(seekCanvas, _coverageBuckets, _accentColor());
+  _redrawSeekTimeline = () => _drawCoverageBar(seekCanvas, _coverageBuckets, _coverageFrames, _accentColor());
 
   // Finalize coverage canvas: presence-mode coverage of the _analyzed file (amber).
   const finalizeCanvas = $("ia3d-finalize-coverage");
   _wireSeekCanvas(finalizeCanvas, () => ({ buckets: _finalizeCoverageBuckets, frames: _finalizeCoverageFrames }));
   _redrawFinalizeCoverage = () => {
-    _drawCoverageBar(finalizeCanvas, _finalizeCoverageBuckets, "#fbbf24");
+    _drawCoverageBar(finalizeCanvas, _finalizeCoverageBuckets, _finalizeCoverageFrames, "#fbbf24");
     const has = !!(_finalizeCoverageBuckets && _finalizeCoverageBuckets.length);
     const pv = $("ia3d-finalize-prev"), nx = $("ia3d-finalize-next");
     if (pv) pv.disabled = !has;

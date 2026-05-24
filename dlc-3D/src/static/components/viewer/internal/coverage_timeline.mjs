@@ -58,11 +58,37 @@ export function frameToBucket(frame, frameCount, nBuckets) {
   return Math.min(nBuckets - 1, Math.max(0, Math.floor((frame / frameCount) * nBuckets)));
 }
 
-// Map a pixel x (0..width) → bucket index (clamped). Inverse of coverageRects'
-// layout (bucket b spans [b/n, (b+1)/n)·width). Lets a click on the coverage bar
-// resolve which bucket was hit, so we can seek to that bucket's real covered frame.
-export function xToBucket(px, width, nBuckets) {
-  if (!width || nBuckets <= 0) return 0;
-  const frac = Math.min(1, Math.max(0, px / width));
-  return Math.min(nBuckets - 1, Math.max(0, Math.floor(frac * nBuckets)));
+// Covered-bucket marks positioned in FRAME space — each mark sits at its real
+// covered frame's pixel (frames[b]), using the SAME map as the playhead
+// (frame/(frameCount-1)·width). Drawing in bucket space (coverageRects) instead
+// drifts from where a click seeks whenever the viewer's frame count differs from
+// the bucketed frame count, so the mark lands away from its frame. markW ≈ one
+// bucket wide, so dense coverage still reads as a continuous bar.
+export function coverageFrameRects(buckets, frames, frameCount, width) {
+  if (!buckets || !buckets.length || !frames || frameCount <= 0 || !width) return [];
+  const nB = buckets.length;
+  const markW = Math.max(1, Math.ceil(width / nB));
+  const denom = Math.max(frameCount - 1, 1);
+  const rects = [];
+  for (let b = 0; b < nB; b++) {
+    if (!buckets[b]) continue;
+    const f = frames[b];
+    if (f == null || f < 0) continue;
+    rects.push({ x: Math.round((f / denom) * width), w: markW });
+  }
+  return rects;
+}
+
+// Nearest covered frame to `target` (ignores uncovered buckets, frames[b] < 0),
+// or null if none. Lets a click on the bar snap to the real labeled frame under
+// the cursor — in frame space, consistent with coverageFrameRects + the playhead.
+export function nearestCoveredFrame(frames, target) {
+  if (!frames || !frames.length) return null;
+  let best = null, bestD = Infinity;
+  for (const f of frames) {
+    if (f == null || f < 0) continue;
+    const d = Math.abs(f - target);
+    if (d < bestD) { bestD = d; best = f; }
+  }
+  return best;
 }

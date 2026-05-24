@@ -1,16 +1,39 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { coverageRects, xToFrame } from "../../src/static/components/viewer/internal/coverage_timeline.mjs";
-import { nextCoveredBucket, bucketToFrame, frameToBucket, xToBucket }
+import { nextCoveredBucket, bucketToFrame, frameToBucket, coverageFrameRects, nearestCoveredFrame }
   from "../../src/static/components/viewer/internal/coverage_timeline.mjs";
 
-test("xToBucket maps a pixel to a clamped bucket index (inverse of coverageRects layout)", () => {
-  assert.equal(xToBucket(0, 100, 10), 0);
-  assert.equal(xToBucket(50, 100, 10), 5);
-  assert.equal(xToBucket(99, 100, 10), 9);
-  assert.equal(xToBucket(100, 100, 10), 9);   // clamp to last bucket
-  assert.equal(xToBucket(-5, 100, 10), 0);     // clamp low
-  assert.equal(xToBucket(50, 0, 10), 0);       // zero width → 0
+test("coverageFrameRects positions marks in FRAME space (aligned with the playhead), not bucket space", () => {
+  // 4 buckets but the covered frames are NOT at bucket boundaries: this is where
+  // bucket-space drawing (coverageRects) drifts from where a click seeks. The
+  // playhead draws frame f at round(f/(fc-1)*width); marks must use the SAME map.
+  const buckets = [1, 1, 0, 1];
+  const frames  = [0, 30, -1, 90];   // first covered frame per bucket
+  const fc = 100, width = 400;        // denom = 99
+  const rects = coverageFrameRects(buckets, frames, fc, width);
+  // markW = ceil(400/4) = 100; x = round(f/99*400)
+  assert.deepEqual(rects, [
+    { x: 0,   w: 100 },               // frame 0  → 0
+    { x: 121, w: 100 },               // frame 30 → round(121.2) = 121 (bucket-space would be 100)
+    { x: 364, w: 100 },               // frame 90 → round(363.6) = 364 (bucket-space would be 300)
+  ]);
+  // each mark x equals the playhead x for that frame (zero teleport by construction)
+  for (const [i, f] of [[0,0],[1,30],[2,90]]) {
+    assert.equal(rects[i].x, Math.round((f / (fc - 1)) * width));
+  }
+  assert.deepEqual(coverageFrameRects([0,0], [-1,-1], 100, 400), []);
+  assert.deepEqual(coverageFrameRects(null, null, 100, 400), []);
+});
+
+test("nearestCoveredFrame snaps a clicked frame to the closest covered frame (ignores -1)", () => {
+  const frames = [0, 30, -1, 90];
+  assert.equal(nearestCoveredFrame(frames, 25), 30);   // 25 closer to 30 than 0
+  assert.equal(nearestCoveredFrame(frames, 10), 0);    // 10 closer to 0 than 30
+  assert.equal(nearestCoveredFrame(frames, 70), 90);   // ignores the -1 bucket
+  assert.equal(nearestCoveredFrame(frames, 999), 90);  // beyond → last covered
+  assert.equal(nearestCoveredFrame([-1, -1], 5), null);
+  assert.equal(nearestCoveredFrame([], 5), null);
 });
 
 test("coverageRects maps covered buckets to merged x-rects scaled to width", () => {
