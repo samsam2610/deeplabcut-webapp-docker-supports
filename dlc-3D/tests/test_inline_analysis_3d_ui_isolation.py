@@ -441,3 +441,12 @@ def test_finalize_coverage_bar_present_and_wired():
     assert ti > 0 and "_refreshFinalizeCoverage" in js[ti:ti+400], "toggle must refresh finalize coverage"
     fi = js.find("async function _onFinalizeAddClick")
     assert fi > 0 and "_refreshFinalizeCoverage" in js[fi:fi+2600], "finalize-add must refresh coverage"
+
+
+def test_bp_chip_height_reserved():
+    css = (ROOT / "src" / "static" / "inline_analysis_3d.css").read_text()
+    assert "ia3d-measuring" in css, "measuring class (force-show checkmarks) missing"
+    js = JS.read_text()
+    assert "_reserveBpChipHeight" in js, "chip-height reserve helper missing"
+    i = js.find("async function _applyOverlayPrimary")
+    assert i > 0 and "_reserveBpChipHeight" in js[i:i+1200], "must reserve chip height after setPrimary"

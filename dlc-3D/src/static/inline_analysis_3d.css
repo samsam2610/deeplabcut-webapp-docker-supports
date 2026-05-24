@@ -155,3 +155,7 @@
 #inline-analysis-3d-card #ia3d-finalize-coverage {
   background: var(--bg); border: 1px solid var(--border); border-radius: 4px;
 }
+
+/* Measuring helper: force every checkmark visible so we can reserve the chip
+   list's tallest wrap (per project). Toggled on only during measurement. */
+#inline-analysis-3d-card #ia3d-bp-chips.ia3d-measuring .vv-bp-check { display: block; }

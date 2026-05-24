@@ -655,6 +655,19 @@ async function _iaDiscoverVariants(_cam0) {
   await _refreshOverlayH5Variants();
 }
 
+// Reserve the bp chip list's MAX height so per-frame checkmark toggles (which
+// change chip width → re-wrap) can't reflow the layout and jump everything below.
+// Measure with all checkmarks forced visible (widest), then pin min-height.
+function _reserveBpChipHeight() {
+  const c = $("ia3d-bp-chips");
+  if (!c) return;
+  c.style.minHeight = "";              // reset to measure the natural tallest wrap
+  c.classList.add("ia3d-measuring");   // all checkmarks shown → widest chips
+  const h = c.offsetHeight;
+  c.classList.remove("ia3d-measuring");
+  if (h > 0) c.style.minHeight = h + "px";
+}
+
 // Set the markerEditor primary layer (cam0), resolve + set the per-cam sibling
 // (cam1), and stash both resolved paths for Save / Finalize.
 async function _applyOverlayPrimary(h5) {
@@ -667,6 +680,7 @@ async function _applyOverlayPrimary(h5) {
   }
   _overlayPrimaryH5 = h5;
   await _markerEditor.setPrimary(h5);
+  _reserveBpChipHeight();
 
   // Per-cam sibling resolution: ask the dlc-3d analyzed endpoint for the cam1
   // counterpart of this primary h5; set it as the (editable-when-focused)
@@ -1063,6 +1077,7 @@ function _resetForOpen() {
   _markerEditor?.setOverlayEnabled(false);
   $("ia3d-overlay-controls")?.classList.add("hidden");
   $("ia3d-bp-list-wrap")?.classList.add("hidden");
+  const _bc = $("ia3d-bp-chips"); if (_bc) _bc.style.minHeight = "";
   const ovStatus = $("ia3d-overlay-status");
   if (ovStatus) ovStatus.textContent = "";
   // Curation panel reset.
