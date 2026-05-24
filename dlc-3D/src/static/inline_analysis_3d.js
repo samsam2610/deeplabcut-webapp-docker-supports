@@ -56,6 +56,7 @@ let _redrawSeekTimeline = () => {};  // replaced in _wireViewerChrome with the r
 let _finalizeCoverageBuckets = null;
 let _finalizeCoverageFrames = null;
 let _redrawFinalizeCoverage = () => {};
+let _snTimeline = null;   // statusNoteTimeline feature handle (for .redraw() on resize)
 
 // Task 4: likelihood-filtered coverage cache + debounce timer.
 const _coverageCache = new Map(); // keyed by "<h5>:<threshold.toFixed(2)>"
@@ -171,7 +172,7 @@ function _ensureViewer() {
   // CSV status/note timeline (save variant). The timeline reads the companion
   // CSV for the current primary video; frame_number maps 1:1 to viewer
   // seek-frames (frameBase 0).
-  _viewer.use(statusNoteTimeline({
+  _snTimeline = statusNoteTimeline({
     endpoints: {
       csv: (videoPath) => `/annotate/csv?path=${encodeURIComponent(videoPath)}`,
       saveRow: (payload) => fetch("/annotate/save-row", {
@@ -200,7 +201,8 @@ function _ensureViewer() {
     },
     fps: _fps,
     frameBase: 0,
-  }));
+  });
+  _viewer.use(_snTimeline);
 
   // Clip creation: trim the current frame range → <stem>/clip folder via the
   // dlc-3d backend. The library feature calls extractClip once per cam; remap its
@@ -280,6 +282,22 @@ function _drawCoverageBar(canvas, buckets, frames, markColor) {
     const x = Math.round((_viewer.currentFrame() / Math.max(fc - 1, 1)) * w);
     ctx.save(); ctx.globalAlpha = 0.85; ctx.fillStyle = "#fff"; ctx.fillRect(x, 0, 2, h); ctx.restore();
   }
+}
+// Mirror the zoomed video-row geometry (from VideoViewer.setZoom) onto every
+// timeline canvas, so the bars span the videos exactly → more pixels/frame =
+// finer click precision. Only pin when the row overflows the card (marginLeft<0,
+// i.e. zoom>100%); at 100% (or null geometry) reset to the responsive card width.
+function _applyTimelineWidth(g) {
+  const overflowing = !!(g && g.marginLeft < 0);
+  for (const id of ["ia3d-seek-canvas", "ia3d-status-canvas", "ia3d-note-canvas", "ia3d-finalize-coverage"]) {
+    const c = $(id);
+    if (!c) continue;
+    c.style.width = overflowing ? g.width + "px" : "";
+    c.style.marginLeft = overflowing ? g.marginLeft + "px" : "";
+  }
+  _redrawSeekTimeline();
+  _redrawFinalizeCoverage();
+  if (_snTimeline) _snTimeline.redraw();
 }
 // Wire click + drag-to-seek on a coverage/seek canvas.
 // Wire a coverage canvas for seeking. `getCoverage()` returns {buckets, frames} for
@@ -430,7 +448,8 @@ function _wireViewerChrome(v) {
   // Zoom.
   const zoom = $("ia3d-zoom");
   zoom?.addEventListener("input", () => {
-    v.setZoom(parseInt(zoom.value, 10) || 100);
+    const g = v.setZoom(parseInt(zoom.value, 10) || 100);
+    _applyTimelineWidth(g);
     const val = $("ia3d-zoom-val");
     if (val) val.textContent = zoom.value + " %";
   });
@@ -1128,6 +1147,7 @@ function _resetForOpen() {
   _coverageFrames = null;
   _finalizeCoverageBuckets = null;
   _finalizeCoverageFrames = null;
+  _applyTimelineWidth(null);   // reset any pinned timeline widths from a prior zoom
   _coverageCache.clear();
   _overlayPrimaryH5 = null;
   _siblingPrimaryH5 = null;

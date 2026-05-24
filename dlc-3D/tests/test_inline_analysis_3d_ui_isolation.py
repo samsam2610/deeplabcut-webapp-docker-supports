@@ -484,3 +484,21 @@ def test_skip_group_css_keeps_it_together():
     body = m.group(1)
     assert "inline-flex" in body and "flex-shrink: 0" in body, \
         "group must be an inline-flex item that does not shrink (so it wraps as a unit)"
+
+
+def test_zoom_mirrors_geometry_onto_timelines():
+    js = JS.read_text()
+    # a helper that applies the row geometry to the timeline canvases
+    assert js.count("_applyTimelineWidth") >= 2, \
+        "_applyTimelineWidth must be defined and called"
+    # the zoom handler feeds setZoom's return into it
+    assert re.search(r"v\.setZoom\([^)]*\)", js)
+    assert re.search(r"_applyTimelineWidth\(\s*g\s*\)", js), \
+        "zoom handler must pass setZoom's returned geometry to _applyTimelineWidth"
+    # all four timeline canvases are mirrored
+    for cid in ["ia3d-seek-canvas", "ia3d-status-canvas", "ia3d-note-canvas", "ia3d-finalize-coverage"]:
+        assert cid in js
+    # the status/note feature handle is captured and redrawn
+    assert "_snTimeline" in js
+    assert re.search(r"_snTimeline\s*\.\s*redraw\s*\(", js), \
+        "must call the status/note feature's redraw() after resizing"
