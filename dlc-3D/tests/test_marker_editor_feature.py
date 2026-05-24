@@ -66,3 +66,9 @@ def test_no_hardcoded_endpoints():
     src = _src()
     for bad in ("/dlc-3d/", "/clip-cutter/", "/annotate/", "/dlc/viewer/"):
         assert bad not in src, f"endpoints must be injected, not hardcoded ({bad})"
+
+
+def test_bp_chips_render_frame_labeler_structure():
+    src = (ROOT / "src" / "static" / "components" / "viewer" / "features" / "marker_editor.js").read_text()
+    for cls in ("vv-bp-dot", "vv-bp-name", "vv-bp-check", "vv-bp-eye-slash"):
+        assert cls in src, f"rebuildBpChips must render a .{cls} element (frame-labeler chip parity)"

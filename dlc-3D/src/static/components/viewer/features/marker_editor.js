@@ -235,7 +235,12 @@ export function markerEditor(config = {}) {
       const chip = c.ownerDocument.createElement("button");
       chip.className = "vv-bp-chip";
       chip.dataset.bp = bp;
-      chip.textContent = bp;
+      chip.innerHTML =
+        '<span class="vv-bp-dot"></span>' +
+        '<span class="vv-bp-name"></span>' +
+        '<svg class="vv-bp-check" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><polyline points="20 6 9 17 4 12"/></svg>' +
+        '<svg class="vv-bp-eye-slash" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94"/><path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19"/><line x1="1" y1="1" x2="23" y2="23"/></svg>';
+      chip.querySelector(".vv-bp-name").textContent = bp;
       chip.style.setProperty("--bp-color", paletteColor(idx, allBodyParts.length));
       chip.addEventListener("click", () => selectBp(bp));
       chip.addEventListener("dblclick", (e) => {

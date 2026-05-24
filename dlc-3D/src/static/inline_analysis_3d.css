@@ -102,11 +102,16 @@
   cursor: pointer; user-select: none;
   transition: border-color .15s, background .15s, color .15s;
 }
-#inline-analysis-3d-card .vv-bp-chip::before,
 #inline-analysis-3d-card .vv-tag-chip::before {
   content: ""; width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0;
   background: var(--bp-color, var(--chip-color, var(--accent-dim)));
 }
+#inline-analysis-3d-card .vv-bp-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; background: var(--bp-color, var(--accent-dim)); }
+#inline-analysis-3d-card .vv-bp-name { line-height: 1; }
+#inline-analysis-3d-card .vv-bp-check { display: none; flex-shrink: 0; color: var(--bp-color, var(--accent)); }
+#inline-analysis-3d-card .vv-bp-chip.labeled .vv-bp-check { display: block; }
+#inline-analysis-3d-card .vv-bp-eye-slash { display: none; flex-shrink: 0; }
+#inline-analysis-3d-card .vv-bp-chip.vis-hidden .vv-bp-eye-slash { display: block; }
 #inline-analysis-3d-card .vv-bp-chip:hover,
 #inline-analysis-3d-card .vv-tag-chip:hover {
   border-color: var(--bp-color, var(--chip-color, var(--accent))); color: var(--text);

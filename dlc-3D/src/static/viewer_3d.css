@@ -96,10 +96,12 @@
   cursor: pointer; user-select: none;
   transition: border-color .15s, background .15s, color .15s;
 }
-#view-analyzed-3d-card .vv-bp-chip::before {
-  content: ""; width: 8px; height: 8px; border-radius: 50%;
-  background: var(--bp-color, var(--accent-dim)); flex-shrink: 0;
-}
+#view-analyzed-3d-card .vv-bp-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; background: var(--bp-color, var(--accent-dim)); }
+#view-analyzed-3d-card .vv-bp-name { line-height: 1; }
+#view-analyzed-3d-card .vv-bp-check { display: none; flex-shrink: 0; color: var(--bp-color, var(--accent)); }
+#view-analyzed-3d-card .vv-bp-chip.labeled .vv-bp-check { display: block; }
+#view-analyzed-3d-card .vv-bp-eye-slash { display: none; flex-shrink: 0; }
+#view-analyzed-3d-card .vv-bp-chip.vis-hidden .vv-bp-eye-slash { display: block; }
 #view-analyzed-3d-card .vv-bp-chip:hover { border-color: var(--bp-color, var(--accent)); color: var(--text); }
 #view-analyzed-3d-card .vv-bp-chip.active {
   border-color: var(--bp-color, var(--accent));
