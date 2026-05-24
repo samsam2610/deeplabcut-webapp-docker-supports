@@ -312,7 +312,6 @@ def test_js3d_finalize_flow_and_autopopulate():
     assert '"ia3d-finalize-add-btn"' in js
     assert "/dlc/project/inline-analysis/finalize-range" in js
     assert "/dlc/viewer/save-marker-edits" in js
-    assert "_ia3dLastRunStart" in js and "_ia3dLastRunN" in js
     assert "_ia3dPopulateFinalizeFields" in js
     # the finalize-add handler resolves the cam1 source from the sibling path /
     # the consumer-tracked sibling h5
@@ -441,7 +440,7 @@ def test_finalize_coverage_bar_present_and_wired():
     ti = js.find('ia3dFinalizeToggle?.addEventListener')
     assert ti > 0 and "_refreshFinalizeCoverage" in js[ti:ti+400], "toggle must refresh finalize coverage"
     fi = js.find("async function _onFinalizeAddClick")
-    assert fi > 0 and "_refreshFinalizeCoverage" in js[fi:fi+2600], "finalize-add must refresh coverage"
+    assert fi > 0 and "_refreshFinalizeCoverage" in js[fi:fi+3200], "finalize-add must refresh coverage"
 
 
 def test_bp_chip_height_reserved():
@@ -557,3 +556,15 @@ def test_finalize_keyframe_window_markup():
     assert "ia3d-finalize-count" not in html, "old finalize Frames-count input must be removed"
     # the Add button + finalized coverage bar are kept
     assert "ia3d-finalize-add-btn" in html and "ia3d-finalize-coverage" in html
+
+
+def test_finalize_keyframe_glue_wired():
+    js = JS.read_text()
+    assert ("syncWindow" in js and "finalizeRange" in js and "keyframe_window.mjs" in js), \
+        "must import syncWindow + finalizeRange from keyframe_window.mjs"
+    assert "finalizeRange(" in js and "syncWindow(" in js
+    assert "_finalizeKeyframe" in js and "_finalizeLocked" in js
+    assert re.search(r'e\.key\s*===\s*"l"', js) or re.search(r"\.key\s*===\s*'l'", js), \
+        "must wire an 'l' key shortcut for the finalize lock"
+    assert "ia3d-finalize-start" not in js and "ia3d-finalize-count" not in js
+    assert "_ia3dLastRun" not in js, "old last-run finalize autopopulate state must be removed"
