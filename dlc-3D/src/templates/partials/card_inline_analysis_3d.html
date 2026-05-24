@@ -445,15 +445,29 @@
             Finalize analysis
           </label>
           <div id="ia3d-finalize-controls" class="hidden" style="margin-top:.5rem">
-            <div style="display:flex;align-items:center;gap:.4rem;flex-wrap:wrap;margin-bottom:.4rem">
-              <label style="font-size:.76rem;color:var(--text-dim);white-space:nowrap">Start frame</label>
-              <input type="number" id="ia3d-finalize-start" value="0" min="0"
-                style="width:5rem;font-size:.76rem;background:var(--surface);border:1px solid var(--border);border-radius:5px;color:var(--text);padding:.22rem .4rem" />
-              <label style="font-size:.76rem;color:var(--text-dim);white-space:nowrap">Frames</label>
-              <input type="number" id="ia3d-finalize-count" value="500" min="1" max="10000"
-                style="width:5rem;font-size:.76rem;background:var(--surface);border:1px solid var(--border);border-radius:5px;color:var(--text);padding:.22rem .4rem" />
+            <div style="display:flex;align-items:center;gap:.5rem;flex-wrap:wrap;margin-bottom:.35rem">
+              <span style="font-size:.76rem;color:var(--text-dim)">Keyframe</span>
+              <span id="ia3d-finalize-keyframe" style="font-family:var(--mono);font-size:.78rem;color:var(--text);min-width:3rem">0</span>
+              <label style="display:flex;align-items:center;gap:.3rem;font-size:.74rem;color:var(--text-dim);cursor:pointer;user-select:none">
+                <input type="checkbox" id="ia3d-finalize-lock" style="accent-color:var(--accent);width:13px;height:13px"/>
+                Lock (l)
+              </label>
+            </div>
+            <div style="display:flex;align-items:center;gap:.4rem;flex-wrap:wrap;margin-bottom:.35rem">
+              <label style="font-size:.74rem;color:var(--text-dim)">before</label>
+              <input type="number" id="ia3d-finalize-before" value="200" min="0"
+                style="width:4.4rem;font-size:.76rem;background:var(--surface);border:1px solid var(--border);border-radius:5px;color:var(--text);padding:.22rem .4rem" />
+              <label style="font-size:.74rem;color:var(--text-dim)">after</label>
+              <input type="number" id="ia3d-finalize-after" value="200" min="0"
+                style="width:4.4rem;font-size:.76rem;background:var(--surface);border:1px solid var(--border);border-radius:5px;color:var(--text);padding:.22rem .4rem" />
+              <label style="font-size:.74rem;color:var(--text-dim)">length</label>
+              <input type="number" id="ia3d-finalize-length" value="401" min="1"
+                style="width:4.9rem;font-size:.76rem;background:var(--surface);border:1px solid var(--border);border-radius:5px;color:var(--text);padding:.22rem .4rem" />
+            </div>
+            <div style="display:flex;align-items:center;gap:.5rem;flex-wrap:wrap;margin-bottom:.4rem">
+              <span id="ia3d-finalize-range" style="flex:1;font-size:.72rem;color:var(--text-dim);font-family:var(--mono)">frames 0–0 (0)</span>
               <button class="btn-sm btn-create" id="ia3d-finalize-add-btn"
-                title="Save marker edits to both cameras' layers, then copy this frame range into each camera's _analyzed file">
+                title="Save marker edits to both cameras' layers, then copy this keyframe window into each camera's _analyzed file">
                 Add range to _analyzed
               </button>
             </div>

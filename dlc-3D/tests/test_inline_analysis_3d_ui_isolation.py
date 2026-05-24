@@ -264,8 +264,8 @@ def test_save_adjustments_persists_both_cams():
 
 def test_finalize3d_minicard_present_after_curation():
     html = CARD.read_text()
-    for needed in ["ia3d-finalize-toggle", "ia3d-finalize-controls", "ia3d-finalize-start",
-                   "ia3d-finalize-count", "ia3d-finalize-add-btn", "ia3d-finalize-status"]:
+    for needed in ["ia3d-finalize-toggle", "ia3d-finalize-controls",
+                   "ia3d-finalize-add-btn", "ia3d-finalize-status"]:
         assert f'id="{needed}"' in html, f"missing {needed!r}"
     assert html.find('id="ia3d-curation-panel"') < html.find('id="ia3d-finalize-toggle"')
 
@@ -545,3 +545,15 @@ def test_skip_preset_100_exists():
     # it lives inside the skip-presets cluster
     presets = re.search(r'class="ia3d-skip-presets"[^>]*>(.*?)</span>', html, re.S).group(1)
     assert 'data-n="100"' in presets
+
+
+def test_finalize_keyframe_window_markup():
+    html = CARD.read_text()
+    for need in ["ia3d-finalize-keyframe", "ia3d-finalize-lock", "ia3d-finalize-before",
+                 "ia3d-finalize-after", "ia3d-finalize-length", "ia3d-finalize-range"]:
+        assert need in html, f"missing finalize keyframe element id {need!r}"
+    # the old start/count inputs are gone
+    assert "ia3d-finalize-start" not in html, "old finalize Start-frame input must be removed"
+    assert "ia3d-finalize-count" not in html, "old finalize Frames-count input must be removed"
+    # the Add button + finalized coverage bar are kept
+    assert "ia3d-finalize-add-btn" in html and "ia3d-finalize-coverage" in html
