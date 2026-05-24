@@ -159,3 +159,9 @@
 /* Measuring helper: force every checkmark visible so we can reserve the chip
    list's tallest wrap (per project). Toggled on only during measurement. */
 #inline-analysis-3d-card #ia3d-bp-chips.ia3d-measuring .vv-bp-check { display: block; }
+
+/* Keep the multi-frame skip controls together as one unit so .fe-controls wraps
+   the whole group — never orphaning skip-forward (»») onto a second line. */
+#inline-analysis-3d-card .ia3d-skip-group {
+  display: inline-flex; align-items: center; gap: .3rem; flex-shrink: 0;
+}

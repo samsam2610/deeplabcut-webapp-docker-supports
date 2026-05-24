@@ -216,22 +216,25 @@
             <input type="number" id="ia3d-play-step" value="1" min="1" max="100" step="1"
                    style="width:46px;text-align:center;font-family:var(--mono);font-size:.78rem;padding:.18rem .3rem;background:var(--surface-2);border:1px solid var(--border);border-radius:5px;color:var(--text)">
           </label>
-          <!-- Multi-frame skip -->
-          <button id="ia3d-btn-skip-back" class="btn-sm fe-ctrl-btn" title="Skip backward N frames (Ctrl+←)">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><polyline points="19 18 13 12 19 6"/><polyline points="13 18 7 12 13 6"/></svg>
-          </button>
-          <input type="number" id="ia3d-skip-n" value="10" min="1" max="9999" step="1"
-            title="Frames to skip (Ctrl+← / Ctrl+→)"
-            style="width:72px;text-align:center;font-family:var(--mono);font-size:.78rem;padding:.18rem .3rem;background:var(--surface-2);border:1px solid var(--border);border-radius:5px;color:var(--text)" />
-          <span class="ia3d-skip-presets" style="display:inline-flex;gap:.2rem">
-            <button type="button" class="ia3d-skip-preset" data-n="1">1</button>
-            <button type="button" class="ia3d-skip-preset" data-n="5">5</button>
-            <button type="button" class="ia3d-skip-preset" data-n="10">10</button>
-            <button type="button" class="ia3d-skip-preset" data-n="30">30</button>
+          <!-- Multi-frame skip — kept together as one non-wrapping group so the
+               back/forward pair never splits across a controls-row wrap -->
+          <span class="ia3d-skip-group">
+            <button id="ia3d-btn-skip-back" class="btn-sm fe-ctrl-btn" title="Skip backward N frames (Ctrl+←)">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><polyline points="19 18 13 12 19 6"/><polyline points="13 18 7 12 13 6"/></svg>
+            </button>
+            <button id="ia3d-btn-skip-fwd" class="btn-sm fe-ctrl-btn" title="Skip forward N frames (Ctrl+→)">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><polyline points="5 18 11 12 5 6"/><polyline points="11 18 17 12 11 6"/></svg>
+            </button>
+            <input type="number" id="ia3d-skip-n" value="10" min="1" max="9999" step="1"
+              title="Frames to skip (Ctrl+← / Ctrl+→)"
+              style="width:72px;text-align:center;font-family:var(--mono);font-size:.78rem;padding:.18rem .3rem;background:var(--surface-2);border:1px solid var(--border);border-radius:5px;color:var(--text)" />
+            <span class="ia3d-skip-presets" style="display:inline-flex;gap:.2rem">
+              <button type="button" class="ia3d-skip-preset" data-n="1">1</button>
+              <button type="button" class="ia3d-skip-preset" data-n="5">5</button>
+              <button type="button" class="ia3d-skip-preset" data-n="10">10</button>
+              <button type="button" class="ia3d-skip-preset" data-n="30">30</button>
+            </span>
           </span>
-          <button id="ia3d-btn-skip-fwd" class="btn-sm fe-ctrl-btn" title="Skip forward N frames (Ctrl+→)">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><polyline points="5 18 11 12 5 6"/><polyline points="11 18 17 12 11 6"/></svg>
-          </button>
           <span class="fe-frame-counter" id="ia3d-frame-counter" title="Click to jump to a frame" style="cursor:pointer">Frame 0 / 0</span>
           <input type="number" id="ia3d-frame-jump" class="hidden" min="0" title="Type a frame number, Enter to jump"
             style="width:5.5rem;text-align:center;font-family:var(--mono);font-size:.78rem;padding:.18rem .3rem;background:var(--surface-2);border:1px solid var(--accent);border-radius:5px;color:var(--text)" />

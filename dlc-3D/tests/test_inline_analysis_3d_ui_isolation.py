@@ -11,6 +11,7 @@ ROOT = Path(__file__).resolve().parents[1]
 JS   = ROOT / "src" / "static" / "inline_analysis_3d.js"
 CARD = ROOT / "src" / "templates" / "partials" / "card_inline_analysis_3d.html"
 PAGE = ROOT / "src" / "templates" / "dlc_3d.html"
+CSS  = ROOT / "src" / "static" / "inline_analysis_3d.css"
 
 
 def test_files_exist():
@@ -458,3 +459,28 @@ def test_finalize_region_nav_present_and_wired():
     js = JS.read_text()
     assert "nextCoveredBucket" in js, "finalize nav must use nextCoveredBucket"
     assert "ia3d-finalize-prev" in js and "ia3d-finalize-next" in js, "finalize nav not wired"
+
+
+def test_skip_buttons_paired_in_one_group():
+    html = CARD.read_text()
+    # Both skip buttons + the N input + presets live inside one .ia3d-skip-group
+    # so the controls-row wrap can't orphan skip-forward on a second line.
+    m = re.search(r'<span class="ia3d-skip-group">(.*?)</span>\s*</span>', html, re.S)
+    assert m, "skip controls must be wrapped in a single .ia3d-skip-group span"
+    group = m.group(1)
+    assert 'id="ia3d-btn-skip-back"' in group
+    assert 'id="ia3d-btn-skip-fwd"' in group
+    assert 'id="ia3d-skip-n"' in group
+    assert 'class="ia3d-skip-presets"' in group
+    # skip-forward sits immediately after skip-back (the chosen pairing)
+    assert group.index('id="ia3d-btn-skip-back"') < group.index('id="ia3d-btn-skip-fwd"') \
+        < group.index('id="ia3d-skip-n"')
+
+
+def test_skip_group_css_keeps_it_together():
+    css = CSS.read_text()
+    m = re.search(r"\.ia3d-skip-group\s*\{([^}]*)\}", css)
+    assert m, "missing .ia3d-skip-group CSS rule"
+    body = m.group(1)
+    assert "inline-flex" in body and "flex-shrink: 0" in body, \
+        "group must be an inline-flex item that does not shrink (so it wraps as a unit)"
