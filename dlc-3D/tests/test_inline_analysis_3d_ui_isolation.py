@@ -502,3 +502,17 @@ def test_zoom_mirrors_geometry_onto_timelines():
     assert "_snTimeline" in js
     assert re.search(r"_snTimeline\s*\.\s*redraw\s*\(", js), \
         "must call the status/note feature's redraw() after resizing"
+
+
+def test_coverage_cache_keyed_by_width_and_refetched_on_zoom():
+    js = JS.read_text()
+    # cache key includes the fetch width (so each zoom level caches its own
+    # resolution) — the key template ends with ":${w}"
+    assert ":${w}" in js, "coverage cache key must include the width component :${w}"
+    # the zoom handler triggers a coverage re-fetch at the new width
+    assert js.count("_refreshCoverageForZoom") >= 2, \
+        "_refreshCoverageForZoom must be defined and called from the zoom handler"
+    # the zoom re-fetch refreshes BOTH the working-layer and finalize bars
+    m = re.search(r"function _refreshCoverageForZoom\(\)\s*\{(.*?)\n\}", js, re.S)
+    assert m and "_refreshCoverage(" in m.group(1) and "_refreshFinalizeCoverage(" in m.group(1), \
+        "_refreshCoverageForZoom must refresh both coverage bars"

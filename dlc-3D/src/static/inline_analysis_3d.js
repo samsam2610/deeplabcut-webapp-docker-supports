@@ -59,7 +59,7 @@ let _redrawFinalizeCoverage = () => {};
 let _snTimeline = null;   // statusNoteTimeline feature handle (for .redraw() on resize)
 
 // Task 4: likelihood-filtered coverage cache + debounce timer.
-const _coverageCache = new Map(); // keyed by "<h5>:<threshold.toFixed(2)>"
+const _coverageCache = new Map(); // keyed by "<h5>:<threshold.toFixed(2)>:<width>"
 let _coverageTimer = null;        // debounce handle for threshold changes
 
 // Browse-tab folder navigator state.
@@ -452,6 +452,7 @@ function _wireViewerChrome(v) {
   zoom?.addEventListener("input", () => {
     const g = v.setZoom(parseInt(zoom.value, 10) || 100);
     _applyTimelineWidth(g);
+    _refreshCoverageForZoom();   // re-fetch coverage at the new width (1px-precise marks)
     const val = $("ia3d-zoom-val");
     if (val) val.textContent = zoom.value + " %";
   });
@@ -776,20 +777,22 @@ async function _refreshCoverage() {
   const on = $("ia3d-overlay-toggle")?.checked;
   if (!on || !_overlayPrimaryH5) { _coverageBuckets = null; _coverageFrames = null; _redrawSeekTimeline(); return; }
   const thr = parseFloat($("ia3d-overlay-threshold")?.value ?? "0.6");
-  const key = `${_overlayPrimaryH5}:${thr.toFixed(2)}`;
+  const w = Math.max(200, Math.round($("ia3d-seek-canvas")?.getBoundingClientRect().width || 600));
+  const key = `${_overlayPrimaryH5}:${thr.toFixed(2)}:${w}`;
   if (_coverageCache.has(key)) {
     const c = _coverageCache.get(key);
     _coverageBuckets = c.buckets; _coverageFrames = c.frames; _redrawSeekTimeline(); return;
   }
-  const w = Math.max(200, Math.round($("ia3d-seek-canvas")?.getBoundingClientRect().width || 600));
   try {
     const data = await (await fetch(
       `/dlc/viewer/pose-coverage?h5=${encodeURIComponent(_overlayPrimaryH5)}&threshold=${thr}&buckets=${w}`,
     )).json();
     const entry = { buckets: data.buckets || [], frames: data.frames || [] };
     _coverageCache.set(key, entry);
+    // still the active request? (h5 + threshold + width all unchanged)
     const curThr = parseFloat($("ia3d-overlay-threshold")?.value ?? "0.6");
-    if (`${_overlayPrimaryH5}:${curThr.toFixed(2)}` === key) {
+    const curW = Math.max(200, Math.round($("ia3d-seek-canvas")?.getBoundingClientRect().width || 600));
+    if (`${_overlayPrimaryH5}:${curThr.toFixed(2)}:${curW}` === key) {
       _coverageBuckets = entry.buckets; _coverageFrames = entry.frames; _redrawSeekTimeline();
     }
   } catch (_) { /* leave timeline without coverage */ }
@@ -798,6 +801,15 @@ async function _refreshCoverage() {
 function _refreshCoverageDebounced() {
   if (_coverageTimer) clearTimeout(_coverageTimer);
   _coverageTimer = setTimeout(_refreshCoverage, 200);
+}
+
+let _zoomCovTimer = null;
+// On zoom the canvases resize; re-fetch BOTH coverage bars at the new (wider)
+// width so the bucket resolution tracks the displayed width → marks stay 1px and
+// stop bleeding onto unlabeled frames. Debounced to coalesce slider drags.
+function _refreshCoverageForZoom() {
+  if (_zoomCovTimer) clearTimeout(_zoomCovTimer);
+  _zoomCovTimer = setTimeout(() => { _refreshCoverage(); _refreshFinalizeCoverage(); }, 200);
 }
 
 // Coverage of the canonical _analyzed file (presence, no threshold) for the
