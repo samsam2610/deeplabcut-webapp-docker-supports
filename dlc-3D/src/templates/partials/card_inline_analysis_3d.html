@@ -447,7 +447,11 @@
                 Add range to _analyzed
               </button>
             </div>
-            <div style="font-size:.7rem;color:var(--text-dim);font-family:var(--mono);margin:.1rem 0 .15rem">Finalized frames (_analyzed)</div>
+            <div style="display:flex;align-items:center;gap:.4rem;margin:.1rem 0 .15rem">
+              <span style="flex:1;font-size:.7rem;color:var(--text-dim);font-family:var(--mono)">Finalized frames (_analyzed)</span>
+              <button id="ia3d-finalize-prev" class="btn-sm" disabled title="Previous finalized region" style="padding:.12rem .4rem;font-size:.72rem;line-height:1">◀</button>
+              <button id="ia3d-finalize-next" class="btn-sm" disabled title="Next finalized region" style="padding:.12rem .4rem;font-size:.72rem;line-height:1">▶</button>
+            </div>
             <canvas id="ia3d-finalize-coverage" height="14" title="Finalized frames — click or drag to seek"
               style="width:100%;display:block;margin-bottom:.4rem;cursor:pointer"></canvas>
             <div id="ia3d-finalize-status" class="fe-extract-status"></div>

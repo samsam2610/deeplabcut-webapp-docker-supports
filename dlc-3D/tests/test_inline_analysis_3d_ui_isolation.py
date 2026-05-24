@@ -450,3 +450,11 @@ def test_bp_chip_height_reserved():
     assert "_reserveBpChipHeight" in js, "chip-height reserve helper missing"
     i = js.find("async function _applyOverlayPrimary")
     assert i > 0 and "_reserveBpChipHeight" in js[i:i+1200], "must reserve chip height after setPrimary"
+
+
+def test_finalize_region_nav_present_and_wired():
+    html = (ROOT / "src" / "templates" / "partials" / "card_inline_analysis_3d.html").read_text()
+    assert 'id="ia3d-finalize-prev"' in html and 'id="ia3d-finalize-next"' in html, "finalize nav buttons missing"
+    js = JS.read_text()
+    assert "nextCoveredBucket" in js, "finalize nav must use nextCoveredBucket"
+    assert "ia3d-finalize-prev" in js and "ia3d-finalize-next" in js, "finalize nav not wired"

@@ -20,7 +20,7 @@ import { VideoViewer } from "./components/viewer/video_viewer.js";
 import { statusNoteTimeline } from "./components/viewer/features/status_notes.js";
 import { markerEditor } from "./components/viewer/features/marker_editor.js";
 import { clipExtractor } from "./components/viewer/features/clip_extractor.js";
-import { coverageRects, xToFrame } from "./components/viewer/internal/coverage_timeline.mjs";
+import { coverageRects, xToFrame, nextCoveredBucket, bucketToFrame, frameToBucket } from "./components/viewer/internal/coverage_timeline.mjs";
 import { state } from "/static/js/state.js";
 
 // ── Module state ────────────────────────────────────────────────────────────
@@ -347,7 +347,24 @@ function _wireViewerChrome(v) {
   // Finalize coverage canvas: presence-mode coverage of the _analyzed file (amber).
   const finalizeCanvas = $("ia3d-finalize-coverage");
   _wireSeekCanvas(finalizeCanvas);
-  _redrawFinalizeCoverage = () => _drawCoverageBar(finalizeCanvas, _finalizeCoverageBuckets, "#fbbf24");
+  _redrawFinalizeCoverage = () => {
+    _drawCoverageBar(finalizeCanvas, _finalizeCoverageBuckets, "#fbbf24");
+    const has = !!(_finalizeCoverageBuckets && _finalizeCoverageBuckets.length);
+    const pv = $("ia3d-finalize-prev"), nx = $("ia3d-finalize-next");
+    if (pv) pv.disabled = !has;
+    if (nx) nx.disabled = !has;
+  };
+  const _finalizeNav = (dir) => {
+    if (!_viewer || !_finalizeCoverageBuckets || !_finalizeCoverageBuckets.length) return;
+    const nB = _finalizeCoverageBuckets.length;
+    const fc = _viewer.frameCount();
+    const b = nextCoveredBucket(_finalizeCoverageBuckets, frameToBucket(_viewer.currentFrame(), fc, nB), dir);
+    if (b == null) return;
+    _viewer.pause();
+    _viewer.seek(bucketToFrame(b, nB, fc));
+  };
+  $("ia3d-finalize-prev")?.addEventListener("click", () => _finalizeNav(-1));
+  $("ia3d-finalize-next")?.addEventListener("click", () => _finalizeNav(1));
   v.on("frameChange", () => _redrawFinalizeCoverage());
 
   // Frame-jump: click the counter to type an exact frame and Enter to jump
