@@ -185,8 +185,9 @@
              removed in the Phase 4c library migration. -->
         <div id="ia3d-viewer-mount"></div>
 
-        <!-- Seek / timeline slider — sits directly below the canvas -->
-        <input type="range" id="ia3d-seek" class="fe-seek" min="0" max="1000" value="0" step="1" style="margin-bottom:.4rem" />
+        <!-- Seek / timeline canvas — dark track + marker-coverage + playhead; click/drag to seek -->
+        <canvas id="ia3d-seek-canvas" height="14" title="Click or drag to seek"
+          style="width:100%;display:block;margin-bottom:.4rem;cursor:pointer"></canvas>
 
         <!-- Controls row — pinned below the timeline; min-height prevents jitter from chip changes -->
         <div class="fe-controls" style="flex:none;min-height:2.4rem;align-items:center">

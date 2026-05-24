@@ -20,6 +20,7 @@ import { VideoViewer } from "./components/viewer/video_viewer.js";
 import { statusNoteTimeline } from "./components/viewer/features/status_notes.js";
 import { markerEditor } from "./components/viewer/features/marker_editor.js";
 import { clipExtractor } from "./components/viewer/features/clip_extractor.js";
+import { coverageRects, xToFrame } from "./components/viewer/internal/coverage_timeline.mjs";
 import { state } from "/static/js/state.js";
 
 // ── Module state ────────────────────────────────────────────────────────────
@@ -45,6 +46,10 @@ let _siblingAvailable = false; // true once a sibling tile has been discovered f
 // submitted range so the Finalize panel can auto-populate its start/count.
 let _ia3dLastRunStart = null;
 let _ia3dLastRunN = null;
+
+// Main timeline canvas state (Task 3: canvas-based seek).
+let _coverageBuckets = null;   // 0/1 array; null until Task 4 fetches coverage data
+let _redrawSeekTimeline = () => {};  // replaced in _wireViewerChrome with the real draw fn
 
 // Browse-tab folder navigator state.
 let _iaBrowsePath = null;
@@ -293,17 +298,34 @@ function _wireViewerChrome(v) {
   $("ia3d-play-fps")?.addEventListener("input", (e) => v.setFps(e.target.value));
   $("ia3d-play-step")?.addEventListener("input", (e) => v.setPlayStep(e.target.value));
 
-  // Seek slider (1000-step normalized → frame index, matching the old player).
-  const seek = $("ia3d-seek");
-  let _seekDragging = false;
-  seek?.addEventListener("mousedown", () => { _seekDragging = true; });
-  seek?.addEventListener("touchstart", () => { _seekDragging = true; });
-  seek?.addEventListener("input", () => {
+  // Main timeline canvas: dark track + marker-coverage marks + playhead; click/drag to seek.
+  const seekCanvas = $("ia3d-seek-canvas");
+  function _drawSeekTimeline() {
+    if (!seekCanvas) return;
+    const w = Math.round(seekCanvas.getBoundingClientRect().width) || seekCanvas.clientWidth || 600;
+    seekCanvas.width = w;
+    const h = seekCanvas.height || 14;
+    const ctx = seekCanvas.getContext("2d");
+    ctx.clearRect(0, 0, w, h);
+    if (_coverageBuckets && _coverageBuckets.length) {
+      ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue("--accent").trim() || "#6ee7b7";
+      for (const r of coverageRects(_coverageBuckets, w)) ctx.fillRect(r.x, 0, r.w, h);
+    }
     const fc = v.frameCount();
-    const n = Math.round((seek.value / 1000) * Math.max(fc - 1, 0));
-    v.seek(n);
-  });
-  seek?.addEventListener("change", () => { _seekDragging = false; });
+    if (fc > 0) {
+      const x = Math.round((v.currentFrame() / Math.max(fc - 1, 1)) * w);
+      ctx.save(); ctx.globalAlpha = 0.85; ctx.fillStyle = "#fff"; ctx.fillRect(x, 0, 2, h); ctx.restore();
+    }
+  }
+  _redrawSeekTimeline = _drawSeekTimeline;
+  let _seekDragging = false;
+  const _seekToX = (e) => {
+    const rect = seekCanvas.getBoundingClientRect();
+    v.seek(xToFrame(e.clientX - rect.left, rect.width, v.frameCount()));
+  };
+  seekCanvas?.addEventListener("mousedown", (e) => { _seekDragging = true; v.pause(); _seekToX(e); });
+  document.addEventListener("mousemove", (e) => { if (_seekDragging) _seekToX(e); });
+  document.addEventListener("mouseup", () => { _seekDragging = false; });
 
   // Frame-jump: click the counter to type an exact frame and Enter to jump
   // (granular seek, mirrors clip-cutter's clickable frame number).
@@ -363,7 +385,7 @@ function _wireViewerChrome(v) {
 
   // ── Frame-driven UI updates ──────────────────────────────────────────────
   v.on("videoLoad", ({ frameCount }) => {
-    if (seek) { seek.min = 0; seek.max = 1000; seek.value = 0; }
+    _drawSeekTimeline();
     _updateCounters(0, frameCount);
     _applyCamLabels();
     _updateSyncRow();
@@ -371,9 +393,7 @@ function _wireViewerChrome(v) {
   });
 
   v.on("frameChange", (n) => {
-    if (seek && !_seekDragging) {
-      seek.value = String(Math.round((n / Math.max(v.frameCount() - 1, 1)) * 1000));
-    }
+    _drawSeekTimeline();
     _updateCounters(n, v.frameCount());
     _swapPlayIcon(v.isPlaying());
   });

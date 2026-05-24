@@ -403,3 +403,12 @@ def test_surfaced_timeline_wraps_not_hidden_class():
     # the bars container must be visible (not hidden) so the surfaced timeline shows
     j = html.index('id="ia3d-csv-bars"')
     assert 'class="hidden"' not in html[j-20:j+60], "#ia3d-csv-bars must not be class=hidden once surfaced"
+
+
+def test_main_timeline_is_canvas():
+    html = (ROOT / "src" / "templates" / "partials" / "card_inline_analysis_3d.html").read_text()
+    assert 'id="ia3d-seek-canvas"' in html, "main timeline must be a canvas"
+    assert 'id="ia3d-seek"' not in html, "the range-input seek must be removed"
+    js = JS.read_text()
+    assert "coverage_timeline.mjs" in js, "must import the coverage reducer"
+    assert "ia3d-seek-canvas" in js and "coverageRects" in js and "xToFrame" in js

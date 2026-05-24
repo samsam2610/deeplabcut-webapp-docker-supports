@@ -141,3 +141,7 @@
   background: transparent; color: var(--text-dim); cursor: pointer;
 }
 #inline-analysis-3d-card .ia3d-skip-preset.active { border-color: var(--accent); color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, transparent); }
+
+#inline-analysis-3d-card #ia3d-seek-canvas {
+  background: var(--bg); border: 1px solid var(--border); border-radius: 4px;
+}
