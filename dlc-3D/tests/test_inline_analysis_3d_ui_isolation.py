@@ -504,6 +504,26 @@ def test_zoom_mirrors_geometry_onto_timelines():
         "must call the status/note feature's redraw() after resizing"
 
 
+def test_controls_split_into_three_rows():
+    html = CARD.read_text()
+    assert html.count('class="ia3d-ctrl-row"') == 3, "controls must be three .ia3d-ctrl-row rows"
+    # the last row carries the frame counter + time display (+ help)
+    rows = re.findall(r'<div class="ia3d-ctrl-row"[^>]*>(.*?)</div>\s*(?=<div class="ia3d-ctrl-row"|</div>)', html, re.S)
+    assert len(rows) == 3
+    last = rows[2]
+    assert 'id="ia3d-frame-counter"' in last and 'id="ia3d-time-display"' in last and 'id="ia3d-help-btn"' in last
+    # playback row has play + step; jump row has the skip group
+    assert 'id="ia3d-btn-play"' in rows[0]
+    assert 'class="ia3d-skip-group"' in rows[1]
+
+
+def test_controls_three_row_css():
+    css = CSS.read_text()
+    assert re.search(r"#inline-analysis-3d-card\s+\.fe-controls\s*\{[^}]*flex-direction:\s*column", css), \
+        "missing column layout for .fe-controls in the inline card"
+    assert re.search(r"\.ia3d-ctrl-row\s*\{[^}]*display:\s*flex", css), "missing .ia3d-ctrl-row flex rule"
+
+
 def test_coverage_cache_keyed_by_width_and_refetched_on_zoom():
     js = JS.read_text()
     # cache key includes the fetch width (so each zoom level caches its own

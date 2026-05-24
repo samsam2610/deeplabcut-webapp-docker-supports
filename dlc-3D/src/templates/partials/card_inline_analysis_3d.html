@@ -189,61 +189,67 @@
         <canvas id="ia3d-seek-canvas" height="14" title="Click or drag to seek"
           style="width:100%;display:block;margin-bottom:.4rem;cursor:pointer"></canvas>
 
-        <!-- Controls row — pinned below the timeline; min-height prevents jitter from chip changes -->
-        <div class="fe-controls" style="flex:none;min-height:2.4rem;align-items:center">
-          <button id="ia3d-btn-play-back" class="btn-sm fe-ctrl-btn" title="Play backward">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" stroke="none"><polygon points="19 3 5 12 19 21 19 3"/></svg>
-          </button>
-          <button id="ia3d-btn-play" class="btn-sm fe-ctrl-btn" title="Play / Pause (Space)">
-            <svg id="ia3d-play-icon" width="14" height="14" viewBox="0 0 24 24" fill="currentColor" stroke="none"><polygon points="5 3 19 12 5 21 5 3"/></svg>
-            <svg id="ia3d-pause-icon" width="14" height="14" viewBox="0 0 24 24" fill="currentColor" stroke="none" class="hidden"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg>
-          </button>
-          <button id="ia3d-btn-prev" class="btn-sm fe-ctrl-btn" title="Previous frame (←)">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polyline points="15 18 9 12 15 6"/><line x1="9" y1="6" x2="9" y2="18"/></svg>
-          </button>
-          <button id="ia3d-btn-next" class="btn-sm fe-ctrl-btn" title="Next frame (→)">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polyline points="9 18 15 12 9 6"/><line x1="15" y1="6" x2="15" y2="18"/></svg>
-          </button>
-          <label style="display:flex;align-items:center;gap:.3rem;font-size:.75rem;color:var(--text-dim);white-space:nowrap"
-                 title="Playback rate (frames per wall-clock second)">
-            fps
-            <input type="number" id="ia3d-play-fps" value="5" min="1" max="120" step="1"
-                   style="width:46px;text-align:center;font-family:var(--mono);font-size:.78rem;padding:.18rem .3rem;background:var(--surface-2);border:1px solid var(--border);border-radius:5px;color:var(--text)">
-          </label>
-          <label style="display:flex;align-items:center;gap:.3rem;font-size:.75rem;color:var(--text-dim);white-space:nowrap"
-                 title="Play every N frames (1 = every frame, 2 = every other, …)">
-            step
-            <input type="number" id="ia3d-play-step" value="1" min="1" max="100" step="1"
-                   style="width:46px;text-align:center;font-family:var(--mono);font-size:.78rem;padding:.18rem .3rem;background:var(--surface-2);border:1px solid var(--border);border-radius:5px;color:var(--text)">
-          </label>
-          <!-- Multi-frame skip — kept together as one non-wrapping group so the
-               back/forward pair never splits across a controls-row wrap -->
-          <span class="ia3d-skip-group">
-            <button id="ia3d-btn-skip-back" class="btn-sm fe-ctrl-btn" title="Skip backward N frames (Ctrl+←)">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><polyline points="19 18 13 12 19 6"/><polyline points="13 18 7 12 13 6"/></svg>
+        <!-- Controls — three rows: playback / frame-jump / status (counter+time+help) -->
+        <div class="fe-controls" style="flex:none">
+          <div class="ia3d-ctrl-row">
+            <button id="ia3d-btn-play-back" class="btn-sm fe-ctrl-btn" title="Play backward">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" stroke="none"><polygon points="19 3 5 12 19 21 19 3"/></svg>
             </button>
-            <button id="ia3d-btn-skip-fwd" class="btn-sm fe-ctrl-btn" title="Skip forward N frames (Ctrl+→)">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><polyline points="5 18 11 12 5 6"/><polyline points="11 18 17 12 11 6"/></svg>
+            <button id="ia3d-btn-play" class="btn-sm fe-ctrl-btn" title="Play / Pause (Space)">
+              <svg id="ia3d-play-icon" width="14" height="14" viewBox="0 0 24 24" fill="currentColor" stroke="none"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+              <svg id="ia3d-pause-icon" width="14" height="14" viewBox="0 0 24 24" fill="currentColor" stroke="none" class="hidden"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg>
             </button>
-            <input type="number" id="ia3d-skip-n" value="10" min="1" max="9999" step="1"
-              title="Frames to skip (Ctrl+← / Ctrl+→)"
-              style="width:72px;text-align:center;font-family:var(--mono);font-size:.78rem;padding:.18rem .3rem;background:var(--surface-2);border:1px solid var(--border);border-radius:5px;color:var(--text)" />
-            <span class="ia3d-skip-presets" style="display:inline-flex;gap:.2rem">
-              <button type="button" class="ia3d-skip-preset" data-n="1">1</button>
-              <button type="button" class="ia3d-skip-preset" data-n="5">5</button>
-              <button type="button" class="ia3d-skip-preset" data-n="10">10</button>
-              <button type="button" class="ia3d-skip-preset" data-n="30">30</button>
+            <button id="ia3d-btn-prev" class="btn-sm fe-ctrl-btn" title="Previous frame (←)">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polyline points="15 18 9 12 15 6"/><line x1="9" y1="6" x2="9" y2="18"/></svg>
+            </button>
+            <button id="ia3d-btn-next" class="btn-sm fe-ctrl-btn" title="Next frame (→)">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polyline points="9 18 15 12 9 6"/><line x1="15" y1="6" x2="15" y2="18"/></svg>
+            </button>
+            <label style="display:flex;align-items:center;gap:.3rem;font-size:.75rem;color:var(--text-dim);white-space:nowrap"
+                   title="Playback rate (frames per wall-clock second)">
+              fps
+              <input type="number" id="ia3d-play-fps" value="5" min="1" max="120" step="1"
+                     style="width:46px;text-align:center;font-family:var(--mono);font-size:.78rem;padding:.18rem .3rem;background:var(--surface-2);border:1px solid var(--border);border-radius:5px;color:var(--text)">
+            </label>
+            <label style="display:flex;align-items:center;gap:.3rem;font-size:.75rem;color:var(--text-dim);white-space:nowrap"
+                   title="Play every N frames (1 = every frame, 2 = every other, …)">
+              step
+              <input type="number" id="ia3d-play-step" value="1" min="1" max="100" step="1"
+                     style="width:46px;text-align:center;font-family:var(--mono);font-size:.78rem;padding:.18rem .3rem;background:var(--surface-2);border:1px solid var(--border);border-radius:5px;color:var(--text)">
+            </label>
+          </div>
+          <div class="ia3d-ctrl-row">
+            <!-- Multi-frame skip — kept together as one non-wrapping group so the
+                 back/forward pair never splits across a controls-row wrap -->
+            <span class="ia3d-skip-group">
+              <button id="ia3d-btn-skip-back" class="btn-sm fe-ctrl-btn" title="Skip backward N frames (Ctrl+←)">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><polyline points="19 18 13 12 19 6"/><polyline points="13 18 7 12 13 6"/></svg>
+              </button>
+              <button id="ia3d-btn-skip-fwd" class="btn-sm fe-ctrl-btn" title="Skip forward N frames (Ctrl+→)">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><polyline points="5 18 11 12 5 6"/><polyline points="11 18 17 12 11 6"/></svg>
+              </button>
+              <input type="number" id="ia3d-skip-n" value="10" min="1" max="9999" step="1"
+                title="Frames to skip (Ctrl+← / Ctrl+→)"
+                style="width:72px;text-align:center;font-family:var(--mono);font-size:.78rem;padding:.18rem .3rem;background:var(--surface-2);border:1px solid var(--border);border-radius:5px;color:var(--text)" />
+              <span class="ia3d-skip-presets" style="display:inline-flex;gap:.2rem">
+                <button type="button" class="ia3d-skip-preset" data-n="1">1</button>
+                <button type="button" class="ia3d-skip-preset" data-n="5">5</button>
+                <button type="button" class="ia3d-skip-preset" data-n="10">10</button>
+                <button type="button" class="ia3d-skip-preset" data-n="30">30</button>
+              </span>
             </span>
-          </span>
-          <span class="fe-frame-counter" id="ia3d-frame-counter" title="Click to jump to a frame" style="cursor:pointer">Frame 0 / 0</span>
-          <input type="number" id="ia3d-frame-jump" class="hidden" min="0" title="Type a frame number, Enter to jump"
-            style="width:5.5rem;text-align:center;font-family:var(--mono);font-size:.78rem;padding:.18rem .3rem;background:var(--surface-2);border:1px solid var(--accent);border-radius:5px;color:var(--text)" />
-          <span class="fe-time-display" id="ia3d-time-display">0.000 s</span>
-          <button type="button" id="ia3d-help-btn" class="btn-sm fe-ctrl-btn" title="Keyboard shortcuts" style="margin-left:auto">?</button>
-          <div id="ia3d-help-tooltip" class="hidden" style="position:absolute;z-index:20;background:var(--surface-2);border:1px solid var(--border);border-radius:6px;padding:.5rem .7rem;font-size:.72rem;font-family:var(--mono);color:var(--text-dim);box-shadow:0 4px 16px rgba(0,0,0,.4)">
-            <div><b>Space</b> play/pause · <b>Shift+Space</b> play backward</div>
-            <div><b>← / →</b> step ±1 · <b>Shift+← / →</b> step ±skip</div>
-            <div><b>Click frame #</b> jump to frame</div>
+          </div>
+          <div class="ia3d-ctrl-row">
+            <span class="fe-frame-counter" id="ia3d-frame-counter" title="Click to jump to a frame" style="cursor:pointer">Frame 0 / 0</span>
+            <input type="number" id="ia3d-frame-jump" class="hidden" min="0" title="Type a frame number, Enter to jump"
+              style="width:5.5rem;text-align:center;font-family:var(--mono);font-size:.78rem;padding:.18rem .3rem;background:var(--surface-2);border:1px solid var(--accent);border-radius:5px;color:var(--text)" />
+            <span class="fe-time-display" id="ia3d-time-display">0.000 s</span>
+            <button type="button" id="ia3d-help-btn" class="btn-sm fe-ctrl-btn" title="Keyboard shortcuts" style="margin-left:auto">?</button>
+            <div id="ia3d-help-tooltip" class="hidden" style="position:absolute;z-index:20;background:var(--surface-2);border:1px solid var(--border);border-radius:6px;padding:.5rem .7rem;font-size:.72rem;font-family:var(--mono);color:var(--text-dim);box-shadow:0 4px 16px rgba(0,0,0,.4)">
+              <div><b>Space</b> play/pause · <b>Shift+Space</b> play backward</div>
+              <div><b>← / →</b> step ±1 · <b>Shift+← / →</b> step ±skip</div>
+              <div><b>Click frame #</b> jump to frame</div>
+            </div>
           </div>
         </div>
 
