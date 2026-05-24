@@ -34,12 +34,42 @@ test("nextCoveredBucket jumps to covered-run starts", () => {
   assert.equal(nextCoveredBucket([0, 0, 0], 0, 1), null);
 });
 
-test("bucket<->frame mapping clamps", () => {
-  assert.equal(bucketToFrame(0, 10, 1000), 0);
-  assert.equal(bucketToFrame(5, 10, 1000), 500);
+test("bucket<->frame mapping clamps (bucketToFrame → bucket center)", () => {
+  // bucketToFrame returns the bucket's CENTER frame so it round-trips through
+  // frameToBucket (floor) — a start-of-bucket mapping undershoots by one and
+  // breaks region nav (see the round-trip test below).
+  assert.equal(bucketToFrame(0, 10, 1000), 50);     // center of bucket 0
+  assert.equal(bucketToFrame(5, 10, 1000), 550);    // center of bucket 5
   assert.equal(bucketToFrame(10, 10, 1000), 999);   // clamp to last frame
   assert.equal(frameToBucket(0, 1000, 10), 0);
   assert.equal(frameToBucket(999, 1000, 10), 9);     // clamp to last bucket
   assert.equal(frameToBucket(500, 1000, 10), 5);
   assert.equal(frameToBucket(0, 0, 10), 0);          // zero frames → 0
+});
+
+test("bucketToFrame round-trips through frameToBucket (stable region nav)", () => {
+  const fc = 250000, nB = 600;
+  for (const b of [0, 1, 99, 100, 300, 499, 500, 599]) {
+    assert.equal(frameToBucket(bucketToFrame(b, nB, fc), fc, nB), b, `bucket ${b} must round-trip`);
+  }
+});
+
+test("repeated region-nav advances through every run without sticking", () => {
+  // Simulates the finalize-bar "next" loop: frame → bucket → next run → frame.
+  // With a start-of-bucket mapping this stuck on a region forever (re-bucketing
+  // landed one bucket BEFORE the run start, so nextCoveredBucket returned it again).
+  const fc = 250000, nB = 600;
+  const buckets = new Array(nB).fill(0);
+  for (let i = 100; i <= 110; i++) buckets[i] = 1;
+  for (let i = 300; i <= 305; i++) buckets[i] = 1;
+  for (let i = 500; i <= 520; i++) buckets[i] = 1;
+  let frame = 0;
+  const runs = [];
+  for (let c = 0; c < 5; c++) {
+    const b = nextCoveredBucket(buckets, frameToBucket(frame, fc, nB), 1);
+    if (b == null) { runs.push(null); break; }
+    runs.push(b);
+    frame = bucketToFrame(b, nB, fc);
+  }
+  assert.deepEqual(runs, [100, 300, 500, null]); // each run once, then terminates
 });

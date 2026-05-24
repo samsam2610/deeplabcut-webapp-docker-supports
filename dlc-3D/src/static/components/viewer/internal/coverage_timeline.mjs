@@ -42,10 +42,14 @@ export function nextCoveredBucket(buckets, fromBucket, dir) {
   return null;
 }
 
-// Map a bucket index → frame index (clamped to 0..frameCount-1).
+// Map a bucket index → frame index (clamped to 0..frameCount-1). Uses the
+// bucket's CENTER, not its first frame: frameToBucket uses floor, so a
+// start-of-bucket frame re-buckets to (bucket-1) and region nav ("jump to next
+// covered run") would return the SAME run forever. The center round-trips
+// exactly through frameToBucket.
 export function bucketToFrame(bucket, nBuckets, frameCount) {
   if (nBuckets <= 0 || frameCount <= 0) return 0;
-  return Math.min(frameCount - 1, Math.max(0, Math.round((bucket / nBuckets) * frameCount)));
+  return Math.min(frameCount - 1, Math.max(0, Math.round(((bucket + 0.5) / nBuckets) * frameCount)));
 }
 
 // Map a frame index → bucket index (clamped to 0..nBuckets-1).
