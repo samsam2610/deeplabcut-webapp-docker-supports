@@ -473,8 +473,10 @@
               <input type="number" id="ia3d-finalize-length" value="800" min="1"
                 style="width:4.9rem;font-size:.76rem;background:var(--surface);border:1px solid var(--border);border-radius:5px;color:var(--text);padding:.22rem .4rem" />
             </div>
-            <div style="display:flex;align-items:center;gap:.5rem;flex-wrap:wrap;margin-bottom:.4rem">
-              <span id="ia3d-finalize-range" style="flex:1;font-size:.72rem;color:var(--text-dim);font-family:var(--mono)">frames 0–0 (0)</span>
+            <div style="margin-bottom:.3rem">
+              <span id="ia3d-finalize-range" style="font-size:.72rem;color:var(--text-dim);font-family:var(--mono)">frames 0–0 (0)</span>
+            </div>
+            <div style="display:flex;align-items:center;gap:.4rem;flex-wrap:wrap;margin-bottom:.4rem">
               <button class="btn-sm btn-create" id="ia3d-finalize-add-btn"
                 title="Save marker edits to both cameras' layers, then copy this keyframe window into each camera's _analyzed file">
                 Add range to _analyzed
@@ -489,7 +491,7 @@
             </div>
             <div style="display:flex;align-items:center;gap:.4rem;flex-wrap:wrap;margin-bottom:.4rem">
               <button class="btn-sm btn-create" id="ia3d-finalize-clip-btn"
-                title="Finalize this range into _analyzed AND extract a clip from it">Finalize and extract clip</button>
+                title="Add this range to _analyzed AND extract a clip from it">Add range to _analyzed and extract clip</button>
               <button class="btn-sm" id="ia3d-finalize-clip-rename-btn" disabled
                 title="Rename the extracted clip with the postfix">Rename clip</button>
               <button class="btn-sm" id="ia3d-finalize-clip-delete-btn" disabled
