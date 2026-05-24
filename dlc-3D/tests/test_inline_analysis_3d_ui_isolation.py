@@ -536,3 +536,12 @@ def test_coverage_cache_keyed_by_width_and_refetched_on_zoom():
     m = re.search(r"function _refreshCoverageForZoom\(\)\s*\{(.*?)\n\}", js, re.S)
     assert m and "_refreshCoverage(" in m.group(1) and "_refreshFinalizeCoverage(" in m.group(1), \
         "_refreshCoverageForZoom must refresh both coverage bars"
+
+
+def test_skip_preset_100_exists():
+    html = CARD.read_text()
+    assert re.search(r'class="ia3d-skip-preset"\s+data-n="100"\s*>\s*100\s*<', html), \
+        "missing the 100-frame skip preset button"
+    # it lives inside the skip-presets cluster
+    presets = re.search(r'class="ia3d-skip-presets"[^>]*>(.*?)</span>', html, re.S).group(1)
+    assert 'data-n="100"' in presets
