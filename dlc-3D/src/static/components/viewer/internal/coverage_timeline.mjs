@@ -57,3 +57,12 @@ export function frameToBucket(frame, frameCount, nBuckets) {
   if (frameCount <= 0 || nBuckets <= 0) return 0;
   return Math.min(nBuckets - 1, Math.max(0, Math.floor((frame / frameCount) * nBuckets)));
 }
+
+// Map a pixel x (0..width) → bucket index (clamped). Inverse of coverageRects'
+// layout (bucket b spans [b/n, (b+1)/n)·width). Lets a click on the coverage bar
+// resolve which bucket was hit, so we can seek to that bucket's real covered frame.
+export function xToBucket(px, width, nBuckets) {
+  if (!width || nBuckets <= 0) return 0;
+  const frac = Math.min(1, Math.max(0, px / width));
+  return Math.min(nBuckets - 1, Math.max(0, Math.floor(frac * nBuckets)));
+}

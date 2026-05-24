@@ -115,6 +115,19 @@ export function parsePoseJson(text) {
   return JSON.parse(text.replace(/\bNaN\b/g, "null").replace(/-?\bInfinity\b/g, "null"));
 }
 
+// Body parts that actually have a drawable marker at a frame: finite x AND y.
+// Mirrors renderTile's finiteness gate so the chip 'labeled' state matches what is
+// drawn. Undetected parts leak through the backend's `lh < threshold` filter with
+// NaN→null coords (NaN < threshold is False); without this they'd show a checked
+// chip but no dot.
+export function posedBodyparts(poses) {
+  const s = new Set();
+  for (const p of poses || []) {
+    if (Number.isFinite(p.x) && Number.isFinite(p.y)) s.add(p.bp);
+  }
+  return s;
+}
+
 // ── layer threshold + cache key ──
 export function layerThreshold(layer, globalThreshold, perLayer) {
   return (perLayer && layer.threshold != null) ? layer.threshold : globalThreshold;

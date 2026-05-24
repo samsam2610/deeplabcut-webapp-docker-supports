@@ -25,7 +25,7 @@ import {
   scaleFor, canvasToVideo, markerRadius, hitTest, resolvePose,
   setEdit, deleteEdit, frameEditsOf, editedFrameCount, nudge, nextBodypart,
   prefetchWindow, allCached, layerThreshold, poseCacheKey, buildMarkerEditPayload,
-  parsePoseJson,
+  parsePoseJson, posedBodyparts,
 } from "../internal/marker_overlay.mjs";
 import { paletteColor } from "../internal/palette.mjs";
 import { drawShape, shapeForLayer } from "../internal/shapes.mjs";
@@ -257,7 +257,9 @@ export function markerEditor(config = {}) {
   function updateBpChips() {
     const c = els.bpChips;
     if (!c) return;
-    const posed = new Set(curPoses().map((p) => p.bp));
+    // 'labeled' must mirror what renderTile draws: a bp is labeled only if it has a
+    // finite marker at this frame. Undetected bps leak in with NaN→null coords.
+    const posed = posedBodyparts(curPoses());
     c.querySelectorAll(".vv-bp-chip").forEach((chip) => {
       const bp = chip.dataset.bp;
       chip.classList.toggle("active", bp === selectedBp);

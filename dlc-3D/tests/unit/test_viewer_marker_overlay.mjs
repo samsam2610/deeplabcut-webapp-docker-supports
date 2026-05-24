@@ -4,10 +4,26 @@ import {
   scaleFor, videoToCanvas, canvasToVideo, markerRadius,
   hitTest, resolvePose, setEdit, deleteEdit, frameEditsOf, editedFrameCount,
   nudge, nextBodypart, prefetchWindow, allCached, layerThreshold,
-  poseCacheKey, buildMarkerEditPayload, parsePoseJson,
+  poseCacheKey, buildMarkerEditPayload, parsePoseJson, posedBodyparts,
 } from "../../src/static/components/viewer/internal/marker_overlay.mjs";
 
 const HALF = { sx: 0.5, sy: 0.5 };
+
+test("posedBodyparts: only bps with finite coords (mirrors the render gate)", () => {
+  // Undetected bps leak through the backend's `lh < threshold` filter as NaN→null
+  // coords. renderTile skips them; the chip 'labeled' set must too — otherwise a
+  // chip shows checked with no dot drawn.
+  const poses = [
+    { bp: "Snout", x: 10, y: 20 },     // drawn → labeled
+    { bp: "Tail", x: null, y: null },  // undetected (NaN→null) → NOT labeled
+    { bp: "Ear", x: 5, y: null },      // half-missing → NOT labeled
+    { bp: "Paw", x: NaN, y: 3 },       // NaN coord → NOT labeled
+  ];
+  const set = posedBodyparts(poses);
+  assert.deepEqual([...set].sort(), ["Snout"]);
+  assert.deepEqual([...posedBodyparts([])], []);
+  assert.deepEqual([...posedBodyparts(null)], []);
+});
 
 test("parsePoseJson tolerates non-finite literals (NaN/Infinity → null)", () => {
   // numpy-emitted bodies the browser's JSON.parse would otherwise reject

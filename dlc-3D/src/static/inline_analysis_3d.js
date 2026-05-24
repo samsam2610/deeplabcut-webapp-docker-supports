@@ -20,7 +20,7 @@ import { VideoViewer } from "./components/viewer/video_viewer.js";
 import { statusNoteTimeline } from "./components/viewer/features/status_notes.js";
 import { markerEditor } from "./components/viewer/features/marker_editor.js";
 import { clipExtractor } from "./components/viewer/features/clip_extractor.js";
-import { coverageRects, xToFrame, nextCoveredBucket, bucketToFrame, frameToBucket } from "./components/viewer/internal/coverage_timeline.mjs";
+import { coverageRects, xToFrame, nextCoveredBucket, bucketToFrame, frameToBucket, xToBucket } from "./components/viewer/internal/coverage_timeline.mjs";
 import { state } from "/static/js/state.js";
 
 // ── Module state ────────────────────────────────────────────────────────────
@@ -49,10 +49,12 @@ let _ia3dLastRunN = null;
 
 // Main timeline canvas state (Task 3: canvas-based seek).
 let _coverageBuckets = null;   // 0/1 array; null until Task 4 fetches coverage data
+let _coverageFrames = null;    // first covered frame per bucket (-1 = none); for click-to-real-frame
 let _redrawSeekTimeline = () => {};  // replaced in _wireViewerChrome with the real draw fn
 
 // Finalize coverage bar state — presence-mode coverage of the _analyzed file.
 let _finalizeCoverageBuckets = null;
+let _finalizeCoverageFrames = null;
 let _redrawFinalizeCoverage = () => {};
 
 // Task 4: likelihood-filtered coverage cache + debounce timer.
@@ -274,15 +276,32 @@ function _drawCoverageBar(canvas, buckets, markColor) {
   }
 }
 // Wire click + drag-to-seek on a coverage/seek canvas.
-function _wireSeekCanvas(canvas) {
+// Wire a coverage canvas for seeking. `getCoverage()` returns {buckets, frames} for
+// this canvas (or null). A CLICK on a covered bucket snaps to that bucket's real
+// covered frame (frames[bucket]) — the bar is bucket-downsampled, so a single
+// labeled frame paints a multi-frame bucket and a raw pixel→frame seek would miss
+// it. Dragging stays free-scrub (pixel→frame) for smooth scrubbing.
+function _wireSeekCanvas(canvas, getCoverage) {
   if (!canvas) return;
   let dragging = false;
-  const toX = (e) => {
+  const free = (e) => {
     const r = canvas.getBoundingClientRect();
     _viewer?.seek(xToFrame(e.clientX - r.left, r.width, _viewer.frameCount()));
   };
-  canvas.addEventListener("mousedown", (e) => { dragging = true; _viewer?.pause(); toX(e); });
-  document.addEventListener("mousemove", (e) => { if (dragging) toX(e); });
+  const snap = (e) => {
+    if (!_viewer) return;
+    const r = canvas.getBoundingClientRect();
+    const px = e.clientX - r.left;
+    const cov = getCoverage && getCoverage();
+    const buckets = cov && cov.buckets, frames = cov && cov.frames;
+    if (buckets && buckets.length && frames && frames.length) {
+      const bk = xToBucket(px, r.width, buckets.length);
+      if (buckets[bk] && frames[bk] >= 0) { _viewer.seek(frames[bk]); return; }
+    }
+    _viewer.seek(xToFrame(px, r.width, _viewer.frameCount()));
+  };
+  canvas.addEventListener("mousedown", (e) => { dragging = true; _viewer?.pause(); snap(e); });
+  document.addEventListener("mousemove", (e) => { if (dragging) free(e); });
   document.addEventListener("mouseup", () => { dragging = false; });
 }
 const _accentColor = () => getComputedStyle(document.documentElement).getPropertyValue("--accent").trim() || "#6ee7b7";
@@ -341,12 +360,12 @@ function _wireViewerChrome(v) {
 
   // Main timeline canvas: dark track + marker-coverage marks + playhead; click/drag to seek.
   const seekCanvas = $("ia3d-seek-canvas");
-  _wireSeekCanvas(seekCanvas);
+  _wireSeekCanvas(seekCanvas, () => ({ buckets: _coverageBuckets, frames: _coverageFrames }));
   _redrawSeekTimeline = () => _drawCoverageBar(seekCanvas, _coverageBuckets, _accentColor());
 
   // Finalize coverage canvas: presence-mode coverage of the _analyzed file (amber).
   const finalizeCanvas = $("ia3d-finalize-coverage");
-  _wireSeekCanvas(finalizeCanvas);
+  _wireSeekCanvas(finalizeCanvas, () => ({ buckets: _finalizeCoverageBuckets, frames: _finalizeCoverageFrames }));
   _redrawFinalizeCoverage = () => {
     _drawCoverageBar(finalizeCanvas, _finalizeCoverageBuckets, "#fbbf24");
     const has = !!(_finalizeCoverageBuckets && _finalizeCoverageBuckets.length);
@@ -361,7 +380,11 @@ function _wireViewerChrome(v) {
     const b = nextCoveredBucket(_finalizeCoverageBuckets, frameToBucket(_viewer.currentFrame(), fc, nB), dir);
     if (b == null) return;
     _viewer.pause();
-    _viewer.seek(bucketToFrame(b, nB, fc));
+    // Seek to the bucket's REAL covered frame; fall back to the centre only if the
+    // backend didn't supply per-bucket frames (older response shape).
+    const f = (_finalizeCoverageFrames && _finalizeCoverageFrames[b] >= 0)
+      ? _finalizeCoverageFrames[b] : bucketToFrame(b, nB, fc);
+    _viewer.seek(f);
   };
   $("ia3d-finalize-prev")?.addEventListener("click", () => _finalizeNav(-1));
   $("ia3d-finalize-next")?.addEventListener("click", () => _finalizeNav(1));
@@ -720,19 +743,24 @@ async function _applyOverlayPrimary(h5) {
 // the overlay is on with a primary h5.
 async function _refreshCoverage() {
   const on = $("ia3d-overlay-toggle")?.checked;
-  if (!on || !_overlayPrimaryH5) { _coverageBuckets = null; _redrawSeekTimeline(); return; }
+  if (!on || !_overlayPrimaryH5) { _coverageBuckets = null; _coverageFrames = null; _redrawSeekTimeline(); return; }
   const thr = parseFloat($("ia3d-overlay-threshold")?.value ?? "0.6");
   const key = `${_overlayPrimaryH5}:${thr.toFixed(2)}`;
-  if (_coverageCache.has(key)) { _coverageBuckets = _coverageCache.get(key); _redrawSeekTimeline(); return; }
+  if (_coverageCache.has(key)) {
+    const c = _coverageCache.get(key);
+    _coverageBuckets = c.buckets; _coverageFrames = c.frames; _redrawSeekTimeline(); return;
+  }
   const w = Math.max(200, Math.round($("ia3d-seek-canvas")?.getBoundingClientRect().width || 600));
   try {
     const data = await (await fetch(
       `/dlc/viewer/pose-coverage?h5=${encodeURIComponent(_overlayPrimaryH5)}&threshold=${thr}&buckets=${w}`,
     )).json();
-    const buckets = data.buckets || [];
-    _coverageCache.set(key, buckets);
+    const entry = { buckets: data.buckets || [], frames: data.frames || [] };
+    _coverageCache.set(key, entry);
     const curThr = parseFloat($("ia3d-overlay-threshold")?.value ?? "0.6");
-    if (`${_overlayPrimaryH5}:${curThr.toFixed(2)}` === key) { _coverageBuckets = buckets; _redrawSeekTimeline(); }
+    if (`${_overlayPrimaryH5}:${curThr.toFixed(2)}` === key) {
+      _coverageBuckets = entry.buckets; _coverageFrames = entry.frames; _redrawSeekTimeline();
+    }
   } catch (_) { /* leave timeline without coverage */ }
 }
 
@@ -748,17 +776,19 @@ function _refreshCoverageDebounced() {
 async function _refreshFinalizeCoverage() {
   const on = $("ia3d-finalize-toggle")?.checked;
   const cam0Video = _cam0Path();
-  if (!on || !cam0Video) { _finalizeCoverageBuckets = null; _redrawFinalizeCoverage(); return; }
+  const _clear = () => { _finalizeCoverageBuckets = null; _finalizeCoverageFrames = null; _redrawFinalizeCoverage(); };
+  if (!on || !cam0Video) { _clear(); return; }
   try {
     const st = await (await fetch(`/dlc/project/analysis-file/status?video_path=${encodeURIComponent(cam0Video)}`)).json();
-    if (!st.initialized || !st.h5_path) { _finalizeCoverageBuckets = null; _redrawFinalizeCoverage(); return; }
+    if (!st.initialized || !st.h5_path) { _clear(); return; }
     const w = Math.max(200, Math.round($("ia3d-finalize-coverage")?.getBoundingClientRect().width || 600));
     const data = await (await fetch(
       `/dlc/viewer/pose-coverage?h5=${encodeURIComponent(st.h5_path)}&mode=presence&buckets=${w}`,
     )).json();
     _finalizeCoverageBuckets = data.buckets || [];
+    _finalizeCoverageFrames = data.frames || [];
     _redrawFinalizeCoverage();
-  } catch (_) { _finalizeCoverageBuckets = null; _redrawFinalizeCoverage(); }
+  } catch (_) { _clear(); }
 }
 
 // Save Adjustments (consumer glue). markerEditor has written each edit to the
@@ -1085,7 +1115,9 @@ function _resetForOpen() {
   if (createFb) createFb.textContent = "";
   // Overlay panel reset (Task 4: also clear coverage cache + buckets on video switch).
   _coverageBuckets = null;
+  _coverageFrames = null;
   _finalizeCoverageBuckets = null;
+  _finalizeCoverageFrames = null;
   _coverageCache.clear();
   _overlayPrimaryH5 = null;
   _siblingPrimaryH5 = null;

@@ -1,8 +1,17 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { coverageRects, xToFrame } from "../../src/static/components/viewer/internal/coverage_timeline.mjs";
-import { nextCoveredBucket, bucketToFrame, frameToBucket }
+import { nextCoveredBucket, bucketToFrame, frameToBucket, xToBucket }
   from "../../src/static/components/viewer/internal/coverage_timeline.mjs";
+
+test("xToBucket maps a pixel to a clamped bucket index (inverse of coverageRects layout)", () => {
+  assert.equal(xToBucket(0, 100, 10), 0);
+  assert.equal(xToBucket(50, 100, 10), 5);
+  assert.equal(xToBucket(99, 100, 10), 9);
+  assert.equal(xToBucket(100, 100, 10), 9);   // clamp to last bucket
+  assert.equal(xToBucket(-5, 100, 10), 0);     // clamp low
+  assert.equal(xToBucket(50, 0, 10), 0);       // zero width → 0
+});
 
 test("coverageRects maps covered buckets to merged x-rects scaled to width", () => {
   // 4 buckets, width 100 → each bucket 25px. covered = [1,1,0,1]
