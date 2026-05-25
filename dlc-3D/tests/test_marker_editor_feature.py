@@ -108,3 +108,21 @@ def test_b2_b3_autoadvance_and_lockbp():
     assert "lockBp" in src, "must track lockBp state"
     # the auto-advance call passes the lock flag (so Lock-BP suppresses advance)
     assert "nextUnlabeledBodypart(" in src
+
+
+def test_b4_b5_hit_select_and_hover_cursor():
+    """B4: mousedown hit-tests existing markers and selects on a hit (already
+    present; must stay gated on renderActive, not overlayEnabled). B5: a mousemove
+    handler updates the focused tile's cursor — pointer over a marker, crosshair
+    when a bp is selected + editable, else default."""
+    src = _src()
+    # B4: hit-test on mousedown selects (selectBp(hit))
+    assert re.search(r"hitTest\([^)]*\)[\s;].*selectBp\(hit\)", src, re.S) or \
+        "selectBp(hit)" in src, "mousedown must select the hit bodypart"
+    # B5: a hover handler that sets the cursor based on a hover hit-test
+    assert "mousemove" in src
+    # cursor strings used for hover feedback
+    for cur in ('"pointer"', '"crosshair"', '"default"'):
+        assert cur in src, f"hover cursor logic must use {cur}"
+    # a dedicated hover handler name (so the drag mousemove stays separate)
+    assert "updateHoverCursor" in src, "must factor a hover-cursor updater"

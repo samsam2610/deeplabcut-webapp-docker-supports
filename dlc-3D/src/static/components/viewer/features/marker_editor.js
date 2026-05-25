@@ -297,6 +297,16 @@ export function markerEditor(config = {}) {
     if (next !== selectedBp) selectBp(next);
   }
 
+  // B5 hover cursor: on the focused, editable tile, show `pointer` when hovering an
+  // existing marker, `crosshair` when a bp is selected (ready to place), else default.
+  function updateHoverCursor(tile, cx, cy) {
+    if (!tile || !tile.canvasEl) return;
+    if (tile.cam !== focusedCam || !isEditableCam(tile.cam)) { tile.canvasEl.style.cursor = "default"; return; }
+    const hit = hitTest(curPosesForCam(tile.cam), cx, cy, tileScale(tile), markerSize,
+      frameEditsOf(editsFor(tile.cam), currentFrame), 8);
+    tile.canvasEl.style.cursor = hit ? "pointer" : (selectedBp ? "crosshair" : "default");
+  }
+
   // ── edit banner ──
   // Reflects the FOCUSED cam's edits (hidden when that cam has comparison layers,
   // since editing is disabled while comparing).
@@ -405,12 +415,15 @@ export function markerEditor(config = {}) {
       if (hit) { dragging = true; dragBp = hit; dragCam = cam; didDrag = false; selectBp(hit); }
     }, sig);
     canvas.addEventListener("mousemove", (e) => {
-      if (!dragging || dragCam !== cam) return;
-      didDrag = true;
       const { cx, cy } = canvasPos(canvas, e);
-      const { x, y } = canvasToVideo(cx, cy, tileScale(tile));
-      editsByCam[cam] = setEdit(editsFor(cam), currentFrame, dragBp, x, y);
-      renderTile(tile, currentFrame);
+      if (dragging && dragCam === cam) {
+        didDrag = true;
+        const { x, y } = canvasToVideo(cx, cy, tileScale(tile));
+        editsByCam[cam] = setEdit(editsFor(cam), currentFrame, dragBp, x, y);
+        renderTile(tile, currentFrame);
+        return;
+      }
+      if (renderActive()) updateHoverCursor(tile, cx, cy);
     }, sig);
     canvas.addEventListener("mouseup", endDrag, sig);
     canvas.addEventListener("mouseleave", endDrag, sig);
