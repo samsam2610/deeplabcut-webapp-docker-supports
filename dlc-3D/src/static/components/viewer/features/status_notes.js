@@ -52,12 +52,14 @@ export function statusNoteTimeline(config = {}) {
     csvPath = null;
     activeStatus.clear();
     activeNote.clear();
+    let csvExists = false;
     if (endpoints.csv && videoPath) {
       try {
         const data = await (await fetch(endpoints.csv(videoPath))).json();
         if (gen !== loadGen) return; // superseded by a newer load
         rows = data.rows || [];
         csvPath = data.csv_path || null;
+        csvExists = !!data.csv_exists;
       } catch (_) { rows = []; }
     }
     if (gen !== loadGen) return;
@@ -65,6 +67,10 @@ export function statusNoteTimeline(config = {}) {
     rebuildChips();
     redraw(curFrame());
     updateBadges(curFrame());
+    // Tell the consumer the companion-CSV result (file presence + path), so it can
+    // reflect it in its own UI (e.g. a "CSV loaded / none" section). Keyed on
+    // csv_exists — file presence — not on whether there are status/note rows.
+    if (config.onCsv) config.onCsv({ csv_exists: csvExists, csv_path: csvPath, rows });
   }
 
   function recolor() {

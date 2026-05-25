@@ -158,6 +158,7 @@ function _ensureViewer() {
     },
     fps: _fps,
     frameBase: 0,
+    onCsv: _vaUpdateCsvSection,   // reflect the companion-CSV result in the curation section
   }));
 
   // Metadata-strip reveal glue (consumer-owned — not part of statusNoteTimeline).
@@ -298,6 +299,19 @@ function _updateMetaStrip() {
   if (row) row.style.display = hasCsv ? "flex" : "none";
   const info = $("va3d-meta-csv-info");
   if (info) info.textContent = hasCsv ? "companion CSV loaded" : "No companion CSV";
+}
+
+// Reflect the companion-CSV result (from statusNoteTimeline's onCsv) in the
+// curation "Companion CSV status" section: when a CSV file exists, show its path
+// + the status/note timelines; otherwise show the "No companion CSV / Create CSV"
+// prompt. Keyed on csv_exists (file presence), not on whether it has annotations.
+function _vaUpdateCsvSection(info) {
+  const exists = !!(info && info.csv_exists);
+  $("va3d-csv-none")?.classList.toggle("hidden", exists);
+  $("va3d-csv-loaded")?.classList.toggle("hidden", !exists);
+  $("va3d-csv-bars")?.classList.toggle("hidden", !exists);
+  const pathEl = $("va3d-csv-path-display");
+  if (pathEl) pathEl.textContent = (info && info.csv_path) || "";
 }
 
 // Poll the meta strip a few times after a load() to catch statusNoteTimeline's
@@ -921,6 +935,7 @@ function _resetForOpen() {
   if (metaRow) metaRow.style.display = "none";
   const metaInfo = $("va3d-meta-csv-info");
   if (metaInfo) metaInfo.textContent = "No companion CSV";
+  _vaUpdateCsvSection(null);   // reset the curation CSV section to the "none" prompt
   const createFb = $("va3d-csv-create-status");
   if (createFb) createFb.textContent = "";
   // Overlay panel reset (consumer glue). markerEditor re-derives its layers on

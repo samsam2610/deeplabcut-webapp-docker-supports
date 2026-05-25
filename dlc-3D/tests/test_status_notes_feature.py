@@ -66,3 +66,9 @@ def test_exposes_public_redraw():
     # after they resize the status/note canvases (viewer zoom widens the bars)
     assert re.search(r"\bredraw\s*\(\s*\)\s*\{", src), \
         "factory result must expose a public `redraw()` method"
+
+
+def test_invokes_oncsv_callback():
+    s = _src()
+    assert re.search(r"config\.onCsv", s), "loadCsv must invoke config.onCsv"
+    assert "csv_exists" in s, "onCsv payload must include csv_exists (file presence)"
