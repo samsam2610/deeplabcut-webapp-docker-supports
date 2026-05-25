@@ -126,3 +126,20 @@ def test_b4_b5_hit_select_and_hover_cursor():
         assert cur in src, f"hover cursor logic must use {cur}"
     # a dedicated hover handler name (so the drag mousemove stays separate)
     assert "updateHoverCursor" in src, "must factor a hover-cursor updater"
+
+
+def test_b6_space_toggles_per_frame_visibility():
+    """B6: Space toggles the selected bp's per-frame visibility (a per-(frame,bp)
+    store), reflected in render + the `.vv-bp-chip.vis-hidden` chip. Arrows stay
+    VideoViewer frame-nav (no arrow handling added here)."""
+    src = _src()
+    # a per-frame hidden store (distinct from the global hiddenParts Set)
+    assert "hiddenByFrame" in src, "must track per-frame visibility (hiddenByFrame)"
+    # Space key handled in the keyboard handler
+    assert re.search(r'e\.key\s*===\s*"\s"', src) or 'e.key === " "' in src, \
+        "Space (' ') must be handled for visibility toggle"
+    # the union helper that render + chips consult
+    assert "isHiddenAt" in src, "must factor an isHiddenAt(frame, bp) union helper"
+    # arrows are NOT intercepted (frame-nav stays VideoViewer's)
+    assert "ArrowLeft" not in src and "ArrowRight" not in src, \
+        "markerEditor must not intercept arrow keys (frame-nav is VideoViewer's)"

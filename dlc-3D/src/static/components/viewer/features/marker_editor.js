@@ -48,6 +48,7 @@ export function markerEditor(config = {}) {
   let allBodyParts = [];
   let selectedBp = null;
   const hiddenParts = new Set();
+  const hiddenByFrame = new Map(); // B6: { frame -> Set<bp> } per-frame visibility (Space toggle)
   // Per-cam edit store (frame-labeler focused-tile model): edits for the focused
   // cam land in editsByCam[cam] and flush to that cam's own primary .h5.
   const editsByCam = { 0: {}, 1: {} }; // { [cam]: { [frame]: { [bp]: {x,y} } } }; x===null,y===null = deleted
@@ -83,6 +84,10 @@ export function markerEditor(config = {}) {
   // Markers render + edits are live when the overlay is shown OR editing is armed.
   // Decouples editing from the overlay toggle (B1): setEditable(true) renders without it.
   const renderActive = () => overlayEnabled || editingAllowed;
+
+  // A bp is hidden at a frame if globally hidden (chip double-click) OR per-frame
+  // hidden (Space toggle). Render + chip 'vis-hidden' both consult this.
+  const isHiddenAt = (frame, bp) => hiddenParts.has(bp) || (hiddenByFrame.get(frame)?.has(bp) ?? false);
 
   function makeLayer(path, label) {
     return { id: "layer_" + layerId++, path, label, posesCache: new Map(), bodyparts: [], errored: false };
@@ -191,7 +196,7 @@ export function markerEditor(config = {}) {
       const shape = shapeForLayer(idx);
       const isPrimaryLayer = idx === 0;
       for (const pose of cached.poses) {
-        if (hiddenParts.has(pose.bp)) continue;
+        if (isHiddenAt(frame, pose.bp)) continue;
         let px = pose.x;
         let py = pose.y;
         let edited = false;
@@ -271,7 +276,7 @@ export function markerEditor(config = {}) {
       const bp = chip.dataset.bp;
       chip.classList.toggle("active", bp === selectedBp);
       chip.classList.toggle("labeled", posed.has(bp));
-      chip.classList.toggle("vis-hidden", hiddenParts.has(bp));
+      chip.classList.toggle("vis-hidden", isHiddenAt(currentFrame, bp));
     });
   }
 
@@ -466,6 +471,16 @@ export function markerEditor(config = {}) {
       if (!allBodyParts.length) return;
       e.preventDefault();
       selectBp(nextBodypart(allBodyParts, selectedBp, e.shiftKey));
+      return;
+    }
+    if (e.key === " ") {
+      if (!isEditableCam(focusedCam) || !selectedBp) return;
+      e.preventDefault();
+      let set = hiddenByFrame.get(currentFrame);
+      if (!set) { set = new Set(); hiddenByFrame.set(currentFrame, set); }
+      if (set.has(selectedBp)) set.delete(selectedBp); else set.add(selectedBp);
+      renderAll();
+      updateBpChips();
       return;
     }
     if (!isEditableCam(focusedCam) || !selectedBp) return;
