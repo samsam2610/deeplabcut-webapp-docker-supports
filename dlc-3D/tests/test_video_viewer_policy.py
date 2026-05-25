@@ -105,3 +105,32 @@ def test_policy_doc_exists_and_references_component():
     text = _read(POLICY_DOC).lower()
     assert "videoviewer" in text or "video_viewer.js" in text, \
         "policy doc should reference the canonical component"
+
+
+# ── 6. View Analyzed editing regression guard (2026-05-24) ───────────────────
+#
+# viewer_3d.js is wired for marker editing (bp-chips, edit banner, Save
+# Adjustments) but NEVER calls setEditable — its editing relied on the OLD
+# markerEditor `editingAllowed=true` default. Now the default is `false`, so the
+# render/edit gate (`overlayEnabled || editingAllowed`) leaves editing dead there
+# unless setEditable is armed. The faithful fix mirrors setEditable to the
+# overlay-enabled state at EVERY setOverlayEnabled call site, restoring the prior
+# behaviour (overlay ON → render + editable; overlay OFF → neither). This guards
+# that lockstep so a future edit can't silently re-break View Analyzed editing.
+
+def test_viewer_3d_mirrors_setEditable_to_overlay_enabled_state():
+    src = _read(ROOT / "src" / "static" / "viewer_3d.js")
+    overlay_calls = re.findall(r"setOverlayEnabled\(([^)]*)\)", src)
+    editable_calls = re.findall(r"setEditable\(([^)]*)\)", src)
+    assert overlay_calls, "viewer_3d.js must call setOverlayEnabled (overlay/marker editing)"
+    # Every setOverlayEnabled(X) must have a paired setEditable(X) with the SAME
+    # argument, so editing tracks the overlay (the new gate is overlayEnabled ||
+    # editingAllowed — tying editable to overlay keeps both off when overlay is off).
+    from collections import Counter
+    over = Counter(a.strip() for a in overlay_calls)
+    edit = Counter(a.strip() for a in editable_calls)
+    assert over == edit, (
+        "viewer_3d.js must call setEditable in lockstep with setOverlayEnabled "
+        f"(same boolean each time): setOverlayEnabled args={dict(over)} vs "
+        f"setEditable args={dict(edit)}"
+    )

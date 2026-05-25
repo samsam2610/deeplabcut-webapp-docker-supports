@@ -440,6 +440,11 @@ function _wireOverlayChrome() {
   toggle?.addEventListener("change", () => {
     const on = !!toggle.checked;
     _markerEditor?.setOverlayEnabled(on);
+    // Mirror editing to the overlay state. markerEditor's render/edit gate is now
+    // `overlayEnabled || editingAllowed` (default editingAllowed=false). View
+    // Analyzed never armed editing separately, so tie it to the overlay: ON →
+    // render + editable, OFF → neither. Restores the pre-default-flip behaviour.
+    _markerEditor?.setEditable(on);
     $("va3d-overlay-controls")?.classList.toggle("hidden", !on);
     $("va3d-bp-list-wrap")?.classList.toggle("hidden", !on);
     const st = $("va3d-overlay-status");
@@ -946,6 +951,7 @@ function _resetForOpen() {
   const ovToggle = $("va3d-overlay-toggle");
   if (ovToggle) ovToggle.checked = false;
   _markerEditor?.setOverlayEnabled(false);
+  _markerEditor?.setEditable(false); // mirror editing to the overlay state (see toggle handler)
   $("va3d-overlay-controls")?.classList.add("hidden");
   $("va3d-bp-list-wrap")?.classList.add("hidden");
   const ovStatus = $("va3d-overlay-status");
