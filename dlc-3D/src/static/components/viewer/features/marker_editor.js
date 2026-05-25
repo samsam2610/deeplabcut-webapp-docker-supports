@@ -25,7 +25,7 @@ import {
   scaleFor, canvasToVideo, markerRadius, hitTest, resolvePose,
   setEdit, deleteEdit, frameEditsOf, editedFrameCount, nudge, nextBodypart,
   prefetchWindow, allCached, layerThreshold, poseCacheKey, buildMarkerEditPayload,
-  parsePoseJson, posedBodyparts,
+  parsePoseJson, posedBodyparts, editedOnlyBodyparts,
 } from "../internal/marker_overlay.mjs";
 import { paletteColor } from "../internal/palette.mjs";
 import { drawShape, shapeForLayer } from "../internal/shapes.mjs";
@@ -80,6 +80,15 @@ export function markerEditor(config = {}) {
     return c ? c.poses : [];
   };
   const curPoses = () => curPosesForCam(focusedCam);
+  // Poses augmented with edits-only placed markers (bps the backend omitted as
+  // below-threshold/undetected) so hit-test / select / drag can reach a marker
+  // placed where no detected pose exists. Called at runtime.
+  const hitPoses = (cam) => {
+    const poses = curPosesForCam(cam);
+    const fe = frameEditsOf(editsFor(cam), currentFrame);
+    const extra = editedOnlyBodyparts(poses, fe).map((bp) => ({ bp, x: fe[bp].x, y: fe[bp].y, color_idx: 0 }));
+    return extra.length ? [...poses, ...extra] : poses;
+  };
 
   // Markers render + edits are live when the overlay is shown OR editing is armed.
   // Decouples editing from the overlay toggle (B1): setEditable(true) renders without it.
@@ -216,6 +225,21 @@ export function markerEditor(config = {}) {
           ring(ctx, cx, cy, r + (edited ? 6 : 3), "#facc15", 2);
         }
       }
+      // Edits-only markers: bps placed where the backend returned no pose
+      // (below-threshold/undetected). The pose loop never visits them, so they'd
+      // vanish despite a recorded edit — draw them straight from the local edits.
+      if (isPrimaryLayer && editableTile) {
+        for (const bp of editedOnlyBodyparts(cached.poses, fEdits)) {
+          if (isHiddenAt(frame, bp)) continue;
+          const e = fEdits[bp];
+          const ex = Math.round(e.x * scale.sx);
+          const ey = Math.round(e.y * scale.sy);
+          const ci = layer.bodyparts ? layer.bodyparts.indexOf(bp) : -1;
+          drawShape(shape, ctx, ex, ey, r, paletteColor(ci >= 0 ? ci : 0, cached.n_bodyparts));
+          ring(ctx, ex, ey, r + 3, "#fff", 1.5);
+          if (bp === selectedBp) ring(ctx, ex, ey, r + 6, "#facc15", 2);
+        }
+      }
     }
   }
 
@@ -272,6 +296,9 @@ export function markerEditor(config = {}) {
     // 'labeled' must mirror what renderTile draws: a bp is labeled only if it has a
     // finite marker at this frame. Undetected bps leak in with NaN→null coords.
     const posed = posedBodyparts(curPoses());
+    // Include markers placed on omitted (below-threshold) parts so the chip checks
+    // immediately after placing — mirrors renderTile + advanceAfterPlace.
+    for (const bp of editedOnlyBodyparts(curPoses(), frameEditsOf(editsFor(focusedCam), currentFrame))) posed.add(bp);
     c.querySelectorAll(".vv-bp-chip").forEach((chip) => {
       const bp = chip.dataset.bp;
       chip.classList.toggle("active", bp === selectedBp);
@@ -307,7 +334,7 @@ export function markerEditor(config = {}) {
   function updateHoverCursor(tile, cx, cy) {
     if (!tile || !tile.canvasEl) return;
     if (tile.cam !== focusedCam || !isEditableCam(tile.cam)) { tile.canvasEl.style.cursor = "default"; return; }
-    const hit = hitTest(curPosesForCam(tile.cam), cx, cy, tileScale(tile), markerSize,
+    const hit = hitTest(hitPoses(tile.cam), cx, cy, tileScale(tile), markerSize,
       frameEditsOf(editsFor(tile.cam), currentFrame), 8);
     tile.canvasEl.style.cursor = hit ? "pointer" : (selectedBp ? "crosshair" : "default");
   }
@@ -416,7 +443,7 @@ export function markerEditor(config = {}) {
     canvas.addEventListener("mousedown", (e) => {
       if (!renderActive() || e.button !== 0 || cam !== focusedCam || !isEditableCam(cam)) return;
       const { cx, cy } = canvasPos(canvas, e);
-      const hit = hitTest(curPosesForCam(cam), cx, cy, tileScale(tile), markerSize, frameEditsOf(editsFor(cam), currentFrame), 8);
+      const hit = hitTest(hitPoses(cam), cx, cy, tileScale(tile), markerSize, frameEditsOf(editsFor(cam), currentFrame), 8);
       if (hit) { dragging = true; dragBp = hit; dragCam = cam; didDrag = false; selectBp(hit); }
     }, sig);
     canvas.addEventListener("mousemove", (e) => {
@@ -436,7 +463,7 @@ export function markerEditor(config = {}) {
       if (!renderActive() || cam !== focusedCam || !isEditableCam(cam) || !selectedBp) return;
       if (didDrag) { didDrag = false; return; }
       const { cx, cy } = canvasPos(canvas, e);
-      const hit = hitTest(curPosesForCam(cam), cx, cy, tileScale(tile), markerSize, frameEditsOf(editsFor(cam), currentFrame), 8);
+      const hit = hitTest(hitPoses(cam), cx, cy, tileScale(tile), markerSize, frameEditsOf(editsFor(cam), currentFrame), 8);
       if (hit) return; // clicking an existing marker selects via mousedown, not place
       const { x, y } = canvasToVideo(cx, cy, tileScale(tile));
       editsByCam[cam] = setEdit(editsFor(cam), currentFrame, selectedBp, x, y);

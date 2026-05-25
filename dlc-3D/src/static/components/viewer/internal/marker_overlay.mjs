@@ -128,6 +128,22 @@ export function posedBodyparts(poses) {
   return s;
 }
 
+// Body parts that have a (non-deleted) local edit but are ABSENT from the
+// detected poses — i.e. a marker placed on a below-threshold/undetected part the
+// backend omits from frame-poses (`lh < threshold` → dropped). renderTile and
+// hitTest iterate `poses`, so without merging these the placed marker is stored
+// (edit count rises) yet never drawn or selectable. Returns the bp names to add.
+export function editedOnlyBodyparts(poses, frameEdits) {
+  const have = new Set((poses || []).map((p) => p.bp));
+  const out = [];
+  for (const [bp, e] of Object.entries(frameEdits || {})) {
+    if (have.has(bp)) continue;                       // already drawn via its pose
+    if (!e || e.x == null || e.y == null) continue;   // deleted / no coords
+    out.push(bp);
+  }
+  return out;
+}
+
 // ── layer threshold + cache key ──
 export function layerThreshold(layer, globalThreshold, perLayer) {
   return (perLayer && layer.threshold != null) ? layer.threshold : globalThreshold;

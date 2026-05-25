@@ -5,6 +5,7 @@ import {
   hitTest, resolvePose, setEdit, deleteEdit, frameEditsOf, editedFrameCount,
   nudge, nextBodypart, prefetchWindow, allCached, layerThreshold,
   poseCacheKey, buildMarkerEditPayload, parsePoseJson, posedBodyparts,
+  editedOnlyBodyparts,
 } from "../../src/static/components/viewer/internal/marker_overlay.mjs";
 
 const HALF = { sx: 0.5, sy: 0.5 };
@@ -136,4 +137,25 @@ test("layerThreshold + poseCacheKey + payload", () => {
     { h5: "/x.h5", frame: 5, bp: "a", x: 10, y: 20 });
   assert.deepEqual(buildMarkerEditPayload("/x.h5", 5, "a", null, null),
     { h5: "/x.h5", frame: 5, bp: "a", x: null, y: null });
+});
+
+test("editedOnlyBodyparts: bps placed where no detected pose exists (below-threshold/missing)", () => {
+  // poses only contains detected bps (backend omits lh<threshold). A marker placed
+  // on a missing bp lives only in frameEdits — render/hitTest must include it.
+  const poses = [{ bp: "snout", x: 10, y: 20 }];
+  const edits = { snout: { x: 11, y: 21 }, wrist: { x: 30, y: 40 } };
+  assert.deepEqual(editedOnlyBodyparts(poses, edits), ["wrist"], "only the edits-only bp");
+});
+
+test("editedOnlyBodyparts: excludes deleted edits and bps already in poses", () => {
+  const poses = [{ bp: "snout", x: 10, y: 20 }];
+  // snout edited (in poses → excluded), tail deleted (null → excluded), wrist placed (included)
+  const edits = { snout: { x: 11, y: 21 }, tail: { x: null, y: null }, wrist: { x: 5, y: 6 } };
+  assert.deepEqual(editedOnlyBodyparts(poses, edits), ["wrist"]);
+});
+
+test("editedOnlyBodyparts: empty/absent inputs are safe", () => {
+  assert.deepEqual(editedOnlyBodyparts([], { a: { x: 1, y: 2 } }), ["a"]);
+  assert.deepEqual(editedOnlyBodyparts(null, null), []);
+  assert.deepEqual(editedOnlyBodyparts([{ bp: "a", x: 1, y: 2 }], {}), []);
 });

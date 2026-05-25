@@ -181,3 +181,15 @@ def test_b7_focus_persists_across_videoload_with_clamp():
         "videoLoad must not unconditionally reset focusedCam to 0"
     # there must be a clamp guarding a stale focusedCam against the tile count
     assert ">= " in body or ">=" in body, "videoLoad must clamp focusedCam to tile count"
+
+
+def test_renders_and_hittests_edits_only_markers():
+    """A marker placed on a below-threshold/undetected bp (omitted by the backend
+    from frame-poses) lives only in the local edits. renderTile + hit-test iterate
+    `poses`, so the feature must merge edits-only bps via editedOnlyBodyparts —
+    else the marker is recorded ('frame edited') but never drawn or selectable."""
+    src = _src()
+    assert "editedOnlyBodyparts" in src, "must import + use the edits-only merge helper"
+    # hit-test goes through the augmented `hitPoses`, not raw curPosesForCam
+    assert "hitPoses(" in src
+    assert "hitTest(curPosesForCam(" not in src, "hit-test must use the edits-augmented poses"
