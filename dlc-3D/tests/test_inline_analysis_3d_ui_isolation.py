@@ -679,3 +679,26 @@ def test_quick_tags_wired_per_project():
         assert key in js or key.replace('"', "'") in js, f"missing tag setting key {key}"
     # tag click REPLACES the field (not append)
     assert "_fillTagInto" in js or "REPLACE" in js or ".value =" in js
+
+
+def test_overlay_auto_enables_for_editing_when_finalize_on():
+    # Regression: marker editing hard-gates on the overlay being enabled
+    # (marker_editor.js). Finalize is checked by default, but _resetForOpen leaves
+    # the overlay OFF at open. _applyOverlayPrimary runs on videoLoad once a primary
+    # h5 + bodypart are resolved (the non-premature point) — so it must enable the
+    # overlay there when Finalize is on, else editing is silently dead (the bug).
+    js = JS.read_text()
+    i = js.index("async function _applyOverlayPrimary")
+    # capture the whole function body (up to the next top-level function def),
+    # robust to comment length
+    rest = js[i + 1:]
+    ends = [x for x in (rest.find("\nasync function "), rest.find("\nfunction ")) if x != -1]
+    window = js[i: i + 1 + min(ends)]
+    assert 'ia3d-finalize-toggle' in window, "_applyOverlayPrimary must consult the finalize toggle"
+    assert 'ia3d-overlay-toggle' in window and 'dispatchEvent' in window, \
+        "_applyOverlayPrimary must enable the overlay (dispatch its change) when Finalize is on"
+    # Also re-arm the editable master gate: on first open _ensureViewer's
+    # setEditable(false) clobbers _resetForOpen's setEditable(true), so editing
+    # would stay off without this (the first-open bug).
+    assert 'setEditable(true)' in window, \
+        "_applyOverlayPrimary must re-arm the edit master gate when Finalize is on (first-open fix)"

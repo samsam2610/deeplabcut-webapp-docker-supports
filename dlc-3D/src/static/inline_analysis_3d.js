@@ -871,6 +871,23 @@ async function _applyOverlayPrimary(h5) {
     _siblingPrimaryH5 = null;
     _markerEditor.setSibling(null);
   }
+  // Marker editing hard-gates on BOTH the editable master gate AND the overlay
+  // being enabled (marker_editor.js). Finalize is on by default, but at open the
+  // overlay is left off, and on the FIRST open after a page load _ensureViewer's
+  // setEditable(false) (line ~171) runs AFTER _resetForOpen's setEditable(true) —
+  // leaving editing off. Now that a primary h5 + bodypart are resolved (videoLoad,
+  // or a manual primary pick) and the markerEditor exists, re-arm both gates when
+  // Finalize is checked so editing is live without a manual toggle — parity with
+  // label-frame-3d. Reuse the overlay-toggle change handler (reveals controls +
+  // chips + refreshes coverage) for the overlay side.
+  if ($("ia3d-finalize-toggle")?.checked) {
+    _markerEditor.setEditable(true);
+    const _ovToggle = $("ia3d-overlay-toggle");
+    if (_ovToggle && !_ovToggle.checked) {
+      _ovToggle.checked = true;
+      _ovToggle.dispatchEvent(new Event("change"));
+    }
+  }
   _refreshCoverage();
 }
 
