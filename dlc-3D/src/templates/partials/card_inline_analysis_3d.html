@@ -326,6 +326,14 @@
                 style="width:100%;display:block;cursor:pointer;border-radius:3px;background:var(--surface)"
                 title="Click to jump to frame"></canvas>
               <div id="ia3d-status-chips" class="fe-tag-filter" style="margin-top:.3rem;min-height:1rem"></div>
+              <div class="ia3d-edit-row">
+                <input type="text" id="ia3d-status-input" class="ia3d-edit-input" placeholder="status @ current frame" />
+                <button id="ia3d-save-status-btn" class="btn-sm btn-create" style="padding:.28rem .65rem">Save</button>
+                <span class="ia3d-edit-tags">
+                  <span class="ia3d-tags-lbl">tags:</span>
+                  <span id="ia3d-status-tags" class="ia3d-tags" style="margin:0"></span>
+                </span>
+              </div>
             </div>
             <div id="ia3d-note-bar-wrap" style="display:none;margin-top:.4rem">
               <div style="display:flex;align-items:center;gap:.4rem;margin-top:.55rem;margin-bottom:.18rem">
@@ -337,6 +345,15 @@
                 style="width:100%;display:block;cursor:pointer;border-radius:3px;background:var(--surface)"
                 title="Click to jump to frame"></canvas>
               <div id="ia3d-note-chips" class="fe-tag-filter" style="margin-top:.3rem;min-height:1rem"></div>
+              <div class="ia3d-edit-row">
+                <input type="text" id="ia3d-note-input" class="ia3d-edit-input" placeholder="note @ current frame" />
+                <button id="ia3d-save-note-btn" class="btn-sm btn-create" style="padding:.28rem .65rem">Save</button>
+                <span class="ia3d-edit-tags">
+                  <span class="ia3d-tags-lbl">tags:</span>
+                  <span id="ia3d-note-tags" class="ia3d-tags" style="margin:0"></span>
+                </span>
+              </div>
+              <span id="ia3d-annot-save-status" class="fe-extract-status"></span>
             </div>
           </div>
           <!-- Finalized-frames coverage timeline — relocated OUT of the finalize panel -->
@@ -493,27 +510,6 @@
             <div style="font-size:.72rem;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:var(--text-dim);margin-bottom:.4rem">
               Annotate frame <span id="ia3d-annot-frame-num" style="color:var(--text);font-family:var(--mono)">0</span>
             </div>
-            <!-- Status row -->
-            <div style="display:flex;align-items:center;gap:.5rem;flex-wrap:wrap;margin-bottom:.35rem">
-              <label style="font-size:.76rem;color:var(--text-dim);white-space:nowrap;flex-shrink:0;min-width:3rem">Status</label>
-              <input type="number" id="ia3d-status-input" value="0"
-                style="width:4.5rem;font-size:.8rem;background:var(--surface);border:1px solid var(--border);border-radius:5px;color:var(--text);padding:.26rem .4rem" />
-              <button id="ia3d-save-status-btn" class="btn-sm btn-create" style="padding:.28rem .65rem">
-                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
-                Save Status
-              </button>
-            </div>
-            <!-- Note row -->
-            <div style="display:flex;align-items:center;gap:.5rem;flex-wrap:wrap;margin-bottom:.45rem">
-              <label style="font-size:.76rem;color:var(--text-dim);white-space:nowrap;flex-shrink:0;min-width:3rem">Note</label>
-              <input type="text" id="ia3d-note-input" placeholder="Enter note…"
-                style="flex:1;min-width:110px;font-size:.8rem;background:var(--surface);border:1px solid var(--border);border-radius:5px;color:var(--text);padding:.26rem .45rem" />
-              <button id="ia3d-save-note-btn" class="btn-sm btn-create" style="padding:.28rem .65rem">
-                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
-                Save Note
-              </button>
-            </div>
-            <span id="ia3d-annot-save-status" class="fe-extract-status"></span>
             <!-- Add note tag -->
             <div style="margin-top:.45rem;display:flex;align-items:center;gap:.4rem;flex-wrap:wrap">
               <input type="text" id="ia3d-new-tag-input" placeholder="New note tag…"

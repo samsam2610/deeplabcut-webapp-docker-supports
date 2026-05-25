@@ -626,3 +626,19 @@ def test_finalize_clip_glue_wired():
     assert "/dlc/project/inline-analysis/unfinalize-range" in js
     assert "_onFinalizeAndExtractClick" in js and "_onFinalizeClipRename" in js and "_onFinalizeClipDelete" in js
     assert re.search(r"_onFinalizeClipDelete[\s\S]{0,400}window\.confirm", js)
+
+
+def test_per_frame_edit_rows_under_timelines():
+    html = CARD.read_text()
+    # The status edit input/save live in the status bar-wrap; the note ones in the note bar-wrap.
+    sw = html.index('id="ia3d-status-bar-wrap"')
+    nw = html.index('id="ia3d-note-bar-wrap"')
+    si = html.index('id="ia3d-status-input"')
+    sb = html.index('id="ia3d-save-status-btn"')
+    ni = html.index('id="ia3d-note-input"')
+    nb = html.index('id="ia3d-save-note-btn"')
+    assert sw < si < nw, "status input must sit inside the status bar-wrap (before the note wrap)"
+    assert sw < sb < nw, "save-status button must sit inside the status bar-wrap"
+    assert nw < ni and nw < nb, "note input + save button must sit inside the note bar-wrap"
+    # the edit rows carry the quick-tag containers
+    assert 'id="ia3d-status-tags"' in html and 'id="ia3d-note-tags"' in html
