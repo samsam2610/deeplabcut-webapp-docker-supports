@@ -29,6 +29,7 @@ import {
 } from "../internal/marker_overlay.mjs";
 import { paletteColor } from "../internal/palette.mjs";
 import { drawShape, shapeForLayer } from "../internal/shapes.mjs";
+import { nextUnlabeledBodypart } from "../internal/bodypart_cycle.mjs";
 
 export function markerEditor(config = {}) {
   const els = config.els || {};
@@ -37,6 +38,8 @@ export function markerEditor(config = {}) {
   const poseWindow = config.poseWindow || 30;
   const perLayer = false; // v1: single global threshold
   let globalThreshold = config.globalThreshold ?? 0.6;
+  const autoAdvance = !!config.autoAdvance; // B2: advance to next unlabeled bp after a place (inline opts in)
+  let lockBp = false;                        // B3: when true, placing does NOT auto-advance (re-place same bp)
 
   let viewer = null;
   let overlayEnabled = false;
@@ -280,6 +283,20 @@ export function markerEditor(config = {}) {
     renderAll();
   }
 
+  // B2 auto-advance: after a successful place, jump to the next bodypart with no
+  // label in this frame. "Labeled" = finite raw pose OR a non-deleted edit (so a
+  // just-placed marker counts). Suppressed when Lock-BP (B3) is on.
+  function advanceAfterPlace(cam) {
+    if (!autoAdvance) return;
+    const labeled = posedBodyparts(curPosesForCam(cam));
+    const fEdits = frameEditsOf(editsFor(cam), currentFrame);
+    for (const [bp, e] of Object.entries(fEdits)) {
+      if (e && e.x != null && e.y != null) labeled.add(bp);
+    }
+    const next = nextUnlabeledBodypart(allBodyParts, labeled, selectedBp, lockBp);
+    if (next !== selectedBp) selectBp(next);
+  }
+
   // ── edit banner ──
   // Reflects the FOCUSED cam's edits (hidden when that cam has comparison layers,
   // since editing is disabled while comparing).
@@ -409,6 +426,7 @@ export function markerEditor(config = {}) {
       renderTile(tile, currentFrame);
       updateEditBanner();
       updateBpChips();
+      advanceAfterPlace(cam);
     }, sig);
     canvas.addEventListener("contextmenu", (e) => {
       if (!renderActive() || cam !== focusedCam || !isEditableCam(cam) || !selectedBp) return;
@@ -536,6 +554,11 @@ export function markerEditor(config = {}) {
 
     setFocusedCam,
     getFocusedCam: () => focusedCam,
+
+    // B3 Lock-BP: when on, placing does not auto-advance (re-place the same bp to
+    // correct a marker). UI is a checkbox in the consumer (no `L` shortcut — taken).
+    setLockBp(on) { lockBp = !!on; },
+    getLockBp: () => lockBp,
 
     // Master edit gate. When off, markers still display (read-only) — no edit
     // overlays, selection ring, or input. Consumers use this for gated-editing

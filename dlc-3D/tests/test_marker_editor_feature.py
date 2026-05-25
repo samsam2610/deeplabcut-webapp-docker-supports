@@ -89,3 +89,22 @@ def test_b1_render_edit_gate_decoupled_from_overlay():
     # the bare `if (!overlayEnabled) return;` render short-circuit must be gone
     assert "if (!overlayEnabled) return;" not in src, \
         "renderTile must not short-circuit on overlayEnabled alone"
+
+
+def test_b2_b3_autoadvance_and_lockbp():
+    """B2: an `autoAdvance` config (default off) advances selectedBp after a place
+    using nextUnlabeledBodypart over (posedBodyparts ∪ frame edits). B3: setLockBp
+    state + API; when locked, no advance (re-place same bp)."""
+    src = _src()
+    # imports the new reducer
+    assert re.search(
+        r"import\s*\{[^}]*\bnextUnlabeledBodypart\b[^}]*\}\s*from\s*[\"'][^\"']*bodypart_cycle\.mjs[\"']", src), \
+        "must import nextUnlabeledBodypart from internal/bodypart_cycle.mjs"
+    # autoAdvance read from config, default off
+    assert re.search(r"autoAdvance\s*=\s*!!\s*config\.autoAdvance", src) or \
+        re.search(r"config\.autoAdvance", src), "must read autoAdvance from config"
+    # Lock-BP state + public setter
+    assert re.search(r"setLockBp\s*\(", src), "must expose setLockBp(bool)"
+    assert "lockBp" in src, "must track lockBp state"
+    # the auto-advance call passes the lock flag (so Lock-BP suppresses advance)
+    assert "nextUnlabeledBodypart(" in src
