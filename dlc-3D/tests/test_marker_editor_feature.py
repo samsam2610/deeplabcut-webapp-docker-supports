@@ -72,3 +72,20 @@ def test_bp_chips_render_frame_labeler_structure():
     src = (ROOT / "src" / "static" / "components" / "viewer" / "features" / "marker_editor.js").read_text()
     for cls in ("vv-bp-dot", "vv-bp-name", "vv-bp-check", "vv-bp-eye-slash"):
         assert cls in src, f"rebuildBpChips must render a .{cls} element (frame-labeler chip parity)"
+
+
+def test_b1_render_edit_gate_decoupled_from_overlay():
+    """B1: render + edit are gated on `overlayEnabled || editingAllowed`, not
+    overlayEnabled alone, so setEditable(true) makes markers render + edits live
+    with no overlay toggle. Read-only consumers (no setEditable(true)) keep the
+    default editingAllowed=false, so their rendering stays keyed on overlayEnabled."""
+    src = _src()
+    # the combined gate expression must appear (render + handlers reuse it)
+    assert "overlayEnabled || editingAllowed" in src, \
+        "render/edit gate must be `overlayEnabled || editingAllowed`"
+    # default must be OFF so read-only consumers don't start rendering with overlay off
+    assert re.search(r"editingAllowed\s*=\s*false", src), \
+        "editingAllowed must default to false (read-only consumers unchanged)"
+    # the bare `if (!overlayEnabled) return;` render short-circuit must be gone
+    assert "if (!overlayEnabled) return;" not in src, \
+        "renderTile must not short-circuit on overlayEnabled alone"

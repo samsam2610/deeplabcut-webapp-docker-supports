@@ -49,7 +49,7 @@ export function markerEditor(config = {}) {
   // cam land in editsByCam[cam] and flush to that cam's own primary .h5.
   const editsByCam = { 0: {}, 1: {} }; // { [cam]: { [frame]: { [bp]: {x,y} } } }; x===null,y===null = deleted
   let focusedCam = 0;       // which cam tile accepts edit input (default cam0 → identical to pre-focus behavior)
-  let editingAllowed = true; // master edit gate (consumers may gate editing, e.g. inline's Finalize toggle); default on
+  let editingAllowed = false; // master edit gate; default OFF — read-only consumers stay overlay-keyed
   let currentFrame = 0;
   let layerId = 0;
   let prefetchCtrl = null;
@@ -76,6 +76,10 @@ export function markerEditor(config = {}) {
     return c ? c.poses : [];
   };
   const curPoses = () => curPosesForCam(focusedCam);
+
+  // Markers render + edits are live when the overlay is shown OR editing is armed.
+  // Decouples editing from the overlay toggle (B1): setEditable(true) renders without it.
+  const renderActive = () => overlayEnabled || editingAllowed;
 
   function makeLayer(path, label) {
     return { id: "layer_" + layerId++, path, label, posesCache: new Map(), bodyparts: [], errored: false };
@@ -167,7 +171,7 @@ export function markerEditor(config = {}) {
     if (h) canvas.height = h;
     const ctx = canvas.getContext("2d");
     ctx.clearRect(0, 0, canvas.width, canvas.height);
-    if (!overlayEnabled) return;
+    if (!renderActive()) return;
     const scale = scaleFor(img.naturalWidth, img.naturalHeight, canvas.width, canvas.height);
     const r = markerRadius(markerSize, scale);
     const tileLayers = layersFor(tile.cam);
@@ -321,7 +325,7 @@ export function markerEditor(config = {}) {
   async function onFrame(frame) {
     currentFrame = frame;
     const my = ++frameToken;
-    if (!overlayEnabled) { renderAll(); return; }
+    if (!renderActive()) { renderAll(); return; }
     await fetchAllForFrame(frame);
     if (my !== frameToken) return; // superseded by a newer seek
     renderAll();
@@ -378,7 +382,7 @@ export function markerEditor(config = {}) {
     canvas.style.pointerEvents = "auto"; // base sets the overlay canvas to pointer-events:none
 
     canvas.addEventListener("mousedown", (e) => {
-      if (!overlayEnabled || e.button !== 0 || cam !== focusedCam || !isEditableCam(cam)) return;
+      if (!renderActive() || e.button !== 0 || cam !== focusedCam || !isEditableCam(cam)) return;
       const { cx, cy } = canvasPos(canvas, e);
       const hit = hitTest(curPosesForCam(cam), cx, cy, tileScale(tile), markerSize, frameEditsOf(editsFor(cam), currentFrame), 8);
       if (hit) { dragging = true; dragBp = hit; dragCam = cam; didDrag = false; selectBp(hit); }
@@ -394,7 +398,7 @@ export function markerEditor(config = {}) {
     canvas.addEventListener("mouseup", endDrag, sig);
     canvas.addEventListener("mouseleave", endDrag, sig);
     canvas.addEventListener("click", (e) => {
-      if (!overlayEnabled || cam !== focusedCam || !isEditableCam(cam) || !selectedBp) return;
+      if (!renderActive() || cam !== focusedCam || !isEditableCam(cam) || !selectedBp) return;
       if (didDrag) { didDrag = false; return; }
       const { cx, cy } = canvasPos(canvas, e);
       const hit = hitTest(curPosesForCam(cam), cx, cy, tileScale(tile), markerSize, frameEditsOf(editsFor(cam), currentFrame), 8);
@@ -407,7 +411,7 @@ export function markerEditor(config = {}) {
       updateBpChips();
     }, sig);
     canvas.addEventListener("contextmenu", (e) => {
-      if (!overlayEnabled || cam !== focusedCam || !isEditableCam(cam) || !selectedBp) return;
+      if (!renderActive() || cam !== focusedCam || !isEditableCam(cam) || !selectedBp) return;
       e.preventDefault();
       editsByCam[cam] = deleteEdit(editsFor(cam), currentFrame, selectedBp);
       flushDelete(cam, currentFrame, selectedBp);
@@ -424,7 +428,7 @@ export function markerEditor(config = {}) {
   }
 
   function onKeyDown(e) {
-    if (!overlayEnabled) return;
+    if (!renderActive()) return;
     const t = e.target;
     if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA")) return;
     if (e.key === "Tab") {
@@ -543,7 +547,7 @@ export function markerEditor(config = {}) {
         t.canvasEl.style.cursor = editingAllowed && selectedBp && isEditableCam(focusedCam) ? "crosshair" : "default";
       }
       updateEditBanner();
-      renderAll();
+      if (editingAllowed && !overlayEnabled) onFrame(currentFrame); else renderAll();
     },
     isEditable: () => isEditableCam(focusedCam),
 
