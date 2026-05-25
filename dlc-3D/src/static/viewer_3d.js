@@ -481,6 +481,10 @@ function _wireOverlayChrome() {
     if (lbl) lbl.textContent = ms.value;
   });
 
+  // Show names → markerEditor.setShowNames (all names vs hover-only).
+  const showNames = $("va3d-overlay-show-names");
+  showNames?.addEventListener("change", () => _markerEditor?.setShowNames(!!showNames.checked));
+
   // Show-all / hide-all: markerEditor has no show/hide-all API (visibility is
   // per-chip via double-click). Leave as no-ops to avoid faking the behavior.
   // TODO: needs markerEditor show/hide-all API.

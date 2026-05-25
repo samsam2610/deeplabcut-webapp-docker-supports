@@ -771,6 +771,10 @@ function _wireOverlayChrome() {
     if (lbl) lbl.textContent = ms.value;
   });
 
+  // Show names → markerEditor.setShowNames (all names vs hover-only).
+  const showNames = $("ia3d-overlay-show-names");
+  showNames?.addEventListener("change", () => _markerEditor?.setShowNames(!!showNames.checked));
+
   // Show-all / hide-all: markerEditor has no show/hide-all API. No-ops.
   $("ia3d-overlay-parts-all"); // no-op
   $("ia3d-overlay-parts-none"); // no-op

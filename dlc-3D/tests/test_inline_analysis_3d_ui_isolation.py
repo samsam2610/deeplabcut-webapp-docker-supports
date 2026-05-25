@@ -759,3 +759,19 @@ def test_inline_marker_size_slider_wired_to_setMarkerSize():
     # the old 'no setMarkerSize API → update the label only' comment must be gone
     assert "markerEditor has no setMarkerSize API" not in js, \
         "stale no-op comment must be removed"
+
+
+def test_show_names_checkbox_present_and_wired():
+    """B6 consumer: a 'Show names' checkbox sits in the overlay controls and
+    drives markerEditor.setShowNames."""
+    html = CARD.read_text()
+    assert 'id="ia3d-overlay-show-names"' in html, "Show-names checkbox id missing"
+    # it lives inside the overlay controls block
+    ctrls = html.index('id="ia3d-overlay-controls"')
+    chk = html.index('id="ia3d-overlay-show-names"')
+    assert chk > ctrls, "Show-names checkbox must sit inside #ia3d-overlay-controls"
+    js = JS.read_text()
+    i = js.find('$("ia3d-overlay-show-names")')
+    assert i > 0, "Show-names checkbox not wired in JS"
+    assert "setShowNames(" in js[i:i + 300], \
+        "Show-names checkbox handler must call markerEditor.setShowNames"

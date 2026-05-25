@@ -134,3 +134,19 @@ def test_viewer_3d_mirrors_setEditable_to_overlay_enabled_state():
         f"(same boolean each time): setOverlayEnabled args={dict(over)} vs "
         f"setEditable args={dict(edit)}"
     )
+
+
+def test_viewer_3d_show_names_checkbox_present_and_wired():
+    """B6 consumer (View Analyzed): a 'Show names' checkbox in the overlay controls
+    drives markerEditor.setShowNames — WITHOUT disturbing the setOverlayEnabled/
+    setEditable lockstep (setShowNames is a distinct method)."""
+    html = (ROOT / "src" / "templates" / "partials" / "card_viewer_3d.html").read_text()
+    assert 'id="va3d-overlay-show-names"' in html, "Show-names checkbox id missing"
+    ctrls = html.index('id="va3d-overlay-controls"')
+    chk = html.index('id="va3d-overlay-show-names"')
+    assert chk > ctrls, "Show-names checkbox must sit inside #va3d-overlay-controls"
+    js = (ROOT / "src" / "static" / "viewer_3d.js").read_text()
+    i = js.find('$("va3d-overlay-show-names")')
+    assert i > 0, "Show-names checkbox not wired in JS"
+    assert "setShowNames(" in js[i:i + 300], \
+        "Show-names checkbox handler must call markerEditor.setShowNames"
