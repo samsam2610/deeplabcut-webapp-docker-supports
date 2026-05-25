@@ -514,6 +514,9 @@ export function markerEditor(config = {}) {
       const sig = { signal: ac.signal };
       const disposers = [
         v.on("videoLoad", () => {
+          // Drop per-frame hide-state (Space toggle) so it doesn't carry across
+          // videos — mirrors editsByCam being cleared on setPrimary/setSibling.
+          hiddenByFrame.clear();
           // tiles are freshly recreated on load — re-wire ALL tiles' canvases (each
           // self-gates on focusedCam, so only the focused tile edits). B7: PRESERVE the
           // last focused cam across frame steps + video switches; only clamp it to a
@@ -597,9 +600,12 @@ export function markerEditor(config = {}) {
     setLockBp(on) { lockBp = !!on; },
     getLockBp: () => lockBp,
 
-    // Master edit gate. When off, markers still display (read-only) — no edit
-    // overlays, selection ring, or input. Consumers use this for gated-editing
-    // workflows (e.g. the inline card's Finalize toggle). Defaults on.
+    // Master edit gate. When off, markers render only if the overlay is enabled
+    // (read-only) — no edit overlays, selection ring, or input. When on, markers
+    // render + edits are live with no overlay toggle (B1 gate: overlayEnabled ||
+    // editingAllowed). Consumers use this for gated-editing workflows (e.g. the
+    // inline card's Finalize toggle). Defaults OFF — read-only consumers
+    // (View Analyzed) stay keyed on the overlay.
     setEditable(on) {
       editingAllowed = !!on;
       const t = viewer && viewer.getTile(focusedCam);

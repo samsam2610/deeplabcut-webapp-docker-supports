@@ -145,6 +145,28 @@ def test_b6_space_toggles_per_frame_visibility():
         "markerEditor must not intercept arrow keys (frame-nav is VideoViewer's)"
 
 
+def test_hidden_by_frame_cleared_on_videoload():
+    """Cleanup (2026-05-24): the per-frame visibility map (hiddenByFrame, Space
+    toggle) must be cleared on videoLoad so hide-state does not carry across
+    videos — mirroring how editsByCam is dropped on setPrimary/setSibling."""
+    src = _src()
+    i = src.find('v.on("videoLoad"')
+    if i < 0:
+        i = src.find("v.on('videoLoad'")
+    assert i > 0, "videoLoad subscription not found"
+    body = src[i:i + 800]
+    assert re.search(r"hiddenByFrame\.clear\(\)", body), \
+        "videoLoad must clear hiddenByFrame (per-frame hide-state must not leak across videos)"
+
+
+def test_setEditable_comment_not_stale_default_on():
+    """Cleanup (2026-05-24): editingAllowed now defaults to false, so the
+    setEditable doc comment must not still claim 'Defaults on.'"""
+    src = _src()
+    assert "Defaults on." not in src, \
+        "stale setEditable comment 'Defaults on.' must be updated (default is now false)"
+
+
 def test_b7_focus_persists_across_videoload_with_clamp():
     """B7: videoLoad must NOT reset focusedCam to 0; it preserves the last focused
     cam and only clamps to a valid tile index when the new video has fewer tiles."""
@@ -154,7 +176,7 @@ def test_b7_focus_persists_across_videoload_with_clamp():
         i = src.find("v.on('videoLoad'")
     assert i > 0, "videoLoad subscription not found"
     # capture the handler body up to the next v.on subscription
-    body = src[i:i + 700]
+    body = src[i:i + 900]
     assert "focusedCam = 0" not in body, \
         "videoLoad must not unconditionally reset focusedCam to 0"
     # there must be a clamp guarding a stale focusedCam against the tile count
