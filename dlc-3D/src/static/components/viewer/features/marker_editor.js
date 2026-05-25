@@ -29,6 +29,7 @@ import {
 } from "../internal/marker_overlay.mjs";
 import { paletteColor, labelerColor } from "../internal/palette.mjs";
 import { drawShape, shapeForLayer } from "../internal/shapes.mjs";
+import { nameLabelBox } from "../internal/name_label.mjs";
 import { nextUnlabeledBodypart } from "../internal/bodypart_cycle.mjs";
 
 export function markerEditor(config = {}) {
@@ -47,6 +48,8 @@ export function markerEditor(config = {}) {
   let siblingLayers = [];   // cam-1 layers; [0] = editable primary (when focused), [1+] = comparisons
   let allBodyParts = [];
   let selectedBp = null;
+  let showNames = false;     // B6: when true, draw every visible marker's name
+  let hoverBp = null;        // B5: bodypart under the cursor on the focused tile
   const hiddenParts = new Set();
   const hiddenByFrame = new Map(); // B6: { frame -> Set<bp> } per-frame visibility (Space toggle)
   // Per-cam edit store (frame-labeler focused-tile model): edits for the focused
@@ -230,6 +233,17 @@ export function markerEditor(config = {}) {
         if (isPrimaryLayer && editableTile && pose.bp === selectedBp) {
           ring(ctx, cx, cy, r + 3.5, "rgba(255,255,255,0.85)", 2);
         }
+        // B5/B6: name label beside the dot when hovered or show-names is on
+        // (primary layer only; geometry from name_label.mjs, values match the
+        // frame labeler). `color` is the marker's FL color from above.
+        if (isPrimaryLayer && (showNames || pose.bp === hoverBp)) {
+          ctx.font = nameLabelBox(0, 0, 0, 0).font; // NAME_LABEL_FONT
+          const box = nameLabelBox(cx, cy, r, ctx.measureText(pose.bp).width);
+          ctx.fillStyle = "rgba(12,13,16,.65)";
+          ctx.fillRect(box.boxX, box.boxY, box.boxW, box.boxH);
+          ctx.fillStyle = color;
+          ctx.fillText(pose.bp, box.textX, box.textY);
+        }
       }
       // Edits-only markers: bps placed where the backend returned no pose
       // (below-threshold/undetected). The pose loop never visits them, so they'd
@@ -340,9 +354,14 @@ export function markerEditor(config = {}) {
   // existing marker, `crosshair` when a bp is selected (ready to place), else default.
   function updateHoverCursor(tile, cx, cy) {
     if (!tile || !tile.canvasEl) return;
-    if (tile.cam !== focusedCam || !isEditableCam(tile.cam)) { tile.canvasEl.style.cursor = "default"; return; }
+    if (tile.cam !== focusedCam || !isEditableCam(tile.cam)) {
+      tile.canvasEl.style.cursor = "default";
+      if (hoverBp !== null) { hoverBp = null; renderTile(tile, currentFrame); }
+      return;
+    }
     const hit = hitTest(hitPoses(tile.cam), cx, cy, tileScale(tile), markerSize,
       frameEditsOf(editsFor(tile.cam), currentFrame), 6);
+    if (hit !== hoverBp) { hoverBp = hit; renderTile(tile, currentFrame); }
     tile.canvasEl.style.cursor = hit ? "pointer" : (selectedBp ? "crosshair" : "default");
   }
 
@@ -665,6 +684,12 @@ export function markerEditor(config = {}) {
     setMarkerSize(px) {
       const n = Number(px);
       if (Number.isFinite(n) && n > 0) markerSize = n;
+      renderAll();
+    },
+
+    // B6: show every visible marker's name when on; on hover only when off.
+    setShowNames(on) {
+      showNames = !!on;
       renderAll();
     },
 

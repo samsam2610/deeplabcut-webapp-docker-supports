@@ -249,3 +249,28 @@ def test_b7_hit_pad_is_6():
     # the statement end rather than the first ')'.
     assert re.search(r"hitTest\([^;]*,\s*6\s*\)", src, re.S), \
         "hitTest must be called with pad 6"
+
+
+def test_b5_b6_hover_name_and_show_names():
+    """B5/B6: markerEditor tracks a hovered bp, exposes setShowNames(bool), and
+    renders a marker's name when hovered OR when show-names is on, using
+    name_label.mjs geometry + the labeler font/bg."""
+    src = _src()
+    # imports the pure label-box geometry
+    assert re.search(
+        r"import\s*\{[^}]*\bnameLabelBox\b[^}]*\}\s*from\s*[\"'][^\"']*name_label\.mjs[\"']", src), \
+        "must import nameLabelBox from internal/name_label.mjs"
+    # public setter + state
+    assert re.search(r"setShowNames\s*\(", src), "must expose setShowNames(bool)"
+    assert "showNames" in src, "must track showNames state"
+    # hover-bp tracking
+    assert "hoverBp" in src, "must track the hovered bodypart (hoverBp)"
+    # the render condition: hovered OR show-names
+    assert re.search(r"showNames\s*\|\|\s*\w*\s*===\s*hoverBp", src) or \
+        re.search(r"hoverBp\s*===|===\s*hoverBp", src), \
+        "name renders when bp === hoverBp or showNames is on"
+    # the labeler label-box bg color
+    assert "rgba(12,13,16,.65)" in src, "name-label box bg must match the labeler"
+    # uses the geometry helper + fillText
+    assert "nameLabelBox(" in src and "fillText(" in src, \
+        "must draw the name via nameLabelBox geometry + fillText"
