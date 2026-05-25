@@ -171,3 +171,86 @@
    other .fe-controls consumers are unaffected. */
 #inline-analysis-3d-card .fe-controls { flex-direction: column; align-items: stretch; gap: .35rem; }
 #inline-analysis-3d-card .ia3d-ctrl-row { display: flex; align-items: center; gap: .4rem; flex-wrap: wrap; }
+
+/* ── Inline-3D reorg: full-width card + two-column working layout ─────────────
+   Ported from the live mockup (mockup_inline_3d.html.j2). Scoped to the card so
+   no other consumer is affected. */
+#inline-analysis-3d-card { max-width: none; width: 100%; }
+
+#inline-analysis-3d-card .ia3d-split { display: flex; gap: 1rem; align-items: flex-start; }
+#inline-analysis-3d-card .ia3d-left  { flex: 1 1 0; min-width: 0; position: relative; }
+#inline-analysis-3d-card .ia3d-right { width: 300px; flex-shrink: 0; }
+
+/* Keyframe-lock red flag above the cam0 tile label (normal flow, not overlaying). */
+#inline-analysis-3d-card .ia3d-lock-flag {
+  display: inline-flex; align-items: center; gap: .3rem; margin-bottom: .4rem;
+  background: color-mix(in srgb, #ef4444 25%, #11161a);
+  border: 1px solid #ef4444; color: #fca5a5;
+  padding: .22rem .5rem; border-radius: 6px; font-size: .72rem; font-weight: 600;
+}
+
+/* Seek bar wrap + red range block (locked: block over [start,end], dim outside). */
+#inline-analysis-3d-card .ia3d-seek-wrap { position: relative; margin-top: .9rem; }
+#inline-analysis-3d-card .ia3d-seek-wrap #ia3d-seek-canvas { margin-top: 0; }
+#inline-analysis-3d-card .ia3d-lock-out {
+  position: absolute; top: 0; bottom: 0; background: rgba(0,0,0,.45); pointer-events: none;
+}
+#inline-analysis-3d-card .ia3d-lock-range {
+  position: absolute; top: 0; bottom: 0; pointer-events: none;
+  background: color-mix(in srgb, #ef4444 35%, transparent);
+  border: 1px solid #ef4444; border-radius: 3px;
+}
+
+/* Controls + analysis flank. */
+#inline-analysis-3d-card .ia3d-controls-flank { display: flex; gap: .8rem; align-items: stretch; margin-top: .55rem; }
+#inline-analysis-3d-card .ia3d-controls-left { flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; gap: .5rem; }
+#inline-analysis-3d-card .ia3d-ctrl-top { display: flex; align-items: center; gap: .8rem; }
+#inline-analysis-3d-card .ia3d-controls-main { flex: 0 0 auto; }
+#inline-analysis-3d-card .ia3d-meta-mid {
+  display: flex; align-items: center; gap: .4rem;
+  padding-left: .7rem; border-left: 1px solid var(--border);
+}
+#inline-analysis-3d-card .ia3d-start-flank {
+  width: 270px; flex-shrink: 0; display: flex; flex-direction: column;
+  align-items: stretch; justify-content: center; gap: .4rem;
+  border-left: 1px solid var(--border); padding-left: .9rem;
+}
+#inline-analysis-3d-card .ia3d-start-flank .btn-sm { width: 100%; padding: .5rem; }
+#inline-analysis-3d-card .ia3d-start-count { font-size: .74rem; color: var(--text); text-align: center; }
+#inline-analysis-3d-card .ia3d-start-count b { color: var(--accent); }
+#inline-analysis-3d-card .ia3d-start-hint { font-size: .66rem; color: var(--text-dim); text-align: center; line-height: 1.4; }
+
+/* Body-marker chips fill the empty space below the controls + frame#/time. */
+#inline-analysis-3d-card .ia3d-bp-chips-wrap {
+  flex: 1 1 0; padding-top: .4rem; border-top: 1px solid var(--border);
+}
+
+/* Compact timeline bar header (label + nav + chips inline). */
+#inline-analysis-3d-card .ia3d-bar { margin-top: .5rem; }
+#inline-analysis-3d-card .ia3d-bar-header {
+  display: flex; align-items: center; gap: .35rem; margin-bottom: .2rem; flex-wrap: wrap;
+}
+
+/* Per-frame status/note edit row below each timeline. */
+#inline-analysis-3d-card .ia3d-edit-row {
+  display: flex; align-items: center; gap: .4rem; margin-top: .35rem; flex-wrap: wrap;
+}
+#inline-analysis-3d-card .ia3d-edit-row input.ia3d-edit-input {
+  flex: 0 0 180px; background: var(--surface); border: 1px solid var(--border);
+  color: var(--text); border-radius: 4px; padding: .25rem .4rem; font-size: .76rem;
+}
+#inline-analysis-3d-card .ia3d-edit-tags { display: flex; flex-wrap: wrap; gap: .3rem; align-items: center; }
+#inline-analysis-3d-card .ia3d-edit-tags .ia3d-tags-lbl { font-size: .68rem; color: var(--text-dim); }
+
+/* Quick-tag pills (postfix/status/note), click-to-fill, with × remove + dashed add. */
+#inline-analysis-3d-card .ia3d-tags { display: flex; flex-wrap: wrap; gap: .3rem; margin: .1rem 0 .5rem; }
+#inline-analysis-3d-card .ia3d-ptag {
+  display: inline-flex; align-items: center; gap: .25rem; padding: .12rem .45rem;
+  border-radius: 10px; font-size: .7rem; cursor: pointer;
+  border: 1px solid var(--accent); color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+}
+#inline-analysis-3d-card .ia3d-ptag .x { opacity: .5; font-size: .72rem; }
+#inline-analysis-3d-card .ia3d-ptag.ia3d-ptag-add {
+  border-style: dashed; border-color: var(--border); color: var(--text-dim); background: transparent;
+}
