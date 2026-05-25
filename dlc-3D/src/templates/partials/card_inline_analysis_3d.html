@@ -178,6 +178,13 @@
           </div>
         </div>
 
+        <!-- ── Two-column split: LEFT = viewer + controls + timelines, RIGHT = finalize panel ── -->
+        <div class="ia3d-split">
+        <div class="ia3d-left">
+
+        <!-- Red lock flag — shown only when the keyframe is range-locked (text set by JS) -->
+        <div id="ia3d-lock-flag" class="ia3d-lock-flag hidden"></div>
+
         <!-- VideoViewer (shared library) renders the camera tile(s) here.
              Created with perTileSize:true in inline_analysis_3d.js, so it
              generates each tile's frame img + overlay canvas + per-tile size
@@ -185,12 +192,23 @@
              removed in the Phase 4c library migration. -->
         <div id="ia3d-viewer-mount"></div>
 
-        <!-- Seek / timeline canvas — dark track + marker-coverage + playhead; click/drag to seek -->
-        <canvas id="ia3d-seek-canvas" height="14" title="Click or drag to seek"
-          style="width:100%;display:block;margin-bottom:.4rem;cursor:pointer"></canvas>
+        <!-- Seek / timeline canvas — dark track + marker-coverage + playhead; click/drag to seek.
+             Wrapped so the lock overlays can absolutely-position over it. -->
+        <div class="ia3d-seek-wrap">
+          <canvas id="ia3d-seek-canvas" height="14" title="Click or drag to seek"
+            style="width:100%;display:block;cursor:pointer"></canvas>
+          <div id="ia3d-lock-dim-left"  class="ia3d-lock-out hidden"></div>
+          <div id="ia3d-lock-dim-right" class="ia3d-lock-out hidden"></div>
+          <div id="ia3d-lock-range"     class="ia3d-lock-range hidden"></div>
+        </div>
 
-        <!-- Controls — three rows: playback / frame-jump / status (counter+time+help) -->
-        <div class="fe-controls" style="flex:none">
+        <!-- Controls flank: controls (2 rows) + frame#/time meta on top; chips fill below;
+             analysis-start flank on the right -->
+        <div class="ia3d-controls-flank">
+        <div class="ia3d-controls-left">
+        <div class="ia3d-ctrl-top">
+        <!-- Controls — two rows: playback / skip-group; frame#/time/help moved to .ia3d-meta-mid -->
+        <div class="fe-controls ia3d-controls-main" style="flex:none">
           <div class="ia3d-ctrl-row">
             <button id="ia3d-btn-play-back" class="btn-sm fe-ctrl-btn" title="Play backward">
               <svg id="ia3d-play-back-icon" width="14" height="14" viewBox="0 0 24 24" fill="currentColor" stroke="none"><polygon points="19 3 5 12 19 21 19 3"/></svg>
@@ -241,12 +259,16 @@
               </span>
             </span>
           </div>
-          <div class="ia3d-ctrl-row">
+        </div>
+        <!-- end .fe-controls (two ctrl-rows) -->
+
+          <!-- Compact frame # + time + help beside the controls -->
+          <div class="ia3d-meta-mid">
             <span class="fe-frame-counter" id="ia3d-frame-counter" title="Click to jump to a frame" style="cursor:pointer">Frame 0 / 0</span>
             <input type="number" id="ia3d-frame-jump" class="hidden" min="0" title="Type a frame number, Enter to jump"
               style="width:5.5rem;text-align:center;font-family:var(--mono);font-size:.78rem;padding:.18rem .3rem;background:var(--surface-2);border:1px solid var(--accent);border-radius:5px;color:var(--text)" />
             <span class="fe-time-display" id="ia3d-time-display">0.000 s</span>
-            <button type="button" id="ia3d-help-btn" class="btn-sm fe-ctrl-btn" title="Keyboard shortcuts" style="margin-left:auto">?</button>
+            <button type="button" id="ia3d-help-btn" class="btn-sm fe-ctrl-btn" title="Keyboard shortcuts">?</button>
             <div id="ia3d-help-tooltip" class="hidden" style="position:absolute;z-index:20;background:var(--surface-2);border:1px solid var(--border);border-radius:6px;padding:.5rem .7rem;font-size:.72rem;font-family:var(--mono);color:var(--text-dim);box-shadow:0 4px 16px rgba(0,0,0,.4)">
               <div><b>Space</b> play/pause · <b>Shift+Space</b> play backward</div>
               <div><b>← / →</b> step ±1 · <b>Shift+← / →</b> step ±skip</div>
@@ -254,9 +276,10 @@
             </div>
           </div>
         </div>
+        <!-- end .ia3d-ctrl-top -->
 
-        <!-- Body-part chip selector (below controls; visible when overlay is on and H5 is loaded) -->
-        <div id="ia3d-bp-list-wrap" class="hidden" style="margin-top:.35rem;margin-bottom:.2rem">
+        <!-- Body-part chip selector (fills below controls; visible when overlay is on and H5 is loaded) -->
+        <div id="ia3d-bp-list-wrap" class="ia3d-bp-chips-wrap hidden" style="margin-top:.35rem;margin-bottom:.2rem">
           <div class="fl-bodypart-list" id="ia3d-bp-chips"></div>
         </div>
 
@@ -274,6 +297,19 @@
           <button class="btn-sm" id="ia3d-clear-frame-btn"
             style="opacity:.65;padding:.28rem .6rem" title="Double-click to erase all markers on the current frame">Clear Frame</button>
         </div>
+        </div>
+        <!-- end .ia3d-controls-left -->
+
+        <!-- Analysis-start flank: from-current-frame / for-range buttons (SEPARATE from the
+             top Analysis-Parameters #ia3d-btn-analyze-range) -->
+        <div class="ia3d-start-flank">
+          <span id="ia3d-start-count" class="ia3d-start-count">≈ <b id="ia3d-start-count-n">0</b> frames from current frame</span>
+          <button id="ia3d-btn-analyze-current" class="btn-sm btn-create" disabled>▶ Start analysis from current frame</button>
+          <button id="ia3d-btn-analyze-range-confined" class="btn-sm btn-create" disabled>▶ Start analysis for range</button>
+          <span id="ia3d-start-hint" class="ia3d-start-hint"></span>
+        </div>
+        </div>
+        <!-- end .ia3d-controls-flank -->
 
         <span id="ia3d-status" class="fe-extract-status"></span>
 
@@ -303,7 +339,84 @@
               <div id="ia3d-note-chips" class="fe-tag-filter" style="margin-top:.3rem;min-height:1rem"></div>
             </div>
           </div>
+          <!-- Finalized-frames coverage timeline — relocated OUT of the finalize panel -->
+          <div id="ia3d-finalize-coverage-wrap" class="ia3d-bar">
+            <div class="ia3d-bar-header">
+              <span class="fe-csv-bar-label">Finalized frames</span>
+              <button id="ia3d-finalize-prev" class="btn-sm" disabled title="Previous finalized region" style="padding:.12rem .4rem;font-size:.72rem;line-height:1">◀</button>
+              <button id="ia3d-finalize-next" class="btn-sm" disabled title="Next finalized region" style="padding:.12rem .4rem;font-size:.72rem;line-height:1">▶</button>
+              <span style="font-size:.7rem;color:var(--text-dim)">coverage of _analyzed</span>
+            </div>
+            <canvas id="ia3d-finalize-coverage" height="14" title="Finalized frames — click or drag to seek"
+              style="width:100%;display:block;cursor:pointer"></canvas>
+          </div>
         </div>
+        </div>
+        <!-- end .ia3d-left -->
+
+        <!-- ─────────────  RIGHT: Finalize-analysis sub-card  ───────────── -->
+        <div class="ia3d-right">
+
+        <!-- ── Finalize Analysis Panel (relocated into the right column) ──── -->
+        <div id="ia3d-finalize-panel" style="margin-top:0;padding:.5rem .65rem;background:var(--surface-2);border:1px solid var(--border);border-radius:7px">
+          <label style="display:flex;align-items:center;gap:.45rem;font-size:.8rem;font-weight:500;cursor:pointer;user-select:none">
+            <input type="checkbox" id="ia3d-finalize-toggle" style="accent-color:var(--accent);width:14px;height:14px"/>
+            Finalize analysis
+          </label>
+          <div id="ia3d-finalize-controls" class="hidden" style="margin-top:.5rem">
+            <div style="display:flex;align-items:center;gap:.5rem;flex-wrap:wrap;margin-bottom:.35rem">
+              <span style="font-size:.76rem;color:var(--text-dim)">Keyframe</span>
+              <input type="number" id="ia3d-finalize-keyframe" min="0" value="0"
+                style="width:5rem;font-family:var(--mono);font-size:.78rem;background:var(--surface);border:1px solid var(--border);border-radius:5px;color:var(--text);padding:.18rem .3rem" />
+              <label style="display:flex;align-items:center;gap:.3rem;font-size:.74rem;color:var(--text-dim);cursor:pointer;user-select:none">
+                <input type="checkbox" id="ia3d-finalize-lock" style="accent-color:var(--accent);width:13px;height:13px"/>
+                Lock (l)
+              </label>
+            </div>
+            <div style="display:flex;align-items:center;gap:.4rem;flex-wrap:wrap;margin-bottom:.35rem">
+              <label style="font-size:.74rem;color:var(--text-dim)">before</label>
+              <input type="number" id="ia3d-finalize-before" value="200" min="0"
+                style="width:4.4rem;font-size:.76rem;background:var(--surface);border:1px solid var(--border);border-radius:5px;color:var(--text);padding:.22rem .4rem" />
+              <label style="font-size:.74rem;color:var(--text-dim)">after</label>
+              <input type="number" id="ia3d-finalize-after" value="599" min="0"
+                style="width:4.4rem;font-size:.76rem;background:var(--surface);border:1px solid var(--border);border-radius:5px;color:var(--text);padding:.22rem .4rem" />
+              <label style="font-size:.74rem;color:var(--text-dim)">length</label>
+              <input type="number" id="ia3d-finalize-length" value="800" min="1"
+                style="width:4.9rem;font-size:.76rem;background:var(--surface);border:1px solid var(--border);border-radius:5px;color:var(--text);padding:.22rem .4rem" />
+            </div>
+            <div style="margin-bottom:.3rem">
+              <span id="ia3d-finalize-range" style="font-size:.72rem;color:var(--text-dim);font-family:var(--mono)">frames 0–0 (0)</span>
+            </div>
+            <div style="display:flex;align-items:center;gap:.4rem;flex-wrap:wrap;margin-bottom:.4rem">
+              <button class="btn-sm btn-create" id="ia3d-finalize-add-btn"
+                title="Save marker edits to both cameras' layers, then copy this keyframe window into each camera's _analyzed file">
+                Add range to _analyzed
+              </button>
+            </div>
+            <div style="display:flex;align-items:center;gap:.5rem;flex-wrap:wrap;margin-bottom:.35rem">
+              <input type="text" id="ia3d-finalize-clip-postfix" placeholder="postfix (optional)"
+                style="flex:1;min-width:110px;font-size:.76rem;background:var(--surface);border:1px solid var(--border);border-radius:5px;color:var(--text);padding:.22rem .4rem" />
+              <label style="display:flex;align-items:center;gap:.3rem;font-size:.74rem;color:var(--text-dim);cursor:pointer;user-select:none">
+                <input type="checkbox" id="ia3d-finalize-clip-sibling" checked style="accent-color:var(--accent);width:13px;height:13px"/> both cams
+              </label>
+            </div>
+            <div style="display:flex;align-items:center;gap:.4rem;flex-wrap:wrap;margin-bottom:.4rem">
+              <button class="btn-sm btn-create" id="ia3d-finalize-clip-btn"
+                title="Add this range to _analyzed AND extract a clip from it">Add range to _analyzed and extract clip</button>
+              <button class="btn-sm" id="ia3d-finalize-clip-rename-btn" disabled
+                title="Rename the extracted clip with the postfix">Rename clip</button>
+              <button class="btn-sm" id="ia3d-finalize-clip-delete-btn" disabled
+                title="Delete the clip AND un-finalize its frames from _analyzed">Delete clip</button>
+            </div>
+            <div id="ia3d-finalize-status" class="fe-extract-status"></div>
+          </div>
+        </div>
+        <!-- ── end Finalize Analysis Panel ─────────────────────────── -->
+
+        </div>
+        <!-- end .ia3d-right -->
+        </div>
+        <!-- end .ia3d-split -->
 
         <!-- ── Dataset Curation Panel ──────────────────────────────── -->
         <div id="ia3d-curation-panel" style="margin-top:.65rem;padding:.5rem .65rem;background:var(--surface-2);border:1px solid var(--border);border-radius:7px">
@@ -446,69 +559,6 @@
             <span id="ia3d-clip-status" class="fe-extract-status"></span>
           </div>
         </div>
-
-        <!-- ── Finalize Analysis Panel ─────────────────────────────── -->
-        <div id="ia3d-finalize-panel" style="margin-top:.65rem;padding:.5rem .65rem;background:var(--surface-2);border:1px solid var(--border);border-radius:7px">
-          <label style="display:flex;align-items:center;gap:.45rem;font-size:.8rem;font-weight:500;cursor:pointer;user-select:none">
-            <input type="checkbox" id="ia3d-finalize-toggle" style="accent-color:var(--accent);width:14px;height:14px"/>
-            Finalize analysis
-          </label>
-          <div id="ia3d-finalize-controls" class="hidden" style="margin-top:.5rem">
-            <div style="display:flex;align-items:center;gap:.5rem;flex-wrap:wrap;margin-bottom:.35rem">
-              <span style="font-size:.76rem;color:var(--text-dim)">Keyframe</span>
-              <input type="number" id="ia3d-finalize-keyframe" min="0" value="0"
-                style="width:5rem;font-family:var(--mono);font-size:.78rem;background:var(--surface);border:1px solid var(--border);border-radius:5px;color:var(--text);padding:.18rem .3rem" />
-              <label style="display:flex;align-items:center;gap:.3rem;font-size:.74rem;color:var(--text-dim);cursor:pointer;user-select:none">
-                <input type="checkbox" id="ia3d-finalize-lock" style="accent-color:var(--accent);width:13px;height:13px"/>
-                Lock (l)
-              </label>
-            </div>
-            <div style="display:flex;align-items:center;gap:.4rem;flex-wrap:wrap;margin-bottom:.35rem">
-              <label style="font-size:.74rem;color:var(--text-dim)">before</label>
-              <input type="number" id="ia3d-finalize-before" value="200" min="0"
-                style="width:4.4rem;font-size:.76rem;background:var(--surface);border:1px solid var(--border);border-radius:5px;color:var(--text);padding:.22rem .4rem" />
-              <label style="font-size:.74rem;color:var(--text-dim)">after</label>
-              <input type="number" id="ia3d-finalize-after" value="599" min="0"
-                style="width:4.4rem;font-size:.76rem;background:var(--surface);border:1px solid var(--border);border-radius:5px;color:var(--text);padding:.22rem .4rem" />
-              <label style="font-size:.74rem;color:var(--text-dim)">length</label>
-              <input type="number" id="ia3d-finalize-length" value="800" min="1"
-                style="width:4.9rem;font-size:.76rem;background:var(--surface);border:1px solid var(--border);border-radius:5px;color:var(--text);padding:.22rem .4rem" />
-            </div>
-            <div style="margin-bottom:.3rem">
-              <span id="ia3d-finalize-range" style="font-size:.72rem;color:var(--text-dim);font-family:var(--mono)">frames 0–0 (0)</span>
-            </div>
-            <div style="display:flex;align-items:center;gap:.4rem;flex-wrap:wrap;margin-bottom:.4rem">
-              <button class="btn-sm btn-create" id="ia3d-finalize-add-btn"
-                title="Save marker edits to both cameras' layers, then copy this keyframe window into each camera's _analyzed file">
-                Add range to _analyzed
-              </button>
-            </div>
-            <div style="display:flex;align-items:center;gap:.5rem;flex-wrap:wrap;margin-bottom:.35rem">
-              <input type="text" id="ia3d-finalize-clip-postfix" placeholder="postfix (optional)"
-                style="flex:1;min-width:110px;font-size:.76rem;background:var(--surface);border:1px solid var(--border);border-radius:5px;color:var(--text);padding:.22rem .4rem" />
-              <label style="display:flex;align-items:center;gap:.3rem;font-size:.74rem;color:var(--text-dim);cursor:pointer;user-select:none">
-                <input type="checkbox" id="ia3d-finalize-clip-sibling" checked style="accent-color:var(--accent);width:13px;height:13px"/> both cams
-              </label>
-            </div>
-            <div style="display:flex;align-items:center;gap:.4rem;flex-wrap:wrap;margin-bottom:.4rem">
-              <button class="btn-sm btn-create" id="ia3d-finalize-clip-btn"
-                title="Add this range to _analyzed AND extract a clip from it">Add range to _analyzed and extract clip</button>
-              <button class="btn-sm" id="ia3d-finalize-clip-rename-btn" disabled
-                title="Rename the extracted clip with the postfix">Rename clip</button>
-              <button class="btn-sm" id="ia3d-finalize-clip-delete-btn" disabled
-                title="Delete the clip AND un-finalize its frames from _analyzed">Delete clip</button>
-            </div>
-            <div style="display:flex;align-items:center;gap:.4rem;margin:.1rem 0 .15rem">
-              <span style="flex:1;font-size:.7rem;color:var(--text-dim);font-family:var(--mono)">Finalized frames (_analyzed)</span>
-              <button id="ia3d-finalize-prev" class="btn-sm" disabled title="Previous finalized region" style="padding:.12rem .4rem;font-size:.72rem;line-height:1">◀</button>
-              <button id="ia3d-finalize-next" class="btn-sm" disabled title="Next finalized region" style="padding:.12rem .4rem;font-size:.72rem;line-height:1">▶</button>
-            </div>
-            <canvas id="ia3d-finalize-coverage" height="14" title="Finalized frames — click or drag to seek"
-              style="width:100%;display:block;margin-bottom:.4rem;cursor:pointer"></canvas>
-            <div id="ia3d-finalize-status" class="fe-extract-status"></div>
-          </div>
-        </div>
-        <!-- ── end Finalize Analysis Panel ─────────────────────────── -->
 
       </div>
     </section>

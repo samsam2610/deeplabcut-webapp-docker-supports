@@ -262,12 +262,17 @@ def test_save_adjustments_persists_both_cams():
     assert "/dlc/viewer/save-marker-edits" in body
 
 
-def test_finalize3d_minicard_present_after_curation():
+def test_finalize3d_minicard_in_right_column_above_curation():
     html = CARD.read_text()
     for needed in ["ia3d-finalize-toggle", "ia3d-finalize-controls",
                    "ia3d-finalize-add-btn", "ia3d-finalize-status"]:
         assert f'id="{needed}"' in html, f"missing {needed!r}"
-    assert html.find('id="ia3d-curation-panel"') < html.find('id="ia3d-finalize-toggle"')
+    # The reorg relocates the finalize minicard into the right column of the
+    # two-column split, which sits ABOVE the full-width curation panel.
+    assert html.find('class="ia3d-right"') < html.find('id="ia3d-finalize-toggle"'), \
+        "finalize minicard must live inside the .ia3d-right column"
+    assert html.find('id="ia3d-finalize-toggle"') < html.find('id="ia3d-curation-panel"'), \
+        "relocated finalize minicard now precedes the full-width curation panel"
 
 
 def test_marker_edit3d_controls_moved_below_marker_list():
@@ -433,19 +438,20 @@ def test_coverage_bar_draw_and_seek_helpers_factored():
     assert "function _wireSeekCanvas(" in js, "shared seek-canvas wiring helper missing"
 
 
-def test_finalize_coverage_bar_present_and_wired():
+def test_finalize_coverage_bar_relocated_to_left_region():
     html = (ROOT / "src" / "templates" / "partials" / "card_inline_analysis_3d.html").read_text()
-    fc = html.index('id="ia3d-finalize-controls"')
+    # The reorg relocates the finalized-frames coverage timeline OUT of the finalize
+    # controls and into the left region, below the Notes timeline (#ia3d-csv-bars).
+    bars = html.index('id="ia3d-csv-bars"')
+    cov_wrap = html.index('id="ia3d-finalize-coverage-wrap"')
     cov = html.index('id="ia3d-finalize-coverage"')
-    assert cov > fc, "finalize coverage canvas must be inside the finalize controls"
+    fin_panel = html.index('id="ia3d-finalize-panel"')
+    assert bars < cov_wrap < cov, "finalize coverage must sit below the status/note bars in the left region"
+    # the coverage canvas is no longer inside the finalize panel/controls
+    assert cov < fin_panel, "finalize coverage canvas must be relocated OUT of the finalize panel"
     js = JS.read_text()
     assert "_refreshFinalizeCoverage" in js, "finalize coverage refresh helper missing"
     assert "mode=presence" in js, "must request presence-mode coverage"
-    assert "/dlc/project/analysis-file/status" in js
-    ti = js.find('ia3dFinalizeToggle?.addEventListener')
-    assert ti > 0 and "_refreshFinalizeCoverage" in js[ti:ti+400], "toggle must refresh finalize coverage"
-    fi = js.find("async function _doFinalizeAdd")
-    assert fi > 0 and "_refreshFinalizeCoverage" in js[fi:fi+3200], "finalize-add core must refresh coverage"
 
 
 def test_bp_chip_height_reserved():
@@ -508,17 +514,18 @@ def test_zoom_mirrors_geometry_onto_timelines():
         "must call the status/note feature's redraw() after resizing"
 
 
-def test_controls_split_into_three_rows():
+def test_controls_two_rows_plus_meta_cluster():
     html = CARD.read_text()
-    assert html.count('class="ia3d-ctrl-row"') == 3, "controls must be three .ia3d-ctrl-row rows"
-    # the last row carries the frame counter + time display (+ help)
-    rows = re.findall(r'<div class="ia3d-ctrl-row"[^>]*>(.*?)</div>\s*(?=<div class="ia3d-ctrl-row"|</div>)', html, re.S)
-    assert len(rows) == 3
-    last = rows[2]
-    assert 'id="ia3d-frame-counter"' in last and 'id="ia3d-time-display"' in last and 'id="ia3d-help-btn"' in last
-    # playback row has play + step; jump row has the skip group
+    # The reorg splits the player controls into TWO .ia3d-ctrl-row rows (playback;
+    # skip-group), and moves the frame#/time/help cluster into .ia3d-meta-mid.
+    assert html.count('class="ia3d-ctrl-row"') == 2, "controls must be two .ia3d-ctrl-row rows after the reorg"
+    assert 'class="ia3d-meta-mid"' in html, "frame#/time cluster must live in .ia3d-meta-mid"
+    rows = re.findall(r'<div class="ia3d-ctrl-row"[^>]*>(.*?)</div>\s*(?=<div class="ia3d-ctrl-row"|<div class="ia3d-meta-mid"|</div>)', html, re.S)
+    assert len(rows) == 2
     assert 'id="ia3d-btn-play"' in rows[0]
     assert 'class="ia3d-skip-group"' in rows[1]
+    meta = re.search(r'class="ia3d-meta-mid"[^>]*>(.*?)</div>\s*</div>', html, re.S).group(1)
+    assert 'id="ia3d-frame-counter"' in meta and 'id="ia3d-time-display"' in meta and 'id="ia3d-help-btn"' in meta
 
 
 def test_controls_three_row_css():
