@@ -143,3 +143,19 @@ def test_b6_space_toggles_per_frame_visibility():
     # arrows are NOT intercepted (frame-nav stays VideoViewer's)
     assert "ArrowLeft" not in src and "ArrowRight" not in src, \
         "markerEditor must not intercept arrow keys (frame-nav is VideoViewer's)"
+
+
+def test_b7_focus_persists_across_videoload_with_clamp():
+    """B7: videoLoad must NOT reset focusedCam to 0; it preserves the last focused
+    cam and only clamps to a valid tile index when the new video has fewer tiles."""
+    src = _src()
+    i = src.find('v.on("videoLoad"')
+    if i < 0:
+        i = src.find("v.on('videoLoad'")
+    assert i > 0, "videoLoad subscription not found"
+    # capture the handler body up to the next v.on subscription
+    body = src[i:i + 700]
+    assert "focusedCam = 0" not in body, \
+        "videoLoad must not unconditionally reset focusedCam to 0"
+    # there must be a clamp guarding a stale focusedCam against the tile count
+    assert ">= " in body or ">=" in body, "videoLoad must clamp focusedCam to tile count"

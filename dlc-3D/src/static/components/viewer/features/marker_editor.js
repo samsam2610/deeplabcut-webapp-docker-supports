@@ -514,13 +514,22 @@ export function markerEditor(config = {}) {
       const sig = { signal: ac.signal };
       const disposers = [
         v.on("videoLoad", () => {
-          // tiles are freshly recreated on load — reset focus to cam0 + re-wire ALL tiles'
-          // canvases (each self-gates on focusedCam, so only the focused tile edits)
-          focusedCam = 0;
+          // tiles are freshly recreated on load — re-wire ALL tiles' canvases (each
+          // self-gates on focusedCam, so only the focused tile edits). B7: PRESERVE the
+          // last focused cam across frame steps + video switches; only clamp it to a
+          // valid tile when the new video has fewer cams.
+          let tileCount = 0;
           for (let i = 0; ; i++) {
             const t = v.getTile(i);
             if (!t) break;
+            tileCount++;
             wireTileCanvas(t, sig);
+          }
+          // clamp a stale focus into range (new video has fewer cams); preserve it otherwise
+          if (focusedCam >= tileCount) focusedCam = Math.max(0, tileCount - 1);
+          for (let i = 0; ; i++) {
+            const t = v.getTile(i);
+            if (!t) break;
             if (t.rootEl) t.rootEl.classList.toggle("vv-tile-focused", t.cam === focusedCam);
           }
         }),
