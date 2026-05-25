@@ -659,3 +659,23 @@ def test_finalize_toggle_checked_by_default():
     html = CARD.read_text()
     i = html.index('id="ia3d-finalize-toggle"')
     assert "checked" in html[i-10:i+90], "finalize toggle must be checked by default"
+
+
+def test_lock_confine_and_visuals_wired():
+    js = JS.read_text()
+    assert "clamp_bounds.mjs" in js, "must import the clampToBounds helper"
+    assert "clampToBounds(" in js, "navigation must clamp through clampToBounds when locked"
+    assert "ia3d-lock-flag" in js, "red lock flag visibility must be wired"
+    # the seek-bar red block + the two dim overlays are positioned by JS
+    assert "ia3d-lock-range" in js, "seek-bar red range block must be drawn"
+    assert "ia3d-lock-dim-left" in js and "ia3d-lock-dim-right" in js, "dim-outside overlays must be drawn"
+
+
+def test_quick_tags_wired_per_project():
+    js = JS.read_text()
+    assert "tag_list.mjs" in js, "must import the tag-list reducer"
+    assert "addTag(" in js and "removeTag(" in js
+    for key in ('"postfix_tags"', '"status_tags"', '"note_tags"'):
+        assert key in js or key.replace('"', "'") in js, f"missing tag setting key {key}"
+    # tag click REPLACES the field (not append)
+    assert "_fillTagInto" in js or "REPLACE" in js or ".value =" in js

@@ -22,6 +22,8 @@ import { markerEditor } from "./components/viewer/features/marker_editor.js";
 import { clipExtractor } from "./components/viewer/features/clip_extractor.js";
 import { coverageRects, coverageFrameRects, nearestCoveredFrame, xToFrame, nextCoveredBucket, bucketToFrame, frameToBucket } from "./components/viewer/internal/coverage_timeline.mjs";
 import { makeKeyframeWindow } from "./keyframe_window_ui.js";
+import { clampToBounds } from "./internal/clamp_bounds.mjs";
+import { addTag, removeTag } from "./internal/tag_list.mjs";
 import { state } from "/static/js/state.js";
 
 // ── Module state ────────────────────────────────────────────────────────────
@@ -47,6 +49,9 @@ let _siblingAvailable = false; // true once a sibling tile has been discovered f
 let _finalizeKW = null;        // shared keyframe-window controller for the finalize panel
 let _clipKW = null;            // shared keyframe-window controller for the clip panel
 let _lastFinalizeClip = null;  // { start, n, cams:[{video,avi}] } from the last Finalize-and-extract
+
+let _lockActive = false;          // true while the finalize keyframe is locked (range-confine on)
+let _lockRange = { start: 0, end: 0 };  // the confined range mirrored from _finalizeKW.getRange()
 
 // Main timeline canvas state (Task 3: canvas-based seek).
 let _coverageBuckets = null;   // 0/1 array; null until Task 4 fetches coverage data
@@ -286,6 +291,43 @@ function _drawCoverageBar(canvas, buckets, frames, markColor) {
     ctx.save(); ctx.globalAlpha = 0.85; ctx.fillStyle = "#fff"; ctx.fillRect(x, 0, 2, h); ctx.restore();
   }
 }
+
+// Mirror the finalize keyframe-lock into the inline range-confine + red visuals.
+// Called whenever the lock checkbox or the range changes.
+function _applyLockState() {
+  const locked = !!$("ia3d-finalize-lock")?.checked && !!$("ia3d-finalize-toggle")?.checked;
+  _lockActive = locked;
+  if (locked && _finalizeKW) {
+    const r = _finalizeKW.getRange();
+    _lockRange = { start: r.start, end: r.end };
+  }
+  // Red flag above cam0 (normal flow). Hidden unless locked.
+  const flag = $("ia3d-lock-flag");
+  if (flag) {
+    flag.classList.toggle("hidden", !locked);
+    if (locked) flag.textContent = `🔒 range-locked · ${_lockRange.start.toLocaleString()}–${_lockRange.end.toLocaleString()}`;
+  }
+  _drawLockOverlays();
+  _refreshAnalyzeEnablement();
+}
+
+// Position the red range block + the two dimmed-outside overlays over the seek
+// canvas, in fraction-of-width space (matches the playhead math in _drawCoverageBar).
+function _drawLockOverlays() {
+  const range = $("ia3d-lock-range");
+  const dimL = $("ia3d-lock-dim-left");
+  const dimR = $("ia3d-lock-dim-right");
+  const show = _lockActive && _viewer && _viewer.frameCount() > 1;
+  for (const el of [range, dimL, dimR]) if (el) el.classList.toggle("hidden", !show);
+  if (!show) return;
+  const fc = _viewer.frameCount();
+  const last = Math.max(fc - 1, 1);
+  const sPct = (_lockRange.start / last) * 100;
+  const ePct = (_lockRange.end / last) * 100;
+  if (dimL) { dimL.style.left = "0"; dimL.style.width = sPct + "%"; }
+  if (dimR) { dimR.style.left = ePct + "%"; dimR.style.right = "0"; dimR.style.width = "auto"; }
+  if (range) { range.style.left = sPct + "%"; range.style.width = (ePct - sPct) + "%"; }
+}
 // Mirror the zoomed video-row geometry (from VideoViewer.setZoom) onto every
 // timeline canvas, so the bars span the videos exactly → more pixels/frame =
 // finer click precision. Only pin when the row overflows the card (marginLeft<0,
@@ -303,6 +345,7 @@ function _applyTimelineWidth(g) {
   _redrawSeekTimeline();
   _redrawFinalizeCoverage();
   if (_snTimeline) _snTimeline.redraw();
+  _drawLockOverlays();
 }
 // Wire click + drag-to-seek on a coverage/seek canvas.
 // Wire a coverage canvas for seeking. `getCoverage()` returns {buckets, frames} for
@@ -315,13 +358,16 @@ function _wireSeekCanvas(canvas, getCoverage) {
   let dragging = false;
   const free = (e) => {
     const r = canvas.getBoundingClientRect();
-    _viewer?.seek(xToFrame(e.clientX - r.left, r.width, _viewer.frameCount()));
+    let F = xToFrame(e.clientX - r.left, r.width, _viewer.frameCount());
+    if (_lockActive) F = clampToBounds(F, _lockRange.start, _lockRange.end);
+    _viewer?.seek(F);
   };
   const snap = (e) => {
     if (!_viewer) return;
     const r = canvas.getBoundingClientRect();
     const fc = _viewer.frameCount();
-    const F = xToFrame(e.clientX - r.left, r.width, fc);
+    let F = xToFrame(e.clientX - r.left, r.width, fc);
+    if (_lockActive) F = clampToBounds(F, _lockRange.start, _lockRange.end);
     const cov = getCoverage && getCoverage();
     const buckets = cov && cov.buckets, frames = cov && cov.frames;
     if (buckets && buckets.length && frames && frames.length) {
@@ -329,7 +375,8 @@ function _wireSeekCanvas(canvas, getCoverage) {
       // (within ~one bucket); otherwise free-seek so the rest of the bar still scrubs.
       const cf = nearestCoveredFrame(frames, F);
       const bucketFrames = Math.ceil(fc / buckets.length);
-      if (cf != null && Math.abs(cf - F) <= bucketFrames) { _viewer.seek(cf); return; }
+      const cfc = _lockActive ? clampToBounds(cf, _lockRange.start, _lockRange.end) : cf;
+      if (cf != null && Math.abs(cf - F) <= bucketFrames) { _viewer.seek(cfc); return; }
     }
     _viewer.seek(F);
   };
@@ -362,12 +409,13 @@ function _wireViewerChrome(v) {
     else { v.setPlayDir(-1); v.play(); }
     Promise.resolve().then(() => _swapPlayIcon(v.isPlaying()));
   });
-  // Step ∓1.
-  $("ia3d-btn-prev")?.addEventListener("click", () => v.step(-1));
-  $("ia3d-btn-next")?.addEventListener("click", () => v.step(1));
-  // Multi-frame skip ∓N.
-  $("ia3d-btn-skip-back")?.addEventListener("click", () => v.step(-skipN()));
-  $("ia3d-btn-skip-fwd")?.addEventListener("click", () => v.step(skipN()));
+  // Step ∓1 / multi-frame skip ∓N. When the keyframe is locked, compute the
+  // confined target and seek directly (step is unconfined).
+  const _confine = (target) => (_lockActive ? clampToBounds(target, _lockRange.start, _lockRange.end) : target);
+  $("ia3d-btn-prev")?.addEventListener("click", () => v.seek(_confine(v.currentFrame() - 1)));
+  $("ia3d-btn-next")?.addEventListener("click", () => v.seek(_confine(v.currentFrame() + 1)));
+  $("ia3d-btn-skip-back")?.addEventListener("click", () => v.seek(_confine(v.currentFrame() - skipN())));
+  $("ia3d-btn-skip-fwd")?.addEventListener("click", () => v.seek(_confine(v.currentFrame() + skipN())));
   $("ia3d-skip-n")?.addEventListener("input", () => v.setSkipN(skipN()));
   // Prevent arrow keys in the skip-N field from bubbling to viewer keynav.
   $("ia3d-skip-n")?.addEventListener("keydown", (e) => e.stopPropagation());
@@ -435,7 +483,14 @@ function _wireViewerChrome(v) {
       before: $("ia3d-finalize-before"), after: $("ia3d-finalize-after"),
       length: $("ia3d-finalize-length"), range: $("ia3d-finalize-range"),
     },
-    onChange: () => _refreshAnalyzeEnablement(),
+    onChange: () => {
+      _refreshAnalyzeEnablement();
+      if (_lockActive && _finalizeKW) {
+        const r = _finalizeKW.getRange();
+        _lockRange = { start: r.start, end: r.end };
+        _drawLockOverlays();
+      }
+    },
   });
 
   _clipKW = makeKeyframeWindow({
@@ -487,6 +542,7 @@ function _wireViewerChrome(v) {
   zoom?.addEventListener("input", () => {
     const g = v.setZoom(parseInt(zoom.value, 10) || 100);
     _applyTimelineWidth(g);
+    _drawLockOverlays();
     _refreshCoverageForZoom();   // re-fetch coverage at the new width (1px-precise marks)
     const val = $("ia3d-zoom-val");
     if (val) val.textContent = zoom.value + " %";
@@ -523,7 +579,13 @@ function _wireViewerChrome(v) {
   });
 
   v.on("frameChange", (n) => {
+    if (_lockActive && (n < _lockRange.start || n > _lockRange.end)) {
+      v.pause();
+      const c = clampToBounds(n, _lockRange.start, _lockRange.end);
+      if (c !== n) { v.seek(c); return; }   // re-enters frameChange at the clamped frame
+    }
     _redrawSeekTimeline();
+    _drawLockOverlays();
     _updateCounters(n, v.frameCount());
     _swapPlayIcon(v.isPlaying());
   });
@@ -1120,6 +1182,80 @@ function _wireCurationChrome() {
   });
 }
 
+// ── Per-project quick-tags (postfix / status / note) ─────────────────────────
+
+// Per-project quick-tags controller. Three independent lists (postfix/status/note),
+// each persisted under its own ui-setting key. Click a pill → REPLACE the bound
+// input's value. × removes; "+ tag" adds the input's current value (or a prompt).
+function _makeQuickTags({ settingKey, containerId, inputId }) {
+  let tags = [];
+  let saveTimer = null;
+  const container = () => $(containerId);
+  const input = () => $(inputId);
+
+  const save = () => {
+    if (saveTimer) clearTimeout(saveTimer);
+    saveTimer = setTimeout(() => {
+      fetch("/dlc/project/ui-setting", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ key: settingKey, value: JSON.stringify(tags) }),
+      }).catch(() => {});   // best-effort; in-memory list stays intact on failure
+    }, 400);
+  };
+
+  const render = () => {
+    const c = container();
+    if (!c) return;
+    c.innerHTML = "";
+    for (const t of tags) {
+      const pill = document.createElement("span");
+      pill.className = "ia3d-ptag";
+      pill.appendChild(document.createTextNode(t + " "));
+      const x = document.createElement("span");
+      x.className = "x"; x.textContent = "×";
+      x.addEventListener("click", (ev) => { ev.stopPropagation(); tags = removeTag(tags, t); render(); save(); });
+      pill.appendChild(x);
+      pill.addEventListener("click", () => { const el = input(); if (el) { el.value = t; el.dispatchEvent(new Event("input", { bubbles: true })); } });
+      c.appendChild(pill);
+    }
+    const add = document.createElement("span");
+    add.className = "ia3d-ptag ia3d-ptag-add"; add.textContent = "+ tag";
+    add.addEventListener("click", () => {
+      const el = input();
+      const cur = el && el.value.trim();
+      const raw = cur || window.prompt("New tag:");
+      const next = addTag(tags, raw);
+      if (next.length !== tags.length) { tags = next; render(); save(); }
+    });
+    c.appendChild(add);
+  };
+
+  const load = async () => {
+    try {
+      const d = await (await fetch(`/dlc/project/ui-setting?key=${encodeURIComponent(settingKey)}`)).json();
+      const parsed = d && d.value ? JSON.parse(d.value) : [];
+      tags = Array.isArray(parsed) ? parsed : [];
+    } catch (_) { tags = []; }
+    render();
+  };
+
+  return { load, render };
+}
+
+let _postfixTags = null, _statusTags = null, _noteTags = null;
+function _wireQuickTags() {
+  _postfixTags = _makeQuickTags({ settingKey: "postfix_tags", containerId: "ia3d-postfix-tags", inputId: "ia3d-finalize-clip-postfix" });
+  _statusTags  = _makeQuickTags({ settingKey: "status_tags",  containerId: "ia3d-status-tags",  inputId: "ia3d-status-input" });
+  _noteTags    = _makeQuickTags({ settingKey: "note_tags",    containerId: "ia3d-note-tags",    inputId: "ia3d-note-input" });
+}
+
+// Load + render all three per-project tag lists. Called on each video open.
+function _loadAllQuickTags() {
+  _postfixTags?.load();
+  _statusTags?.load();
+  _noteTags?.load();
+}
+
 // ── Three open functions (mode + state + load) ──────────────────────────────
 
 async function _iaOpenVideo(name) {
@@ -1140,6 +1276,7 @@ async function _iaOpenVideo(name) {
   $("ia3d-player-section")?.classList.remove("hidden");
   const v = _ensureViewer();
   if (!v) return;
+  _loadAllQuickTags();
   await v.load({ videoPath: _primaryRel, frameCount: _frameCount, framesMode: false, siblingPath: undefined });
 }
 
@@ -1156,6 +1293,7 @@ function _iaOpenFrameFolder(stem, frames) {
   $("ia3d-player-section")?.classList.remove("hidden");
   const v = _ensureViewer();
   if (!v) return;
+  _loadAllQuickTags();
   return v.load({ videoPath: _primaryRel, frameCount: _frameCount, framesMode: true, siblingPath: null });
 }
 
@@ -1176,6 +1314,7 @@ async function _iaOpenBrowseVideo(absPath, name) {
   $("ia3d-player-section")?.classList.remove("hidden");
   const v = _ensureViewer();
   if (!v) return;
+  _loadAllQuickTags();
   await v.load({ videoPath: _primaryRel, frameCount: _frameCount, framesMode: false, siblingPath: undefined });
 }
 
@@ -1239,6 +1378,11 @@ function _resetForOpen() {
   const clipEnable = $("ia3d-clip-enable");
   if (clipEnable) clipEnable.checked = false;
   $("ia3d-clip-panel")?.classList.add("hidden");
+  // Keyframe-lock reset: a new video is never range-locked. The lock checkbox is
+  // unlocked by _finalizeKW.load() (setLock(false)); mirror that into the inline
+  // confine state + hide the flag/overlays.
+  _lockActive = false;
+  _applyLockState();
 }
 
 // Back button: tear down the viewer and hide the player section.
@@ -2051,6 +2195,11 @@ function _wireStereoDispatch() {
   $("ia3d-btn-analyze-range-confined")?.addEventListener("click", _onAnalyzeRangeConfinedClick);
   $("ia3d-frames-per-click")?.addEventListener("input", _refreshAnalyzeEnablement);
   $("ia3d-finalize-lock")?.addEventListener("change", _refreshAnalyzeEnablement);
+  $("ia3d-finalize-lock")?.addEventListener("change", _applyLockState);
+
+  // Per-project quick-tags (postfix / status / note). Static containers + inputs
+  // — wired once here; loaded per-project on each video open.
+  _wireQuickTags();
 
   // Finalize toggle: gates marker editing via the markerEditor master gate
   // (replaces the old _ia3dFinalizeEnabled gate), reveals the controls, force-
@@ -2065,6 +2214,7 @@ function _wireStereoDispatch() {
     if (on) _ia3dPopulateFinalizeFields();
     _refreshFinalizeCoverage();
     _refreshAnalyzeEnablement();
+    _applyLockState();
   });
 
   $("ia3d-finalize-add-btn")?.addEventListener("click", _onFinalizeAddClick);
