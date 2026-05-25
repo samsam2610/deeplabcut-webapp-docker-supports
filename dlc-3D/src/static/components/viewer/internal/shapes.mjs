@@ -6,6 +6,11 @@ export function drawCircleFilled(ctx, x, y, r, color) {
   ctx.beginPath();
   ctx.arc(x, y, r, 0, 2 * Math.PI);
   ctx.fill();
+  // Dark contrast outline (frame_labeler_3d.js:1238-1239) so light markers stay
+  // legible on bright frames. Stroked at the same radius after the fill.
+  ctx.strokeStyle = "rgba(0,0,0,0.55)";
+  ctx.lineWidth = 1.2;
+  ctx.stroke();
 }
 
 export function drawDiamond(ctx, x, y, r, color) {

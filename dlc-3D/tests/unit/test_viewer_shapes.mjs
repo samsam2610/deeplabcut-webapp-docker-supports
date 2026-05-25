@@ -66,3 +66,16 @@ test("diamond fills a 4-point path", () => {
 test("SHAPE_FN has an entry for every SHAPE_ORDER name", () => {
   for (const n of SHAPE_ORDER) assert.equal(typeof SHAPE_FN[n], "function");
 });
+
+test("circle-filled strokes a dark contrast outline after the fill", () => {
+  const ctx = makeCtx();
+  drawShape("circle-filled", ctx, 10, 20, 5, "#f87171");
+  // fill happens, then a stroke (outline) is drawn
+  const order = names(ctx);
+  assert.ok(order.includes("fill"), "must fill");
+  assert.ok(order.includes("stroke"), "must stroke an outline");
+  assert.ok(order.indexOf("fill") < order.indexOf("stroke"), "fill before outline stroke");
+  // outline uses the labeler's contrast values
+  assert.equal(ctx.props.strokeStyle, "rgba(0,0,0,0.55)");
+  assert.equal(ctx.props.lineWidth, 1.2);
+});
