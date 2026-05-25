@@ -22,3 +22,9 @@ test("clampToBounds: tolerates reversed bounds (start>end) by normalizing", () =
   assert.equal(clampToBounds(1200, 1833, 1034), 1200);
   assert.equal(clampToBounds(500, 1833, 1034), 1034);
 });
+
+test("clampToBounds: non-finite bounds are a no-op (frame passes through, never NaN)", () => {
+  assert.equal(clampToBounds(5, NaN, NaN), 5);
+  assert.equal(clampToBounds(5, 1034, NaN), 5);
+  assert.equal(clampToBounds(NaN, NaN, NaN), 0);
+});
