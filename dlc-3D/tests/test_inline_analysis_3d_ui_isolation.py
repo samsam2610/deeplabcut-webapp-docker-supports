@@ -642,3 +642,20 @@ def test_per_frame_edit_rows_under_timelines():
     assert nw < ni and nw < nb, "note input + save button must sit inside the note bar-wrap"
     # the edit rows carry the quick-tag containers
     assert 'id="ia3d-status-tags"' in html and 'id="ia3d-note-tags"' in html
+
+
+def test_two_start_buttons_present_and_wired():
+    html = CARD.read_text()
+    js = JS.read_text()
+    assert 'id="ia3d-btn-analyze-current"' in html, "missing 'from current frame' button"
+    assert 'id="ia3d-btn-analyze-range-confined"' in html, "missing 'for range' button"
+    # both wired in JS
+    assert "ia3d-btn-analyze-current" in js and "ia3d-btn-analyze-range-confined" in js
+    # the for-range path computes start/n from the finalize keyframe window
+    assert "_finalizeKW.getRange()" in js or "_finalizeKW?.getRange()" in js
+
+
+def test_finalize_toggle_checked_by_default():
+    html = CARD.read_text()
+    i = html.index('id="ia3d-finalize-toggle"')
+    assert "checked" in html[i-10:i+90], "finalize toggle must be checked by default"

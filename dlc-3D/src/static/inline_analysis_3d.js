@@ -435,6 +435,7 @@ function _wireViewerChrome(v) {
       before: $("ia3d-finalize-before"), after: $("ia3d-finalize-after"),
       length: $("ia3d-finalize-length"), range: $("ia3d-finalize-range"),
     },
+    onChange: () => _refreshAnalyzeEnablement(),
   });
 
   _clipKW = makeKeyframeWindow({
@@ -1221,16 +1222,19 @@ function _resetForOpen() {
   const bothLabel = $("ia3d-both-cams-label");
   if (bothLabel) bothLabel.style.display = "none";
   _curStatus("");
-  // Finalize panel reset (inline-only). The toggle gates marker editing via
-  // setEditable — turn editing OFF + uncheck + hide controls.
+  // Finalize panel reset (inline-only). Finalize is ON by default (spec): re-check
+  // the toggle + reveal controls + enable editing. setEditable(true) here mirrors
+  // what the toggle change handler would do; we do NOT fire the change event because
+  // there is no viewer frame yet and overlay auto-enable is premature.
   const finToggle = $("ia3d-finalize-toggle");
-  if (finToggle) finToggle.checked = false;
-  $("ia3d-finalize-controls")?.classList.add("hidden");
+  if (finToggle) finToggle.checked = true;   // Finalize is on by default (spec)
+  $("ia3d-finalize-controls")?.classList.remove("hidden");
   const finStatus = $("ia3d-finalize-status");
   if (finStatus) { finStatus.textContent = ""; finStatus.className = "fe-extract-status"; }
-  _markerEditor?.setEditable(false);
+  _markerEditor?.setEditable(true);
   _lastFinalizeClip = null;
   _finalizeClipBtnsEnabled(false);
+  _refreshAnalyzeEnablement();
   // Clip panel reset: collapse on new video selection.
   const clipEnable = $("ia3d-clip-enable");
   if (clipEnable) clipEnable.checked = false;
@@ -1560,6 +1564,7 @@ async function _refreshSibling() {
     siblingEl.textContent = "Could not resolve sibling camera.";
     analyzeBtn.disabled = true;
   }
+  _refreshAnalyzeEnablement();
 }
 
 // ── Warm-worker session ──────────────────────────────────────────
@@ -1717,6 +1722,81 @@ async function _onAnalyzeClick() {
     });
     if (keepFrame > 0) _viewer.seek(keepFrame);
     _applyCamLabels();
+  }
+}
+
+// ── Left-region start buttons ────────────────────────────────────────────────
+
+// Analyze BOTH cameras over the LOCKED finalize range (start = range.start,
+// n = range.n). Gated by the UI (button only enabled when finalize-on && locked
+// && sibling). Reuses the same session + dual-cam submit/poll as _onAnalyzeClick.
+async function _onAnalyzeRangeConfinedClick() {
+  const lastRun = _ia3dEl.lastRun();
+  const cam0 = _cam0Path();
+  if (!cam0) { if (lastRun) lastRun.textContent = "Pick a cam0 video first."; return; }
+  if (!_siblingPath) { if (lastRun) lastRun.textContent = "No sibling camera — cannot run 3D analysis."; return; }
+  const rng = _finalizeKW ? _finalizeKW.getRange() : { start: 0, n: 0 };
+  const startFrame = rng.start, nFrames = rng.n;
+  if (!(nFrames >= 1)) { if (lastRun) lastRun.textContent = "Lock a valid keyframe range first."; return; }
+  const sk = await _ensureSession();
+  if (!sk) return;
+  const btn = $("ia3d-btn-analyze-range-confined");
+  if (lastRun) { lastRun.textContent = `Running both cameras (${nFrames} frames from ${startFrame})…`; lastRun.className = "fe-extract-status"; }
+  if (btn) btn.disabled = true;
+  const [req0, req1] = await Promise.all([
+    _submitRange(sk, cam0, startFrame, nFrames),
+    _submitRange(sk, _siblingPath, startFrame, nFrames),
+  ]);
+  if (!req0 || !req1) { _refreshAnalyzeEnablement(); return; }
+  const [d0, d1] = await Promise.all([_pollReq(req0), _pollReq(req1)]);
+  const errs = [d0, d1].filter((d) => d.status === "error");
+  if (lastRun) {
+    lastRun.textContent = errs.length === 2
+      ? `Both cameras failed: ${errs[0].error || "unknown"}`
+      : `Last run: cam0 ${d0.n_analyzed}/${d0.n_skipped} · cam1 ${d1.n_analyzed}/${d1.n_skipped}`;
+    if (errs.length === 2) lastRun.className = "fe-extract-status err";
+  }
+  _ia3dPopulateFinalizeFields();
+  await _iaDiscoverVariants(cam0);
+  const ov = $("ia3d-overlay-toggle");
+  if (ov && !ov.checked) { ov.checked = true; ov.dispatchEvent(new Event("change", { bubbles: true })); }
+  else { _markerEditor?.setOverlayEnabled(true); }
+  if (_viewer && _primaryRel) {
+    const keepFrame = _viewer.currentFrame();
+    const framesMode = _iaMode === "frames";
+    const sync = $("ia3d-sync-cam");
+    await _viewer.load({ videoPath: _primaryRel, frameCount: _frameCount, framesMode, siblingPath: sync?.checked && !framesMode ? undefined : null });
+    if (keepFrame > 0) _viewer.seek(keepFrame);
+    _applyCamLabels();
+  }
+  _refreshAnalyzeEnablement();
+}
+
+// Drive the two left-region start buttons + the count/hint line. "From current
+// frame" mirrors the top analyze button's sibling-gating. "For range" needs
+// finalize-on AND the keyframe locked AND a sibling.
+function _refreshAnalyzeEnablement() {
+  const cur = $("ia3d-btn-analyze-current");
+  const rng = $("ia3d-btn-analyze-range-confined");
+  const n = parseInt(_ia3dEl.frames()?.value, 10) || 500;
+  const countN = $("ia3d-start-count-n");
+  if (countN) countN.textContent = n.toLocaleString();
+  const hasSibling = !!_siblingPath;
+  if (cur) cur.disabled = !hasSibling;
+  const finOn = !!$("ia3d-finalize-toggle")?.checked;
+  const locked = !!$("ia3d-finalize-lock")?.checked;
+  const rangeOk = finOn && locked && hasSibling;
+  if (rng) rng.disabled = !rangeOk;
+  const hint = $("ia3d-start-hint");
+  if (hint) {
+    if (rangeOk) {
+      const r = _finalizeKW ? _finalizeKW.getRange() : { start: 0, end: 0 };
+      hint.textContent = `keyframe is locked → "for range" analyzes ${r.start}–${r.end}. Unlock to disable.`;
+    } else if (!hasSibling) {
+      hint.textContent = "no sibling camera detected.";
+    } else {
+      hint.textContent = "lock the finalize keyframe to enable \"for range\".";
+    }
   }
 }
 
@@ -1966,6 +2046,12 @@ function _wireStereoDispatch() {
 
   analyzeBtn.addEventListener("click", _onAnalyzeClick);
 
+  // Left-region start buttons (mirror the top analyze button + gated for-range).
+  $("ia3d-btn-analyze-current")?.addEventListener("click", _onAnalyzeClick);
+  $("ia3d-btn-analyze-range-confined")?.addEventListener("click", _onAnalyzeRangeConfinedClick);
+  $("ia3d-frames-per-click")?.addEventListener("input", _refreshAnalyzeEnablement);
+  $("ia3d-finalize-lock")?.addEventListener("change", _refreshAnalyzeEnablement);
+
   // Finalize toggle: gates marker editing via the markerEditor master gate
   // (replaces the old _ia3dFinalizeEnabled gate), reveals the controls, force-
   // enables the overlay, and populates the range fields.
@@ -1978,6 +2064,7 @@ function _wireStereoDispatch() {
     if (on&&ov&&!ov.checked){ov.checked=true;ov.dispatchEvent(new Event("change"));}
     if (on) _ia3dPopulateFinalizeFields();
     _refreshFinalizeCoverage();
+    _refreshAnalyzeEnablement();
   });
 
   $("ia3d-finalize-add-btn")?.addEventListener("click", _onFinalizeAddClick);
