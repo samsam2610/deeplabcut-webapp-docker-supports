@@ -347,16 +347,19 @@ function _wireViewerChrome(v) {
   v.setPlayStep($("ia3d-play-step")?.value || 1);
   v.setFps($("ia3d-play-fps")?.value || 5);
 
-  // Play / pause forward (sets +1 direction when starting; toggles otherwise).
+  // Play/pause forward: pause if already playing forward; otherwise play forward
+  // (switching direction if currently playing backward). The button shows pause
+  // only while playing forward (see _swapPlayIcon).
   $("ia3d-btn-play")?.addEventListener("click", () => {
-    if (!v.isPlaying()) v.setPlayDir(1);
-    v.togglePlay();
+    if (v.isPlaying() && v.playDir() > 0) v.pause();
+    else { v.setPlayDir(1); v.play(); }
   });
-  // Play backward — starts/continues playback with -1 direction (reverses if
-  // already playing forward). Pause via the play/pause button.
+  // Play/pause backward: pause if already playing backward; otherwise play
+  // backward (switching direction if currently playing forward). The back button
+  // shows pause only while playing backward.
   $("ia3d-btn-play-back")?.addEventListener("click", () => {
-    v.setPlayDir(-1);
-    if (!v.isPlaying()) v.play();
+    if (v.isPlaying() && v.playDir() < 0) v.pause();
+    else { v.setPlayDir(-1); v.play(); }
     Promise.resolve().then(() => _swapPlayIcon(v.isPlaying()));
   });
   // Step ∓1.
@@ -610,11 +613,18 @@ async function _iaCreateCsv() {
   }
 }
 
+// Show the pause icon on whichever play button matches the current play
+// direction (forward → #ia3d-btn-play, backward → #ia3d-btn-play-back); both
+// show their play icon when stopped. Previously the pause icon was always the
+// forward button's, so playing backward wrongly flipped the forward button.
 function _swapPlayIcon(playing) {
-  const play = $("ia3d-play-icon");
-  const pause = $("ia3d-pause-icon");
-  if (play) play.classList.toggle("hidden", playing);
-  if (pause) pause.classList.toggle("hidden", !playing);
+  const dir = _viewer ? _viewer.playDir() : 1;
+  const fwd = playing && dir > 0;
+  const back = playing && dir < 0;
+  $("ia3d-play-icon")?.classList.toggle("hidden", fwd);
+  $("ia3d-pause-icon")?.classList.toggle("hidden", !fwd);
+  $("ia3d-play-back-icon")?.classList.toggle("hidden", back);
+  $("ia3d-pause-back-icon")?.classList.toggle("hidden", !back);
 }
 
 // Re-label the viewer's generated tiles with the camera indices. Tiles are

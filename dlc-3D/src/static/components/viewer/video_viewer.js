@@ -121,6 +121,7 @@ export class VideoViewer {
   getTile(i) { return this.tiles[i] || null; }
   videoPath() { return this._videoPath; }
   isPlaying() { return this._playing; }
+  playDir() { return this._playDir; }   // -1 backward, +1 forward (for direction-aware play/pause icons)
 
   // ── loading ───────────────────────────────────────────────
   async load({ videoPath, siblingPath, frameCount, framesMode = false } = {}) {
