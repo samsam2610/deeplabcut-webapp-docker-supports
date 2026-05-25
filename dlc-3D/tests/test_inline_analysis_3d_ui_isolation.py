@@ -682,23 +682,64 @@ def test_quick_tags_wired_per_project():
 
 
 def test_overlay_auto_enables_for_editing_when_finalize_on():
-    # Regression: marker editing hard-gates on the overlay being enabled
-    # (marker_editor.js). Finalize is checked by default, but _resetForOpen leaves
-    # the overlay OFF at open. _applyOverlayPrimary runs on videoLoad once a primary
-    # h5 + bodypart are resolved (the non-premature point) — so it must enable the
-    # overlay there when Finalize is on, else editing is silently dead (the bug).
+    # B1 (2026-05-24): editing no longer hard-gates on the overlay. When Finalize is
+    # on, _applyOverlayPrimary arms editing via setEditable(true) WITHOUT force-
+    # enabling the overlay (the overlay toggle is now a show/hide convenience only).
     js = JS.read_text()
     i = js.index("async function _applyOverlayPrimary")
-    # capture the whole function body (up to the next top-level function def),
-    # robust to comment length
     rest = js[i + 1:]
     ends = [x for x in (rest.find("\nasync function "), rest.find("\nfunction ")) if x != -1]
     window = js[i: i + 1 + min(ends)]
     assert 'ia3d-finalize-toggle' in window, "_applyOverlayPrimary must consult the finalize toggle"
-    assert 'ia3d-overlay-toggle' in window and 'dispatchEvent' in window, \
-        "_applyOverlayPrimary must enable the overlay (dispatch its change) when Finalize is on"
-    # Also re-arm the editable master gate: on first open _ensureViewer's
-    # setEditable(false) clobbers _resetForOpen's setEditable(true), so editing
-    # would stay off without this (the first-open bug).
     assert 'setEditable(true)' in window, \
-        "_applyOverlayPrimary must re-arm the edit master gate when Finalize is on (first-open fix)"
+        "_applyOverlayPrimary must arm the edit master gate when Finalize is on"
+
+
+# ─── 2026-05-24 marker-editor labeler mechanics (Task 7 consumer wiring) ──────
+
+def test_lock_bp_checkbox_present_in_marker_edit_controls():
+    """B3 consumer: a Lock-BP checkbox lives in the marker-edit controls (NOT an
+    `L` shortcut — L is the keyframe range-lock). It must sit inside
+    #ia3d-marker-edit-controls."""
+    html = CARD.read_text()
+    assert 'id="ia3d-lock-bp"' in html, "Lock-BP checkbox id missing"
+    ctrls = html.index('id="ia3d-marker-edit-controls"')
+    lock  = html.index('id="ia3d-lock-bp"')
+    nxt   = html.find('id="ia3d-curation-panel"')
+    assert ctrls < lock < nxt, "Lock-BP checkbox must sit inside the marker-edit controls block"
+
+
+def test_lock_bp_label_styled():
+    css = CSS.read_text()
+    assert ".ia3d-lock-bp-label" in css, "Lock-BP label needs a style rule"
+
+
+def test_inline_passes_autoadvance_and_wires_lock_bp():
+    """Consumer passes autoAdvance:true to markerEditor and wires the Lock-BP
+    checkbox to setLockBp."""
+    js = JS.read_text()
+    # autoAdvance in the markerEditor config
+    i = js.find("_markerEditor = markerEditor({")
+    assert i > 0, "markerEditor config not found"
+    cfg = js[i:i + 1400]
+    assert re.search(r"autoAdvance\s*:\s*true", cfg), "must pass autoAdvance:true"
+    # Lock-BP checkbox wired to setLockBp
+    assert "ia3d-lock-bp" in js, "Lock-BP checkbox must be referenced in JS"
+    assert "setLockBp(" in js, "Lock-BP checkbox must drive markerEditor.setLockBp"
+
+
+def test_apply_overlay_primary_no_longer_force_enables_overlay():
+    """B1 consumer simplification: when Finalize is on, _applyOverlayPrimary just
+    arms editing via setEditable(true); it must NOT force-enable the overlay
+    (dispatch the overlay-toggle change) — B1 makes editing render without it."""
+    js = JS.read_text()
+    i = js.index("async function _applyOverlayPrimary")
+    rest = js[i + 1:]
+    ends = [x for x in (rest.find("\nasync function "), rest.find("\nfunction ")) if x != -1]
+    window = js[i: i + 1 + min(ends)]
+    assert "setEditable(true)" in window, "must still arm editing when Finalize is on"
+    # the forced overlay-enable (toggle dispatch) must be gone from this function
+    assert "ia3d-overlay-toggle" not in window, \
+        "_applyOverlayPrimary must NOT force-enable the overlay (B1 decouples editing from overlay)"
+    assert "dispatchEvent" not in window, \
+        "_applyOverlayPrimary must not dispatch the overlay-toggle change anymore"

@@ -125,6 +125,14 @@
 #inline-analysis-3d-card .vv-bp-chip.labeled { font-weight: 600; color: var(--text); }
 #inline-analysis-3d-card .vv-bp-chip.vis-hidden { opacity: .45; }
 
+/* Lock-BP checkbox in the marker-edit controls — small inline pill matching the
+   controls row typography (reuses existing tokens). */
+#inline-analysis-3d-card .ia3d-lock-bp-label {
+  display: inline-flex; align-items: center; gap: .3rem;
+  font-size: .77rem; color: var(--text-dim); user-select: none; cursor: pointer;
+}
+#inline-analysis-3d-card .ia3d-lock-bp-label input { accent-color: var(--accent); cursor: pointer; }
+
 /* Main timeline (seek slider) — bigger + visible track (base .fe-seek is 4px). */
 #inline-analysis-3d-card .fe-seek {
   height: 9px; border-radius: 6px; accent-color: var(--accent);

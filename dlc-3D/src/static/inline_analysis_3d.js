@@ -162,6 +162,7 @@ function _ensureViewer() {
     markerSize: 6,
     globalThreshold: 0.6,
     poseWindow: 30,
+    autoAdvance: true, // B2: advance to next unlabeled bp after a place (labeler feel)
   });
   _viewer.use(_markerEditor);
 
@@ -777,6 +778,12 @@ function _wireOverlayChrome() {
   // it happens; this commits the cache → primary .h5/.csv for BOTH cams.
   $("ia3d-save-adjustments-btn")?.addEventListener("click", _iaSaveAdjustments);
 
+  // Lock-BP checkbox → markerEditor.setLockBp. When checked, placing re-places the
+  // same bodypart (no auto-advance) — used to correct a marker. (`L` is the keyframe
+  // range-lock, so this is a checkbox, not a shortcut.)
+  const lockBp = $("ia3d-lock-bp");
+  lockBp?.addEventListener("change", () => _markerEditor?.setLockBp(!!lockBp.checked));
+
   // Discard / Clear Frame: markerEditor exposes no discard/clear-frame API. No-ops.
   $("ia3d-discard-adjustments-btn"); // no-op
   $("ia3d-clear-frame-btn"); // no-op
@@ -871,22 +878,14 @@ async function _applyOverlayPrimary(h5) {
     _siblingPrimaryH5 = null;
     _markerEditor.setSibling(null);
   }
-  // Marker editing hard-gates on BOTH the editable master gate AND the overlay
-  // being enabled (marker_editor.js). Finalize is on by default, but at open the
-  // overlay is left off, and on the FIRST open after a page load _ensureViewer's
-  // setEditable(false) (line ~171) runs AFTER _resetForOpen's setEditable(true) —
-  // leaving editing off. Now that a primary h5 + bodypart are resolved (videoLoad,
-  // or a manual primary pick) and the markerEditor exists, re-arm both gates when
-  // Finalize is checked so editing is live without a manual toggle — parity with
-  // label-frame-3d. Reuse the overlay-toggle change handler (reveals controls +
-  // chips + refreshes coverage) for the overlay side.
+  // B1 (2026-05-24): marker editing no longer hard-gates on the overlay being
+  // enabled — setEditable(true) makes markers render + edits live on its own. So
+  // when a primary h5 + bodypart are resolved and Finalize is checked, just re-arm
+  // the edit master gate (this also handles the first-open race where _ensureViewer's
+  // setEditable(false) ran after _resetForOpen's setEditable(true)). The overlay
+  // toggle stays a manual show/hide convenience.
   if ($("ia3d-finalize-toggle")?.checked) {
     _markerEditor.setEditable(true);
-    const _ovToggle = $("ia3d-overlay-toggle");
-    if (_ovToggle && !_ovToggle.checked) {
-      _ovToggle.checked = true;
-      _ovToggle.dispatchEvent(new Event("change"));
-    }
   }
   _refreshCoverage();
 }
