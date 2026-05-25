@@ -211,11 +211,10 @@ export function markerEditor(config = {}) {
         if (isHiddenAt(frame, pose.bp)) continue;
         let px = pose.x;
         let py = pose.y;
-        let edited = false;
         if (isPrimaryLayer && editableTile) {
           const rp = resolvePose(pose, fEdits);
           if (rp.deleted) continue;
-          px = rp.x; py = rp.y; edited = rp.edited;
+          px = rp.x; py = rp.y;
         }
         // Non-finite coords (NaN/null from undetected frames) → no marker.
         if (!Number.isFinite(px) || !Number.isFinite(py)) continue;
@@ -484,7 +483,11 @@ export function markerEditor(config = {}) {
       if (renderActive()) updateHoverCursor(tile, cx, cy);
     }, sig);
     canvas.addEventListener("mouseup", endDrag, sig);
-    canvas.addEventListener("mouseleave", endDrag, sig);
+    canvas.addEventListener("mouseleave", () => {
+      endDrag();
+      // Clear a lingering hover-name when the cursor leaves the canvas entirely.
+      if (hoverBp !== null) { hoverBp = null; renderTile(tile, currentFrame); }
+    }, sig);
     canvas.addEventListener("click", (e) => {
       if (!renderActive() || cam !== focusedCam || !isEditableCam(cam) || !selectedBp) return;
       if (didDrag) { didDrag = false; return; }
