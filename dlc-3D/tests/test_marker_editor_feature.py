@@ -208,3 +208,44 @@ def test_setMarkerSize_exists_and_mutable():
     body = src[i:i + 200]
     assert "renderAll()" in body or "renderTile" in body or "onFrame(" in body, \
         "setMarkerSize must re-render after changing the size"
+
+
+def test_imports_labelerColor():
+    """B2: primary markers + chips use the FL palette via labelerColor."""
+    src = _src()
+    assert re.search(
+        r"import\s*\{[^}]*\blabelerColor\b[^}]*\}\s*from\s*[\"'][^\"']*palette\.mjs[\"']", src), \
+        "must import labelerColor from internal/palette.mjs"
+
+
+def test_primary_markers_use_labelerColor_chips_too():
+    """B2: the primary layer + bp-chips color by bodypart index via labelerColor;
+    comparison layers keep paletteColor (HSV)."""
+    src = _src()
+    # both helpers are present (comparison layers still use paletteColor)
+    assert "labelerColor(" in src, "primary/chips must color via labelerColor"
+    assert "paletteColor(" in src, "comparison layers must keep paletteColor"
+
+
+def test_b3_selected_ring_white_no_amber_no_edited():
+    """B3: selected ring is white rgba(255,255,255,0.85) at r+3.5 width 2; the
+    amber #facc15 ring and the white edited ring are dropped entirely."""
+    src = _src()
+    assert "rgba(255,255,255,0.85)" in src, "selected ring must be white rgba(255,255,255,0.85)"
+    assert "r + 3.5" in src, "selected ring offset must be r + 3.5"
+    assert "#facc15" not in src, "amber selected ring must be dropped"
+    # the white edited ring used 'r + 3' with '#fff' width 1.5 — that exact draw must be gone
+    assert '"#fff", 1.5' not in src, "white edited ring must be dropped"
+
+
+def test_b7_hit_pad_is_6():
+    """B7: hit-test pad is 6 (labeler parity) at all markerEditor hitTest sites."""
+    src = _src()
+    # no hitTest call may pass pad 8 anymore
+    assert not re.search(r"hitTest\([^;]*,\s*8\s*\)", src, re.S), \
+        "hitTest pad must be 6, not 8, at every call site"
+    # at least one explicit pad-6 call (the others may rely on it too).
+    # NB: the call args nest parens (hitPoses(...)/frameEditsOf(...)), so scan to
+    # the statement end rather than the first ')'.
+    assert re.search(r"hitTest\([^;]*,\s*6\s*\)", src, re.S), \
+        "hitTest must be called with pad 6"

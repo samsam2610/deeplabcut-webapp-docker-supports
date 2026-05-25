@@ -27,7 +27,7 @@ import {
   prefetchWindow, allCached, layerThreshold, poseCacheKey, buildMarkerEditPayload,
   parsePoseJson, posedBodyparts, editedOnlyBodyparts,
 } from "../internal/marker_overlay.mjs";
-import { paletteColor } from "../internal/palette.mjs";
+import { paletteColor, labelerColor } from "../internal/palette.mjs";
 import { drawShape, shapeForLayer } from "../internal/shapes.mjs";
 import { nextUnlabeledBodypart } from "../internal/bodypart_cycle.mjs";
 
@@ -218,11 +218,17 @@ export function markerEditor(config = {}) {
         if (!Number.isFinite(px) || !Number.isFinite(py)) continue;
         const cx = Math.round(px * scale.sx);
         const cy = Math.round(py * scale.sy);
-        const color = paletteColor(pose.color_idx, cached.n_bodyparts);
+        // Primary layer + chips share the FL palette (labelerColor by bodypart
+        // index); comparison layers keep paletteColor (HSV) for differentiation.
+        const bpIdx = allBodyParts.indexOf(pose.bp);
+        const color = isPrimaryLayer
+          ? labelerColor(bpIdx >= 0 ? bpIdx : 0)
+          : paletteColor(pose.color_idx, cached.n_bodyparts);
         drawShape(shape, ctx, cx, cy, r, color);
-        if (isPrimaryLayer && editableTile && edited) ring(ctx, cx, cy, r + 3, "#fff", 1.5);
+        // White selected ring (frame_labeler_3d.js:1234-1235). The amber selected
+        // ring + the white "edited" ring are dropped (exact labeler match).
         if (isPrimaryLayer && editableTile && pose.bp === selectedBp) {
-          ring(ctx, cx, cy, r + (edited ? 6 : 3), "#facc15", 2);
+          ring(ctx, cx, cy, r + 3.5, "rgba(255,255,255,0.85)", 2);
         }
       }
       // Edits-only markers: bps placed where the backend returned no pose
@@ -234,10 +240,11 @@ export function markerEditor(config = {}) {
           const e = fEdits[bp];
           const ex = Math.round(e.x * scale.sx);
           const ey = Math.round(e.y * scale.sy);
-          const ci = layer.bodyparts ? layer.bodyparts.indexOf(bp) : -1;
-          drawShape(shape, ctx, ex, ey, r, paletteColor(ci >= 0 ? ci : 0, cached.n_bodyparts));
-          ring(ctx, ex, ey, r + 3, "#fff", 1.5);
-          if (bp === selectedBp) ring(ctx, ex, ey, r + 6, "#facc15", 2);
+          // Edits-only markers (primary layer) share the FL palette by bodypart
+          // index. White selected ring only; no amber, no edited ring.
+          const ci = allBodyParts.indexOf(bp);
+          drawShape(shape, ctx, ex, ey, r, labelerColor(ci >= 0 ? ci : 0));
+          if (bp === selectedBp) ring(ctx, ex, ey, r + 3.5, "rgba(255,255,255,0.85)", 2);
         }
       }
     }
@@ -277,7 +284,7 @@ export function markerEditor(config = {}) {
         '<svg class="vv-bp-check" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><polyline points="20 6 9 17 4 12"/></svg>' +
         '<svg class="vv-bp-eye-slash" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94"/><path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19"/><line x1="1" y1="1" x2="23" y2="23"/></svg>';
       chip.querySelector(".vv-bp-name").textContent = bp;
-      chip.style.setProperty("--bp-color", paletteColor(idx, allBodyParts.length));
+      chip.style.setProperty("--bp-color", labelerColor(idx));
       chip.addEventListener("click", () => selectBp(bp));
       chip.addEventListener("dblclick", (e) => {
         e.preventDefault();
@@ -335,7 +342,7 @@ export function markerEditor(config = {}) {
     if (!tile || !tile.canvasEl) return;
     if (tile.cam !== focusedCam || !isEditableCam(tile.cam)) { tile.canvasEl.style.cursor = "default"; return; }
     const hit = hitTest(hitPoses(tile.cam), cx, cy, tileScale(tile), markerSize,
-      frameEditsOf(editsFor(tile.cam), currentFrame), 8);
+      frameEditsOf(editsFor(tile.cam), currentFrame), 6);
     tile.canvasEl.style.cursor = hit ? "pointer" : (selectedBp ? "crosshair" : "default");
   }
 
@@ -443,7 +450,7 @@ export function markerEditor(config = {}) {
     canvas.addEventListener("mousedown", (e) => {
       if (!renderActive() || e.button !== 0 || cam !== focusedCam || !isEditableCam(cam)) return;
       const { cx, cy } = canvasPos(canvas, e);
-      const hit = hitTest(hitPoses(cam), cx, cy, tileScale(tile), markerSize, frameEditsOf(editsFor(cam), currentFrame), 8);
+      const hit = hitTest(hitPoses(cam), cx, cy, tileScale(tile), markerSize, frameEditsOf(editsFor(cam), currentFrame), 6);
       if (hit) { dragging = true; dragBp = hit; dragCam = cam; didDrag = false; selectBp(hit); }
     }, sig);
     canvas.addEventListener("mousemove", (e) => {
@@ -463,7 +470,7 @@ export function markerEditor(config = {}) {
       if (!renderActive() || cam !== focusedCam || !isEditableCam(cam) || !selectedBp) return;
       if (didDrag) { didDrag = false; return; }
       const { cx, cy } = canvasPos(canvas, e);
-      const hit = hitTest(hitPoses(cam), cx, cy, tileScale(tile), markerSize, frameEditsOf(editsFor(cam), currentFrame), 8);
+      const hit = hitTest(hitPoses(cam), cx, cy, tileScale(tile), markerSize, frameEditsOf(editsFor(cam), currentFrame), 6);
       if (hit) return; // clicking an existing marker selects via mousedown, not place
       const { x, y } = canvasToVideo(cx, cy, tileScale(tile));
       editsByCam[cam] = setEdit(editsFor(cam), currentFrame, selectedBp, x, y);
