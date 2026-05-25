@@ -34,7 +34,7 @@ import { nextUnlabeledBodypart } from "../internal/bodypart_cycle.mjs";
 export function markerEditor(config = {}) {
   const els = config.els || {};
   const endpoints = config.endpoints || {};
-  const markerSize = config.markerSize || 6;
+  let markerSize = config.markerSize || 6;
   const poseWindow = config.poseWindow || 30;
   const perLayer = false; // v1: single global threshold
   let globalThreshold = config.globalThreshold ?? 0.6;
@@ -650,6 +650,15 @@ export function markerEditor(config = {}) {
       for (const l of layers) l.posesCache.clear();
       for (const l of siblingLayers) l.posesCache.clear();
       onFrame(currentFrame);
+    },
+
+    // Marker render size in video px (responsive scaling stays in markerRadius).
+    // Wired to each card's marker-size slider (fixes the prior no-op). Re-renders
+    // so the change shows immediately without a frame step.
+    setMarkerSize(px) {
+      const n = Number(px);
+      if (Number.isFinite(n) && n > 0) markerSize = n;
+      renderAll();
     },
 
     selectBp,

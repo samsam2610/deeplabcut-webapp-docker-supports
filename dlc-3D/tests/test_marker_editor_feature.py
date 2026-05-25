@@ -193,3 +193,18 @@ def test_renders_and_hittests_edits_only_markers():
     # hit-test goes through the augmented `hitPoses`, not raw curPosesForCam
     assert "hitPoses(" in src
     assert "hitTest(curPosesForCam(" not in src, "hit-test must use the edits-augmented poses"
+
+
+def test_setMarkerSize_exists_and_mutable():
+    """B1: the marker-size slider was a no-op. markerEditor must expose
+    setMarkerSize(px) that updates a MUTABLE markerSize and re-renders."""
+    src = _src()
+    assert re.search(r"setMarkerSize\s*\(", src), "must expose setMarkerSize(px)"
+    # markerSize must be reassignable (let, not const) so the setter can change it
+    assert re.search(r"\blet\s+markerSize\b", src), \
+        "markerSize must be `let` (mutable) so setMarkerSize can change it"
+    # the setter must re-render so the change shows immediately
+    i = src.find("setMarkerSize")
+    body = src[i:i + 200]
+    assert "renderAll()" in body or "renderTile" in body or "onFrame(" in body, \
+        "setMarkerSize must re-render after changing the size"

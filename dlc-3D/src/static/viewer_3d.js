@@ -473,10 +473,10 @@ function _wireOverlayChrome() {
     if (lbl) lbl.textContent = v.toFixed(2);
   });
 
-  // Marker size: markerEditor has no setMarkerSize API → update the label only.
-  // TODO: needs markerEditor.setMarkerSize to take effect on the rendered markers.
+  // Marker size → markerEditor.setMarkerSize (re-renders) + label.
   const ms = $("va3d-overlay-marker-size");
   ms?.addEventListener("input", () => {
+    _markerEditor?.setMarkerSize(parseInt(ms.value, 10));
     const lbl = $("va3d-overlay-marker-size-val");
     if (lbl) lbl.textContent = ms.value;
   });

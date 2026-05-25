@@ -743,3 +743,19 @@ def test_apply_overlay_primary_no_longer_force_enables_overlay():
         "_applyOverlayPrimary must NOT force-enable the overlay (B1 decouples editing from overlay)"
     assert "dispatchEvent" not in window, \
         "_applyOverlayPrimary must not dispatch the overlay-toggle change anymore"
+
+
+# ─── 2026-05-25 markerEditor aesthetics / labeler parity ──────────────────────
+
+def test_inline_marker_size_slider_wired_to_setMarkerSize():
+    """B1 (2026-05-25): the inline marker-size slider must drive
+    markerEditor.setMarkerSize (it was previously a label-only no-op)."""
+    js = JS.read_text()
+    i = js.find('$("ia3d-overlay-marker-size")')
+    assert i > 0, "ia3d-overlay-marker-size slider not wired"
+    body = js[i:i + 400]
+    assert "setMarkerSize(" in body, \
+        "marker-size slider handler must call markerEditor.setMarkerSize"
+    # the old 'no setMarkerSize API → update the label only' comment must be gone
+    assert "markerEditor has no setMarkerSize API" not in js, \
+        "stale no-op comment must be removed"
