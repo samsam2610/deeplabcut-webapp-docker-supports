@@ -283,6 +283,19 @@ def index():
     return render_template("dlc_3d.html")
 
 
+@bp.route("/mock-up")
+def mockup_inline_3d():
+    # Brainstorming artifact: static layout mockup for the inline-3D reorg.
+    # Lives in static/ (fully bind-mounted) rather than templates/ (mounted
+    # file-by-file); render as a string so {% extends "base.html" %} still works.
+    from pathlib import Path
+
+    from flask import render_template_string
+
+    src = (Path(__file__).parent / ".." / "static" / "mockup_inline_3d.html.j2").resolve()
+    return render_template_string(src.read_text(encoding="utf-8"))
+
+
 # ── Filesystem browser ────────────────────────────────────────────────────────
 
 @bp.route("/browse")
