@@ -750,7 +750,7 @@ function _wireOverlayChrome() {
     if (st) st.textContent = on ? "overlay on" : "overlay off";
     if (on && !_overlayPrimaryH5) {
       const variants = await _fetchOverlayH5Variants();
-      const latest = pickLatestVariant(variants);   // max ISO ts, else last; null when none
+      const latest = _pickLatestKinematic(variants);   // latest non-_analyzed model (fallback to _analyzed if sole)
       if (latest && latest.path) {
         const sel = $("ia3d-overlay-primary-select");
         if (sel) sel.value = latest.path;
@@ -807,24 +807,31 @@ function _wireOverlayChrome() {
 }
 
 // Fetch the current primary video's h5 variants (array; [] on error / no video).
-// Used by the overlay-toggle ON handler, which feeds them to pickLatestVariant to
-// load the freshest analysis on demand (B2).
-//
-// Fix A (#1): the backend lists `<stem>_analyzed.h5` (the curated/finalized output)
-// as a "Raw" variant. That file is NOT a kinematic model — it's the destination of
-// the Finalize-analysis feature — so offering it here lets the overlay auto-pick it
-// as a "model". Filter it out so it never enters the dropdown nor pickLatestVariant.
-// This is inline-only: View Analyzed (viewer_3d.js) legitimately views `_analyzed`.
+// Returns ALL variants — including the `<stem>_analyzed.h5` curated output — so it
+// stays SELECTABLE in the dropdown (a video whose only h5 is `_analyzed` must still be
+// viewable). The `_analyzed` exclusion happens only in the AUTO-PICK (_pickLatestKinematic),
+// per #1: don't auto-pick `_analyzed` as the "latest kinematic model".
 async function _fetchOverlayH5Variants() {
   if (!_primaryRel) return [];
   try {
     const data = await (await fetch(
       `/dlc/viewer/h5-variants?video=${encodeURIComponent(_primaryRel)}`,
     )).json();
-    return (data.variants || []).filter((vr) => !/_analyzed\.h5$/i.test(vr.path || ""));
+    return data.variants || [];
   } catch (_) {
     return [];
   }
+}
+
+// Auto-pick the latest KINEMATIC model (#1): the `_analyzed` curated output is the
+// Finalize destination, not a model, so prefer the latest non-`_analyzed` variant —
+// but fall back to `_analyzed` when it's the only h5, so the view still shows markers
+// instead of nothing (the prior "exclude from the list" approach left an empty dropdown
+// → no primary → no bodypart chips).
+function _pickLatestKinematic(variants) {
+  const all = variants || [];
+  const kinematic = all.filter((vr) => !/_analyzed\.h5$/i.test(vr.path || ""));
+  return pickLatestVariant(kinematic.length ? kinematic : all);
 }
 
 // Populate the primary h5 select for the current primary video (placeholder + one
@@ -877,7 +884,7 @@ async function _iaDiscoverVariants(_cam0) {
 // new poses + timeline. Call at the END of the analyze done-handlers, after the reload.
 async function _reloadPrimaryAfterAnalysis() {
   _coverageCache.clear();
-  const latest = pickLatestVariant(await _fetchOverlayH5Variants());
+  const latest = _pickLatestKinematic(await _fetchOverlayH5Variants());
   const sel = $("ia3d-overlay-primary-select");
   if (latest && sel) {
     sel.value = latest.path;

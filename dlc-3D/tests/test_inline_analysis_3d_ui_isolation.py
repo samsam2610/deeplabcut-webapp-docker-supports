@@ -827,7 +827,7 @@ def test_overlay_toggle_on_autopicks_latest_variant():
     j = js.find("addEventListener", i)
     body = js[j:j + 900]
     assert "setOverlayEnabled(on)" in body, "toggle must drive setOverlayEnabled(on)"
-    assert "pickLatestVariant(" in body, "toggle-ON must auto-pick the latest variant"
+    assert "_pickLatestKinematic(" in body, "toggle-ON must auto-pick the latest kinematic variant"
     assert "_applyOverlayPrimary(" in body, "toggle-ON must apply the picked primary"
     assert "_refreshCoverage()" in body, "toggle must refresh coverage"
 
@@ -869,8 +869,8 @@ def test_post_analysis_reestablishes_primary_and_refreshes():
     i = js.index("async function _reloadPrimaryAfterAnalysis")
     body = js[i:i + 800]
     assert "_coverageCache.clear()" in body, "helper must clear the stale coverage cache"
-    assert "pickLatestVariant" in body and "_applyOverlayPrimary" in body, \
-        "helper must re-pick the latest variant and re-apply the primary"
+    assert "_pickLatestKinematic" in body and "_applyOverlayPrimary" in body, \
+        "helper must re-pick the latest kinematic variant and re-apply the primary"
     # refresh must NOT be gated on a single-variant branch
     assert "variants.length === 1" not in js, \
         "post-analysis refresh must not depend on variant count"
@@ -891,32 +891,30 @@ def test_finalize_status_surfaces_unanalyzed_gap():
 
 # ─── 2026-05-27 marker-editor / inline-3D root-caused fixes ───────────────────
 
-def test_inline_variant_fetch_filters_analyzed():
-    """Fix A (#1): the inline overlay's kinematic-model dropdown must NOT offer the
-    `_analyzed` curated output (`<stem>_analyzed.h5`) as a 'kinematic model'. The
-    backend /dlc/viewer/h5-variants lists it as a 'Raw' variant, so the inline card
-    must filter variants whose `path` ends in `_analyzed.h5` (case-insensitive) in its
-    fetch-only helper — so it never appears in the dropdown nor is auto-picked by
-    pickLatestVariant. View Analyzed (viewer_3d.js) legitimately views `_analyzed`, so
-    this filter is inline-only (NOT in the backend or viewer_3d.js)."""
+def test_inline_excludes_analyzed_from_autopick_not_dropdown():
+    """Fix A (#1, faithful): the `_analyzed` curated output must not be AUTO-PICKED as
+    the 'latest kinematic model' — but it stays SELECTABLE in the dropdown, so a video
+    whose ONLY h5 is `_analyzed` still shows markers (filtering it from the list
+    entirely left an empty dropdown → no primary → no bodypart chips). So: the fetch
+    helper does NOT strip variants; a `_pickLatestKinematic` helper excludes `_analyzed`
+    from the auto-pick, falling back to it only when it's the sole variant; the
+    auto-pick sites use that helper."""
     js = JS.read_text()
+    # 1. the fetch-only helper must NOT filter _analyzed (keep it in the dropdown)
     i = js.find("async function _fetchOverlayH5Variants(")
     assert i > 0, "_fetchOverlayH5Variants not found"
-    end = js.find("\nasync function ", i + 1)
-    body = js[i:end if end > 0 else i + 800]
-    # the fetch-only helper filters _analyzed.h5 from the returned variants
-    assert re.search(r"/_analyzed\\\.h5\$/i", body), \
-        "_fetchOverlayH5Variants must filter variants whose path matches /_analyzed\\.h5$/i"
-    assert ".filter(" in body, "_fetchOverlayH5Variants must filter the variant list"
-    # the dropdown-populating helper must source its variants through the filter so
-    # _analyzed never lands in the <select> (either by calling the fetch helper or
-    # applying the same regex).
-    r = js.find("async function _refreshOverlayH5Variants(")
-    assert r > 0, "_refreshOverlayH5Variants not found"
-    rend = js.find("\nasync function ", r + 1)
-    rbody = js[r:rend if rend > 0 else r + 1500]
-    assert "_fetchOverlayH5Variants()" in rbody or re.search(r"/_analyzed\\\.h5\$/i", rbody), \
-        "_refreshOverlayH5Variants must source options through the _analyzed filter"
+    fbody = js[i:js.find("\n}", i)]
+    assert "_analyzed" not in fbody, \
+        "_fetchOverlayH5Variants must NOT filter _analyzed (it must stay selectable in the dropdown)"
+    # 2. a kinematic auto-pick helper excludes _analyzed with a pickLatestVariant fallback
+    assert "_pickLatestKinematic" in js, "must add a _pickLatestKinematic auto-pick helper"
+    k = js.find("function _pickLatestKinematic")
+    assert k > 0
+    kbody = js[k:js.find("\n}", k)]
+    assert "_analyzed" in kbody, "_pickLatestKinematic must exclude _analyzed from the pick"
+    assert "pickLatestVariant" in kbody, "_pickLatestKinematic must fall back to pickLatestVariant"
+    # 3. the auto-pick sites use the kinematic helper, not raw pickLatestVariant
+    assert "_pickLatestKinematic(" in js, "auto-pick sites must use _pickLatestKinematic"
 
 
 def test_inline_default_marker_size_is_4():
