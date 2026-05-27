@@ -89,8 +89,12 @@ export function markerEditor(config = {}) {
   const hitPoses = (cam) => {
     const poses = curPosesForCam(cam);
     const fe = frameEditsOf(editsFor(cam), currentFrame);
+    // editedOnlyBodyparts on the UNFILTERED poses (so the edits-only set is correct),
+    // then drop hidden bps from the combined list — Fix B (#2a): a hidden marker must
+    // not be hit-tested, so it can't block placing/selecting near it.
     const extra = editedOnlyBodyparts(poses, fe).map((bp) => ({ bp, x: fe[bp].x, y: fe[bp].y, color_idx: 0 }));
-    return extra.length ? [...poses, ...extra] : poses;
+    const combined = extra.length ? [...poses, ...extra] : poses;
+    return combined.filter((p) => !isHiddenAt(currentFrame, p.bp));
   };
 
   // Markers render + edits are live when the overlay is shown OR editing is armed.

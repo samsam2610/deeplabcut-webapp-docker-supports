@@ -195,6 +195,24 @@ def test_renders_and_hittests_edits_only_markers():
     assert "hitTest(curPosesForCam(" not in src, "hit-test must use the edits-augmented poses"
 
 
+def test_hitposes_excludes_hidden_bodyparts():
+    """Fix B (#2a): a hidden bodypart (chip double-click OR per-frame `h` toggle)
+    must NOT be hit-tested, so it can't block placing/selecting a marker near it.
+    hitPoses must filter the combined (poses ∪ edits-only) list through isHiddenAt
+    for the current frame; the edits-only set must be computed on the UNFILTERED
+    poses so it stays correct."""
+    src = _src()
+    i = src.find("const hitPoses")
+    assert i > 0, "hitPoses helper not found"
+    # body up to the end of the arrow function (the `};` that closes hitPoses)
+    body = src[i:src.find("};", i) + 2]
+    assert "isHiddenAt(" in body, "hitPoses must consult isHiddenAt to drop hidden bps"
+    assert ".filter(" in body, "hitPoses must filter the combined poses by visibility"
+    # the edits-only set is still derived from the raw poses (not the filtered list)
+    assert "editedOnlyBodyparts(poses" in body, \
+        "editedOnlyBodyparts must be computed on the UNFILTERED poses"
+
+
 def test_setMarkerSize_exists_and_mutable():
     """B1: the marker-size slider was a no-op. markerEditor must expose
     setMarkerSize(px) that updates a MUTABLE markerSize and re-renders."""
