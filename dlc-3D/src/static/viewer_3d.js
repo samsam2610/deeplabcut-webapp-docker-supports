@@ -114,7 +114,7 @@ function _ensureViewer() {
       editBanner: $("va3d-marker-edit-banner"),
       editCount:  $("va3d-marker-edit-count"),
     },
-    markerSize: 6,
+    markerSize: 4, // Fix D (#3): labeler-parity default (slider still adjusts)
     globalThreshold: 0.6,
     poseWindow: 30,
   });

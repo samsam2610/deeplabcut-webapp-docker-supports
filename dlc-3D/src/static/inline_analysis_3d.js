@@ -160,7 +160,7 @@ function _ensureViewer() {
       editBanner: $("ia3d-marker-edit-controls"),
       editCount:  $("ia3d-marker-edit-count"),
     },
-    markerSize: 6,
+    markerSize: 4, // Fix D (#3): labeler-parity default (slider still adjusts)
     globalThreshold: 0.6,
     poseWindow: 30,
     autoAdvance: true, // B2: advance to next unlabeled bp after a place (labeler feel)

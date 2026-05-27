@@ -917,3 +917,20 @@ def test_inline_variant_fetch_filters_analyzed():
     rbody = js[r:rend if rend > 0 else r + 1500]
     assert "_fetchOverlayH5Variants()" in rbody or re.search(r"/_analyzed\\\.h5\$/i", rbody), \
         "_refreshOverlayH5Variants must source options through the _analyzed filter"
+
+
+def test_inline_default_marker_size_is_4():
+    """Fix D (#3): the inline markerEditor config + the marker-size slider default to
+    4 (labeler parity) — smaller dot AND select zone. The slider still adjusts."""
+    js = JS.read_text()
+    i = js.find("_markerEditor = markerEditor({")
+    assert i > 0, "markerEditor config not found"
+    cfg = js[i:i + 1400]
+    assert re.search(r"markerSize\s*:\s*4\b", cfg), "inline markerEditor markerSize must be 4"
+    assert not re.search(r"markerSize\s*:\s*6\b", cfg), "old markerSize:6 must be replaced with 4"
+    html = CARD.read_text()
+    m = re.search(r'<input[^>]*id="ia3d-overlay-marker-size"[^>]*>', html, re.S)
+    assert m and 'value="4"' in m.group(0), "marker-size slider must default value=4"
+    # the size-val label text must read 4
+    lbl = re.search(r'id="ia3d-overlay-marker-size-val"[^>]*>([^<]*)<', html)
+    assert lbl and lbl.group(1).strip() == "4", "marker-size-val label must read 4"

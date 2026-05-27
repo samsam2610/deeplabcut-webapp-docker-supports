@@ -35,7 +35,7 @@ import { nextUnlabeledBodypart } from "../internal/bodypart_cycle.mjs";
 export function markerEditor(config = {}) {
   const els = config.els || {};
   const endpoints = config.endpoints || {};
-  let markerSize = config.markerSize || 6;
+  let markerSize = config.markerSize || 4;
   const poseWindow = config.poseWindow || 30;
   const perLayer = false; // v1: single global threshold
   let globalThreshold = config.globalThreshold ?? 0.6;

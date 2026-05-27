@@ -226,6 +226,12 @@ def test_setMarkerSize_exists_and_mutable():
     # markerSize must be reassignable (let, not const) so the setter can change it
     assert re.search(r"\blet\s+markerSize\b", src), \
         "markerSize must be `let` (mutable) so setMarkerSize can change it"
+    # Fix D (#3): the default marker size is 4 (labeler parity) — shrinks the dot AND
+    # the select zone; the slider still adjusts. The old `|| 6` default must be gone.
+    assert re.search(r"let\s+markerSize\s*=\s*config\.markerSize\s*\|\|\s*4\b", src), \
+        "default markerSize must be 4 (labeler parity)"
+    assert not re.search(r"config\.markerSize\s*\|\|\s*6\b", src), \
+        "the old `config.markerSize || 6` default must be replaced with 4"
     # the setter must re-render so the change shows immediately
     i = src.find("setMarkerSize")
     body = src[i:i + 200]
