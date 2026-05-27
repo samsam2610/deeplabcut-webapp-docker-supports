@@ -810,3 +810,38 @@ def test_refresh_variants_does_not_auto_pick_on_videoload():
     # the single-variant auto-pick branch must be gone
     assert "variants.length === 1" not in body, \
         "the single-variant auto-pick branch must be removed (clean switch)"
+
+
+def test_overlay_toggle_on_autopicks_latest_variant():
+    """Bug-1 B2: turning the kinematics view ON enables the overlay AND, if no
+    primary is selected yet, auto-picks the LATEST variant (via pickLatestVariant)
+    by setting the <select> + calling _applyOverlayPrimary, then refreshes coverage."""
+    js = JS.read_text()
+    # the pure latest-variant helper is imported
+    assert "pick_latest_variant.mjs" in js, "must import the pickLatestVariant helper"
+    assert "pickLatestVariant" in js, "overlay-on must use pickLatestVariant"
+    # the overlay-toggle change handler enables + auto-picks + refreshes coverage
+    i = js.find('$("ia3d-overlay-toggle")')
+    assert i > 0
+    # capture the change-handler body
+    j = js.find("addEventListener", i)
+    body = js[j:j + 900]
+    assert "setOverlayEnabled(on)" in body, "toggle must drive setOverlayEnabled(on)"
+    assert "pickLatestVariant(" in body, "toggle-ON must auto-pick the latest variant"
+    assert "_applyOverlayPrimary(" in body, "toggle-ON must apply the picked primary"
+    assert "_refreshCoverage()" in body, "toggle must refresh coverage"
+
+
+def test_apply_overlay_primary_drops_force_enable_keeps_set_editable():
+    """B1: _applyOverlayPrimary must NOT force-enable the overlay (no overlay-toggle
+    dispatch); it KEEPS arming editing via setEditable(true) when Finalize is on."""
+    js = JS.read_text()
+    i = js.index("async function _applyOverlayPrimary")
+    rest = js[i + 1:]
+    ends = [x for x in (rest.find("\nasync function "), rest.find("\nfunction ")) if x != -1]
+    window = js[i: i + 1 + min(ends)]
+    assert "setEditable(true)" in window, "must still arm editing when Finalize is on"
+    assert "ia3d-overlay-toggle" not in window, \
+        "_applyOverlayPrimary must not force-enable the overlay toggle"
+    assert "dispatchEvent" not in window, \
+        "_applyOverlayPrimary must not dispatch the overlay-toggle change"

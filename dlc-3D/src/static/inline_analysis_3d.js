@@ -21,6 +21,7 @@ import { statusNoteTimeline } from "./components/viewer/features/status_notes.js
 import { markerEditor } from "./components/viewer/features/marker_editor.js";
 import { clipExtractor } from "./components/viewer/features/clip_extractor.js";
 import { coverageRects, coverageFrameRects, nearestCoveredFrame, xToFrame, nextCoveredBucket, bucketToFrame, frameToBucket } from "./components/viewer/internal/coverage_timeline.mjs";
+import { pickLatestVariant } from "./components/viewer/internal/pick_latest_variant.mjs";
 import { makeKeyframeWindow } from "./keyframe_window_ui.js";
 import { clampToBounds } from "./internal/clamp_bounds.mjs";
 import { addTag, removeTag } from "./internal/tag_list.mjs";
@@ -736,15 +737,26 @@ function _wireOverlayChrome() {
   if (_overlayChromeWired) return;
   _overlayChromeWired = true;
 
-  // Overlay enable toggle → markerEditor.setOverlayEnabled + reveal controls + coverage refresh.
+  // Overlay enable toggle → markerEditor.setOverlayEnabled + reveal controls + coverage.
+  // B2 (Bug-1): on turning the view ON, if no primary is selected yet, auto-pick the
+  // LATEST h5 variant (pickLatestVariant over the current dropdown options) and render.
   const toggle = $("ia3d-overlay-toggle");
-  toggle?.addEventListener("change", () => {
+  toggle?.addEventListener("change", async () => {
     const on = !!toggle.checked;
     _markerEditor?.setOverlayEnabled(on);
     $("ia3d-overlay-controls")?.classList.toggle("hidden", !on);
     $("ia3d-bp-list-wrap")?.classList.toggle("hidden", !on);
     const st = $("ia3d-overlay-status");
     if (st) st.textContent = on ? "overlay on" : "overlay off";
+    if (on && !_overlayPrimaryH5) {
+      const variants = await _fetchOverlayH5Variants();
+      const latest = pickLatestVariant(variants);   // max ISO ts, else last; null when none
+      if (latest && latest.path) {
+        const sel = $("ia3d-overlay-primary-select");
+        if (sel) sel.value = latest.path;
+        await _applyOverlayPrimary(latest.path);   // sets primary + sibling + arms editing + coverage
+      }
+    }
     _refreshCoverage();
   });
 
@@ -792,6 +804,21 @@ function _wireOverlayChrome() {
   // Discard / Clear Frame: markerEditor exposes no discard/clear-frame API. No-ops.
   $("ia3d-discard-adjustments-btn"); // no-op
   $("ia3d-clear-frame-btn"); // no-op
+}
+
+// Fetch the current primary video's h5 variants (array; [] on error / no video).
+// Used by the overlay-toggle ON handler, which feeds them to pickLatestVariant to
+// load the freshest analysis on demand (B2).
+async function _fetchOverlayH5Variants() {
+  if (!_primaryRel) return [];
+  try {
+    const data = await (await fetch(
+      `/dlc/viewer/h5-variants?video=${encodeURIComponent(_primaryRel)}`,
+    )).json();
+    return data.variants || [];
+  } catch (_) {
+    return [];
+  }
 }
 
 // Populate the primary h5 select for the current primary video (placeholder + one
