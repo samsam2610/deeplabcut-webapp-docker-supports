@@ -793,3 +793,20 @@ def test_reset_for_open_clears_marker_editor_layer():
     assert "setOverlayEnabled(false)" in body, "overlay must reset off on switch"
     assert "_coverageCache.clear()" in body, "coverage cache must clear on switch"
     assert "_overlayPrimaryH5 = null" in body, "primary h5 must reset to null on switch"
+
+
+def test_refresh_variants_does_not_auto_pick_on_videoload():
+    """Bug-1 clean switch: _refreshOverlayH5Variants (run off videoLoad) must only
+    populate the primary <select>; it must NOT auto-pick / call _applyOverlayPrimary
+    (the old single-variant branch did). The selection stays on the placeholder
+    until the user turns the kinematics view on."""
+    js = JS.read_text()
+    i = js.find("async function _refreshOverlayH5Variants(")
+    assert i > 0, "_refreshOverlayH5Variants not found"
+    end = js.find("\nasync function ", i + 1)
+    body = js[i:end if end > 0 else i + 1500]
+    assert "_applyOverlayPrimary(" not in body, \
+        "_refreshOverlayH5Variants must not auto-pick (no _applyOverlayPrimary call)"
+    # the single-variant auto-pick branch must be gone
+    assert "variants.length === 1" not in body, \
+        "the single-variant auto-pick branch must be removed (clean switch)"

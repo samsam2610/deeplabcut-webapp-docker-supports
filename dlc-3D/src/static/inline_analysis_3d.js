@@ -794,10 +794,10 @@ function _wireOverlayChrome() {
   $("ia3d-clear-frame-btn"); // no-op
 }
 
-// Populate the primary + (no compare in this card) h5 selects for the current
-// primary video, then auto-pick when exactly one variant exists. Called off
-// videoLoad. NOTE: this card has no add-comparison dropdown (removed per user
-// request 2026-05-21) — only the primary picker.
+// Populate the primary h5 select for the current primary video (placeholder + one
+// option per variant). Called off videoLoad. Does NOT auto-pick — the overlay-toggle
+// ON handler picks the latest variant when the user turns the kinematics view on
+// (Bug-1 clean switch). This card has no add-comparison dropdown (removed 2026-05-21).
 async function _refreshOverlayH5Variants() {
   const primarySel = $("ia3d-overlay-primary-select");
   if (!primarySel || !_primaryRel) return;
@@ -826,13 +826,11 @@ async function _refreshOverlayH5Variants() {
     primarySel.appendChild(opt);
   });
 
-  // Auto-pick when exactly one variant exists.
-  if (variants.length === 1) {
-    primarySel.value = variants[0].path;
-    await _applyOverlayPrimary(variants[0].path);
-  } else {
-    _overlayPrimaryH5 = null;
-  }
+  // Bug-1 clean switch: populate the dropdown ONLY — do NOT auto-pick on videoLoad.
+  // The user turns the kinematics view on (overlay toggle) to load + render the
+  // latest variant. Leave the selection on the placeholder + clear the active primary.
+  primarySel.value = "";
+  _overlayPrimaryH5 = null;
 }
 
 // Stereo-analysis render refresh (ported from the old analyzeBtn handler's
