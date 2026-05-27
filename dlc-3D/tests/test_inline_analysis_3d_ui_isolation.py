@@ -874,3 +874,16 @@ def test_post_analysis_reestablishes_primary_and_refreshes():
     # refresh must NOT be gated on a single-variant branch
     assert "variants.length === 1" not in js, \
         "post-analysis refresh must not depend on variant count"
+
+
+def test_finalize_status_surfaces_unanalyzed_gap():
+    """The working h5 is sparse, so finalize writes only the range frames that have
+    analysis rows (e.g. 697 of an 800-frame range). The finalize status must surface
+    written/requested + the gap so the user isn't left with a bare '697' and no clue
+    that 103 frames in the range were never analyzed."""
+    js = JS.read_text()
+    i = js.index("async function _doFinalizeAdd")
+    end = js.find("\nasync function ", i + 1)
+    body = js[i:end if end > 0 else i + 2000]
+    assert "/${nFrames}" in body, "finalize status must show written/requested (e.g. 697/800)"
+    assert "not yet analyzed" in body, "must surface the unanalyzed-frame gap in the range"

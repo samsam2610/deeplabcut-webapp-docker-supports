@@ -2092,9 +2092,15 @@ async function _doFinalizeAdd() {
     let r1 = null;
     if (_siblingPath && cam1Layer) r1 = await _ia3dFinalizeOne(_siblingPath, cam1Layer, startFrame, nFrames);
     if (st) {
-      const p0 = r0.ok ? `cam0 ✓ ${r0.n}` : `cam0 ⚠ ${r0.err}`;
-      const p1 = r1 ? (r1.ok ? ` · cam1 ✓ ${r1.n}` : ` · cam1 ⚠ ${r1.err}`) : "";
-      st.textContent = `${p0}${p1}`;
+      // Surface written/requested: the working h5 is sparse, so finalize copies only
+      // the range frames that actually have analysis rows — show "697/800" + the gap
+      // so the user knows N frames in the range weren't analyzed (run "for range" to
+      // fill them). A gap is informative, not an error.
+      const p0 = r0.ok ? `cam0 ✓ ${r0.n}/${nFrames}` : `cam0 ⚠ ${r0.err}`;
+      const p1 = r1 ? (r1.ok ? ` · cam1 ✓ ${r1.n}/${nFrames}` : ` · cam1 ⚠ ${r1.err}`) : "";
+      const gap = Math.max(r0.ok ? nFrames - r0.n : 0, (r1 && r1.ok) ? nFrames - r1.n : 0);
+      const gapNote = gap > 0 ? ` (${gap} frame${gap !== 1 ? "s" : ""} in range not yet analyzed)` : "";
+      st.textContent = `${p0}${p1}${gapNote}`;
       st.className = (r0.ok && (!r1 || r1.ok)) ? "fe-extract-status" : "fe-extract-status err";
     }
     _refreshFinalizeCoverage();
