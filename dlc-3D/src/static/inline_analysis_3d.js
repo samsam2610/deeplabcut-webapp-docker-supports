@@ -1370,6 +1370,13 @@ function _resetForOpen() {
   const ovToggle = $("ia3d-overlay-toggle");
   if (ovToggle) ovToggle.checked = false;
   _markerEditor?.setOverlayEnabled(false);
+  // Bug-1 clean switch: drop the previous video's markerEditor layer + sibling so a
+  // switch never leaves the prior layer's poses live (setPrimary(null) empties the
+  // layers + chips + re-renders nothing). Overlay off + no primary ⇒ nothing draws
+  // even though editing is armed (no cached poses to draw, no chips).
+  _markerEditor?.setPrimary(null);
+  const ovPrimarySel = $("ia3d-overlay-primary-select");
+  if (ovPrimarySel) ovPrimarySel.value = "";   // back to the placeholder
   $("ia3d-overlay-controls")?.classList.add("hidden");
   $("ia3d-bp-list-wrap")?.classList.add("hidden");
   const _bc = $("ia3d-bp-chips"); if (_bc) _bc.style.minHeight = "";

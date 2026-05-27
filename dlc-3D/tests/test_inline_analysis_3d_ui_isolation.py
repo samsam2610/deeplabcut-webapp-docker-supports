@@ -775,3 +775,21 @@ def test_show_names_checkbox_present_and_wired():
     assert i > 0, "Show-names checkbox not wired in JS"
     assert "setShowNames(" in js[i:i + 300], \
         "Show-names checkbox handler must call markerEditor.setShowNames"
+
+
+# ─── 2026-05-26 clean video-switch + refresh-after-re-analyze (Bug-1/Bug-2) ───
+
+def test_reset_for_open_clears_marker_editor_layer():
+    """Bug-1 clean switch: _resetForOpen must clear the previous video's
+    markerEditor layer via setPrimary(null) (so a switch never leaves the prior
+    layer's poses live), alongside the existing overlay-off + cache clear."""
+    js = JS.read_text()
+    i = js.find("function _resetForOpen(")
+    assert i > 0, "_resetForOpen not found"
+    body = js[i:i + 1800]
+    assert "setPrimary(null)" in body, \
+        "_resetForOpen must clear the markerEditor primary via setPrimary(null)"
+    # the existing clean-base resets must remain
+    assert "setOverlayEnabled(false)" in body, "overlay must reset off on switch"
+    assert "_coverageCache.clear()" in body, "coverage cache must clear on switch"
+    assert "_overlayPrimaryH5 = null" in body, "primary h5 must reset to null on switch"
