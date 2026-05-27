@@ -809,13 +809,19 @@ function _wireOverlayChrome() {
 // Fetch the current primary video's h5 variants (array; [] on error / no video).
 // Used by the overlay-toggle ON handler, which feeds them to pickLatestVariant to
 // load the freshest analysis on demand (B2).
+//
+// Fix A (#1): the backend lists `<stem>_analyzed.h5` (the curated/finalized output)
+// as a "Raw" variant. That file is NOT a kinematic model — it's the destination of
+// the Finalize-analysis feature — so offering it here lets the overlay auto-pick it
+// as a "model". Filter it out so it never enters the dropdown nor pickLatestVariant.
+// This is inline-only: View Analyzed (viewer_3d.js) legitimately views `_analyzed`.
 async function _fetchOverlayH5Variants() {
   if (!_primaryRel) return [];
   try {
     const data = await (await fetch(
       `/dlc/viewer/h5-variants?video=${encodeURIComponent(_primaryRel)}`,
     )).json();
-    return data.variants || [];
+    return (data.variants || []).filter((vr) => !/_analyzed\.h5$/i.test(vr.path || ""));
   } catch (_) {
     return [];
   }
@@ -828,15 +834,9 @@ async function _fetchOverlayH5Variants() {
 async function _refreshOverlayH5Variants() {
   const primarySel = $("ia3d-overlay-primary-select");
   if (!primarySel || !_primaryRel) return;
-  let variants = [];
-  try {
-    const data = await (await fetch(
-      `/dlc/viewer/h5-variants?video=${encodeURIComponent(_primaryRel)}`,
-    )).json();
-    variants = data.variants || [];
-  } catch (_) {
-    variants = [];
-  }
+  // Source the dropdown options through the fetch-only helper so the `_analyzed`
+  // curated output (filtered there — Fix A #1) never appears as a kinematic model.
+  const variants = await _fetchOverlayH5Variants();
 
   // Primary select: placeholder + one option per variant (value=path, text=label).
   primarySel.innerHTML = "";

@@ -887,3 +887,33 @@ def test_finalize_status_surfaces_unanalyzed_gap():
     body = js[i:end if end > 0 else i + 2000]
     assert "/${nFrames}" in body, "finalize status must show written/requested (e.g. 697/800)"
     assert "not yet analyzed" in body, "must surface the unanalyzed-frame gap in the range"
+
+
+# ─── 2026-05-27 marker-editor / inline-3D root-caused fixes ───────────────────
+
+def test_inline_variant_fetch_filters_analyzed():
+    """Fix A (#1): the inline overlay's kinematic-model dropdown must NOT offer the
+    `_analyzed` curated output (`<stem>_analyzed.h5`) as a 'kinematic model'. The
+    backend /dlc/viewer/h5-variants lists it as a 'Raw' variant, so the inline card
+    must filter variants whose `path` ends in `_analyzed.h5` (case-insensitive) in its
+    fetch-only helper — so it never appears in the dropdown nor is auto-picked by
+    pickLatestVariant. View Analyzed (viewer_3d.js) legitimately views `_analyzed`, so
+    this filter is inline-only (NOT in the backend or viewer_3d.js)."""
+    js = JS.read_text()
+    i = js.find("async function _fetchOverlayH5Variants(")
+    assert i > 0, "_fetchOverlayH5Variants not found"
+    end = js.find("\nasync function ", i + 1)
+    body = js[i:end if end > 0 else i + 800]
+    # the fetch-only helper filters _analyzed.h5 from the returned variants
+    assert re.search(r"/_analyzed\\\.h5\$/i", body), \
+        "_fetchOverlayH5Variants must filter variants whose path matches /_analyzed\\.h5$/i"
+    assert ".filter(" in body, "_fetchOverlayH5Variants must filter the variant list"
+    # the dropdown-populating helper must source its variants through the filter so
+    # _analyzed never lands in the <select> (either by calling the fetch helper or
+    # applying the same regex).
+    r = js.find("async function _refreshOverlayH5Variants(")
+    assert r > 0, "_refreshOverlayH5Variants not found"
+    rend = js.find("\nasync function ", r + 1)
+    rbody = js[r:rend if rend > 0 else r + 1500]
+    assert "_fetchOverlayH5Variants()" in rbody or re.search(r"/_analyzed\\\.h5\$/i", rbody), \
+        "_refreshOverlayH5Variants must source options through the _analyzed filter"
