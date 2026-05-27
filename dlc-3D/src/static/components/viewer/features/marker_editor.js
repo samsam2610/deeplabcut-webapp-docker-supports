@@ -51,7 +51,7 @@ export function markerEditor(config = {}) {
   let showNames = false;     // B6: when true, draw every visible marker's name
   let hoverBp = null;        // B5: bodypart under the cursor on the focused tile
   const hiddenParts = new Set();
-  const hiddenByFrame = new Map(); // B6: { frame -> Set<bp> } per-frame visibility (Space toggle)
+  const hiddenByFrame = new Map(); // B6: { frame -> Set<bp> } per-frame visibility (h toggle)
   // Per-cam edit store (frame-labeler focused-tile model): edits for the focused
   // cam land in editsByCam[cam] and flush to that cam's own primary .h5.
   const editsByCam = { 0: {}, 1: {} }; // { [cam]: { [frame]: { [bp]: {x,y} } } }; x===null,y===null = deleted
@@ -102,7 +102,7 @@ export function markerEditor(config = {}) {
   const renderActive = () => overlayEnabled || editingAllowed;
 
   // A bp is hidden at a frame if globally hidden (chip double-click) OR per-frame
-  // hidden (Space toggle). Render + chip 'vis-hidden' both consult this.
+  // hidden (h toggle). Render + chip 'vis-hidden' both consult this.
   const isHiddenAt = (frame, bp) => hiddenParts.has(bp) || (hiddenByFrame.get(frame)?.has(bp) ?? false);
 
   function makeLayer(path, label) {
@@ -533,7 +533,7 @@ export function markerEditor(config = {}) {
       selectBp(nextBodypart(allBodyParts, selectedBp, e.shiftKey));
       return;
     }
-    if (e.key === " ") {
+    if (e.key === "h" || e.key === "H") {
       if (!isEditableCam(focusedCam) || !selectedBp) return;
       e.preventDefault();
       let set = hiddenByFrame.get(currentFrame);
@@ -574,7 +574,7 @@ export function markerEditor(config = {}) {
       const sig = { signal: ac.signal };
       const disposers = [
         v.on("videoLoad", () => {
-          // Drop per-frame hide-state (Space toggle) so it doesn't carry across
+          // Drop per-frame hide-state (h toggle) so it doesn't carry across
           // videos — mirrors editsByCam being cleared on setPrimary/setSibling.
           hiddenByFrame.clear();
           // tiles are freshly recreated on load — re-wire ALL tiles' canvases (each

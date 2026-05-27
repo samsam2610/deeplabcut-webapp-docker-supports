@@ -128,16 +128,21 @@ def test_b4_b5_hit_select_and_hover_cursor():
     assert "updateHoverCursor" in src, "must factor a hover-cursor updater"
 
 
-def test_b6_space_toggles_per_frame_visibility():
-    """B6: Space toggles the selected bp's per-frame visibility (a per-(frame,bp)
-    store), reflected in render + the `.vv-bp-chip.vis-hidden` chip. Arrows stay
-    VideoViewer frame-nav (no arrow handling added here)."""
+def test_b6_h_toggles_per_frame_visibility():
+    """B6 + Fix C (#2b): `h` toggles the selected bp's per-frame visibility (a
+    per-(frame,bp) store), reflected in render + the `.vv-bp-chip.vis-hidden` chip.
+    The hide key moved off Space (which the base player owns for play/pause —
+    controls.mjs Space→playPause) onto `h`/`H`, so per-frame hide actually works.
+    Arrows stay VideoViewer frame-nav (no arrow handling added here)."""
     src = _src()
     # a per-frame hidden store (distinct from the global hiddenParts Set)
     assert "hiddenByFrame" in src, "must track per-frame visibility (hiddenByFrame)"
-    # Space key handled in the keyboard handler
-    assert re.search(r'e\.key\s*===\s*"\s"', src) or 'e.key === " "' in src, \
-        "Space (' ') must be handled for visibility toggle"
+    # `h`/`H` handled in the keyboard handler for the visibility toggle
+    assert re.search(r'e\.key\s*===\s*"h"\s*\|\|\s*e\.key\s*===\s*"H"', src), \
+        "the hide toggle must be keyed on 'h'/'H' (Fix C: off Space)"
+    # Space must NOT be intercepted by markerEditor anymore (the base player owns it)
+    assert not re.search(r'e\.key\s*===\s*"\s"', src) and 'e.key === " "' not in src, \
+        "markerEditor must not handle Space (base player play/pause owns it)"
     # the union helper that render + chips consult
     assert "isHiddenAt" in src, "must factor an isHiddenAt(frame, bp) union helper"
     # arrows are NOT intercepted (frame-nav stays VideoViewer's)
