@@ -274,3 +274,40 @@ def test_b5_b6_hover_name_and_show_names():
     # uses the geometry helper + fillText
     assert "nameLabelBox(" in src and "fillText(" in src, \
         "must draw the name via nameLabelBox geometry + fillText"
+
+
+# ─── 2026-05-26 inline-3d clean-switch + reanalyze-refresh (Bug-2) ─────────────
+
+def test_invalidate_poses_clears_cache_and_rerenders():
+    """Bug-2: markerEditor must expose invalidatePoses() that clears every layer's
+    posesCache (cam0 layers + siblingLayers) and re-fetches + re-renders the current
+    frame via onFrame — so an in-place-overwritten h5 repaints with no manual
+    re-select. Reuses the existing onFrame path (same idiom as setThreshold)."""
+    src = _src()
+    assert re.search(r"invalidatePoses\s*\(", src), "must expose invalidatePoses()"
+    i = src.find("invalidatePoses")
+    assert i > 0
+    body = src[i:i + 400]
+    # clears every layer's posesCache (both cams)
+    assert re.search(r"for\s*\(const\s+l\s+of\s+layers\)\s*l\.posesCache\.clear\(\)", body), \
+        "invalidatePoses must clear cam0 layers' posesCache"
+    assert re.search(r"for\s*\(const\s+l\s+of\s+siblingLayers\)\s*l\.posesCache\.clear\(\)", body), \
+        "invalidatePoses must clear siblingLayers' posesCache"
+    # re-fetch + re-render the current frame via the existing onFrame path
+    assert "onFrame(currentFrame)" in body, \
+        "invalidatePoses must re-fetch+re-render the current frame via onFrame"
+
+
+def test_set_primary_null_clears_layers():
+    """Clean switch: setPrimary(null) must clear the primary (and sibling) layers
+    rather than building a {path:null} layer that fetches garbage. Early-returns
+    after emptying layers + rebuilding empty chips + re-rendering."""
+    src = _src()
+    i = src.find("async setPrimary(")
+    assert i > 0, "setPrimary method not found"
+    body = src[i:i + 600]
+    # a falsy-path guard that empties the layer arrays
+    assert re.search(r"if\s*\(\s*!\s*h5Path\s*\)", body), \
+        "setPrimary must guard a falsy h5Path"
+    assert "layers = []" in body, "setPrimary(null) must empty cam0 layers"
+    assert "siblingLayers = []" in body, "setPrimary(null) must empty sibling layers"

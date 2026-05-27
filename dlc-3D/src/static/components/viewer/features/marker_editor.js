@@ -608,6 +608,18 @@ export function markerEditor(config = {}) {
     async setPrimary(h5Path) {
       abortPrefetch();
       editsByCam[0] = {}; // drop prior cam0 edits; loadEditCache repopulates when available
+      // Clean switch (B1): a falsy path clears the primary (and sibling) layer so
+      // nothing renders and no chips show — used by the inline card's _resetForOpen.
+      if (!h5Path) {
+        editsByCam[1] = {};
+        layers = [];
+        siblingLayers = [];
+        recomputeBodyparts();
+        rebuildBpChips();
+        updateEditBanner();
+        renderAll();
+        return;
+      }
       layers = [makeLayer(h5Path, "main")];
       await loadLayerInfo(layers[0]);
       recomputeBodyparts();
@@ -694,6 +706,19 @@ export function markerEditor(config = {}) {
     setShowNames(on) {
       showNames = !!on;
       renderAll();
+    },
+
+    // Bug-2: drop every layer's cached poses and re-fetch + re-render the current
+    // frame. Inline analysis OVERWRITES the same h5 in place, but posesCache is keyed
+    // by (path, threshold) with no version, so a re-run serves stale poses until the
+    // layer is rebuilt. Consumers call this after a re-analysis completes. Reuses the
+    // onFrame re-fetch path (same idiom as setThreshold). No-ops when no layers / the
+    // overlay is off (onFrame renders an empty frame). Does NOT touch the save path.
+    invalidatePoses() {
+      abortPrefetch();
+      for (const l of layers) l.posesCache.clear();
+      for (const l of siblingLayers) l.posesCache.clear();
+      onFrame(currentFrame);
     },
 
     selectBp,
