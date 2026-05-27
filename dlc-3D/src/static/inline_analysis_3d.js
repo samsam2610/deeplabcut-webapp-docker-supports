@@ -1920,6 +1920,14 @@ async function _onAnalyzeClick() {
     if (keepFrame > 0) _viewer.seek(keepFrame);
     _applyCamLabels();
   }
+  // Bug-2: inline analysis OVERWRITES the same h5 in place, so the client caches
+  // (the markerEditor pose cache keyed by path+threshold, _coverageCache keyed by
+  // path+threshold+width) serve stale data until a manual re-select. Invalidate both
+  // and re-run the (now cache-busted) coverage refresh so the new poses + timeline
+  // repaint. Works for 1 or many variants (not gated on count).
+  _coverageCache.clear();
+  _markerEditor?.invalidatePoses();
+  _refreshCoverage();
 }
 
 // ── Left-region start buttons ────────────────────────────────────────────────
@@ -1966,6 +1974,11 @@ async function _onAnalyzeRangeConfinedClick() {
     if (keepFrame > 0) _viewer.seek(keepFrame);
     _applyCamLabels();
   }
+  // Bug-2: same in-place-overwrite cache invalidation as _onAnalyzeClick — drop the
+  // stale coverage + pose caches and repaint. Not gated on variant count.
+  _coverageCache.clear();
+  _markerEditor?.invalidatePoses();
+  _refreshCoverage();
   _refreshAnalyzeEnablement();
 }
 

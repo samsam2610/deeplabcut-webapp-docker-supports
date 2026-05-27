@@ -845,3 +845,26 @@ def test_apply_overlay_primary_drops_force_enable_keeps_set_editable():
         "_applyOverlayPrimary must not force-enable the overlay toggle"
     assert "dispatchEvent" not in window, \
         "_applyOverlayPrimary must not dispatch the overlay-toggle change"
+
+
+def test_post_analysis_handlers_invalidate_caches_and_refresh():
+    """Bug-2: after a re-analysis completes, BOTH done handlers (_onAnalyzeClick,
+    _onAnalyzeRangeConfinedClick) must invalidate the stale client caches —
+    _coverageCache (cleared) + markerEditor.invalidatePoses() — and re-run the
+    coverage refresh, so the in-place-overwritten h5 repaints without a manual
+    re-select. Works for 1 or many variants (not gated on count)."""
+    js = JS.read_text()
+    for fn in ("_onAnalyzeClick", "_onAnalyzeRangeConfinedClick"):
+        i = js.find(f"async function {fn}(")
+        assert i > 0, f"{fn} not found"
+        end = js.find("\nasync function ", i + 1)
+        body = js[i:end if end > 0 else i + 2200]
+        assert "_coverageCache.clear()" in body, \
+            f"{fn} must clear _coverageCache after analysis (Bug-2)"
+        assert "invalidatePoses()" in body, \
+            f"{fn} must call markerEditor.invalidatePoses() after analysis (Bug-2)"
+        assert "_refreshCoverage()" in body, \
+            f"{fn} must re-run the (cache-busted) coverage refresh after analysis"
+    # invalidation must NOT be gated on a single-variant branch
+    assert "variants.length === 1" not in js, \
+        "post-analysis refresh must not depend on variant count"
