@@ -224,11 +224,13 @@ export function markerEditor(config = {}) {
         if (!Number.isFinite(px) || !Number.isFinite(py)) continue;
         const cx = Math.round(px * scale.sx);
         const cy = Math.round(py * scale.sy);
-        // Primary layer + chips share the FL palette (labelerColor by bodypart
-        // index); comparison layers keep paletteColor (HSV) for differentiation.
-        const bpIdx = allBodyParts.indexOf(pose.bp);
+        // Primary layer + chips share the FL palette; color by the backend's
+        // per-bodypart `color_idx` (stable, always present, matches the chips' order)
+        // — NOT an allBodyParts lookup of the bp string, which returned -1 → every
+        // marker the same color when frame-poses bp names didn't match the h5-info
+        // bodyparts list. Comparison layers keep paletteColor (HSV) for differentiation.
         const color = isPrimaryLayer
-          ? labelerColor(bpIdx >= 0 ? bpIdx : 0)
+          ? labelerColor(pose.color_idx)
           : paletteColor(pose.color_idx, cached.n_bodyparts);
         drawShape(shape, ctx, cx, cy, r, color);
         // White selected ring (frame_labeler_3d.js:1234-1235). The amber selected

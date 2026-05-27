@@ -248,12 +248,18 @@ def test_imports_labelerColor():
 
 
 def test_primary_markers_use_labelerColor_chips_too():
-    """B2: the primary layer + bp-chips color by bodypart index via labelerColor;
-    comparison layers keep paletteColor (HSV)."""
+    """B2: the primary layer + bp-chips color via the FL palette (labelerColor);
+    comparison layers keep paletteColor (HSV). Primary markers must color by the
+    backend per-bodypart `pose.color_idx` (stable, always present) — NOT
+    `allBodyParts.indexOf(pose.bp)`, which returns -1 (→ every marker the same
+    color) when frame-poses bp strings don't match the h5-info bodyparts list."""
     src = _src()
-    # both helpers are present (comparison layers still use paletteColor)
     assert "labelerColor(" in src, "primary/chips must color via labelerColor"
     assert "paletteColor(" in src, "comparison layers must keep paletteColor"
+    assert "labelerColor(pose.color_idx)" in src, \
+        "primary markers must color by the backend color_idx"
+    assert "allBodyParts.indexOf(pose.bp)" not in src, \
+        "primary marker color must NOT use allBodyParts.indexOf(pose.bp) (the all-one-color bug)"
 
 
 def test_b3_selected_ring_white_no_amber_no_edited():
