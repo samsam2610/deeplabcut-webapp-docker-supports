@@ -868,6 +868,26 @@ async function _iaDiscoverVariants(_cam0) {
   await _refreshOverlayH5Variants();
 }
 
+// After an analysis run, re-establish the overlay primary to the just-written LATEST
+// variant. The clean-switch repopulate (via _iaDiscoverVariants AND the _viewer.load
+// videoLoad) clears the dropdown selection + _overlayPrimaryH5, and the overlay is
+// already on during analysis so the toggle-change auto-pick won't fire — without this
+// the model is left "unloaded" (markers linger on the stale layer; coverage no-ops on
+// the null primary). Cache-bust first so the fresh setPrimary + coverage re-fetch the
+// new poses + timeline. Call at the END of the analyze done-handlers, after the reload.
+async function _reloadPrimaryAfterAnalysis() {
+  _coverageCache.clear();
+  const latest = pickLatestVariant(await _fetchOverlayH5Variants());
+  const sel = $("ia3d-overlay-primary-select");
+  if (latest && sel) {
+    sel.value = latest.path;
+    await _applyOverlayPrimary(latest.path);   // fresh setPrimary + sibling + arms editing + _refreshCoverage
+  } else {
+    _markerEditor?.invalidatePoses();
+    _refreshCoverage();
+  }
+}
+
 // Reserve the bp chip list's MAX height so per-frame checkmark toggles (which
 // change chip width → re-wrap) can't reflow the layout and jump everything below.
 // Measure with all checkmarks forced visible (widest), then pin min-height.
@@ -1920,14 +1940,11 @@ async function _onAnalyzeClick() {
     if (keepFrame > 0) _viewer.seek(keepFrame);
     _applyCamLabels();
   }
-  // Bug-2: inline analysis OVERWRITES the same h5 in place, so the client caches
-  // (the markerEditor pose cache keyed by path+threshold, _coverageCache keyed by
-  // path+threshold+width) serve stale data until a manual re-select. Invalidate both
-  // and re-run the (now cache-busted) coverage refresh so the new poses + timeline
-  // repaint. Works for 1 or many variants (not gated on count).
-  _coverageCache.clear();
-  _markerEditor?.invalidatePoses();
-  _refreshCoverage();
+  // Re-establish the primary to the just-written latest variant (the discover + the
+  // reload above both clear the selection per the clean-switch rule; the overlay was
+  // already on so the toggle auto-pick won't fire). Also cache-busts + repaints the
+  // markers + coverage timeline (the in-place h5 overwrite otherwise serves stale).
+  await _reloadPrimaryAfterAnalysis();
 }
 
 // ── Left-region start buttons ────────────────────────────────────────────────
@@ -1974,11 +1991,9 @@ async function _onAnalyzeRangeConfinedClick() {
     if (keepFrame > 0) _viewer.seek(keepFrame);
     _applyCamLabels();
   }
-  // Bug-2: same in-place-overwrite cache invalidation as _onAnalyzeClick — drop the
-  // stale coverage + pose caches and repaint. Not gated on variant count.
-  _coverageCache.clear();
-  _markerEditor?.invalidatePoses();
-  _refreshCoverage();
+  // Re-establish the primary to the latest variant + cache-bust + repaint markers +
+  // coverage (see _onAnalyzeClick / _reloadPrimaryAfterAnalysis).
+  await _reloadPrimaryAfterAnalysis();
   _refreshAnalyzeEnablement();
 }
 

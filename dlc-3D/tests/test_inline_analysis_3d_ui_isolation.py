@@ -847,24 +847,30 @@ def test_apply_overlay_primary_drops_force_enable_keeps_set_editable():
         "_applyOverlayPrimary must not dispatch the overlay-toggle change"
 
 
-def test_post_analysis_handlers_invalidate_caches_and_refresh():
-    """Bug-2: after a re-analysis completes, BOTH done handlers (_onAnalyzeClick,
-    _onAnalyzeRangeConfinedClick) must invalidate the stale client caches —
-    _coverageCache (cleared) + markerEditor.invalidatePoses() — and re-run the
-    coverage refresh, so the in-place-overwritten h5 repaints without a manual
-    re-select. Works for 1 or many variants (not gated on count)."""
+def test_post_analysis_reestablishes_primary_and_refreshes():
+    """Bug: after a re-analysis the clean-switch repopulate (via _iaDiscoverVariants
+    AND the _viewer.load videoLoad) clears the primary selection, and the overlay is
+    already on so the toggle auto-pick won't fire — leaving the model 'unloaded'
+    (markers linger on the stale layer, coverage no-ops on the null primary). BOTH
+    done handlers must re-establish the primary to the LATEST variant AFTER the reload
+    via the shared _reloadPrimaryAfterAnalysis() (cache-bust + re-pick + re-apply)."""
     js = JS.read_text()
     for fn in ("_onAnalyzeClick", "_onAnalyzeRangeConfinedClick"):
         i = js.find(f"async function {fn}(")
         assert i > 0, f"{fn} not found"
         end = js.find("\nasync function ", i + 1)
         body = js[i:end if end > 0 else i + 2200]
-        assert "_coverageCache.clear()" in body, \
-            f"{fn} must clear _coverageCache after analysis (Bug-2)"
-        assert "invalidatePoses()" in body, \
-            f"{fn} must call markerEditor.invalidatePoses() after analysis (Bug-2)"
-        assert "_refreshCoverage()" in body, \
-            f"{fn} must re-run the (cache-busted) coverage refresh after analysis"
-    # invalidation must NOT be gated on a single-variant branch
+        assert "_reloadPrimaryAfterAnalysis()" in body, \
+            f"{fn} must re-establish the primary after analysis via the shared helper"
+        # must run AFTER the frame-preserving reload (the last repopulate that clears it)
+        assert body.find("_viewer.load(") < body.find("_reloadPrimaryAfterAnalysis()"), \
+            f"{fn} must re-pick the primary AFTER _viewer.load re-clears the selection"
+    # the helper re-picks the latest variant, re-applies the primary, and cache-busts
+    i = js.index("async function _reloadPrimaryAfterAnalysis")
+    body = js[i:i + 800]
+    assert "_coverageCache.clear()" in body, "helper must clear the stale coverage cache"
+    assert "pickLatestVariant" in body and "_applyOverlayPrimary" in body, \
+        "helper must re-pick the latest variant and re-apply the primary"
+    # refresh must NOT be gated on a single-variant branch
     assert "variants.length === 1" not in js, \
         "post-analysis refresh must not depend on variant count"
