@@ -932,3 +932,18 @@ def test_inline_default_marker_size_is_4():
     # the size-val label text must read 4
     lbl = re.search(r'id="ia3d-overlay-marker-size-val"[^>]*>([^<]*)<', html)
     assert lbl and lbl.group(1).strip() == "4", "marker-size-val label must read 4"
+
+
+def test_videoload_refreshes_finalize_coverage():
+    """Opening a previously-finalized video must repaint the 'Finalized frames'
+    timeline from its _analyzed file. _resetForOpen clears the finalize coverage, and
+    the finalize-toggle change handler (which would refresh it) does NOT fire on open
+    (the toggle is set checked WITHOUT dispatching change), so the videoLoad handler
+    itself must call _refreshFinalizeCoverage — else a finalized video opens with an
+    empty finalize timeline despite _analyzed holding the data."""
+    js = JS.read_text()
+    i = js.find('_viewer.on("videoLoad"')
+    assert i > 0, "videoLoad handler not found"
+    body = js[i:js.find("});", i)]  # the videoLoad handler body
+    assert "_refreshFinalizeCoverage" in body, \
+        "videoLoad must call _refreshFinalizeCoverage so a finalized video's timeline shows on open"

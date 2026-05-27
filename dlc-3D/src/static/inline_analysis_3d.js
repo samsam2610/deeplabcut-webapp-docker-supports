@@ -257,6 +257,11 @@ function _ensureViewer() {
     _refreshOverlayH5Variants();
     _refreshSibling();
     _refreshInitFileBtn();
+    // Repaint the "Finalized frames" timeline from this video's _analyzed file.
+    // _resetForOpen cleared it, and the finalize-toggle change handler (which would
+    // refresh it) doesn't fire on open (the toggle is set checked without dispatching
+    // change) — so a previously-finalized video would otherwise show an empty bar.
+    _refreshFinalizeCoverage();
   });
   _viewer.on("frameChange", () => _updateMetaStrip());
 
