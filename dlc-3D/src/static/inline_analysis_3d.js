@@ -64,6 +64,7 @@ let _finalizeCoverageBuckets = null;
 let _finalizeCoverageFrames = null;
 let _redrawFinalizeCoverage = () => {};
 let _snTimeline = null;   // statusNoteTimeline feature handle (for .redraw() on resize)
+let _pendingTagRestore = null;  // active status/note tags stashed across a post-analysis reload
 
 // Task 4: likelihood-filtered coverage cache + debounce timer.
 const _coverageCache = new Map(); // keyed by "<h5>:<threshold.toFixed(2)>:<width>"
@@ -209,6 +210,15 @@ function _ensureViewer() {
     },
     fps: _fps,
     frameBase: 0,
+    // Fires at the END of loadCsv (after it clears + rebuilds the tag chips). The
+    // post-analysis _viewer.load() triggers a same-video loadCsv that would wipe the
+    // user's active status/note filters; restore them here from the pre-load snapshot.
+    onCsv: () => {
+      if (_pendingTagRestore) {
+        _snTimeline?.setActiveTags(_pendingTagRestore);
+        _pendingTagRestore = null;
+      }
+    },
   });
   _viewer.use(_snTimeline);
 
@@ -891,13 +901,21 @@ async function _iaDiscoverVariants(_cam0) {
 // the model is left "unloaded" (markers linger on the stale layer; coverage no-ops on
 // the null primary). Cache-bust first so the fresh setPrimary + coverage re-fetch the
 // new poses + timeline. Call at the END of the analyze done-handlers, after the reload.
-async function _reloadPrimaryAfterAnalysis() {
+async function _reloadPrimaryAfterAnalysis(scorer) {
   _coverageCache.clear();
-  const latest = _pickLatestKinematic(await _fetchOverlayH5Variants());
+  const variants = await _fetchOverlayH5Variants();
+  // Prefer the EXACT file the analysis just wrote: the output is the raw companion
+  // `<stem><scorer>.h5` (ts=null). Selecting by scorer avoids _pickLatestKinematic
+  // jumping to a pre-existing postproc run (which carries a newer `ts` and would
+  // otherwise outrank the fresh companion). Fall back to the latest kinematic model
+  // only when the scorer is missing or no variant matches.
+  let target = null;
+  if (scorer) target = variants.find((v) => (v.path || "").endsWith(scorer + ".h5")) || null;
+  if (!target) target = _pickLatestKinematic(variants);
   const sel = $("ia3d-overlay-primary-select");
-  if (latest && sel) {
-    sel.value = latest.path;
-    await _applyOverlayPrimary(latest.path);   // fresh setPrimary + sibling + arms editing + _refreshCoverage
+  if (target && sel) {
+    sel.value = target.path;
+    await _applyOverlayPrimary(target.path);   // fresh setPrimary + sibling + arms editing + _refreshCoverage
   } else {
     _markerEditor?.invalidatePoses();
     _refreshCoverage();
@@ -1951,6 +1969,9 @@ async function _onAnalyzeClick() {
   }
   // Frame-preserving viewer reload so the overlay repaints over the same frame.
   if (_viewer && _primaryRel) {
+    // Snapshot the active status/note tag filters: the reload below re-fires loadCsv
+    // for the SAME video, which clears them — the _snTimeline onCsv hook restores this.
+    _pendingTagRestore = _snTimeline?.getActiveTags() || null;
     const keepFrame = _viewer.currentFrame();
     const framesMode = _iaMode === "frames";
     const sync = $("ia3d-sync-cam");
@@ -1963,11 +1984,11 @@ async function _onAnalyzeClick() {
     if (keepFrame > 0) _viewer.seek(keepFrame);
     _applyCamLabels();
   }
-  // Re-establish the primary to the just-written latest variant (the discover + the
-  // reload above both clear the selection per the clean-switch rule; the overlay was
-  // already on so the toggle auto-pick won't fire). Also cache-busts + repaints the
-  // markers + coverage timeline (the in-place h5 overwrite otherwise serves stale).
-  await _reloadPrimaryAfterAnalysis();
+  // Re-establish the primary to the just-written variant. Pass the analysis scorer so
+  // we land on the exact model just used (<stem><scorer>.h5), not a pre-existing
+  // postproc run. Also cache-busts + repaints the markers + coverage timeline (the
+  // in-place h5 overwrite otherwise serves stale).
+  await _reloadPrimaryAfterAnalysis(d0.scorer);
 }
 
 // ── Left-region start buttons ────────────────────────────────────────────────
@@ -2007,6 +2028,8 @@ async function _onAnalyzeRangeConfinedClick() {
   if (ov && !ov.checked) { ov.checked = true; ov.dispatchEvent(new Event("change", { bubbles: true })); }
   else { _markerEditor?.setOverlayEnabled(true); }
   if (_viewer && _primaryRel) {
+    // See _onAnalyzeClick: snapshot active tag filters across the same-video reload.
+    _pendingTagRestore = _snTimeline?.getActiveTags() || null;
     const keepFrame = _viewer.currentFrame();
     const framesMode = _iaMode === "frames";
     const sync = $("ia3d-sync-cam");
@@ -2014,9 +2037,9 @@ async function _onAnalyzeRangeConfinedClick() {
     if (keepFrame > 0) _viewer.seek(keepFrame);
     _applyCamLabels();
   }
-  // Re-establish the primary to the latest variant + cache-bust + repaint markers +
-  // coverage (see _onAnalyzeClick / _reloadPrimaryAfterAnalysis).
-  await _reloadPrimaryAfterAnalysis();
+  // Re-establish the primary to the model just used (by scorer) + cache-bust + repaint
+  // markers + coverage (see _onAnalyzeClick / _reloadPrimaryAfterAnalysis).
+  await _reloadPrimaryAfterAnalysis(d0.scorer);
   _refreshAnalyzeEnablement();
 }
 

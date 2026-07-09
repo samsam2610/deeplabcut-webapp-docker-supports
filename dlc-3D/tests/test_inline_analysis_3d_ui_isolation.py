@@ -852,25 +852,28 @@ def test_post_analysis_reestablishes_primary_and_refreshes():
     AND the _viewer.load videoLoad) clears the primary selection, and the overlay is
     already on so the toggle auto-pick won't fire — leaving the model 'unloaded'
     (markers linger on the stale layer, coverage no-ops on the null primary). BOTH
-    done handlers must re-establish the primary to the LATEST variant AFTER the reload
-    via the shared _reloadPrimaryAfterAnalysis() (cache-bust + re-pick + re-apply)."""
+    done handlers must re-establish the primary AFTER the reload via the shared
+    _reloadPrimaryAfterAnalysis(scorer) (cache-bust + re-pick + re-apply). The scorer
+    steers the re-pick to the exact model just used; _pickLatestKinematic is the
+    fallback."""
     js = JS.read_text()
     for fn in ("_onAnalyzeClick", "_onAnalyzeRangeConfinedClick"):
         i = js.find(f"async function {fn}(")
         assert i > 0, f"{fn} not found"
         end = js.find("\nasync function ", i + 1)
         body = js[i:end if end > 0 else i + 2200]
-        assert "_reloadPrimaryAfterAnalysis()" in body, \
+        assert "_reloadPrimaryAfterAnalysis(d0.scorer)" in body, \
             f"{fn} must re-establish the primary after analysis via the shared helper"
         # must run AFTER the frame-preserving reload (the last repopulate that clears it)
-        assert body.find("_viewer.load(") < body.find("_reloadPrimaryAfterAnalysis()"), \
+        assert body.find("_viewer.load(") < body.find("_reloadPrimaryAfterAnalysis(d0.scorer)"), \
             f"{fn} must re-pick the primary AFTER _viewer.load re-clears the selection"
-    # the helper re-picks the latest variant, re-applies the primary, and cache-busts
+    # the helper re-picks the just-used variant (scorer match, latest-kinematic
+    # fallback), re-applies the primary, and cache-busts
     i = js.index("async function _reloadPrimaryAfterAnalysis")
-    body = js[i:i + 800]
+    body = js[i:i + 900]
     assert "_coverageCache.clear()" in body, "helper must clear the stale coverage cache"
     assert "_pickLatestKinematic" in body and "_applyOverlayPrimary" in body, \
-        "helper must re-pick the latest kinematic variant and re-apply the primary"
+        "helper must re-pick the variant (scorer or latest-kinematic fallback) and re-apply the primary"
     # refresh must NOT be gated on a single-variant branch
     assert "variants.length === 1" not in js, \
         "post-analysis refresh must not depend on variant count"

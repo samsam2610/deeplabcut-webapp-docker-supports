@@ -231,5 +231,23 @@ export function statusNoteTimeline(config = {}) {
     // Force a redraw at the current frame — consumers call this after resizing
     // the status/note canvases (e.g. when viewer zoom widens the timelines).
     redraw() { redraw(curFrame()); },
+    // Read the current active tag-filter selection. Inert accessor — used by
+    // consumers that want to preserve the filter across a same-video reload (e.g.
+    // the inline-3D card's post-analysis _viewer.load, which would otherwise clear
+    // it via loadCsv). Returns plain arrays so the caller can stash them.
+    getActiveTags() {
+      return { status: [...activeStatus], note: [...activeNote] };
+    },
+    // Restore a previously-read selection, keeping only values that still exist in
+    // the current color maps (prune stale after a CSV reload), then repaint.
+    setActiveTags(tags) {
+      const t = tags || {};
+      activeStatus.clear();
+      activeNote.clear();
+      for (const v of t.status || []) if (v in statusColors) activeStatus.add(v);
+      for (const v of t.note || []) if (v in noteColors) activeNote.add(v);
+      rebuildChips();
+      redraw(curFrame());
+    },
   };
 }
