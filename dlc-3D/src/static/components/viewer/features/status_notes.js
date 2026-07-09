@@ -40,6 +40,10 @@ export function statusNoteTimeline(config = {}) {
   let noteColors = {};
   const activeStatus = new Set();
   const activeNote = new Set();
+  // The last timeline the user navigated via its ◀▶ button — { field, activeSet }.
+  // Ctrl+Arrow repeats a jump on this timeline (see onCtrlArrowKey). null until a
+  // nav button is clicked, so Ctrl+Arrow falls through to the viewer's skip.
+  let lastNav = null;
 
   const seekToRow = (f) => f + frameBase;
   const rowToSeek = (fn) => fn - frameBase;
@@ -173,6 +177,30 @@ export function statusNoteTimeline(config = {}) {
     if (fn != null) { viewer.pause(); viewer.seek(rowToSeek(fn)); }
   }
 
+  // Record the timeline as the Ctrl+Arrow target, then navigate. Wired to the ◀▶
+  // buttons so the shortcut follows whichever timeline the user last navigated.
+  function doNav(field, activeSet, dir) {
+    lastNav = { field, activeSet };
+    nav(field, activeSet, dir);
+  }
+
+  // Ctrl+Arrow (physical Ctrl on Mac + Windows) repeats a jump on the last-used
+  // timeline. Capture phase so it runs before the viewer's own keydown handler
+  // (which maps Ctrl+Arrow to skip-N-frames) and can suppress it via
+  // stopImmediatePropagation. Falls through to the viewer's skip when no timeline is
+  // active, the active filter is empty, or this card's bar isn't visible.
+  function onCtrlArrowKey(e) {
+    if (!e.ctrlKey || (e.key !== "ArrowLeft" && e.key !== "ArrowRight")) return;
+    const t = e.target;
+    if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.tagName === "SELECT")) return;
+    if (!lastNav || lastNav.activeSet.size === 0) return;
+    const wrap = lastNav.field === "note" ? els.noteWrap : els.statusWrap;
+    if (!wrap || wrap.offsetParent === null) return;   // hidden bar / inactive card → let it skip
+    e.preventDefault();
+    e.stopImmediatePropagation();
+    nav(lastNav.field, lastNav.activeSet, e.key === "ArrowRight" ? 1 : -1);
+  }
+
   async function save(kind) {
     if (!viewer || !csvPath || !endpoints.saveRow) return;
     if (kind === "note" && !els.noteInput) return;     // nothing to save without the input
@@ -218,14 +246,16 @@ export function statusNoteTimeline(config = {}) {
       ];
       const ac = new AbortController();
       const sig = { signal: ac.signal };
-      if (els.statusPrev) els.statusPrev.addEventListener("click", () => nav("frame_line_status", activeStatus, -1), sig);
-      if (els.statusNext) els.statusNext.addEventListener("click", () => nav("frame_line_status", activeStatus, 1), sig);
-      if (els.notePrev) els.notePrev.addEventListener("click", () => nav("note", activeNote, -1), sig);
-      if (els.noteNext) els.noteNext.addEventListener("click", () => nav("note", activeNote, 1), sig);
+      if (els.statusPrev) els.statusPrev.addEventListener("click", () => doNav("frame_line_status", activeStatus, -1), sig);
+      if (els.statusNext) els.statusNext.addEventListener("click", () => doNav("frame_line_status", activeStatus, 1), sig);
+      if (els.notePrev) els.notePrev.addEventListener("click", () => doNav("note", activeNote, -1), sig);
+      if (els.noteNext) els.noteNext.addEventListener("click", () => doNav("note", activeNote, 1), sig);
       if (els.saveStatusBtn) els.saveStatusBtn.addEventListener("click", () => save("status"), sig);
       if (els.saveNoteBtn) els.saveNoteBtn.addEventListener("click", () => save("note"), sig);
       if (els.statusCanvas) els.statusCanvas.addEventListener("click", (e) => timelineSeek(e, els.statusCanvas), sig);
       if (els.noteCanvas) els.noteCanvas.addEventListener("click", (e) => timelineSeek(e, els.noteCanvas), sig);
+      // Ctrl+Arrow timeline nav — capture phase so it pre-empts the viewer's skip.
+      document.addEventListener("keydown", onCtrlArrowKey, { capture: true, signal: ac.signal });
       v.on("teardown", () => { for (const d of disposers) d(); ac.abort(); });
     },
     // Force a redraw at the current frame — consumers call this after resizing
