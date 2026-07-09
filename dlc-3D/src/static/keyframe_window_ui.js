@@ -6,7 +6,7 @@
 // opts: { viewer, panelEl, els:{keyframe,lock,before,after,length,range}, settingKey, onChange? }
 import { syncWindow, finalizeRange } from "./components/viewer/internal/keyframe_window.mjs";
 
-export function makeKeyframeWindow({ viewer, panelEl, els, settingKey, onChange }) {
+export function makeKeyframeWindow({ viewer, panelEl, els, settingKey, onChange, onLockChange }) {
   let keyframe = 0;
   let locked = false;
   let saveTimer = null;
@@ -25,10 +25,19 @@ export function makeKeyframeWindow({ viewer, panelEl, els, settingKey, onChange 
   }
 
   function setLock(on) {
-    locked = !!on;
+    // Single source of truth for lock state: every path (checkbox click, keyframe
+    // typing auto-lock, 'l' shortcut) flips lock HERE and notifies the consumer via
+    // onLockChange — so the inline card's range-confine (_applyLockState) stays in
+    // sync even when the shortcut sets els.lock.checked programmatically (which does
+    // NOT fire a native 'change' event). The `changed` guard suppresses redundant
+    // work on repeated toggles to the same value.
+    const next = !!on;
+    const changed = next !== locked;
+    locked = next;
     if (els.lock) els.lock.checked = locked;
     if (!locked && viewer) keyframe = viewer.currentFrame();
     refresh();
+    if (changed && onLockChange) onLockChange(locked);
   }
 
   function onWindowInput(edited) {
@@ -77,9 +86,11 @@ export function makeKeyframeWindow({ viewer, panelEl, els, settingKey, onChange 
   [els.keyframe, els.before, els.after, els.length].forEach((el) => {
     if (el) el.addEventListener("keydown", (e) => e.stopPropagation());
   });
-  if (els.lock) els.lock.addEventListener("change", (e) => setLock(e.target.checked));
-  if (viewer) viewer.on("frameChange", (n) => { if (!locked) { keyframe = n; refresh(); } });
-  document.addEventListener("keydown", (e) => {
+  // Named handlers + captured disposers so destroy() can fully unwire this instance.
+  // Prevents listener accumulation across viewer teardown/rebuild (open → Back →
+  // reopen), which otherwise leaves dead document-keydown + checkbox listeners behind.
+  const onLockToggle = (e) => setLock(e.target.checked);
+  const onDocKeydown = (e) => {
     if (e.key === "l" || e.key === "L") {
       if (!panelEl || panelEl.offsetParent === null) return;      // only when this panel is visible
       const t = e.target;
@@ -87,10 +98,21 @@ export function makeKeyframeWindow({ viewer, panelEl, els, settingKey, onChange 
       e.preventDefault();
       setLock(!locked);
     }
-  });
+  };
+  if (els.lock) els.lock.addEventListener("change", onLockToggle);
+  const disposeFrameChange = viewer
+    ? viewer.on("frameChange", (n) => { if (!locked) { keyframe = n; refresh(); } })
+    : null;
+  document.addEventListener("keydown", onDocKeydown);
+
+  function destroy() {
+    if (els.lock) els.lock.removeEventListener("change", onLockToggle);
+    document.removeEventListener("keydown", onDocKeydown);
+    if (disposeFrameChange) disposeFrameChange();
+  }
 
   return {
     getRange: () => { const { before, after } = vals(); return finalizeRange(keyframe, before, after, fc()); },
-    refresh, load, setLock,
+    refresh, load, setLock, destroy,
   };
 }

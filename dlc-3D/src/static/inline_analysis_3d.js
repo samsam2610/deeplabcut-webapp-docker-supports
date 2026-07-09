@@ -498,6 +498,10 @@ function _wireViewerChrome(v) {
         _drawLockOverlays();
       }
     },
+    // Single lock-propagation path: fires for checkbox click, keyframe typing
+    // auto-lock, AND the 'l' shortcut (which sets .checked programmatically and so
+    // never emits a native 'change'). Replaces the old direct 'change' listener.
+    onLockChange: () => _applyLockState(),
   });
 
   _clipKW = makeKeyframeWindow({
@@ -1472,6 +1476,13 @@ function _resetForOpen() {
 
 // Back button: tear down the viewer and hide the player section.
 function _iaBack() {
+  // Unwire the keyframe windows first: their document-keydown + checkbox listeners
+  // live on persistent nodes and would otherwise accumulate across open → Back →
+  // reopen cycles. _ensureViewer composes fresh ones on the next open.
+  _finalizeKW?.destroy();
+  _finalizeKW = null;
+  _clipKW?.destroy();
+  _clipKW = null;
   _viewer?.destroy();
   _viewer = null;
   _markerEditor = null; // torn down with the viewer; _ensureViewer composes a fresh one
@@ -2294,7 +2305,11 @@ function _wireStereoDispatch() {
   $("ia3d-btn-analyze-range-confined")?.addEventListener("click", _onAnalyzeRangeConfinedClick);
   $("ia3d-frames-per-click")?.addEventListener("input", _refreshAnalyzeEnablement);
   $("ia3d-finalize-lock")?.addEventListener("change", _refreshAnalyzeEnablement);
-  $("ia3d-finalize-lock")?.addEventListener("change", _applyLockState);
+  // NOTE: the finalize keyframe-lock is now driven exclusively through the keyframe
+  // window's onLockChange callback (see makeKeyframeWindow above). A direct DOM
+  // change-listener that called _applyLockState would miss the 'l' shortcut
+  // (programmatic .checked fires no native change event) — that was Bug 1. Do NOT
+  // re-add such a listener here; route lock changes through onLockChange instead.
 
   // Per-project quick-tags (postfix / status / note). Static containers + inputs
   // — wired once here; loaded per-project on each video open.
