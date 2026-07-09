@@ -58,18 +58,6 @@
    #ia3d-viewer-mount that the VideoViewer library populates with .vv-* tiles.
    Mirrors viewer_3d.css's #va3d-viewer-mount rules (no forced aspect-ratio).
    The legacy .ia3d-tile* rules above are kept dormant (orphaned by the mount). */
-/* Keep the video tile in view while scrolling the controls/timelines below it.
-   Sticks within .ia3d-left, so it releases at the end of the card. Video-only: the
-   scrubber/controls scroll; ←/→ and Ctrl+Arrow still navigate frames while scrolled.
-   z-index + opaque background paint the pinned tile over the content sliding beneath
-   it (the tile gaps are otherwise transparent). .vv-frame-img caps at 70vh, so the
-   pinned mount fits the viewport. */
-#inline-analysis-3d-card #ia3d-viewer-mount {
-  position: sticky;
-  top: .5rem;
-  z-index: 5;
-  background: var(--bg);
-}
 #ia3d-viewer-mount .vv-tile-row { gap: .75rem; }
 #ia3d-viewer-mount .vv-tile { display: flex; flex-direction: column; flex: 1 1 0; min-width: 0; }
 #ia3d-viewer-mount .vv-tile-label { font-size: .72rem; color: var(--text-dim); margin-bottom: .2rem; order: -1; }
@@ -199,7 +187,20 @@
 
 #inline-analysis-3d-card .ia3d-split { display: flex; gap: 1rem; align-items: flex-start; }
 #inline-analysis-3d-card .ia3d-left  { flex: 1 1 0; min-width: 0; position: relative; }
-#inline-analysis-3d-card .ia3d-right { width: 300px; flex-shrink: 0; }
+/* Finalize sub-card follows the scroll: sticky sidebar that stays in view while the
+   taller left column (video + controls + timelines) scrolls past, releasing at the
+   end of the card (it sticks within .ia3d-split; the split is align-items:flex-start,
+   so the column keeps its natural height). max-height + overflow-y keep it usable when
+   its own content is taller than the viewport. */
+#inline-analysis-3d-card .ia3d-right {
+  width: 300px;
+  flex-shrink: 0;
+  position: sticky;
+  top: .5rem;
+  align-self: flex-start;
+  max-height: calc(100vh - 1rem);
+  overflow-y: auto;
+}
 
 /* Keyframe-lock red flag above the cam0 tile label (normal flow, not overlaying). */
 #inline-analysis-3d-card .ia3d-lock-flag {
