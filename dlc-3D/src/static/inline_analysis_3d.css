@@ -58,6 +58,18 @@
    #ia3d-viewer-mount that the VideoViewer library populates with .vv-* tiles.
    Mirrors viewer_3d.css's #va3d-viewer-mount rules (no forced aspect-ratio).
    The legacy .ia3d-tile* rules above are kept dormant (orphaned by the mount). */
+/* Keep the video tile in view while scrolling the controls/timelines below it.
+   Sticks within .ia3d-left, so it releases at the end of the card. Video-only: the
+   scrubber/controls scroll; ←/→ and Ctrl+Arrow still navigate frames while scrolled.
+   z-index + opaque background paint the pinned tile over the content sliding beneath
+   it (the tile gaps are otherwise transparent). .vv-frame-img caps at 70vh, so the
+   pinned mount fits the viewport. */
+#inline-analysis-3d-card #ia3d-viewer-mount {
+  position: sticky;
+  top: .5rem;
+  z-index: 5;
+  background: var(--bg);
+}
 #ia3d-viewer-mount .vv-tile-row { gap: .75rem; }
 #ia3d-viewer-mount .vv-tile { display: flex; flex-direction: column; flex: 1 1 0; min-width: 0; }
 #ia3d-viewer-mount .vv-tile-label { font-size: .72rem; color: var(--text-dim); margin-bottom: .2rem; order: -1; }
