@@ -282,8 +282,14 @@
           </div>
         </div>
         <!-- end .ia3d-ctrl-top -->
+        </div>
+        <!-- end .ia3d-controls-left (now just controls + frame/time) -->
 
-        <!-- Body-part chip selector (fills below controls; visible when overlay is on and H5 is loaded) -->
+        <!-- Marker area flank: bodypart chips + edit controls, moved here from below the
+             controls (into the space the analyze buttons vacated → analyze now lives in
+             the finalize panel) so the four timelines pack up compactly. -->
+        <div class="ia3d-marker-flank">
+        <!-- Body-part chip selector (visible when overlay is on and H5 is loaded) -->
         <div id="ia3d-bp-list-wrap" class="ia3d-bp-chips-wrap hidden" style="margin-top:.35rem;margin-bottom:.2rem">
           <div class="fl-bodypart-list" id="ia3d-bp-chips"></div>
         </div>
@@ -306,16 +312,7 @@
           </label>
         </div>
         </div>
-        <!-- end .ia3d-controls-left -->
-
-        <!-- Analysis-start flank: from-current-frame / for-range buttons (SEPARATE from the
-             top Analysis-Parameters #ia3d-btn-analyze-range) -->
-        <div class="ia3d-start-flank">
-          <span id="ia3d-start-count" class="ia3d-start-count">≈ <b id="ia3d-start-count-n">0</b> frames from current frame</span>
-          <button id="ia3d-btn-analyze-current" class="btn-sm btn-create" disabled>▶ Start analysis from current frame</button>
-          <button id="ia3d-btn-analyze-range-confined" class="btn-sm btn-create" disabled>▶ Start analysis for range</button>
-          <span id="ia3d-start-hint" class="ia3d-start-hint"></span>
-        </div>
+        <!-- end .ia3d-marker-flank -->
         </div>
         <!-- end .ia3d-controls-flank -->
 
@@ -412,6 +409,25 @@
             <div style="margin-bottom:.3rem">
               <span id="ia3d-finalize-range" style="font-size:.72rem;color:var(--text-dim);font-family:var(--mono)">frames 0–0 (0)</span>
             </div>
+          </div>
+          <!-- end #ia3d-finalize-controls (keyframe group — gated by the toggle) -->
+
+          <!-- Always-visible analyze block (moved from the old analysis-start flank).
+               Not gated: 'Start from current' + the extract button work outside finalize
+               mode; 'Start for range' stays disabled until the keyframe is locked. -->
+          <div class="ia3d-analyze-block">
+            <span id="ia3d-start-count" class="ia3d-start-count">≈ <b id="ia3d-start-count-n">0</b> frames from current frame</span>
+            <button id="ia3d-btn-analyze-current" class="btn-sm btn-create" disabled>▶ Start analysis from current frame</button>
+            <button id="ia3d-btn-analyze-range-confined" class="btn-sm btn-create" disabled>▶ Start analysis for range</button>
+            <span id="ia3d-start-hint" class="ia3d-start-hint"></span>
+            <button id="ia3d-add-frame-nomarkers-btn" class="btn-sm"
+              title="Save the raw current frame as a lossless PNG in labeled-data/ (no markers, no CSV entry)">
+              ＋ Add current frame to labeled-data
+            </button>
+          </div>
+
+          <!-- Finalize outputs — gated by the same 'Finalize analysis' toggle. -->
+          <div id="ia3d-finalize-outputs" class="hidden">
             <div style="display:flex;align-items:center;gap:.4rem;flex-wrap:wrap;margin-bottom:.4rem">
               <button class="btn-sm btn-create" id="ia3d-finalize-add-btn"
                 title="Save marker edits to both cameras' layers, then copy this keyframe window into each camera's _analyzed file">

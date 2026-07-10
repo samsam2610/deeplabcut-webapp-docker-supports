@@ -231,20 +231,27 @@
   display: flex; align-items: center; gap: .4rem;
   padding-left: .7rem; border-left: 1px solid var(--border);
 }
-#inline-analysis-3d-card .ia3d-start-flank {
-  width: 270px; flex-shrink: 0; display: flex; flex-direction: column;
-  align-items: stretch; justify-content: center; gap: .4rem;
+/* Marker area flank (right of the playback controls): bodypart chips + edit controls,
+   relocated here from below the controls into the space the analyze buttons vacated. */
+#inline-analysis-3d-card .ia3d-marker-flank {
+  width: 270px; flex-shrink: 0; display: flex; flex-direction: column; gap: .4rem;
   border-left: 1px solid var(--border); padding-left: .9rem;
 }
-#inline-analysis-3d-card .ia3d-start-flank .btn-sm { width: 100%; padding: .5rem; }
+/* Chips scroll within a cap so a long bodypart list never pushes the timelines down;
+   the edit-controls row stays visible below them. */
+#inline-analysis-3d-card .ia3d-bp-chips-wrap {
+  padding-top: 0; max-height: 160px; overflow-y: auto;
+}
+
+/* Analyze block inside the finalize panel (moved from the old start flank): the count,
+   the two full-width analyze buttons + hint, and the add-current-frame button. */
+#inline-analysis-3d-card .ia3d-analyze-block {
+  display: flex; flex-direction: column; gap: .4rem; margin: .45rem 0;
+}
+#inline-analysis-3d-card .ia3d-analyze-block .btn-sm { width: 100%; padding: .5rem; }
 #inline-analysis-3d-card .ia3d-start-count { font-size: .74rem; color: var(--text); text-align: center; }
 #inline-analysis-3d-card .ia3d-start-count b { color: var(--accent); }
 #inline-analysis-3d-card .ia3d-start-hint { font-size: .66rem; color: var(--text-dim); text-align: center; line-height: 1.4; }
-
-/* Body-marker chips fill the empty space below the controls + frame#/time. */
-#inline-analysis-3d-card .ia3d-bp-chips-wrap {
-  flex: 1 1 0; padding-top: .4rem; border-top: 1px solid var(--border);
-}
 
 /* Compact timeline bar header (label + nav + chips inline). */
 #inline-analysis-3d-card .ia3d-bar { margin-top: .5rem; }

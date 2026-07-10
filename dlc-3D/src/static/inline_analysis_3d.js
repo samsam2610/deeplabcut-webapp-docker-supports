@@ -1164,18 +1164,21 @@ function _wireCurationChrome() {
   });
 
   // Extract Frame: raw PNG(s) into labeled-data (no CSV entry).
-  const extractBtn = $("ia3d-extract-frame-btn");
-  extractBtn?.addEventListener("click", async () => {
+  // Extract the current raw frame as a PNG into labeled-data/ (no markers, no CSV
+  // entry). Shared by the Dataset-Curation "Extract Frame" button and the finalize
+  // panel's "Add current frame to labeled-data" button (each passes its own button +
+  // status sink so feedback lands in the right place).
+  async function _extractCurrentFrameToLabeledData(btn, status) {
     if (!_iaMode || _iaMode === "frames") {
-      _curStatus("No video loaded — open a video first.", true);
+      status("No video loaded — open a video first.", true);
       return;
     }
-    extractBtn.disabled = true;
-    _curStatus("Extracting…");
+    if (btn) btn.disabled = true;
+    status("Extracting…");
     if (_shouldDoubleUp()) {
       const res = await _saveFramePair(_viewer.currentFrame());
-      if (res.ok) _curStatus(_pairSavedMsg(res.body || {}));
-      else _curStatus(`Extract failed: ${res.error || "unknown"}`, true);
+      if (res.ok) status(_pairSavedMsg(res.body || {}));
+      else status(`Extract failed: ${res.error || "unknown"}`, true);
     } else {
       try {
         const r = await fetch("/dlc/curator/extract-frame", {
@@ -1184,15 +1187,20 @@ function _wireCurationChrome() {
         });
         const data = await r.json();
         if (!r.ok) throw new Error(data.error || `HTTP ${r.status}`);
-        _curStatus(data.duplicate
+        status(data.duplicate
           ? `Already extracted: ${data.saved}`
           : `Saved ${data.saved} (${data.folder}, #${data.frame_count})`);
       } catch (err) {
-        _curStatus(`Extract failed: ${err.message}`, true);
+        status(`Extract failed: ${err.message}`, true);
       }
     }
-    extractBtn.disabled = false;
-  });
+    if (btn) btn.disabled = false;
+  }
+  const extractBtn = $("ia3d-extract-frame-btn");
+  extractBtn?.addEventListener("click", () => _extractCurrentFrameToLabeledData(extractBtn, _curStatus));
+  // Finalize-panel twin: same action, feedback in the always-visible #ia3d-status.
+  const addFrameBtn = $("ia3d-add-frame-nomarkers-btn");
+  addFrameBtn?.addEventListener("click", () => _extractCurrentFrameToLabeledData(addFrameBtn, _setStatus));
 
   // Add to Dataset.
   const addBtn = $("ia3d-add-to-dataset-btn");
@@ -1475,6 +1483,7 @@ function _resetForOpen() {
   const finToggle = $("ia3d-finalize-toggle");
   if (finToggle) finToggle.checked = true;   // Finalize is on by default (spec)
   $("ia3d-finalize-controls")?.classList.remove("hidden");
+  $("ia3d-finalize-outputs")?.classList.remove("hidden");
   const finStatus = $("ia3d-finalize-status");
   if (finStatus) { finStatus.textContent = ""; finStatus.className = "fe-extract-status"; }
   _markerEditor?.setEditable(true);
@@ -2345,7 +2354,10 @@ function _wireStereoDispatch() {
   ia3dFinalizeToggle?.addEventListener("change", () => {
     const on = !!ia3dFinalizeToggle.checked;
     _markerEditor?.setEditable(on);
+    // Two gated groups around the always-visible analyze block: keyframe group +
+    // finalize-outputs group. Toggle both with the finalize checkbox.
     $("ia3d-finalize-controls")?.classList.toggle("hidden", !on);
+    $("ia3d-finalize-outputs")?.classList.toggle("hidden", !on);
     const ov = $("ia3d-overlay-toggle");
     if (on&&ov&&!ov.checked){ov.checked=true;ov.dispatchEvent(new Event("change"));}
     if (on) _ia3dPopulateFinalizeFields();
