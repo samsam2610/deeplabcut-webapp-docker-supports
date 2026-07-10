@@ -43,14 +43,17 @@ def test_two_gated_groups_present():
     assert kf < analyze < outputs, "order must be keyframe group → analyze block → outputs group"
 
 
-def test_marker_area_relocated_into_flank():
+def test_marker_area_stays_below_controls():
+    # Reverted per user preference: the marker area keeps its original position below
+    # the playback controls (inside .ia3d-controls-left), not relocated to a flank.
     html = CARD.read_text()
-    flank = _idx(html, 'class="ia3d-marker-flank"')
+    assert 'class="ia3d-marker-flank"' not in html, "marker area must NOT be in a flank"
+    ctrl = _idx(html, 'class="ia3d-controls-left"')
     chips = _idx(html, 'id="ia3d-bp-list-wrap"')
     edit = _idx(html, 'id="ia3d-marker-edit-controls"')
     panel = _idx(html, 'id="ia3d-finalize-panel"')
-    # chips + edit controls come after the flank opens and before the finalize panel
-    assert flank < chips < panel and flank < edit < panel, "marker area must be inside the marker flank"
+    # chips + edit controls sit below the controls and before the finalize panel
+    assert ctrl < chips < panel and ctrl < edit < panel, "marker area must stay below the controls"
 
 
 # ── JS ──────────────────────────────────────────────────────────────────────
@@ -75,7 +78,7 @@ def test_finalize_panel_still_sticky():
     assert m and "position: sticky" in m.group(1), "finalize panel must remain sticky (scroll-follow)"
 
 
-def test_marker_flank_css_present():
+def test_analyze_block_css_present():
     css = CSS.read_text()
-    assert re.search(r"\.ia3d-marker-flank\s*\{", css), "marker flank needs a layout rule"
     assert re.search(r"\.ia3d-analyze-block\s*\{", css), "analyze block needs a layout rule"
+    assert not re.search(r"\.ia3d-marker-flank\s*\{", css), "marker flank CSS should be reverted"
