@@ -1168,14 +1168,17 @@ function _wireCurationChrome() {
   // entry). Shared by the Dataset-Curation "Extract Frame" button and the finalize
   // panel's "Add current frame to labeled-data" button (each passes its own button +
   // status sink so feedback lands in the right place).
-  async function _extractCurrentFrameToLabeledData(btn, status) {
+  async function _extractCurrentFrameToLabeledData(btn, status, forceBoth = false) {
     if (!_iaMode || _iaMode === "frames") {
       status("No video loaded — open a video first.", true);
       return;
     }
     if (btn) btn.disabled = true;
     status("Extracting…");
-    if (_shouldDoubleUp()) {
+    // forceBoth: extract from BOTH videos whenever a sibling tile is mounted,
+    // regardless of the "Extract from both cams" checkbox (single-cam falls back to one).
+    const bothCams = (forceBoth && _viewer && _viewer.tiles.length > 1) || _shouldDoubleUp();
+    if (bothCams) {
       const res = await _saveFramePair(_viewer.currentFrame());
       if (res.ok) status(_pairSavedMsg(res.body || {}));
       else status(`Extract failed: ${res.error || "unknown"}`, true);
@@ -1198,9 +1201,9 @@ function _wireCurationChrome() {
   }
   const extractBtn = $("ia3d-extract-frame-btn");
   extractBtn?.addEventListener("click", () => _extractCurrentFrameToLabeledData(extractBtn, _curStatus));
-  // Finalize-panel twin: same action, feedback in the always-visible #ia3d-status.
+  // Finalize-panel twin: same action, forced to BOTH videos, feedback in #ia3d-status.
   const addFrameBtn = $("ia3d-add-frame-nomarkers-btn");
-  addFrameBtn?.addEventListener("click", () => _extractCurrentFrameToLabeledData(addFrameBtn, _setStatus));
+  addFrameBtn?.addEventListener("click", () => _extractCurrentFrameToLabeledData(addFrameBtn, _setStatus, true));
 
   // Add to Dataset.
   const addBtn = $("ia3d-add-to-dataset-btn");

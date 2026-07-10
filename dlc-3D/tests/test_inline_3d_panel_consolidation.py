@@ -63,12 +63,17 @@ def test_toggle_and_reset_drive_both_gated_groups():
     assert 'ia3d-finalize-outputs")?.classList.remove("hidden"' in js, "reset must show finalize-outputs"
 
 
-def test_new_button_reuses_shared_extract_fn():
+def test_new_button_reuses_shared_extract_fn_forcing_both_cams():
     js = JS.read_text()
     assert "_extractCurrentFrameToLabeledData" in js, "extract logic must be a shared function"
+    # new button wired to the shared fn with forceBoth=true (extract from both videos)
     assert re.search(
-        r'ia3d-add-frame-nomarkers-btn"\)[\s\S]{0,120}_extractCurrentFrameToLabeledData', js
-    ), "new button must be wired to the shared extract function"
+        r'ia3d-add-frame-nomarkers-btn"\)[\s\S]{0,160}_extractCurrentFrameToLabeledData\([^)]*,\s*true\s*\)', js
+    ), "new button must force both-cams extraction"
+    # the shared fn honours forceBoth when a sibling tile is mounted
+    assert re.search(r"forceBoth\s*&&\s*_viewer\s*&&\s*_viewer\.tiles\.length\s*>\s*1", js), (
+        "forceBoth must extract both cams when a sibling tile exists"
+    )
 
 
 # ── CSS ─────────────────────────────────────────────────────────────────────
