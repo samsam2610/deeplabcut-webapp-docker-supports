@@ -2115,6 +2115,25 @@ async function _initStatus(v) {
   catch (e) { return false; }
 }
 
+// Does [startFrame, endFrame] overlap any finalized frame per the amber "_analyzed"
+// coverage bar (the same buckets it draws from — each covered bucket = ≥1 finalized
+// frame)? Returns true/false, or null when the coverage isn't loaded yet (caller then
+// treats "unknown" as a reason to still prompt, so we never silently overwrite).
+function _rangeOverlapsFinalized(startFrame, endFrame) {
+  const buckets = _finalizeCoverageBuckets;
+  if (!buckets || !buckets.length || !_viewer) return null;
+  const fc = _viewer.frameCount();
+  if (!fc) return null;
+  const nB = buckets.length;
+  for (let b = 0; b < nB; b++) {
+    if (!buckets[b]) continue;                          // uncovered bucket → skip
+    const bStart = Math.floor((b * fc) / nB);
+    const bEnd = Math.floor(((b + 1) * fc) / nB) - 1;   // this bucket's frame span
+    if (bStart <= endFrame && bEnd >= startFrame) return true;
+  }
+  return false;
+}
+
 // Finalize the current keyframe-window range into both cams' _analyzed.
 // Returns { ok, start, n }. Shared by the Add-range and Finalize-and-extract
 // buttons; callers manage their own button disabled-state.
@@ -2131,7 +2150,11 @@ async function _doFinalizeAdd() {
   try {
     const e0 = await _initStatus(cam0Video);
     const e1 = (_siblingPath && cam1Layer) ? await _initStatus(_siblingPath) : false;
-    if ((e0 || e1) && !window.confirm(
+    // Only warn when those frames actually hold finalized data (per the amber coverage
+    // bar). A range that is empty in _analyzed has nothing to overwrite → no prompt.
+    // overlap === false → skip prompt; true/null (has data / unknown) → prompt.
+    const overlap = _rangeOverlapsFinalized(startFrame, startFrame + nFrames - 1);
+    if ((e0 || e1) && overlap !== false && !window.confirm(
         `Overwrite frames ${startFrame}–${startFrame + nFrames - 1} in the existing _analyzed file(s)` +
         `${e0 && e1 ? " on both cameras" : (e0 ? " on cam0" : " on cam1")}?\n\nThis replaces any curated values already saved for those frames.`)) {
       if (st) { st.textContent = "Cancelled."; st.className = "fe-extract-status"; }
