@@ -25,6 +25,7 @@ import { pickLatestVariant } from "./components/viewer/internal/pick_latest_vari
 import { makeKeyframeWindow } from "./keyframe_window_ui.js";
 import { clampToBounds } from "./internal/clamp_bounds.mjs";
 import { addTag, removeTag } from "./internal/tag_list.mjs";
+import { tagKeyframes, mergeWindows } from "./components/viewer/internal/tag_batch.mjs";
 import { state } from "/static/js/state.js";
 
 // ── Module state ────────────────────────────────────────────────────────────
@@ -210,6 +211,8 @@ function _ensureViewer() {
     },
     fps: _fps,
     frameBase: 0,
+    // Recompute tag-lock enablement whenever the user toggles a note/status chip.
+    onActiveTagsChange: () => _refreshTagLockEnablement(),
     // Fires at the END of loadCsv (after it clears + rebuilds the tag chips). The
     // post-analysis _viewer.load() triggers a same-video loadCsv that would wipe the
     // user's active status/note filters; restore them here from the pre-load snapshot.
@@ -218,6 +221,9 @@ function _ensureViewer() {
         _snTimeline?.setActiveTags(_pendingTagRestore);
         _pendingTagRestore = null;
       }
+      // A CSV (re)load clears the active-note set (or restores it above); refresh the
+      // tag-lock so a video switch drops the lock and a same-video reload keeps it.
+      _refreshTagLockEnablement();
     },
   });
   _viewer.use(_snTimeline);
@@ -1511,6 +1517,9 @@ function _iaBack() {
   // reopen cycles. _ensureViewer composes fresh ones on the next open.
   _finalizeKW?.destroy();
   _finalizeKW = null;
+  const _tagLock = $("ia3d-tag-lock");
+  if (_tagLock) { _tagLock.checked = false; _tagLock.disabled = true; }
+  _snTimeline?.setNoteChipsLocked(false);
   _clipKW?.destroy();
   _clipKW = null;
   _viewer?.destroy();
@@ -2055,6 +2064,110 @@ async function _onAnalyzeRangeConfinedClick() {
   _refreshAnalyzeEnablement();
 }
 
+// Analyze BOTH cameras over every frame carrying the single locked note tag.
+// Each tagged frame expands to the finalize before/after window; overlapping windows
+// are merged (deduped) into minimal ranges. Gated by the UI (finalize on && tag-lock
+// && sibling). Reuses the same session + dual-cam submit/poll as the for-range path.
+async function _onAnalyzeTagClick() {
+  const lastRun = _ia3dEl.lastRun();
+  const cam0 = _cam0Path();
+  if (!cam0) { if (lastRun) lastRun.textContent = "Pick a cam0 video first."; return; }
+  if (!_siblingPath) { if (lastRun) lastRun.textContent = "No sibling camera — cannot run 3D analysis."; return; }
+  const activeNotes = _snTimeline ? _snTimeline.getActiveTags().note : [];
+  if (activeNotes.length !== 1) { if (lastRun) lastRun.textContent = "Activate exactly one note tag first."; return; }
+  const tagValue = activeNotes[0];
+  const frames = tagKeyframes(_snTimeline.getRows(), tagValue);
+  const before = parseInt($("ia3d-finalize-before")?.value, 10) || 0;
+  const after  = parseInt($("ia3d-finalize-after")?.value, 10) || 0;
+  const frameCount = _viewer ? _viewer.frameCount() : 0;
+  const ranges = mergeWindows(frames, before, after, frameCount);
+  const totalFrames = ranges.reduce((s, r) => s + r.n, 0);
+  if (!frames.length || !ranges.length || totalFrames < 1) {
+    if (lastRun) lastRun.textContent = `Note tag "${tagValue}" has no frames to analyze.`;
+    return;
+  }
+  const ok = window.confirm(
+    `Analyze note tag "${tagValue}":\n` +
+    `${frames.length} tagged frame(s) → ${ranges.length} range(s) → ${totalFrames} frames × 2 cameras.\n\nProceed?`
+  );
+  if (!ok) return;
+  const sk = await _ensureSession();
+  if (!sk) return;
+  const btn = $("ia3d-btn-analyze-tag");
+  if (btn) btn.disabled = true;
+  if (lastRun) { lastRun.textContent = `Analyzing note tag "${tagValue}" (${ranges.length} ranges)…`; lastRun.className = "fe-extract-status"; }
+  const reqIds = [];
+  let submitFailed = false;
+  for (const r of ranges) {
+    const [q0, q1] = await Promise.all([
+      _submitRange(sk, cam0, r.start, r.n),
+      _submitRange(sk, _siblingPath, r.start, r.n),
+    ]);
+    if (!q0 || !q1) { submitFailed = true; break; }
+    reqIds.push(q0, q1);
+  }
+  if (submitFailed) { _refreshAnalyzeEnablement(); return; }
+  const results = await Promise.all(reqIds.map((id) => _pollReq(id)));
+  const errs = results.filter((d) => d.status === "error");
+  const lastDone = results.find((d) => d.status === "done");
+  if (lastRun) {
+    lastRun.textContent = errs.length === results.length
+      ? `All ranges failed: ${errs[0]?.error || "unknown"}`
+      : `Note tag "${tagValue}" done: ${results.length - errs.length}/${results.length} submits ok.`;
+    if (errs.length === results.length) { lastRun.className = "fe-extract-status err"; _refreshAnalyzeEnablement(); return; }
+  }
+  // Post-analysis refresh — run ONCE (mirrors _onAnalyzeRangeConfinedClick).
+  _ia3dPopulateFinalizeFields();
+  await _iaDiscoverVariants(cam0);
+  const ov = $("ia3d-overlay-toggle");
+  if (ov && !ov.checked) { ov.checked = true; ov.dispatchEvent(new Event("change", { bubbles: true })); }
+  else { _markerEditor?.setOverlayEnabled(true); }
+  if (_viewer && _primaryRel) {
+    _pendingTagRestore = _snTimeline?.getActiveTags() || null;
+    const keepFrame = _viewer.currentFrame();
+    const framesMode = _iaMode === "frames";
+    const sync = $("ia3d-sync-cam");
+    await _viewer.load({ videoPath: _primaryRel, frameCount: _frameCount, framesMode, siblingPath: sync?.checked && !framesMode ? undefined : null });
+    if (keepFrame > 0) _viewer.seek(keepFrame);
+    _applyCamLabels();
+  }
+  if (lastDone) await _reloadPrimaryAfterAnalysis(lastDone.scorer);
+  _refreshTagLockEnablement();
+}
+
+// Enable the Lock-tag checkbox only when exactly one note tag is active. If the
+// active-note count drifts off 1 (e.g. a video switch clears it), drop the lock and
+// unfreeze the chips. Called on chip toggles (onActiveTagsChange) and CSV reloads.
+function _refreshTagLockEnablement() {
+  const lock = $("ia3d-tag-lock");
+  if (!lock) return;
+  const activeNotes = _snTimeline ? _snTimeline.getActiveTags().note : [];
+  const exactlyOne = activeNotes.length === 1;
+  lock.disabled = !exactlyOne;
+  if (!exactlyOne && lock.checked) {
+    lock.checked = false;
+    _snTimeline?.setNoteChipsLocked(false);
+  }
+  _updateTagHint();
+  _refreshAnalyzeEnablement();
+}
+
+// Mirror #ia3d-start-hint's wording for the tag path.
+function _updateTagHint() {
+  const hint = $("ia3d-tag-hint");
+  if (!hint) return;
+  const activeNotes = _snTimeline ? _snTimeline.getActiveTags().note : [];
+  const locked = !!$("ia3d-tag-lock")?.checked;
+  if (locked && activeNotes.length === 1) {
+    const n = tagKeyframes(_snTimeline.getRows(), activeNotes[0]).length;
+    hint.textContent = `1 note tag locked → analyzes ${n} tagged frame${n === 1 ? "" : "s"}. Unlock to disable.`;
+  } else if (activeNotes.length === 1) {
+    hint.textContent = 'check "Lock tag" to enable "Analyze for tag".';
+  } else {
+    hint.textContent = 'activate exactly one note tag to enable "Analyze for tag".';
+  }
+}
+
 // Drive the two left-region start buttons + the count/hint line. "From current
 // frame" mirrors the top analyze button's sibling-gating. "For range" needs
 // finalize-on AND the keyframe locked AND a sibling.
@@ -2070,6 +2183,10 @@ function _refreshAnalyzeEnablement() {
   const locked = !!$("ia3d-finalize-lock")?.checked;
   const rangeOk = finOn && locked && hasSibling;
   if (rng) rng.disabled = !rangeOk;
+  // Analyze-for-tag mirrors the for-range gate but keys on the tag-lock.
+  const tagBtn = $("ia3d-btn-analyze-tag");
+  const tagLocked = !!$("ia3d-tag-lock")?.checked;
+  if (tagBtn) tagBtn.disabled = !(finOn && tagLocked && hasSibling);
   const hint = $("ia3d-start-hint");
   if (hint) {
     if (rangeOk) {
@@ -2363,6 +2480,14 @@ function _wireStereoDispatch() {
   $("ia3d-btn-analyze-range-confined")?.addEventListener("click", _onAnalyzeRangeConfinedClick);
   $("ia3d-frames-per-click")?.addEventListener("input", _refreshAnalyzeEnablement);
   $("ia3d-finalize-lock")?.addEventListener("change", _refreshAnalyzeEnablement);
+  // Analyze-for-tag: Lock-tag freezes the note chips + gates the batch button.
+  $("ia3d-tag-lock")?.addEventListener("change", () => {
+    const on = !!$("ia3d-tag-lock").checked;
+    _snTimeline?.setNoteChipsLocked(on);
+    _updateTagHint();
+    _refreshAnalyzeEnablement();
+  });
+  $("ia3d-btn-analyze-tag")?.addEventListener("click", _onAnalyzeTagClick);
   // NOTE: the finalize keyframe-lock is now driven exclusively through the keyframe
   // window's onLockChange callback (see makeKeyframeWindow above). A direct DOM
   // change-listener that called _applyLockState would miss the 'l' shortcut
