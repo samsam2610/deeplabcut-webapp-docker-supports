@@ -726,7 +726,7 @@ Expected: PASS (7 tests).
 
 Run the broader inline-3D static + node suites to confirm no regression:
 
-Run: `python -m pytest tests/test_inline_3d_panel_consolidation.py tests/test_inline_analysis_3d_ui_isolation.py tests/test_inline_3d_lock_wiring.py -q && node --test tests/unit/`
+Run: `python -m pytest tests/test_inline_3d_panel_consolidation.py tests/test_inline_analysis_3d_ui_isolation.py tests/test_inline_3d_lock_wiring.py -q && node --test tests/unit/*.mjs`
 Expected: PASS.
 
 - [ ] **Step 5: Commit**
@@ -825,7 +825,7 @@ Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>"
 - [ ] Run the full relevant suite:
 
 ```bash
-node --test tests/unit/
+node --test tests/unit/*.mjs
 python -m pytest tests/test_status_notes_tag_lock.py \
   tests/test_inline_3d_analyze_for_tag_markup.py tests/test_inline_3d_analyze_for_tag_css.py \
   tests/test_inline_3d_analyze_for_tag_wiring.py tests/test_inline_3d_panel_consolidation.py \
