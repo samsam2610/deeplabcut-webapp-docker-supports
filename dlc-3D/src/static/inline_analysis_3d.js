@@ -1057,18 +1057,26 @@ async function _iaSaveAdjustments() {
   if (btn) btn.disabled = true;
   const st = $("ia3d-overlay-status");
   try {
+    // Send each cam's IN-MEMORY edits in the request body — the server applies
+    // those directly, so Save no longer races the async marker-edit mirror.
     const targets = [];
-    if (n0 > 0 && _overlayPrimaryH5) targets.push(_overlayPrimaryH5);
-    if (n1 > 0 && _siblingPrimaryH5) targets.push(_siblingPrimaryH5);
+    if (n0 > 0 && _overlayPrimaryH5) targets.push([0, _overlayPrimaryH5]);
+    if (n1 > 0 && _siblingPrimaryH5) targets.push([1, _siblingPrimaryH5]);
     let anyErr = false;
-    for (const h5 of targets) {
+    for (const [cam, h5] of targets) {
       const resp = await fetch("/dlc/viewer/save-marker-edits", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ h5 }),
+        body: JSON.stringify({ h5, edits: _markerEditor.getEditsForSave(cam) }),
       });
       const data = await resp.json().catch(() => ({}));
-      if (!resp.ok || data.error) anyErr = true;
+      // We sent non-empty edits for this cam, so 0 frames applied means nothing
+      // was written — surface it as a failure instead of a false "saved".
+      if (!resp.ok || data.error || !data.frames_edited) anyErr = true;
     }
+    // The save rewrote the h5 in place; the pose cache is version-less, so drop it
+    // and re-render from the saved h5. Without this the edit visually snaps back to
+    // the raw pose on the non-focused tile after a camera switch (looks "lost").
+    if (!anyErr) _markerEditor.invalidatePoses();
     if (st) st.textContent = anyErr ? "Save failed (one or more cams)" : "Adjustments saved";
   } catch (err) {
     if (st) st.textContent = `Save failed: ${err.message}`;

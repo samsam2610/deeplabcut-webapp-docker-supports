@@ -23,7 +23,7 @@
 
 import {
   scaleFor, canvasToVideo, markerRadius, hitTest, resolvePose,
-  setEdit, deleteEdit, frameEditsOf, editedFrameCount, nudge, nextBodypart,
+  setEdit, deleteEdit, frameEditsOf, editedFrameCount, serializeEditsForSave, nudge, nextBodypart,
   prefetchWindow, allCached, layerThreshold, poseCacheKey, buildMarkerEditPayload,
   parsePoseJson, posedBodyparts, editedOnlyBodyparts,
 } from "../internal/marker_overlay.mjs";
@@ -731,5 +731,8 @@ export function markerEditor(config = {}) {
     // Edit count for a cam (defaults to the focused cam). cam0 default keeps the
     // pre-focus single-cam consumers (viewer_3d) unchanged.
     getEditCount: (cam) => editedFrameCount(editsFor(cam ?? focusedCam)),
+    // The cam's in-memory edits in server edit-cache format, for Save to send in
+    // the request body (authoritative — no dependence on the async mirror).
+    getEditsForSave: (cam) => serializeEditsForSave(editsFor(cam ?? focusedCam)),
   };
 }

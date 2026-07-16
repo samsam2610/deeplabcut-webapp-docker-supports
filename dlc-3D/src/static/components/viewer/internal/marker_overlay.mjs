@@ -66,6 +66,18 @@ export function editedFrameCount(edits) {
   return Object.keys(edits).length;
 }
 
+// Convert the in-memory edits ({ [frame]: {bp:{x,y}} }, integer frame keys) into
+// the server edit-cache format ({ "frame_<N>": {bp:{x,y}} }) so Save can send
+// memory directly in the request body — making the save independent of the
+// separate, un-awaited marker-edit mirror that Save used to race.
+export function serializeEditsForSave(edits) {
+  const out = {};
+  for (const [frame, bpEdits] of Object.entries(edits || {})) {
+    out[`frame_${frame}`] = bpEdits;
+  }
+  return out;
+}
+
 // ── WASD nudge ──
 export function nudge(base, key, shift) {
   if (!base || base.x == null || base.y == null) return null; // can't nudge a deleted/absent marker
