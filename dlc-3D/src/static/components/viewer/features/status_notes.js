@@ -40,6 +40,9 @@ export function statusNoteTimeline(config = {}) {
   let noteColors = {};
   const activeStatus = new Set();
   const activeNote = new Set();
+  // When true, the NOTE chips render inert (no click handler, .locked class) so the
+  // consumer can freeze the active-note selection. Status chips unaffected.
+  let noteChipsLocked = false;
   // The last timeline the user navigated via its ◀▶ button — { field, activeSet }.
   // Ctrl+Arrow repeats a jump on this timeline (see onCtrlArrowKey). null until a
   // nav button is clicked, so Ctrl+Arrow falls through to the viewer's skip.
@@ -85,25 +88,28 @@ export function statusNoteTimeline(config = {}) {
   }
 
   function rebuildChips() {
-    renderChips(els.statusChips, statusColors, activeStatus);
-    renderChips(els.noteChips, noteColors, activeNote);
+    renderChips(els.statusChips, statusColors, activeStatus, false);
+    renderChips(els.noteChips, noteColors, activeNote, noteChipsLocked);
     updateNavDisabled();
   }
 
-  function renderChips(container, colorMap, activeSet) {
+  function renderChips(container, colorMap, activeSet, locked) {
     if (!container) return;
     container.innerHTML = "";
     for (const val of Object.keys(colorMap)) {
       const chip = container.ownerDocument.createElement("span");
-      chip.className = "vv-tag-chip" + (activeSet.has(val) ? " active" : "");
+      chip.className = "vv-tag-chip" + (activeSet.has(val) ? " active" : "") + (locked ? " locked" : "");
       chip.textContent = val;
       chip.style.setProperty("--chip-color", colorMap[val]);
-      chip.addEventListener("click", () => {
-        if (activeSet.has(val)) activeSet.delete(val);
-        else activeSet.add(val);
-        rebuildChips();
-        redraw(curFrame());
-      });
+      if (!locked) {
+        chip.addEventListener("click", () => {
+          if (activeSet.has(val)) activeSet.delete(val);
+          else activeSet.add(val);
+          rebuildChips();
+          redraw(curFrame());
+          if (config.onActiveTagsChange) config.onActiveTagsChange();
+        });
+      }
       container.appendChild(chip);
     }
   }
@@ -278,6 +284,17 @@ export function statusNoteTimeline(config = {}) {
       for (const v of t.note || []) if (v in noteColors) activeNote.add(v);
       rebuildChips();
       redraw(curFrame());
+    },
+    // Shallow-copied rows for consumers that compute over the companion CSV (e.g.
+    // the inline-3D "Analyze for tag" batch). Inert — does not mutate module state.
+    getRows() {
+      return rows.map((r) => ({ ...r }));
+    },
+    // Freeze/unfreeze the NOTE chips: locked chips render without click handlers so
+    // the active-note selection can't change. Repaints chips. Default unlocked.
+    setNoteChipsLocked(on) {
+      noteChipsLocked = !!on;
+      rebuildChips();
     },
   };
 }
