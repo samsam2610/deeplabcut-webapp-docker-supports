@@ -1893,7 +1893,7 @@ function _startStatusPoll() {
 function _stopStatusPoll() { if (_statusPoll) { clearInterval(_statusPoll); _statusPoll = null; } }
 
 // ── Submit one /range, return req_id (or null) ───────────────────
-async function _submitRange(sk, videoPath, startFrame, nFrames) {
+async function _submitRange(sk, videoPath, startFrame, nFrames, overwrite = false) {
   const lastRun = _ia3dEl.lastRun();
   const r = await fetch("/dlc/project/inline-analysis/range", {
     method: "POST", headers: { "Content-Type": "application/json" },
@@ -1905,6 +1905,7 @@ async function _submitRange(sk, videoPath, startFrame, nFrames) {
       snapshot_path: _ia3dEl.snapSel()?.value || "",
       shuffle: parseInt(_ia3dEl.shuffle()?.value, 10) || 1,
       trainingsetindex: parseInt(_ia3dEl.tsi()?.value, 10) || 0,
+      overwrite: !!overwrite,
     }),
   });
   const d = await r.json().catch(() => ({}));
@@ -2076,6 +2077,7 @@ async function _onAnalyzeTagClick() {
   const activeNotes = _snTimeline ? _snTimeline.getActiveTags().note : [];
   if (activeNotes.length !== 1) { if (lastRun) lastRun.textContent = "Activate exactly one note tag first."; return; }
   const tagValue = activeNotes[0];
+  const overwrite = !!$("ia3d-override-labels")?.checked;
   const frames = tagKeyframes(_snTimeline.getRows(), tagValue);
   const before = parseInt($("ia3d-finalize-before")?.value, 10) || 0;
   const after  = parseInt($("ia3d-finalize-after")?.value, 10) || 0;
@@ -2088,7 +2090,9 @@ async function _onAnalyzeTagClick() {
   }
   const ok = window.confirm(
     `Analyze note tag "${tagValue}":\n` +
-    `${frames.length} tagged frame(s) → ${ranges.length} range(s) → ${totalFrames} frames × 2 cameras.\n\nProceed?`
+    `${frames.length} tagged frame(s) → ${ranges.length} range(s) → ${totalFrames} frames × 2 cameras.` +
+    (overwrite ? `\n\n⚠️ Override is ON: this will OVERWRITE existing predictions AND human corrections.` : ``) +
+    `\n\nProceed?`
   );
   if (!ok) return;
   const sk = await _ensureSession();
@@ -2100,8 +2104,8 @@ async function _onAnalyzeTagClick() {
   let submitFailed = false;
   for (const r of ranges) {
     const [q0, q1] = await Promise.all([
-      _submitRange(sk, cam0, r.start, r.n),
-      _submitRange(sk, _siblingPath, r.start, r.n),
+      _submitRange(sk, cam0, r.start, r.n, overwrite),
+      _submitRange(sk, _siblingPath, r.start, r.n, overwrite),
     ]);
     if (!q0 || !q1) { submitFailed = true; break; }
     reqIds.push(q0, q1);

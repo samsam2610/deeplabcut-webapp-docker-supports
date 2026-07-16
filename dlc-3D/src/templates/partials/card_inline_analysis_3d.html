@@ -422,6 +422,10 @@
                 <input type="checkbox" id="ia3d-tag-lock" disabled style="accent-color:var(--accent);width:14px;height:14px"/>
                 Lock tag
               </label>
+              <label class="ia3d-tag-lock-label" title="When ON, re-run the model over every frame in the tagged windows and OVERWRITE existing predictions AND human corrections. Default OFF preserves already-labeled frames.">
+                <input type="checkbox" id="ia3d-override-labels" style="accent-color:var(--danger,#e66);width:14px;height:14px"/>
+                override existing labels
+              </label>
               <button id="ia3d-btn-analyze-tag" class="btn-sm btn-create" disabled
                 title="Run analysis on every frame carrying the locked note tag (both cameras)">
                 ▶ Analyze for tag
