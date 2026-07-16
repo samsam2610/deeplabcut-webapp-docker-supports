@@ -122,6 +122,18 @@
   background: color-mix(in srgb, var(--bp-color, var(--chip-color, var(--accent))) 14%, transparent);
   color: var(--text);
 }
+/* Frozen note chips while a tag is locked for "Analyze for tag": inert, dimmed. */
+#inline-analysis-3d-card .vv-tag-chip.locked {
+  cursor: default;
+  opacity: .5;
+}
+#inline-analysis-3d-card .vv-tag-chip.locked:hover {
+  border-color: var(--border);
+  color: var(--text-dim);
+}
+#inline-analysis-3d-card .vv-tag-chip.locked.active {
+  opacity: 1;
+}
 #inline-analysis-3d-card .vv-bp-chip.labeled { font-weight: 600; color: var(--text); }
 #inline-analysis-3d-card .vv-bp-chip.vis-hidden { opacity: .45; }
 
