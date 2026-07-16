@@ -426,6 +426,10 @@
                 <input type="checkbox" id="ia3d-override-labels" style="accent-color:var(--danger,#e66);width:14px;height:14px"/>
                 override existing labels
               </label>
+              <label class="ia3d-tag-lock-label" title="When ON (default), skip frames already finalized in the _analyzed timeline — even if 'override existing labels' is on. Protects human-curated frames.">
+                <input type="checkbox" id="ia3d-ignore-analyzed" checked style="accent-color:var(--accent);width:14px;height:14px"/>
+                ignore frames in _analyzed
+              </label>
               <button id="ia3d-btn-analyze-tag" class="btn-sm btn-create" disabled
                 title="Run analysis on every frame carrying the locked note tag (both cameras)">
                 ▶ Analyze for tag

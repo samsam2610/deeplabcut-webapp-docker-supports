@@ -32,17 +32,19 @@ def test_override_checkbox_in_tag_batch_unchecked_and_enabled():
 
 def test_submitRange_forwards_overwrite():
     js = JS.read_text()
-    assert re.search(r"async function _submitRange\(sk, videoPath, startFrame, nFrames, overwrite = false\)", js), \
+    # Trailing params (e.g. ignoreAnalyzed) may follow overwrite in the signature.
+    assert re.search(r"async function _submitRange\(sk, videoPath, startFrame, nFrames, overwrite = false[,)]", js), \
         "_submitRange must take an overwrite param defaulting to false"
     assert re.search(r"overwrite:\s*!!overwrite", js), "_submitRange body must send overwrite"
 
 
 def test_onAnalyzeTag_reads_checkbox_warns_and_passes_overwrite():
     js = JS.read_text()
-    tag_fn = js[_idx(js, "async function _onAnalyzeTagClick()"): _idx(js, "async function _onAnalyzeTagClick()") + 2000]
+    tag_fn = js[_idx(js, "async function _onAnalyzeTagClick()"): _idx(js, "async function _onAnalyzeTagClick()") + 2500]
     assert 'ia3d-override-labels' in tag_fn, "batch handler must read the override checkbox"
     assert re.search(r"overwrite\s*\?", tag_fn), "confirm must add a warning when override is on"
-    assert re.search(r"_submitRange\(sk, cam0, r\.start, r\.n, overwrite\)", tag_fn), \
+    # Trailing args (e.g. ignoreAnalyzed) may follow overwrite in the call.
+    assert re.search(r"_submitRange\(sk, cam0, r\.start, r\.n, overwrite[,)]", tag_fn), \
         "batch must pass overwrite to cam0 submit"
-    assert re.search(r"_submitRange\(sk, _siblingPath, r\.start, r\.n, overwrite\)", tag_fn), \
+    assert re.search(r"_submitRange\(sk, _siblingPath, r\.start, r\.n, overwrite[,)]", tag_fn), \
         "batch must pass overwrite to sibling submit"
