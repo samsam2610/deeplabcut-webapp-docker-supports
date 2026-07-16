@@ -128,6 +128,15 @@ independently.
   behavior.
 - `_run_range`'s empty-`to_analyze` branch is unaffected: with `overwrite=True`
   and `n_frames >= 1`, `to_analyze` is non-empty, so inference proceeds.
+- **Cell-granular overwrite (consequence of keeping the `combine_first` merge):**
+  override replaces a re-analyzed frame's cells only where the fresh prediction
+  is non-NaN. If the re-run model returns NaN for a particular bodypart (e.g. no
+  detection / dynamic-crop miss), `df_range.combine_first(existing)` fills that
+  cell from the old row — so a human-corrected bodypart the model now fails to
+  detect can survive even in override mode. This is a deliberate trade of the
+  "no merge change" choice; in practice single-animal `create_df_from_prediction`
+  emits x/y for every bodypart, so NaN cells are rare. A hard row-level replace
+  would require the out-of-scope merge change.
 
 ## Out of scope (YAGNI)
 
