@@ -55,3 +55,35 @@ def test_js_wires_triangulate_toggle_idempotently():
     assert re.search(r'ia3d-triangulate-controls"\)\?\.classList\.toggle\("hidden"', js), \
         "toggle must reveal/hide #ia3d-triangulate-controls via the hidden class"
     assert "/dlc-3d/anipose/init" in js, "button handler must POST to /dlc-3d/anipose/init"
+
+
+# ── Phase 2 — Triangulate keyframe range button + 3D coverage bar ──────────────
+
+def test_triangulate_range_button_present_inside_controls_and_disabled():
+    html = CARD.read_text()
+    btn = _idx(html, 'id="ia3d-triangulate-range-btn"')
+    # Lives inside the Triangulate controls block, ABOVE the Dataset Curation panel.
+    ctrls = _idx(html, 'id="ia3d-triangulate-controls"')
+    cur = _idx(html, 'id="ia3d-curation-panel"')
+    assert ctrls < btn < cur, "range button must sit inside #ia3d-triangulate-controls"
+    # Disabled by default (gated on keyframe lock).
+    start = html.rindex("<button", 0, btn)
+    tag = html[start:html.index(">", start)]
+    assert "disabled" in tag, "#ia3d-triangulate-range-btn must be disabled by default"
+
+
+def test_triangulate_range_status_span_present():
+    html = CARD.read_text()
+    assert 'id="ia3d-triangulate-range-status"' in html
+
+
+def test_triangulate_coverage_bar_present():
+    html = CARD.read_text()
+    wrap = _idx(html, 'id="ia3d-triangulate-coverage-wrap"')
+    cur = _idx(html, 'id="ia3d-curation-panel"')
+    assert wrap < cur, "3D coverage bar must live inside the Triangulate panel"
+    can = _idx(html, 'id="ia3d-triangulate-coverage"')
+    # canvas carries a fixed height like the finalize-coverage canvas
+    start = html.rindex("<canvas", 0, can)
+    tag = html[start:html.index(">", start)]
+    assert 'height="14"' in tag, "#ia3d-triangulate-coverage must be a height=14 canvas"

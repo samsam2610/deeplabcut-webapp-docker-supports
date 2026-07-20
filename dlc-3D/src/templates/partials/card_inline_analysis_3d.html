@@ -498,6 +498,25 @@
               </button>
               <span id="ia3d-anipose-init-status" class="fe-extract-status" style="font-size:.73rem;flex:1;min-width:0"></span>
             </div>
+
+            <!-- Phase 2: triangulate the current finalize keyframe window (gated on lock) -->
+            <div style="display:flex;align-items:center;gap:.4rem;flex-wrap:wrap;margin-top:.5rem">
+              <button class="btn-sm btn-create" id="ia3d-triangulate-range-btn" disabled
+                title="Triangulate the locked keyframe range on the selected stereo pair (incremental — accumulates into pose-3d/)">
+                ▶ Triangulate keyframe range
+              </button>
+              <span id="ia3d-triangulate-range-status" class="fe-extract-status" style="font-size:.73rem;flex:1;min-width:0"></span>
+            </div>
+
+            <!-- 3D coverage bar — mirrors the "Finalized frames" bar; shows which frame regions have 3D data -->
+            <div id="ia3d-triangulate-coverage-wrap" class="ia3d-bar" style="margin-top:.5rem">
+              <div class="ia3d-bar-header">
+                <span class="fe-csv-bar-label">3D coverage</span>
+                <span style="font-size:.7rem;color:var(--text-dim)">coverage of pose-3d</span>
+              </div>
+              <canvas id="ia3d-triangulate-coverage" height="14" title="Frames with 3D data"
+                style="width:100%;display:block;cursor:pointer"></canvas>
+            </div>
           </div>
           <!-- end ia3d-triangulate-controls -->
         </div>

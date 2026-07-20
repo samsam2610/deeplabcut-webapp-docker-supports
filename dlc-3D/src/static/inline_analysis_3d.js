@@ -66,6 +66,7 @@ let _finalizeCoverageFrames = null;
 let _redrawFinalizeCoverage = () => {};
 
 // Triangulate (Phase 2) — 3D coverage bar presence buckets (0..1), null until fetched.
+let _triCoverageBuckets = null;
 let _snTimeline = null;   // statusNoteTimeline feature handle (for .redraw() on resize)
 let _pendingTagRestore = null;  // active status/note tags stashed across a post-analysis reload
 
@@ -1324,6 +1325,8 @@ function _wireTriangulateChrome() {
   const toggle = $("ia3d-triangulate-toggle");
   toggle?.addEventListener("change", () => {
     $("ia3d-triangulate-controls")?.classList.toggle("hidden", !toggle.checked);
+    // Paint any already-triangulated coverage when the panel is opened.
+    if (toggle.checked) _refreshTriangulateCoverage();
   });
 
   const btn = $("ia3d-anipose-init-btn");
@@ -1364,6 +1367,107 @@ function _wireTriangulateChrome() {
       btn.disabled = false;
     }
   });
+
+  // Phase 2: triangulate the current finalize keyframe window. Reads the SAME range
+  // source as #ia3d-btn-analyze-range-confined (_finalizeKW.getRange()), POSTs to
+  // /dlc/project/triangulate/range, polls …/range/status to terminal, then refetches
+  // /dlc/project/triangulate/coverage to draw the 3D bar. Gated on keyframe lock via
+  // _refreshAnalyzeEnablement (same rangeOk condition as the confined analyze button).
+  const rangeBtn = $("ia3d-triangulate-range-btn");
+  rangeBtn?.addEventListener("click", async () => {
+    const status = $("ia3d-triangulate-range-status");
+    const setStatus = (msg, isErr = false) => {
+      if (!status) return;
+      status.textContent = msg || "";
+      status.className = "fe-extract-status" + (isErr ? " err" : "");
+    };
+    const cam0Video = _cam0Path();
+    if (!cam0Video) { setStatus("Pick a cam0 video first.", true); return; }
+    const rng = _finalizeKW ? _finalizeKW.getRange() : { start: 0, n: 0 };
+    const startFrame = rng.start, nFrames = rng.n;
+    if (!(nFrames >= 1)) { setStatus("Lock a valid keyframe range first.", true); return; }
+
+    rangeBtn.disabled = true;
+    setStatus(`Triangulating ${nFrames} frames from ${startFrame}…`);
+    try {
+      const r = await fetch("/dlc/project/triangulate/range", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ cam0_video: cam0Video, start_frame: startFrame, n_frames: nFrames }),
+      });
+      let data;
+      try { data = await r.json(); } catch { data = null; }
+      if (r.status !== 202 || !data || !data.req_id) {
+        setStatus(`Error: ${(data && data.error) || `HTTP ${r.status}`}`, true);
+        return;
+      }
+      const done = await _pollTriangulateReq(data.req_id, (d) => {
+        const pct = (d && typeof d.progress === "number") ? ` ${d.progress}%` : "";
+        setStatus(`${(d && d.stage) || "working"}…${pct}`);
+      });
+      if (done.state === "SUCCESS") {
+        const res = done.result || {};
+        const end = startFrame + nFrames - 1;
+        setStatus(`3D ✓ frames ${startFrame}–${end}${res.pair_name ? ` → ${res.pair_name}` : ""}`);
+        await _refreshTriangulateCoverage();
+      } else {
+        setStatus(`Error: ${(done && done.error) || "triangulation failed"}`, true);
+      }
+    } catch (err) {
+      setStatus(`Error: ${err.message}`, true);
+    } finally {
+      // Restore the gated disabled-state (locked → enabled, else disabled).
+      _refreshAnalyzeEnablement();
+    }
+  });
+}
+
+// Poll one triangulate-range req_id to terminal state, per the
+// /dlc/project/triangulate/range/status contract: { state, progress, stage, error,
+// result }. Mirrors _pollReq's setInterval + _activePolls pattern but resolves on the
+// contract's SUCCESS/FAILURE states. `onProgress(d)` fires on each non-terminal tick.
+function _pollTriangulateReq(reqId, onProgress) {
+  return new Promise((resolve) => {
+    let elapsedMs = 0;
+    const MAX_MS = 10 * 60 * 1000;   // 10 min hard cap → treat as failed
+    const t = setInterval(async () => {
+      elapsedMs += 500;
+      if (elapsedMs >= MAX_MS) {
+        clearInterval(t); _activePolls.delete(t);
+        resolve({ state: "FAILURE", error: "timed out waiting for triangulation" });
+        return;
+      }
+      try {
+        const r = await fetch(`/dlc/project/triangulate/range/status?req_id=${reqId}`);
+        if (!r.ok) return;
+        const d = await r.json();
+        if (d.state === "SUCCESS" || d.state === "FAILURE") {
+          clearInterval(t); _activePolls.delete(t); resolve(d);
+        } else if (onProgress) {
+          onProgress(d);
+        }
+      } catch (e) { /* keep polling */ }
+    }, 500);
+    _activePolls.add(t);
+  });
+}
+
+// Fetch the 3D coverage buckets for the current cam0 video and draw them onto the
+// #ia3d-triangulate-coverage canvas (reuses _drawCoverageBar; the endpoint returns no
+// per-bucket frames, so it falls back to bucket-space rects). Absent canonical → all
+// zeros → an empty bar (not an error).
+async function _refreshTriangulateCoverage() {
+  const canvas = $("ia3d-triangulate-coverage");
+  const cam0Video = _cam0Path();
+  if (!canvas || !cam0Video) { _triCoverageBuckets = null; return; }
+  const w = Math.max(200, Math.round(canvas.getBoundingClientRect().width || 600));
+  try {
+    const data = await (await fetch(
+      `/dlc/project/triangulate/coverage?cam0_video=${encodeURIComponent(cam0Video)}&buckets=${w}`,
+    )).json();
+    _triCoverageBuckets = data.buckets || [];
+    _drawCoverageBar(canvas, _triCoverageBuckets, null, "#60a5fa");
+  } catch (_) { /* leave the 3D bar empty */ }
 }
 
 // ── Per-project quick-tags (postfix / status / note) ─────────────────────────
@@ -2259,6 +2363,10 @@ function _refreshAnalyzeEnablement() {
   const locked = !!$("ia3d-finalize-lock")?.checked;
   const rangeOk = finOn && locked && hasSibling;
   if (rng) rng.disabled = !rangeOk;
+  // Triangulate-keyframe-range (Phase 2) is gated identically to the confined analyze
+  // button — enabled only when the finalize keyframe is locked (stereo needs a sibling).
+  const triRng = $("ia3d-triangulate-range-btn");
+  if (triRng) triRng.disabled = !rangeOk;
   // Analyze-for-tag mirrors the for-range gate but keys on the tag-lock.
   const tagBtn = $("ia3d-btn-analyze-tag");
   const tagLocked = !!$("ia3d-tag-lock")?.checked;
