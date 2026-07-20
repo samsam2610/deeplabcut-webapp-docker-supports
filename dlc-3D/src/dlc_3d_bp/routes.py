@@ -460,6 +460,84 @@ def analyzed_sibling_h5():
     return jsonify(_resolve_sibling_h5(str(resolved), cam))
 
 
+# ── Anipose init (Phase 1: scaffold anipose folder layout) ────────────────────
+
+@bp.route("/anipose/init", methods=["POST"])
+def anipose_init():
+    """Initialize the selected stereo pair into anipose folder layout.
+
+    All work is confined to the selected cam0 video's parent folder:
+      <folder>/calibration/  calibration.toml + detections.pickle
+      <folder>/pose-2d/      each cam's <stem>_analyzed.h5/.csv
+
+    Copies (never moves), overwriting on re-run. Hard-fails only on a missing
+    sibling camera or a missing calibration input; missing analyzed files are
+    reported as per-cam warnings.
+    """
+    with _state_lock:
+        proj = _active_project
+    body = request.get_json(force=True) or {}
+    cam0_video = (body.get("cam0_video") or "").strip()
+    if not cam0_video:
+        return jsonify({"error": "cam0_video required"}), 400
+
+    cam0 = _resolve_video_path(cam0_video, proj or _USER_DATA_ROOT)
+    if cam0 is None:
+        return jsonify({"error": "cam0_video path not allowed"}), 400
+
+    sibling = _find_sibling_on_filesystem(str(cam0))
+    if not (sibling and str(Path(sibling).resolve()).startswith(_USER_DATA_ROOT + "/")):
+        return jsonify({"error": "no paired camera found"}), 400
+    cam1 = Path(sibling)
+
+    current_folder = cam0.parent
+    calib_dir = current_folder / "calibration"
+    pose_dir = current_folder / "pose-2d"
+    calib_dir.mkdir(parents=True, exist_ok=True)
+    pose_dir.mkdir(parents=True, exist_ok=True)
+
+    # ── calibration.toml (required) ──
+    toml_src = current_folder / "calibration.toml"
+    if not toml_src.is_file():
+        return jsonify({"error": f"calibration.toml not found in {current_folder}"}), 400
+    shutil.copy2(toml_src, calib_dir / "calibration.toml")
+
+    # ── board-detection pickle (required; normalize to plural name) ──
+    pickle_src = current_folder / "detection.pickle"
+    if not pickle_src.is_file():
+        pickle_src = current_folder / "detections.pickle"
+    if not pickle_src.is_file():
+        return jsonify(
+            {"error": f"detection.pickle not found in {current_folder}"}
+        ), 400
+    shutil.copy2(pickle_src, calib_dir / "detections.pickle")
+
+    calibration = {
+        "calibration.toml": "calibration.toml",
+        "detections.pickle": "detections.pickle",
+    }
+
+    # ── pose-2d: each cam's analyzed files (missing → warn, not fail) ──
+    warnings: list[str] = []
+    pose_2d: dict[str, list[str]] = {}
+    for key, cam_video in (("cam0", cam0), ("cam1", cam1)):
+        copied: list[str] = []
+        for ext in (".h5", ".csv"):
+            src = cam_video.with_name(cam_video.stem + "_analyzed" + ext)
+            if src.is_file():
+                shutil.copy2(src, pose_dir / src.name)
+                copied.append(src.name)
+        if not copied:
+            warnings.append(f"{key}: no _analyzed.h5/.csv found next to {cam_video.name}")
+        pose_2d[key] = copied
+
+    return jsonify({
+        "calibration": calibration,
+        "pose_2d": pose_2d,
+        "warnings": warnings,
+    })
+
+
 # ── Frame extraction ──────────────────────────────────────────────────────────
 
 @bp.route("/save-frame", methods=["POST"])

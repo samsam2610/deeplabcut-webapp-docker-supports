@@ -64,6 +64,8 @@ let _redrawSeekTimeline = () => {};  // replaced in _wireViewerChrome with the r
 let _finalizeCoverageBuckets = null;
 let _finalizeCoverageFrames = null;
 let _redrawFinalizeCoverage = () => {};
+
+// Triangulate (Phase 2) — 3D coverage bar presence buckets (0..1), null until fetched.
 let _snTimeline = null;   // statusNoteTimeline feature handle (for .redraw() on resize)
 let _pendingTagRestore = null;  // active status/note tags stashed across a post-analysis reload
 
@@ -284,6 +286,7 @@ function _ensureViewer() {
   // Dataset-curation consumer glue: master toggle + Extract Frame / Add to
   // Dataset / Batch Add, with both-cams fan-out in sync mode.
   _wireCurationChrome();
+  _wireTriangulateChrome();
 
   _wireViewerChrome(_viewer);
   return _viewer;
@@ -1303,6 +1306,62 @@ function _wireCurationChrome() {
       if (dupes) parts.push(`${dupes} duplicate${dupes !== 1 ? "s" : ""}`);
       if (errors) parts.push(`${errors} error${errors !== 1 ? "s" : ""}`);
       _curStatus(`Batch done: ${parts.join(", ") || "nothing to add"}.`, errors > 0 && added === 0);
+    }
+  });
+}
+
+// ── Triangulate (anipose init) consumer glue ─────────────────────────────────
+
+let _triangulateChromeWired = false;
+
+// Wire the Triangulate toggle (reveal/hide controls) and the anipose-init button.
+// Phase 1: the button POSTs the selected cam0 path to /dlc-3d/anipose/init, which
+// scaffolds the anipose calibration/ + pose-2d/ folders. Idempotent per module load.
+function _wireTriangulateChrome() {
+  if (_triangulateChromeWired) return;
+  _triangulateChromeWired = true;
+
+  const toggle = $("ia3d-triangulate-toggle");
+  toggle?.addEventListener("change", () => {
+    $("ia3d-triangulate-controls")?.classList.toggle("hidden", !toggle.checked);
+  });
+
+  const btn = $("ia3d-anipose-init-btn");
+  btn?.addEventListener("click", async () => {
+    const status = $("ia3d-anipose-init-status");
+    const setStatus = (msg, isErr = false) => {
+      if (!status) return;
+      status.textContent = msg || "";
+      status.className = "fe-extract-status" + (isErr ? " err" : "");
+    };
+    const cam0Video = _cam0Path();
+    if (!cam0Video) { setStatus("Pick a cam0 video first.", true); return; }
+
+    btn.disabled = true;
+    setStatus("Initializing anipose format…");
+    try {
+      const r = await fetch("/dlc-3d/anipose/init", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ cam0_video: cam0Video }),
+      });
+      let data;
+      try { data = await r.json(); } catch { data = null; }
+      if (!r.ok) {
+        setStatus(`Error: ${(data && data.error) || `HTTP ${r.status}`}`, true);
+        return;
+      }
+      const p = data.pose_2d || {};
+      const mark = (arr) => (arr && arr.length) ? "✓" : "—";
+      let msg = `calibration/ ✓ · pose-2d: cam0 ${mark(p.cam0)}, cam1 ${mark(p.cam1)}`;
+      if (data.warnings && data.warnings.length) {
+        msg += " · " + data.warnings.join("; ");
+      }
+      setStatus(msg, !!(data.warnings && data.warnings.length));
+    } catch (err) {
+      setStatus(`Error: ${err.message}`, true);
+    } finally {
+      btn.disabled = false;
     }
   });
 }
