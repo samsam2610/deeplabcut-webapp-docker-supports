@@ -304,6 +304,7 @@ function _ensureViewer() {
   // Dataset / Batch Add, with both-cams fan-out in sync mode.
   _wireCurationChrome();
   _wireTriangulateChrome();
+  _wireParamsChrome();
   _wirePose3dChrome();
 
   _wireViewerChrome(_viewer);
@@ -1451,6 +1452,148 @@ function _wireTriangulateChrome() {
     } finally {
       // Restore the gated disabled-state (locked → enabled, else disabled).
       _refreshAnalyzeEnablement();
+    }
+  });
+}
+
+// ── Anipose Parameters editor (config.toml) ──────────────────────────────────
+//
+// Mirrors _wireTriangulateChrome's idempotent-wire pattern. The panel exposes the
+// numeric/toggle params of [triangulation], [filter] (2D) and [filter3d]. On first
+// open (with a cam0 selected) we GET the persisted params and populate the fields;
+// Save POSTs them back. Backed by the frozen GET/POST /dlc/project/triangulate/config
+// contract (routes built in the main repo).
+
+// Field descriptors: DOM id-suffix → {section, key, type}. Only fields whose input
+// exists in the DOM are ever read/written, so this stays in lockstep with the markup.
+const _PARAM_FIELDS = [
+  // [triangulation]
+  { id: "ia3d-param-tri-cam_regex",             section: "triangulation", key: "cam_regex",              type: "str"  },
+  { id: "ia3d-param-tri-ransac",                section: "triangulation", key: "ransac",                 type: "bool" },
+  { id: "ia3d-param-tri-optim",                 section: "triangulation", key: "optim",                  type: "bool" },
+  { id: "ia3d-param-tri-optim_chunking",        section: "triangulation", key: "optim_chunking",         type: "bool" },
+  { id: "ia3d-param-tri-scale_smooth",          section: "triangulation", key: "scale_smooth",           type: "num"  },
+  { id: "ia3d-param-tri-scale_length",          section: "triangulation", key: "scale_length",           type: "num"  },
+  { id: "ia3d-param-tri-scale_length_weak",     section: "triangulation", key: "scale_length_weak",      type: "num"  },
+  { id: "ia3d-param-tri-reproj_error_threshold",section: "triangulation", key: "reproj_error_threshold", type: "num"  },
+  { id: "ia3d-param-tri-score_threshold",       section: "triangulation", key: "score_threshold",        type: "num"  },
+  { id: "ia3d-param-tri-n_deriv_smooth",        section: "triangulation", key: "n_deriv_smooth",         type: "num"  },
+  { id: "ia3d-param-tri-optim_chunking_size",   section: "triangulation", key: "optim_chunking_size",    type: "num"  },
+  // [filter] (2D)
+  { id: "ia3d-param-filter-enabled",            section: "filter", key: "enabled",           type: "bool" },
+  { id: "ia3d-param-filter-spline",             section: "filter", key: "spline",            type: "bool" },
+  { id: "ia3d-param-filter-multiprocessing",    section: "filter", key: "multiprocessing",   type: "bool" },
+  { id: "ia3d-param-filter-type",               section: "filter", key: "type",              type: "str"  },
+  { id: "ia3d-param-filter-medfilt",            section: "filter", key: "medfilt",           type: "num"  },
+  { id: "ia3d-param-filter-offset_threshold",   section: "filter", key: "offset_threshold",  type: "num"  },
+  { id: "ia3d-param-filter-score_threshold",    section: "filter", key: "score_threshold",   type: "num"  },
+  { id: "ia3d-param-filter-n_back",             section: "filter", key: "n_back",            type: "num"  },
+  // [filter3d]
+  { id: "ia3d-param-f3d-enabled",               section: "filter3d", key: "enabled",          type: "bool" },
+  { id: "ia3d-param-f3d-medfilt",               section: "filter3d", key: "medfilt",          type: "num"  },
+  { id: "ia3d-param-f3d-offset_threshold",      section: "filter3d", key: "offset_threshold", type: "num"  },
+];
+
+// Populate the fields from a {triangulation,filter,filter3d} params object.
+function _populateParamFields(params) {
+  params = params || {};
+  for (const f of _PARAM_FIELDS) {
+    const el = $(f.id);
+    if (!el) continue;
+    const sect = params[f.section];
+    if (!sect || !(f.key in sect)) continue;
+    const v = sect[f.key];
+    if (f.type === "bool") el.checked = !!v;
+    else el.value = (v == null) ? "" : String(v);
+  }
+}
+
+// Read the fields back into {triangulation,filter,filter3d} with correct JS types.
+// A field is included only if its input exists in the DOM.
+function _readParamFields() {
+  const out = { triangulation: {}, filter: {}, filter3d: {} };
+  for (const f of _PARAM_FIELDS) {
+    const el = $(f.id);
+    if (!el) continue;
+    if (f.type === "bool") out[f.section][f.key] = !!el.checked;
+    else if (f.type === "num") out[f.section][f.key] = Number(el.value);
+    else out[f.section][f.key] = String(el.value);
+  }
+  return out;
+}
+
+let _paramsChromeWired = false;
+let _paramsPrefilled = false;   // GET-prefill runs once, on first open with a cam0
+
+function _wireParamsChrome() {
+  if (_paramsChromeWired) return;
+  _paramsChromeWired = true;
+
+  const status = $("ia3d-params-status");
+  const saveBtn = $("ia3d-params-save");
+  const setStatus = (msg, isErr = false) => {
+    if (!status) return;
+    status.textContent = msg || "";
+    status.className = "fe-extract-status" + (isErr ? " err" : "");
+  };
+
+  // GET the persisted params and populate the fields. Guards when config/cam0 is
+  // absent (400) → disable Save + show the error in status.
+  async function _prefill() {
+    const cam0Video = _cam0Path();
+    if (!cam0Video) { if (saveBtn) saveBtn.disabled = true; setStatus("Pick a cam0 video first.", true); return; }
+    try {
+      const r = await fetch(`/dlc/project/triangulate/config?cam0_video=${encodeURIComponent(cam0Video)}`);
+      let data;
+      try { data = await r.json(); } catch { data = null; }
+      if (!r.ok) {
+        if (saveBtn) saveBtn.disabled = true;
+        setStatus(`${(data && data.error) || `HTTP ${r.status}`}`, true);
+        return;
+      }
+      _populateParamFields(data);
+      _paramsPrefilled = true;
+      if (saveBtn) saveBtn.disabled = false;
+      setStatus("");
+    } catch (err) {
+      if (saveBtn) saveBtn.disabled = true;
+      setStatus(`Error: ${err.message}`, true);
+    }
+  }
+
+  const toggle = $("ia3d-params-toggle");
+  toggle?.addEventListener("change", () => {
+    const on = !!toggle.checked;
+    $("ia3d-params-controls")?.classList.toggle("hidden", !on);
+    // Prefill on first open (and whenever a cam0 is selected but we haven't yet).
+    if (on && !_paramsPrefilled) _prefill();
+  });
+
+  saveBtn?.addEventListener("click", async () => {
+    const cam0Video = _cam0Path();
+    if (!cam0Video) { setStatus("Pick a cam0 video first.", true); return; }
+    const params = _readParamFields();
+    saveBtn.disabled = true;
+    setStatus("Saving…");
+    try {
+      const r = await fetch("/dlc/project/triangulate/config", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ cam0_video: cam0Video, params }),
+      });
+      let data;
+      try { data = await r.json(); } catch { data = null; }
+      if (!r.ok) {
+        setStatus(`${(data && data.error) || `HTTP ${r.status}`}`, true);
+        return;
+      }
+      // Re-populate from the persisted echo so the UI reflects what was written.
+      if (data && data.params) _populateParamFields(data.params);
+      setStatus("saved ✓");
+    } catch (err) {
+      setStatus(`Error: ${err.message}`, true);
+    } finally {
+      saveBtn.disabled = false;
     }
   });
 }

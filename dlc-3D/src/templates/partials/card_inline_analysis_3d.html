@@ -522,6 +522,111 @@
         </div>
         <!-- ── end Triangulate Panel ─────────────────────────────────── -->
 
+        <!-- ── Anipose Parameters Panel (config.toml editor) ─────────── -->
+        <div id="ia3d-params-panel" style="margin-top:.65rem;padding:.5rem .65rem;background:var(--surface-2);border:1px solid var(--border);border-radius:7px">
+
+          <!-- Toggle row -->
+          <div style="display:flex;align-items:center;gap:.6rem;flex-wrap:wrap">
+            <label style="display:flex;align-items:center;gap:.45rem;font-size:.8rem;font-weight:500;cursor:pointer;user-select:none">
+              <input type="checkbox" id="ia3d-params-toggle"
+                     style="accent-color:var(--accent);width:14px;height:14px"/>
+              Anipose Parameters
+            </label>
+          </div>
+
+          <!-- Controls (hidden until the toggle is checked) -->
+          <div id="ia3d-params-controls" class="hidden" style="margin-top:.5rem;font-size:.76rem">
+
+            <!-- ── [triangulation] ─────────────────────────────────── -->
+            <div style="margin-bottom:.55rem">
+              <div style="font-size:.7rem;font-weight:600;color:var(--text-dim);text-transform:uppercase;letter-spacing:.05em;margin-bottom:.35rem">[triangulation]</div>
+              <div style="display:flex;align-items:center;gap:.35rem;flex-wrap:wrap;margin-bottom:.35rem">
+                <label style="color:var(--text-dim)">cam_regex</label>
+                <input type="text" id="ia3d-param-tri-cam_regex" spellcheck="false" autocomplete="off"
+                  style="flex:1;min-width:8rem;font-family:var(--mono);font-size:.74rem;background:var(--surface);border:1px solid var(--border);border-radius:5px;color:var(--text);padding:.18rem .35rem"/>
+              </div>
+              <div style="display:flex;align-items:center;gap:.9rem;flex-wrap:wrap;margin-bottom:.35rem">
+                <label style="display:flex;align-items:center;gap:.3rem;color:var(--text-dim);cursor:pointer">
+                  <input type="checkbox" id="ia3d-param-tri-ransac" style="accent-color:var(--accent)"/> ransac</label>
+                <label style="display:flex;align-items:center;gap:.3rem;color:var(--text-dim);cursor:pointer">
+                  <input type="checkbox" id="ia3d-param-tri-optim" style="accent-color:var(--accent)"/> optim</label>
+                <label style="display:flex;align-items:center;gap:.3rem;color:var(--text-dim);cursor:pointer">
+                  <input type="checkbox" id="ia3d-param-tri-optim_chunking" style="accent-color:var(--accent)"/> optim_chunking</label>
+              </div>
+              <div style="display:flex;align-items:center;gap:.7rem;flex-wrap:wrap">
+                <label style="display:flex;align-items:center;gap:.3rem;color:var(--text-dim)">scale_smooth
+                  <input type="number" id="ia3d-param-tri-scale_smooth" style="width:3.6rem"/></label>
+                <label style="display:flex;align-items:center;gap:.3rem;color:var(--text-dim)">scale_length
+                  <input type="number" id="ia3d-param-tri-scale_length" style="width:3.6rem"/></label>
+                <label style="display:flex;align-items:center;gap:.3rem;color:var(--text-dim)">scale_length_weak
+                  <input type="number" id="ia3d-param-tri-scale_length_weak" style="width:3.6rem"/></label>
+                <label style="display:flex;align-items:center;gap:.3rem;color:var(--text-dim)">reproj_error_threshold
+                  <input type="number" id="ia3d-param-tri-reproj_error_threshold" style="width:3.6rem"/></label>
+                <label style="display:flex;align-items:center;gap:.3rem;color:var(--text-dim)">score_threshold
+                  <input type="number" id="ia3d-param-tri-score_threshold" step="0.01" style="width:3.6rem"/></label>
+                <label style="display:flex;align-items:center;gap:.3rem;color:var(--text-dim)">n_deriv_smooth
+                  <input type="number" id="ia3d-param-tri-n_deriv_smooth" style="width:3.6rem"/></label>
+                <label style="display:flex;align-items:center;gap:.3rem;color:var(--text-dim)">optim_chunking_size
+                  <input type="number" id="ia3d-param-tri-optim_chunking_size" style="width:3.6rem"/></label>
+              </div>
+            </div>
+
+            <!-- ── [filter] (2D) ───────────────────────────────────── -->
+            <div style="margin-bottom:.55rem">
+              <div style="font-size:.7rem;font-weight:600;color:var(--text-dim);text-transform:uppercase;letter-spacing:.05em;margin-bottom:.35rem">[filter] (2D)</div>
+              <div style="display:flex;align-items:center;gap:.9rem;flex-wrap:wrap;margin-bottom:.35rem">
+                <label style="display:flex;align-items:center;gap:.3rem;color:var(--text-dim);cursor:pointer">
+                  <input type="checkbox" id="ia3d-param-filter-enabled" style="accent-color:var(--accent)"/> enabled</label>
+                <label style="display:flex;align-items:center;gap:.3rem;color:var(--text-dim);cursor:pointer">
+                  <input type="checkbox" id="ia3d-param-filter-spline" style="accent-color:var(--accent)"/> spline</label>
+                <label style="display:flex;align-items:center;gap:.3rem;color:var(--text-dim);cursor:pointer">
+                  <input type="checkbox" id="ia3d-param-filter-multiprocessing" style="accent-color:var(--accent)"/> multiprocessing</label>
+                <label style="display:flex;align-items:center;gap:.3rem;color:var(--text-dim)">type
+                  <select id="ia3d-param-filter-type"
+                    style="font-size:.74rem;background:var(--surface);border:1px solid var(--border);border-radius:5px;color:var(--text);padding:.16rem .3rem">
+                    <option value="medfilt">medfilt</option>
+                    <option value="viterbi">viterbi</option>
+                  </select></label>
+              </div>
+              <div style="display:flex;align-items:center;gap:.7rem;flex-wrap:wrap">
+                <label style="display:flex;align-items:center;gap:.3rem;color:var(--text-dim)">medfilt
+                  <input type="number" id="ia3d-param-filter-medfilt" step="2" style="width:3.6rem"/></label>
+                <label style="display:flex;align-items:center;gap:.3rem;color:var(--text-dim)">offset_threshold
+                  <input type="number" id="ia3d-param-filter-offset_threshold" style="width:3.6rem"/></label>
+                <label style="display:flex;align-items:center;gap:.3rem;color:var(--text-dim)">score_threshold
+                  <input type="number" id="ia3d-param-filter-score_threshold" step="0.01" style="width:3.6rem"/></label>
+                <label style="display:flex;align-items:center;gap:.3rem;color:var(--text-dim)">n_back
+                  <input type="number" id="ia3d-param-filter-n_back" style="width:3.6rem"/></label>
+              </div>
+            </div>
+
+            <!-- ── [filter3d] ──────────────────────────────────────── -->
+            <div style="margin-bottom:.5rem">
+              <div style="font-size:.7rem;font-weight:600;color:var(--text-dim);text-transform:uppercase;letter-spacing:.05em;margin-bottom:.35rem">[filter3d]</div>
+              <div style="display:flex;align-items:center;gap:.9rem;flex-wrap:wrap">
+                <label style="display:flex;align-items:center;gap:.3rem;color:var(--text-dim);cursor:pointer">
+                  <input type="checkbox" id="ia3d-param-f3d-enabled" style="accent-color:var(--accent)"/> enabled</label>
+                <label style="display:flex;align-items:center;gap:.3rem;color:var(--text-dim)">medfilt
+                  <input type="number" id="ia3d-param-f3d-medfilt" step="2" style="width:3.6rem"/></label>
+                <label style="display:flex;align-items:center;gap:.3rem;color:var(--text-dim)">offset_threshold
+                  <input type="number" id="ia3d-param-f3d-offset_threshold" style="width:3.6rem"/></label>
+              </div>
+            </div>
+
+            <!-- Save + status -->
+            <div style="display:flex;align-items:center;gap:.4rem;flex-wrap:wrap;margin-top:.4rem">
+              <button class="btn-sm btn-create" id="ia3d-params-save"
+                title="Persist these parameters to config.toml">Save parameters</button>
+              <span id="ia3d-params-status" class="fe-extract-status" style="font-size:.73rem;flex:1;min-width:0"></span>
+            </div>
+            <div style="font-size:.7rem;color:var(--text-dim);margin-top:.35rem">
+              triangulation &amp; 2D-filter changes apply on next Triangulate; filter3d on next re-filter.
+            </div>
+          </div>
+          <!-- end ia3d-params-controls -->
+        </div>
+        <!-- ── end Anipose Parameters Panel ──────────────────────────── -->
+
         <!-- ── 3D View Panel (three.js pose viewer spike) ────────────── -->
         <div id="ia3d-pose3d-panel" style="margin-top:.65rem;padding:.5rem .65rem;background:var(--surface-2);border:1px solid var(--border);border-radius:7px">
 
