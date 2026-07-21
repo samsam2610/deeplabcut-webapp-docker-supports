@@ -13,14 +13,14 @@
 
 import * as THREE from "./vendor/three/three.module.js";
 import { OrbitControls } from "./vendor/three/OrbitControls.js";
+import { labelerColor } from "./components/viewer/internal/palette.mjs";
 
-// Deterministic per-bodypart palette (index → hue). No external palette dep;
-// spreads hues around the wheel so adjacent joints stay visually distinct.
-function _colorForIndex(i, total) {
-  const hue = (i * 137.508) % 360; // golden-angle spacing
-  const c = new THREE.Color();
-  c.setHSL(hue / 360, 0.65, 0.6);
-  return c;
+// Per-bodypart colour: reuse the 2D overlay's frame-labeler palette (labelerColor
+// by bodypart index) so a joint is the SAME colour in the 2D markers and here.
+// The backend returns bodyparts in native (DLC/2D) column order, so index i lines
+// up with the 2D marker's color_idx for the same bodypart.
+function _colorForIndex(i) {
+  return new THREE.Color(labelerColor(i));
 }
 
 export function makePose3dViewer({ canvas, statusEl }) {
@@ -46,6 +46,14 @@ export function makePose3dViewer({ canvas, statusEl }) {
   let frameToRow = new Map();   // frame number → row index into points
   let points = [];              // per-frame array of per-bodypart [x,y,z]|null
   let bounds = null;            // { center:[..], size } | null
+
+  // Quality columns (parallel to points) + live thresholds (Part 3).
+  let scores = [];              // per-frame per-bodypart score (or null)
+  let errors = [];              // per-frame per-bodypart error (or null)
+  let errorMax = null;          // max finite error across the data (slider upper bound)
+  let scoreThr = 0;             // min score gate (0 → show all)
+  let errThr = Infinity;        // max error gate (Infinity → show all)
+  let _lastFrame = null;        // last frame passed to showFrame (for threshold re-apply)
 
   const _setStatus = (msg) => { if (statusEl) statusEl.textContent = msg || ""; };
 
@@ -132,6 +140,11 @@ export function makePose3dViewer({ canvas, statusEl }) {
     bodyparts = Array.isArray(data.bodyparts) ? data.bodyparts : [];
     points = Array.isArray(data.points) ? data.points : [];
     bounds = data.bounds || null;
+    // Quality columns (Part 3) — parallel to points; missing → empty (no gate).
+    scores = Array.isArray(data.scores) ? data.scores : [];
+    errors = Array.isArray(data.errors) ? data.errors : [];
+    errorMax = (data.error_max != null && Number.isFinite(Number(data.error_max)))
+      ? Number(data.error_max) : null;
     const frames = Array.isArray(data.frames) ? data.frames : [];
     const skeleton = Array.isArray(data.skeleton) ? data.skeleton : [];
 
@@ -150,7 +163,7 @@ export function makePose3dViewer({ canvas, statusEl }) {
 
     spheres = bodyparts.map((_, i) => {
       const mat = new THREE.MeshStandardMaterial({
-        color: _colorForIndex(i, bodyparts.length),
+        color: _colorForIndex(i),
         roughness: 0.5,
         metalness: 0.0,
       });
@@ -187,6 +200,7 @@ export function makePose3dViewer({ canvas, statusEl }) {
   // ── showFrame(n) — cheap position update; hide when frame has no row ───────
   function showFrame(n) {
     if (!inited || !group) return;
+    _lastFrame = Number(n);
     const row = frameToRow.get(Number(n));
     if (row === undefined) {
       group.visible = false;
@@ -194,12 +208,25 @@ export function makePose3dViewer({ canvas, statusEl }) {
     }
     group.visible = true;
     const rowPts = points[row] || [];
+    const srow = scores[row] || null;   // per-bodypart score for this frame (or null)
+    const erow = errors[row] || null;   // per-bodypart error for this frame (or null)
 
-    // Spheres — position present points, hide null ones.
+    // Spheres — position present points, hide null / gated-out ones. A joint shows
+    // only if finite AND (score is null OR score >= scoreThr) AND (error is null OR
+    // error <= errThr). Null score/error acts as "no gate".
+    const shown = new Array(spheres.length);
     for (let i = 0; i < spheres.length; i++) {
       const p = rowPts[i];
       const m = spheres[i];
-      if (p && p.length >= 3 && _finite(p)) {
+      let vis = !!(p && p.length >= 3 && _finite(p));
+      if (vis) {
+        const sc = srow ? srow[i] : null;
+        const er = erow ? erow[i] : null;
+        if (sc != null && Number.isFinite(sc) && sc < scoreThr) vis = false;
+        else if (er != null && Number.isFinite(er) && er > errThr) vis = false;
+      }
+      shown[i] = vis;
+      if (vis) {
         m.position.set(p[0], p[1], p[2]);
         m.visible = true;
       } else {
@@ -207,8 +234,8 @@ export function makePose3dViewer({ canvas, statusEl }) {
       }
     }
 
-    // Bones — rebuild endpoints; hide a bone (degenerate to a point) if either
-    // endpoint is missing this frame.
+    // Bones — rebuild endpoints; hide a bone (degenerate to a point) unless BOTH
+    // endpoints are shown this frame (missing OR gated out → hidden).
     if (boneLine && bonePositions) {
       let anyBone = false;
       for (let k = 0; k < bonePairs.length; k++) {
@@ -216,7 +243,7 @@ export function makePose3dViewer({ canvas, statusEl }) {
         const pa = rowPts[ai];
         const pb = rowPts[bi];
         const base = k * 6;
-        if (pa && pb && _finite(pa) && _finite(pb)) {
+        if (shown[ai] && shown[bi]) {
           bonePositions[base] = pa[0];
           bonePositions[base + 1] = pa[1];
           bonePositions[base + 2] = pa[2];
@@ -241,6 +268,54 @@ export function makePose3dViewer({ canvas, statusEl }) {
   // ── resetView() — recenter camera/controls on bounds ───────────────────────
   function resetView() {
     _fitToBounds();
+  }
+
+  // ── zoomBy(factor) — dolly along the camera→target offset (Part 2) ─────────
+  // factor < 1 zooms in (shorter offset), > 1 zooms out. Clamp the offset length
+  // to the near/far shell so the scene never crosses the clipping planes.
+  function zoomBy(factor) {
+    if (!camera || !controls) return;
+    const offset = camera.position.clone().sub(controls.target);
+    const len = offset.length();
+    if (!(len > 0) || !(factor > 0)) return;
+    let newLen = len * factor;
+    const minLen = camera.near * 1.5;
+    const maxLen = camera.far * 0.9;
+    newLen = Math.min(Math.max(newLen, minLen), maxLen);
+    offset.setLength(newLen);
+    camera.position.copy(controls.target).add(offset);
+    controls.update();
+  }
+
+  // ── orbit(dAz, dPol) — rotate camera around the controls target (Part 2) ───
+  // Builds a THREE.Spherical from the current offset, nudges theta/phi by the
+  // given radians, clamps phi to (epsilon, PI-epsilon), and re-derives position.
+  function orbit(dAzimuthRad, dPolarRad) {
+    if (!camera || !controls) return;
+    const offset = camera.position.clone().sub(controls.target);
+    const sph = new THREE.Spherical().setFromVector3(offset);
+    sph.theta += Number(dAzimuthRad) || 0;
+    sph.phi += Number(dPolarRad) || 0;
+    const eps = 1e-3;
+    sph.phi = Math.max(eps, Math.min(Math.PI - eps, sph.phi));
+    sph.makeSafe();
+    offset.setFromSpherical(sph);
+    camera.position.copy(controls.target).add(offset);
+    controls.update();
+  }
+
+  // ── setThresholds({score, error}) — live quality gate (Part 3) ─────────────
+  // Stores the thresholds and re-applies them to the current frame (no reload).
+  function setThresholds(t) {
+    t = t || {};
+    if (t.score != null && Number.isFinite(Number(t.score))) scoreThr = Number(t.score);
+    if (t.error != null && Number.isFinite(Number(t.error))) errThr = Number(t.error);
+    if (_lastFrame != null) showFrame(_lastFrame);
+  }
+
+  // Upper bound for the error slider (max finite error in the data, or null).
+  function getErrorMax() {
+    return errorMax;
   }
 
   function _fitToBounds() {
@@ -304,7 +379,9 @@ export function makePose3dViewer({ canvas, statusEl }) {
     if (sharedSphereGeo) { sharedSphereGeo.dispose(); sharedSphereGeo = null; }
     frameToRow = new Map();
     points = [];
+    scores = [];
+    errors = [];
   }
 
-  return { init, load, showFrame, resetView, dispose };
+  return { init, load, showFrame, resetView, zoomBy, orbit, setThresholds, getErrorMax, dispose };
 }

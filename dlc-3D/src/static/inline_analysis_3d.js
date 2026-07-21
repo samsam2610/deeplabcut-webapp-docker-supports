@@ -292,8 +292,12 @@ function _ensureViewer() {
   _viewer.on("frameChange", (n) => {
     _updateMetaStrip();
     // Drive the 3D pose viewer in lock-step with the 2D player. Guarded: no-op
-    // until the 3D panel has loaded triangulated data (_pose3dLoaded).
-    if (_pose3d && _pose3dLoaded) _pose3d.showFrame(n);
+    // until the 3D panel has loaded triangulated data (_pose3dLoaded). Also mirror
+    // the main viewer's current-frame tiles into the composite mini-cams.
+    if (_pose3d && _pose3dLoaded) {
+      _pose3d.showFrame(n);
+      _mirrorPose3dCams();
+    }
   });
 
   // Dataset-curation consumer glue: master toggle + Extract Frame / Add to
@@ -1480,6 +1484,122 @@ function _wirePose3dChrome() {
 
   const resetBtn = $("ia3d-pose3d-reset");
   resetBtn?.addEventListener("click", () => _pose3d?.resetView());
+
+  // ── Part 2: on-screen 3D controls → viewer methods ─────────────────────────
+  const ORBIT_STEP = Math.PI / 12;   // 15° per press
+  const ZOOM_FACTOR = 1.2;
+  $("ia3d-pose3d-home")?.addEventListener("click", () => _pose3d?.resetView());
+  $("ia3d-pose3d-zoom-in")?.addEventListener("click", () => _pose3d?.zoomBy(1 / ZOOM_FACTOR));
+  $("ia3d-pose3d-zoom-out")?.addEventListener("click", () => _pose3d?.zoomBy(ZOOM_FACTOR));
+  $("ia3d-pose3d-orbit-left")?.addEventListener("click", () => _pose3d?.orbit(-ORBIT_STEP, 0));
+  $("ia3d-pose3d-orbit-right")?.addEventListener("click", () => _pose3d?.orbit(ORBIT_STEP, 0));
+  $("ia3d-pose3d-orbit-up")?.addEventListener("click", () => _pose3d?.orbit(0, -ORBIT_STEP));
+  $("ia3d-pose3d-orbit-down")?.addEventListener("click", () => _pose3d?.orbit(0, ORBIT_STEP));
+
+  // ── Part 3: quality-threshold sliders → setThresholds (live, no reload) ────
+  const scoreThr = $("ia3d-pose3d-score-thr");
+  scoreThr?.addEventListener("input", () => {
+    const v = parseFloat(scoreThr.value);
+    const lbl = $("ia3d-pose3d-score-thr-val");
+    if (lbl) lbl.textContent = Number.isFinite(v) ? v.toFixed(2) : "0.00";
+    _pose3d?.setThresholds({ score: v });
+  });
+  const errThr = $("ia3d-pose3d-error-thr");
+  errThr?.addEventListener("input", () => {
+    const v = parseFloat(errThr.value);
+    const lbl = $("ia3d-pose3d-error-thr-val");
+    if (lbl) lbl.textContent = Number.isFinite(v) ? v.toFixed(2) : "—";
+    _pose3d?.setThresholds({ error: v });
+  });
+
+  // ── Part 4: median re-filter → POST /dlc/project/triangulate/refilter ──────
+  $("ia3d-pose3d-apply")?.addEventListener("click", _applyPose3dRefilter);
+}
+
+// Mirror the MAIN viewer's current-frame tiles into the composite mini-cams
+// (read-only). Each mini-cam wrapper hides when its tile / imgEl is absent
+// (single-cam). No-op when the 3D panel is closed.
+function _mirrorPose3dCams() {
+  if (!_viewer || !$("ia3d-pose3d-toggle")?.checked) return;
+  const set = (imgId, wrapId, tileIdx) => {
+    const img = $(imgId);
+    if (!img) return;
+    const wrap = $(wrapId);
+    const tile = _viewer.getTile(tileIdx);
+    const src = tile && tile.imgEl ? tile.imgEl.src : null;
+    if (src) {
+      img.src = src;
+      wrap?.classList.remove("hidden");
+    } else {
+      img.removeAttribute("src");
+      wrap?.classList.add("hidden");
+    }
+  };
+  set("ia3d-pose3d-cam0", "ia3d-pose3d-cam0-wrap", 0);
+  set("ia3d-pose3d-cam1", "ia3d-pose3d-cam1-wrap", 1);
+}
+
+// After a load(), configure the error slider's upper bound + default from the
+// viewer's error_max (show-all = max), then sync both thresholds into the viewer.
+function _configurePose3dErrorSlider() {
+  if (!_pose3d) return;
+  const em = _pose3d.getErrorMax ? _pose3d.getErrorMax() : null;
+  const slider = $("ia3d-pose3d-error-thr");
+  const lbl = $("ia3d-pose3d-error-thr-val");
+  if (slider && em != null && Number.isFinite(em) && em > 0) {
+    slider.max = String(em);
+    slider.step = String(Math.max(em / 100, 1e-6));
+    slider.value = String(em);
+    if (lbl) lbl.textContent = Number(em).toFixed(2);
+  }
+  // Push the current slider values into the viewer so the gate matches the UI.
+  const sv = parseFloat($("ia3d-pose3d-score-thr")?.value ?? "0");
+  const ev = parseFloat(slider?.value);
+  _pose3d.setThresholds({
+    score: Number.isFinite(sv) ? sv : 0,
+    error: Number.isFinite(ev) ? ev : undefined,
+  });
+}
+
+// Part 4 — Apply the median re-filter: POST the current medfilt/offset, then on
+// success refetch the filtered poses-3d + reload the viewer (which reconfigures
+// the error slider + jumps to the current frame). Errors go to the status span.
+async function _applyPose3dRefilter() {
+  const btn = $("ia3d-pose3d-apply");
+  const statusEl = $("ia3d-pose3d-refilter-status");
+  const cam0Video = _cam0Path();
+  if (!cam0Video) {
+    if (statusEl) statusEl.textContent = "Pick a cam0 video first.";
+    return;
+  }
+  const medfilt = parseInt($("ia3d-pose3d-medfilt")?.value, 10) || 17;
+  const offset = parseFloat($("ia3d-pose3d-offset")?.value);
+  if (btn) btn.disabled = true;
+  if (statusEl) statusEl.textContent = "Filtering…";
+  try {
+    const r = await fetch("/dlc/project/triangulate/refilter", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        cam0_video: cam0Video,
+        medfilt,
+        offset_threshold: Number.isFinite(offset) ? offset : 15,
+      }),
+    });
+    let data;
+    try { data = await r.json(); } catch { data = null; }
+    if (!r.ok || !data || data.error) {
+      if (statusEl) statusEl.textContent = `Error: ${(data && data.error) || `HTTP ${r.status}`}`;
+      return;
+    }
+    if (statusEl) statusEl.textContent = `Filtered ✓ (medfilt ${data.medfilt ?? medfilt})`;
+    // Refetch source=filtered + reload → reconfigures the error slider + showFrame.
+    await _loadPose3d();
+  } catch (err) {
+    if (statusEl) statusEl.textContent = `Error: ${err.message}`;
+  } finally {
+    if (btn) btn.disabled = false;
+  }
 }
 
 // Fetch the poses-3d contract for the current cam0 video (filtered source),
@@ -1505,8 +1625,14 @@ async function _loadPose3d() {
     }
     _pose3d.load(data);
     _pose3dLoaded = true;
+    // Configure the error slider (max/default) from the freshly-loaded data and
+    // sync both thresholds into the viewer's gate.
+    _configurePose3dErrorSlider();
     // Seek the 3D pose to whatever frame the 2D player is on.
     if (_viewer) _pose3d.showFrame(_viewer.currentFrame());
+    // Mirror the mini-cams immediately so the composite shows without waiting for
+    // the next frameChange.
+    _mirrorPose3dCams();
   } catch (err) {
     if (statusEl) statusEl.textContent = `Error: ${err.message}`;
   }
