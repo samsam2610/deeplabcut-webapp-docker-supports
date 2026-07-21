@@ -1461,9 +1461,13 @@ async function _refreshTriangulateCoverage() {
   const cam0Video = _cam0Path();
   if (!canvas || !cam0Video) { _triCoverageBuckets = null; return; }
   const w = Math.max(200, Math.round(canvas.getBoundingClientRect().width || 600));
+  // Pass the video frame count (seek-bar scale) so the 3D bar spans the whole
+  // video and aligns with the seek / finalized timelines — the canonical only
+  // extends to the last-triangulated frame.
+  const nf = _frameCount > 0 ? `&nframes=${_frameCount}` : "";
   try {
     const data = await (await fetch(
-      `/dlc/project/triangulate/coverage?cam0_video=${encodeURIComponent(cam0Video)}&buckets=${w}`,
+      `/dlc/project/triangulate/coverage?cam0_video=${encodeURIComponent(cam0Video)}&buckets=${w}${nf}`,
     )).json();
     _triCoverageBuckets = data.buckets || [];
     _drawCoverageBar(canvas, _triCoverageBuckets, null, "#60a5fa");
