@@ -522,6 +522,36 @@
         </div>
         <!-- ── end Triangulate Panel ─────────────────────────────────── -->
 
+        <!-- ── 3D View Panel (three.js pose viewer spike) ────────────── -->
+        <div id="ia3d-pose3d-panel" style="margin-top:.65rem;padding:.5rem .65rem;background:var(--surface-2);border:1px solid var(--border);border-radius:7px">
+
+          <!-- Toggle row -->
+          <div style="display:flex;align-items:center;gap:.6rem;flex-wrap:wrap">
+            <label style="display:flex;align-items:center;gap:.45rem;font-size:.8rem;font-weight:500;cursor:pointer;user-select:none">
+              <input type="checkbox" id="ia3d-pose3d-toggle"
+                     style="accent-color:var(--accent);width:14px;height:14px"/>
+              3D View
+            </label>
+          </div>
+
+          <!-- Controls (hidden until the toggle is checked) -->
+          <div id="ia3d-pose3d-controls" class="hidden" style="margin-top:.5rem">
+            <div style="display:flex;align-items:center;gap:.4rem;flex-wrap:wrap;margin-bottom:.4rem">
+              <button class="btn-sm" id="ia3d-pose3d-reset"
+                title="Recenter the camera on the reconstructed pose">
+                Reset view
+              </button>
+              <span id="ia3d-pose3d-status" class="fe-extract-status" style="font-size:.73rem;flex:1;min-width:0"></span>
+            </div>
+            <!-- Fixed-height WebGL viewport; canvas fills it (three.js renders here). -->
+            <div style="position:relative;height:360px;border:1px solid var(--border);border-radius:6px;background:var(--surface);overflow:hidden">
+              <canvas id="ia3d-pose3d-canvas" style="width:100%;height:100%;display:block"></canvas>
+            </div>
+          </div>
+          <!-- end ia3d-pose3d-controls -->
+        </div>
+        <!-- ── end 3D View Panel ─────────────────────────────────────── -->
+
         <!-- ── Dataset Curation Panel ──────────────────────────────── -->
         <div id="ia3d-curation-panel" style="margin-top:.65rem;padding:.5rem .65rem;background:var(--surface-2);border:1px solid var(--border);border-radius:7px">
 

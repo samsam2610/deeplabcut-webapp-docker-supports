@@ -23,6 +23,7 @@ import { clipExtractor } from "./components/viewer/features/clip_extractor.js";
 import { coverageRects, coverageFrameRects, nearestCoveredFrame, xToFrame, nextCoveredBucket, bucketToFrame, frameToBucket } from "./components/viewer/internal/coverage_timeline.mjs";
 import { pickLatestVariant } from "./components/viewer/internal/pick_latest_variant.mjs";
 import { makeKeyframeWindow } from "./keyframe_window_ui.js";
+import { makePose3dViewer } from "./pose3d_viewer.js";
 import { clampToBounds } from "./internal/clamp_bounds.mjs";
 import { addTag, removeTag } from "./internal/tag_list.mjs";
 import { tagKeyframes, mergeWindows } from "./components/viewer/internal/tag_batch.mjs";
@@ -67,6 +68,12 @@ let _redrawFinalizeCoverage = () => {};
 
 // Triangulate (Phase 2) — 3D coverage bar presence buckets (0..1), null until fetched.
 let _triCoverageBuckets = null;
+let _redrawTriangulateCoverage = () => {};
+
+// 3D pose viewer (three.js spike) — isolated handle; null until the panel is opened.
+let _pose3d = null;
+let _pose3dChromeWired = false;
+let _pose3dLoaded = false;   // true once load(data) has real data (guards showFrame no-op).
 let _snTimeline = null;   // statusNoteTimeline feature handle (for .redraw() on resize)
 let _pendingTagRestore = null;  // active status/note tags stashed across a post-analysis reload
 
@@ -282,12 +289,18 @@ function _ensureViewer() {
     // change) — so a previously-finalized video would otherwise show an empty bar.
     _refreshFinalizeCoverage();
   });
-  _viewer.on("frameChange", () => _updateMetaStrip());
+  _viewer.on("frameChange", (n) => {
+    _updateMetaStrip();
+    // Drive the 3D pose viewer in lock-step with the 2D player. Guarded: no-op
+    // until the 3D panel has loaded triangulated data (_pose3dLoaded).
+    if (_pose3d && _pose3dLoaded) _pose3d.showFrame(n);
+  });
 
   // Dataset-curation consumer glue: master toggle + Extract Frame / Add to
   // Dataset / Batch Add, with both-cams fan-out in sync mode.
   _wireCurationChrome();
   _wireTriangulateChrome();
+  _wirePose3dChrome();
 
   _wireViewerChrome(_viewer);
   return _viewer;
@@ -361,7 +374,7 @@ function _drawLockOverlays() {
 // i.e. zoom>100%); at 100% (or null geometry) reset to the responsive card width.
 function _applyTimelineWidth(g) {
   const overflowing = !!(g && g.marginLeft < 0);
-  for (const id of ["ia3d-seek-canvas", "ia3d-status-canvas", "ia3d-note-canvas", "ia3d-finalize-coverage"]) {
+  for (const id of ["ia3d-seek-canvas", "ia3d-status-canvas", "ia3d-note-canvas", "ia3d-finalize-coverage", "ia3d-triangulate-coverage"]) {
     const c = $(id);
     if (!c) continue;
     // Restore the template's inline width:100% on reset (clearing to "" would
@@ -371,6 +384,7 @@ function _applyTimelineWidth(g) {
   }
   _redrawSeekTimeline();
   _redrawFinalizeCoverage();
+  _redrawTriangulateCoverage();
   if (_snTimeline) _snTimeline.redraw();
   _drawLockOverlays();
 }
@@ -500,6 +514,18 @@ function _wireViewerChrome(v) {
   $("ia3d-finalize-prev")?.addEventListener("click", () => _finalizeNav(-1));
   $("ia3d-finalize-next")?.addEventListener("click", () => _finalizeNav(1));
   v.on("frameChange", () => _redrawFinalizeCoverage());
+
+  // 3D-coverage bar (triangulate): click/drag-seek + playhead sync, mirroring the
+  // finalize bar. The endpoint supplies only buckets (no per-bucket frames), but
+  // they're scaled to the full video, so xToFrame click-seek and the playhead land
+  // consistently. Redraw is gated on the 3D panel being open (cheap no-op closed).
+  const triCoverageCanvas = $("ia3d-triangulate-coverage");
+  _wireSeekCanvas(triCoverageCanvas, () => ({ buckets: _triCoverageBuckets, frames: null }));
+  _redrawTriangulateCoverage = () => {
+    if ($("ia3d-triangulate-toggle")?.checked)
+      _drawCoverageBar(triCoverageCanvas, _triCoverageBuckets, null, "#60a5fa");
+  };
+  v.on("frameChange", () => _redrawTriangulateCoverage());
 
   _finalizeKW = makeKeyframeWindow({
     viewer: v,
@@ -1410,6 +1436,9 @@ function _wireTriangulateChrome() {
         const end = startFrame + nFrames - 1;
         setStatus(`3D ✓ frames ${startFrame}–${end}${res.pair_name ? ` → ${res.pair_name}` : ""}`);
         await _refreshTriangulateCoverage();
+        // Newly-triangulated frames → refetch + reload the 3D pose viewer (no-op
+        // until its panel has been opened at least once).
+        if (_pose3d && _pose3dLoaded) await _loadPose3d();
       } else {
         setStatus(`Error: ${(done && done.error) || "triangulation failed"}`, true);
       }
@@ -1420,6 +1449,67 @@ function _wireTriangulateChrome() {
       _refreshAnalyzeEnablement();
     }
   });
+}
+
+// ── 3D pose viewer (three.js spike) ──────────────────────────────────────────
+//
+// Mirrors _wireTriangulateChrome's idempotent-wire pattern. On first check of the
+// #ia3d-pose3d-toggle we reveal the controls, lazily create + init() the isolated
+// pose3d_viewer, fetch the frozen /dlc/project/triangulate/poses-3d contract,
+// load() it, and showFrame(currentFrame). All three.js stays inside pose3d_viewer.js.
+function _wirePose3dChrome() {
+  if (_pose3dChromeWired) return;
+  _pose3dChromeWired = true;
+
+  const toggle = $("ia3d-pose3d-toggle");
+  toggle?.addEventListener("change", async () => {
+    const on = !!toggle.checked;
+    $("ia3d-pose3d-controls")?.classList.toggle("hidden", !on);
+    if (!on) return;
+
+    // Lazily create + init the viewer once.
+    if (!_pose3d) {
+      const canvas = $("ia3d-pose3d-canvas");
+      const statusEl = $("ia3d-pose3d-status");
+      if (!canvas) return;
+      _pose3d = makePose3dViewer({ canvas, statusEl });
+      _pose3d.init();
+    }
+    await _loadPose3d();
+  });
+
+  const resetBtn = $("ia3d-pose3d-reset");
+  resetBtn?.addEventListener("click", () => _pose3d?.resetView());
+}
+
+// Fetch the poses-3d contract for the current cam0 video (filtered source),
+// load() it into the viewer, then jump it to the player's current frame. Sets
+// _pose3dLoaded so the frameChange subscription starts driving showFrame.
+async function _loadPose3d() {
+  if (!_pose3d) return;
+  const statusEl = $("ia3d-pose3d-status");
+  const cam0Video = _cam0Path();
+  if (!cam0Video) {
+    if (statusEl) statusEl.textContent = "Pick a cam0 video first.";
+    return;
+  }
+  if (statusEl) statusEl.textContent = "Loading 3D…";
+  try {
+    const url = `/dlc/project/triangulate/poses-3d?cam0_video=${encodeURIComponent(cam0Video)}&source=filtered`;
+    const r = await fetch(url);
+    let data;
+    try { data = await r.json(); } catch { data = null; }
+    if (!r.ok || !data) {
+      if (statusEl) statusEl.textContent = `Error: ${(data && data.error) || `HTTP ${r.status}`}`;
+      return;
+    }
+    _pose3d.load(data);
+    _pose3dLoaded = true;
+    // Seek the 3D pose to whatever frame the 2D player is on.
+    if (_viewer) _pose3d.showFrame(_viewer.currentFrame());
+  } catch (err) {
+    if (statusEl) statusEl.textContent = `Error: ${err.message}`;
+  }
 }
 
 // Poll one triangulate-range req_id to terminal state, per the
@@ -1470,7 +1560,7 @@ async function _refreshTriangulateCoverage() {
       `/dlc/project/triangulate/coverage?cam0_video=${encodeURIComponent(cam0Video)}&buckets=${w}${nf}`,
     )).json();
     _triCoverageBuckets = data.buckets || [];
-    _drawCoverageBar(canvas, _triCoverageBuckets, null, "#60a5fa");
+    _redrawTriangulateCoverage();
   } catch (_) { /* leave the 3D bar empty */ }
 }
 

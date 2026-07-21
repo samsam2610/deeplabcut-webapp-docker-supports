@@ -57,3 +57,19 @@ def test_range_button_gated_on_lock_like_confined():
              s.index("function _refreshAnalyzeEnablement") + 1200]
     assert "ia3d-triangulate-range-btn" in gate and "rangeOk" in gate, \
         "range button disabled state must be gated by rangeOk in _refreshAnalyzeEnablement"
+
+
+def test_triangulate_coverage_bar_seekable_and_playhead_synced():
+    """The 3D coverage bar must be click/drag-seekable and redraw its playhead on
+    frameChange + resize, exactly like the sibling seek/finalize bars — otherwise
+    it isn't clickable, doesn't sync, and its cursor never moves."""
+    s = _js()
+    assert "_wireSeekCanvas(triCoverageCanvas" in s, \
+        "3D coverage canvas must be passed to _wireSeekCanvas (click/drag seek)"
+    # defined once + called from a frameChange handler + called on resize
+    assert s.count("_redrawTriangulateCoverage") >= 3, \
+        "need a _redrawTriangulateCoverage fn wired to frameChange + resize (playhead sync)"
+    assert "() => _redrawTriangulateCoverage())" in s, \
+        "_redrawTriangulateCoverage must be called from a viewer frameChange handler"
+    assert '"ia3d-finalize-coverage", "ia3d-triangulate-coverage"' in s, \
+        "3D coverage canvas must be in the _applyTimelineWidth resize/zoom id list"
