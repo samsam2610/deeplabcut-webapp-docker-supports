@@ -72,6 +72,17 @@ def test_flip_checkboxes_present():
         assert 'type="checkbox"' in tag, f"#{iid} must be a checkbox"
 
 
+def test_grid_origin_checkboxes_present_default_off():
+    """Grid + origin toggles exist as checkboxes and are UNCHECKED by default (off)."""
+    block = _pose3d_controls_block(CARD.read_text())
+    for iid in ("ia3d-pose3d-grid", "ia3d-pose3d-origin"):
+        i = block.find(f'id="{iid}"')
+        assert i >= 0, f"missing #{iid} checkbox"
+        tag = block[block.rindex("<input", 0, i):block.index(">", i)]
+        assert 'type="checkbox"' in tag, f"#{iid} must be a checkbox"
+        assert "checked" not in tag, f"#{iid} must default OFF (unchecked)"
+
+
 # ── JS-source: viewer setFlip ───────────────────────────────────────────────
 
 def test_set_flip_exported_and_scales_group():
@@ -80,6 +91,36 @@ def test_set_flip_exported_and_scales_group():
     assert "group.scale.set(" in s, "setFlip must call group.scale.set"
     m = re.search(r"return\s*\{[^}]*\binit\b[^}]*\}", s)
     assert m and "setFlip" in m.group(0), "setFlip must be in the returned viewer API"
+
+
+def test_grid_origin_helpers_default_off_and_exported():
+    """setGrid/setOrigin exist + are exported; the grid + axes helpers are created
+    hidden (visible=false) so the default is off."""
+    s = POSE3D.read_text()
+    assert re.search(r"function\s+setGrid\s*\(", s), "must define setGrid()"
+    assert re.search(r"function\s+setOrigin\s*\(", s), "must define setOrigin()"
+    m = re.search(r"return\s*\{[^}]*\binit\b[^}]*\}", s)
+    assert m and "setGrid" in m.group(0) and "setOrigin" in m.group(0), \
+        "setGrid + setOrigin must be in the returned viewer API"
+    assert "grid.visible = false" in s, "grid helper must be hidden by default"
+    assert "axes.visible = false" in s, "origin axes helper must be hidden by default"
+
+
+def test_view_width_not_clobbered_by_mirror_loop():
+    """Regression: the mirror loop must NOT pin the canvas box width to the camera
+    width (that clobbered the width control every tick — height was unaffected)."""
+    s = JS.read_text()
+    assert "style.maxWidth = camW" not in s, "mirror loop must not cap the box maxWidth to camW"
+    assert "style.width = camW" not in s, "mirror loop must not set the box width to camW"
+
+
+def test_grid_origin_wired_and_persisted():
+    s = JS.read_text()
+    assert re.search(r"setGrid\(", s), "grid toggle must call _pose3d.setGrid"
+    assert re.search(r"setOrigin\(", s), "origin toggle must call _pose3d.setOrigin"
+    assert re.search(r'ia3d-pose3d-grid"\)\?\.addEventListener', s), "grid checkbox must be wired"
+    assert re.search(r'ia3d-pose3d-origin"\)\?\.addEventListener', s), "origin checkbox must be wired"
+    assert "gridOn" in s and "originOn" in s, "grid/origin state must be in the persisted prefs"
 
 
 # ── JS-source: wiring + persistence ─────────────────────────────────────────

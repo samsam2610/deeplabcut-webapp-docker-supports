@@ -1734,6 +1734,15 @@ function _wirePose3dChrome() {
   $("ia3d-pose3d-flip-y")?.addEventListener("change", onFlip);
   $("ia3d-pose3d-flip-z")?.addEventListener("change", onFlip);
 
+  // ── Grid / origin helpers → show-hide (live) + debounced per-project save ───
+  const onHelpers = () => {
+    _pose3d?.setGrid(!!$("ia3d-pose3d-grid")?.checked);
+    _pose3d?.setOrigin(!!$("ia3d-pose3d-origin")?.checked);
+    _savePose3dViewPrefs();
+  };
+  $("ia3d-pose3d-grid")?.addEventListener("change", onHelpers);
+  $("ia3d-pose3d-origin")?.addEventListener("change", onHelpers);
+
   // ── Part 4: median re-filter → POST /dlc/project/triangulate/refilter ──────
   $("ia3d-pose3d-apply")?.addEventListener("click", _applyPose3dRefilter);
 }
@@ -1760,6 +1769,8 @@ function _savePose3dViewPrefs() {
     flipX: !!$("ia3d-pose3d-flip-x")?.checked,
     flipY: !!$("ia3d-pose3d-flip-y")?.checked,
     flipZ: !!$("ia3d-pose3d-flip-z")?.checked,
+    gridOn: !!$("ia3d-pose3d-grid")?.checked,
+    originOn: !!$("ia3d-pose3d-origin")?.checked,
   };
   if (_viewPrefsSaveTimer) clearTimeout(_viewPrefsSaveTimer);
   _viewPrefsSaveTimer = setTimeout(() => {
@@ -1812,6 +1823,14 @@ async function _loadPose3dViewPrefs() {
     if (cbY) cbY.checked = fy;
     if (cbZ) cbZ.checked = fz;
     _pose3d.setFlip(fx, fy, fz);
+    // Helpers: sync the checkboxes then push to the viewer (absent → default off).
+    const gridOn = !!prefs.gridOn, originOn = !!prefs.originOn;
+    const cbGrid = $("ia3d-pose3d-grid");
+    const cbOrigin = $("ia3d-pose3d-origin");
+    if (cbGrid) cbGrid.checked = gridOn;
+    if (cbOrigin) cbOrigin.checked = originOn;
+    _pose3d.setGrid(gridOn);
+    _pose3d.setOrigin(originOn);
   } catch (_) { /* keep the default view prefs */ }
 }
 
