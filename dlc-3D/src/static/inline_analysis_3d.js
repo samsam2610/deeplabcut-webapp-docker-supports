@@ -1029,21 +1029,25 @@ async function _refreshCoverage() {
   if (!on || !_overlayPrimaryH5) { _coverageBuckets = null; _coverageFrames = null; _redrawSeekTimeline(); return; }
   const thr = parseFloat($("ia3d-overlay-threshold")?.value ?? "0.6");
   const w = Math.max(200, Math.round($("ia3d-seek-canvas")?.getBoundingClientRect().width || 600));
-  const key = `${_overlayPrimaryH5}:${thr.toFixed(2)}:${w}`;
+  // Pass the VIDEO frame count so coverage is bucketed in seek-bar space — the h5
+  // may have fewer rows than the video has frames (DLC analyzed a prefix), so
+  // marks must be placed by absolute frame, not compressed into the h5 length.
+  const nf = _frameCount > 0 ? `&nframes=${_frameCount}` : "";
+  const key = `${_overlayPrimaryH5}:${thr.toFixed(2)}:${w}:${_frameCount}`;
   if (_coverageCache.has(key)) {
     const c = _coverageCache.get(key);
     _coverageBuckets = c.buckets; _coverageFrames = c.frames; _redrawSeekTimeline(); return;
   }
   try {
     const data = await (await fetch(
-      `/dlc/viewer/pose-coverage?h5=${encodeURIComponent(_overlayPrimaryH5)}&threshold=${thr}&buckets=${w}`,
+      `/dlc/viewer/pose-coverage?h5=${encodeURIComponent(_overlayPrimaryH5)}&threshold=${thr}&buckets=${w}${nf}`,
     )).json();
     const entry = { buckets: data.buckets || [], frames: data.frames || [] };
     _coverageCache.set(key, entry);
-    // still the active request? (h5 + threshold + width all unchanged)
+    // still the active request? (h5 + threshold + width + frame count unchanged)
     const curThr = parseFloat($("ia3d-overlay-threshold")?.value ?? "0.6");
     const curW = Math.max(200, Math.round($("ia3d-seek-canvas")?.getBoundingClientRect().width || 600));
-    if (`${_overlayPrimaryH5}:${curThr.toFixed(2)}:${curW}` === key) {
+    if (`${_overlayPrimaryH5}:${curThr.toFixed(2)}:${curW}:${_frameCount}` === key) {
       _coverageBuckets = entry.buckets; _coverageFrames = entry.frames; _redrawSeekTimeline();
     }
   } catch (_) { /* leave timeline without coverage */ }
@@ -1076,8 +1080,11 @@ async function _refreshFinalizeCoverage() {
     const st = await (await fetch(`/dlc/project/analysis-file/status?video_path=${encodeURIComponent(cam0Video)}`)).json();
     if (!st.initialized || !st.h5_path) { _clear(); return; }
     const w = Math.max(200, Math.round($("ia3d-finalize-coverage")?.getBoundingClientRect().width || 600));
+    // Bucket in seek-bar (video-frame) space so the finalize bar aligns with the
+    // seek + 3D timelines even if the analyzed h5 is shorter than the video.
+    const nf = _frameCount > 0 ? `&nframes=${_frameCount}` : "";
     const data = await (await fetch(
-      `/dlc/viewer/pose-coverage?h5=${encodeURIComponent(st.h5_path)}&mode=presence&buckets=${w}`,
+      `/dlc/viewer/pose-coverage?h5=${encodeURIComponent(st.h5_path)}&mode=presence&buckets=${w}${nf}`,
     )).json();
     _finalizeCoverageBuckets = data.buckets || [];
     _finalizeCoverageFrames = data.frames || [];
