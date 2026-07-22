@@ -200,6 +200,18 @@ def test_jobs_card_augments_triangulate_rows():
     assert "openTriangulateDetail" in s, "detail view must handle triangulate rows"
 
 
+def test_jobs_card_idle_polls_while_open():
+    """An open Jobs card must keep polling even with no live job, so a run started
+    elsewhere (e.g. a triangulate batch) appears without a manual Refresh."""
+    s = CARDS_JS.read_text()
+    # dual-interval poll: fast when live, slow idle poll otherwise
+    assert re.search(r"hasLive\s*\?\s*5000\s*:\s*15000", s), "must idle-poll (15s) when nothing is live"
+    # the timer is gated on visibility, not on hasLive
+    assert re.search(r"if\s*\(\s*!card\.classList\.contains\(\"hidden\"\)\s*\)\s*\{\s*\n\s*autoRefreshTimer", s), (
+        "auto-refresh must run whenever the card is visible, not only when hasLive"
+    )
+
+
 # ── Template ───────────────────────────────────────────────────────────────
 
 def test_jobs_card_title_is_jobs():

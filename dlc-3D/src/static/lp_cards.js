@@ -565,11 +565,15 @@ function initJobsCard() {
         }
       });
     });
-    // If any job is non-terminal, keep refreshing the table every 5s
+    // Keep the table live while the card is open: poll every 5s when something is
+    // running, and a slower 15s idle poll otherwise. The idle poll matters — an
+    // already-open card that saw no live jobs used to stop refreshing entirely, so
+    // a run started elsewhere (e.g. a triangulate batch) never appeared until a
+    // manual Refresh. Polling while visible fixes that.
     const hasLive = jobs.some((j) => j.celery_state && !TERMINAL.has(j.celery_state));
     stopAutoRefresh();
-    if (hasLive && !card.classList.contains("hidden")) {
-      autoRefreshTimer = setInterval(refresh, 5000);
+    if (!card.classList.contains("hidden")) {
+      autoRefreshTimer = setInterval(refresh, hasLive ? 5000 : 15000);
     }
   }
 
