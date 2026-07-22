@@ -32,3 +32,14 @@ def test_overwrite_prompt_gated_on_actual_overlap():
     assert re.search(r"overlap\s*!==\s*false\s*&&\s*!window\.confirm", s), (
         "prompt must be skipped when the range is empty in _analyzed (overlap === false)"
     )
+
+
+def test_overwrite_prompt_gated_on_finalized_count_not_file_existence():
+    """An empty-but-existing _analyzed (n_analyzed == 0) must NOT warn — the prompt
+    is gated on the finalized-frame count, not merely `initialized` (file exists)."""
+    s = _src()
+    assert re.search(r"function\s+_finalizedCount\s*\(", s), "must define a finalized-frame-count helper"
+    assert "n_analyzed" in s, "finalized count must come from the status route's n_analyzed"
+    # the prompt's cam flags derive from the count (>0), not from _initStatus.
+    assert re.search(r"n0\s*=\s*await\s+_finalizedCount", s), "cam0 gate must use _finalizedCount"
+    assert re.search(r"e0\s*=\s*n0\s*>\s*0", s), "prompt gate must be n_analyzed > 0, not file-existence"

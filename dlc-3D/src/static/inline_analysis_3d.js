@@ -2856,6 +2856,14 @@ async function _initStatus(v) {
   catch (e) { return false; }
 }
 
+// Number of frames actually FINALIZED in the _analyzed file (0 when the file is
+// absent OR exists-but-empty). Used to gate the overwrite prompt: an empty
+// _analyzed has nothing to overwrite, so it must never warn.
+async function _finalizedCount(v) {
+  try { return (await (await fetch(`/dlc/project/analysis-file/status?video_path=${encodeURIComponent(v)}`)).json()).n_analyzed || 0; }
+  catch (e) { return 0; }
+}
+
 // Does [startFrame, endFrame] overlap any finalized frame per the amber "_analyzed"
 // coverage bar (the same buckets it draws from — each covered bucket = ≥1 finalized
 // frame)? Returns true/false, or null when the coverage isn't loaded yet (caller then
@@ -2889,11 +2897,14 @@ async function _doFinalizeAdd() {
   const startFrame = rng.start, nFrames = rng.n;
   const cam1Layer = _siblingPrimaryH5;
   try {
-    const e0 = await _initStatus(cam0Video);
-    const e1 = (_siblingPath && cam1Layer) ? await _initStatus(_siblingPath) : false;
-    // Only warn when those frames actually hold finalized data (per the amber coverage
-    // bar). A range that is empty in _analyzed has nothing to overwrite → no prompt.
-    // overlap === false → skip prompt; true/null (has data / unknown) → prompt.
+    // Gate on the number of FINALIZED frames, not merely file-existence: an empty
+    // _analyzed (file present but 0 finalized) has nothing to overwrite → no prompt,
+    // even before the amber coverage bar has loaded (overlap would be "unknown").
+    const n0 = await _finalizedCount(cam0Video);
+    const n1 = (_siblingPath && cam1Layer) ? await _finalizedCount(_siblingPath) : 0;
+    const e0 = n0 > 0, e1 = n1 > 0;
+    // Among cams with finalized data, only warn when the range actually overlaps it
+    // (per the amber coverage bar). overlap === false → skip; true/null → prompt.
     const overlap = _rangeOverlapsFinalized(startFrame, startFrame + nFrames - 1);
     if ((e0 || e1) && overlap !== false && !window.confirm(
         `Overwrite frames ${startFrame}–${startFrame + nFrames - 1} in the existing _analyzed file(s)` +
