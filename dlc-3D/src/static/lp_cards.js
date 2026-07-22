@@ -468,6 +468,18 @@ function initJobsCard() {
     } catch (e) { /* leave row as registered; state shows '?' */ }
   }
 
+  // triangulate rows come from the MAIN webapp's triangulate Celery task, whose
+  // status endpoint already reports Celery-native state — use it directly.
+  async function augmentTriangulate(job) {
+    try {
+      const r = await fetch(`/dlc/project/triangulate/range/status?req_id=${encodeURIComponent(job.id)}`);
+      if (!r.ok) return;
+      const d = await r.json();
+      job.celery_state = d.state || job.celery_state;
+      job.tri_status = d;
+    } catch (e) { /* leave row as registered; state shows '?' */ }
+  }
+
   function stopAutoRefresh() {
     if (autoRefreshTimer) { clearInterval(autoRefreshTimer); autoRefreshTimer = null; }
   }
@@ -487,10 +499,19 @@ function initJobsCard() {
             : s.status === "error" ? (s.error || "error")
             : "running…";
     }
+    // triangulate rows show the Celery stage/progress, or a terminal summary.
+    if (j.type === "triangulate" && j.tri_status) {
+      const t = j.tri_status;
+      stage = t.state === "SUCCESS"
+                ? (t.result && t.result.skipped ? "skipped — no 2D data" : "3D ✓")
+            : t.state === "FAILURE" ? (t.error || "error")
+            : `${t.stage || "working"}${t.progress ? ` ${t.progress}%` : ""}`;
+    }
     const stateCell = stage ? `${stateRaw} <span style="color:var(--text-dim);font-size:.65rem">· ${stage}</span>` : stateRaw;
-    // analyze jobs run on the inline-analysis worker; LP Celery revoke can't reach
-    // them, so no Cancel button for those rows.
-    const canCancel = j.type !== "analyze" && stateRaw && !TERMINAL.has(stateRaw) && stateRaw !== "?";
+    // analyze + triangulate run on the MAIN webapp worker; LP Celery revoke can't
+    // reach them, so no Cancel button for those rows.
+    const canCancel = j.type !== "analyze" && j.type !== "triangulate"
+      && stateRaw && !TERMINAL.has(stateRaw) && stateRaw !== "?";
     const cancelBtn = canCancel
       ? `<button class="btn-sm" data-cancel="${j.id}" title="Revoke this Celery task (SIGTERM)" style="opacity:.85">Cancel</button>`
       : `<button class="btn-sm" disabled style="opacity:.3">Cancel</button>`;
@@ -515,13 +536,14 @@ function initJobsCard() {
       return;
     }
     const jobs = body.jobs || [];
-    // Pull live state for analyze rows from the inline-analysis status endpoint.
+    // Pull live state for analyze + triangulate rows from their status endpoints.
     await Promise.all(jobs.filter((j) => j.type === "analyze").map(augmentAnalyze));
+    await Promise.all(jobs.filter((j) => j.type === "triangulate").map(augmentTriangulate));
     jobsById.clear();
     for (const j of jobs) jobsById.set(j.id, j);
     tbody.innerHTML = "";
     if (!jobs.length) {
-      tbody.innerHTML = `<tr><td colspan="5" style="color:var(--text-dim)">no jobs yet — kick off a Convert / Train / EKS / Predict / Analyze run</td></tr>`;
+      tbody.innerHTML = `<tr><td colspan="5" style="color:var(--text-dim)">no jobs yet — kick off a Convert / Train / EKS / Predict / Analyze / Triangulate run</td></tr>`;
       return;
     }
     for (const j of jobs) {
@@ -580,9 +602,41 @@ function initJobsCard() {
     }
   }
 
+  async function openTriangulateDetail(jobId, job) {
+    stopDetailPoll();
+    detail.hidden = false;
+    const token = detailPollAbort = { aborted: false };
+    while (!token.aborted && !card.classList.contains("hidden")) {
+      let d;
+      try {
+        const r = await fetch(`/dlc/project/triangulate/range/status?req_id=${encodeURIComponent(jobId)}`);
+        d = await r.json();
+      } catch (e) {
+        detail.textContent = `fetch failed: ${e.message}`;
+        return;
+      }
+      const rng = job.range || [];
+      const res = d.result || {};
+      detail.textContent =
+        `job: ${jobId}\n` +
+        `type: triangulate\n` +
+        `state: ${d.state || "?"}${d.progress ? `  ${d.progress}%` : ""}\n` +
+        `stage: ${d.stage || ""}\n` +
+        `video: ${job.video || ""}\n` +
+        `range: start ${rng[0] ?? "?"}, n ${rng[1] ?? "?"}\n` +
+        `created: ${new Date((job.created_at || 0) * 1000).toLocaleString()}\n` +
+        (res.skipped ? `skipped: ${res.reason || "no 2D data in range"}\n` : "") +
+        (res.pair_name ? `pair: ${res.pair_name}\n` : "") +
+        (d.error ? `error: ${d.error}\n` : "");
+      if (["SUCCESS", "FAILURE"].includes(d.state)) return;
+      await new Promise((res2) => setTimeout(res2, 2000));
+    }
+  }
+
   async function openDetail(jobId) {
     const job = jobsById.get(jobId);
     if (job && job.type === "analyze") { return openAnalyzeDetail(jobId, job); }
+    if (job && job.type === "triangulate") { return openTriangulateDetail(jobId, job); }
     stopDetailPoll();
     detail.hidden = false;
     const token = detailPollAbort = { aborted: false };

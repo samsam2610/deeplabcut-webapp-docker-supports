@@ -61,6 +61,43 @@ def test_register_inline_writes_analyze_job(monkeypatch):
     assert captured["meta"]["range"] == [100, 500]
 
 
+def test_register_inline_accepts_triangulate_type(monkeypatch):
+    """POST /register-inline with type=triangulate stores a triangulate job."""
+    captured = {}
+
+    class _FakeRedis:
+        def ping(self):
+            return True
+
+    monkeypatch.setattr("dlc_3d_bp.lp_routes._redis_conn", lambda: _FakeRedis())
+    monkeypatch.setattr("dlc_3d_bp.lp.job_registry.register",
+                        lambda conn, jid, meta: captured.update(job_id=jid, meta=meta))
+
+    c = _app().test_client()
+    r = c.post("/dlc-3d/lp/register-inline", json={
+        "req_id": "tri-9", "video": "/user-data/proj/videos/cam0.mp4",
+        "start_frame": 192148, "n_frames": 800, "type": "triangulate",
+    })
+    assert r.status_code == 202, r.get_data(as_text=True)
+    assert captured["meta"]["type"] == "triangulate"
+    assert captured["meta"]["range"] == [192148, 800]
+
+
+def test_register_inline_unknown_type_falls_back_to_analyze(monkeypatch):
+    captured = {}
+
+    class _FakeRedis:
+        def ping(self):
+            return True
+
+    monkeypatch.setattr("dlc_3d_bp.lp_routes._redis_conn", lambda: _FakeRedis())
+    monkeypatch.setattr("dlc_3d_bp.lp.job_registry.register",
+                        lambda conn, jid, meta: captured.update(meta=meta))
+    c = _app().test_client()
+    c.post("/dlc-3d/lp/register-inline", json={"req_id": "x", "type": "bogus"})
+    assert captured["meta"]["type"] == "analyze"
+
+
 def test_register_inline_requires_req_id(monkeypatch):
     monkeypatch.setattr("dlc_3d_bp.lp_routes._redis_conn", lambda: object())
     c = _app().test_client()
@@ -135,6 +172,32 @@ def test_jobs_card_augments_analyze_rows_from_inline_status():
     # fmtRow handles the analyze type and its video target.
     assert 'j.type === "analyze"' in s
     assert "j.video" in s, "fmtRow must fall back to j.video for analyze rows"
+
+
+# ── JS wiring: triangulate rows registered + rendered ──────────────────────
+
+def test_triangulate_runs_register_a_job():
+    s = INLINE_JS.read_text()
+    m = re.search(r"function\s+_registerTriangulateJob\s*\(", s)
+    assert m, "expected a _registerTriangulateJob helper"
+    # posts the triangulate type to the shared register route
+    assert re.search(r'type:\s*"triangulate"', s), "helper must tag the job type triangulate"
+    # both the single-range button and the tag-batch register their dispatched req
+    assert s.count("_registerTriangulateJob(data.req_id") >= 2, (
+        "both single-range and batch triangulate must register their req"
+    )
+
+
+def test_jobs_card_augments_triangulate_rows():
+    s = CARDS_JS.read_text()
+    assert "augmentTriangulate" in s
+    assert "/dlc/project/triangulate/range/status" in s, (
+        "Jobs card must poll the triangulate status endpoint for triangulate rows"
+    )
+    assert 'j.type === "triangulate"' in s, "fmtRow must handle the triangulate type"
+    # triangulate rows (main-webapp Celery) are not LP-cancelable
+    assert 'j.type !== "triangulate"' in s, "triangulate rows must not offer Cancel"
+    assert "openTriangulateDetail" in s, "detail view must handle triangulate rows"
 
 
 # ── Template ───────────────────────────────────────────────────────────────

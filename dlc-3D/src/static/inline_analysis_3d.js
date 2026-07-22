@@ -1464,6 +1464,7 @@ function _wireTriangulateChrome() {
         setStatus(`Error: ${(data && data.error) || `HTTP ${r.status}`}`, true);
         return;
       }
+      _registerTriangulateJob(data.req_id, cam0Video, startFrame, nFrames);
       const done = await _pollTriangulateReq(data.req_id, (d) => {
         const pct = (d && typeof d.progress === "number") ? ` ${d.progress}%` : "";
         setStatus(`${(d && d.stage) || "working"}…${pct}`);
@@ -2700,6 +2701,22 @@ function _registerInlineJob(reqId, videoPath, startFrame, nFrames) {
   } catch (e) { /* ignore — registration is non-critical */ }
 }
 
+// Register a dispatched triangulate-range req in the Jobs card (type:"triangulate")
+// so batch/single triangulations show alongside analyze + LP jobs. Best-effort;
+// live progress comes from /dlc/project/triangulate/range/status.
+function _registerTriangulateJob(reqId, videoPath, startFrame, nFrames) {
+  if (!reqId) return;
+  try {
+    fetch("/dlc-3d/lp/register-inline", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        type: "triangulate", req_id: reqId, video: videoPath,
+        start_frame: startFrame, n_frames: nFrames,
+      }),
+    }).catch(() => {});
+  } catch (e) { /* ignore — registration is non-critical */ }
+}
+
 // ── Poll one req_id to terminal state ─
 const _activePolls = new Set();
 function _stopAllPolls() {
@@ -2982,6 +2999,7 @@ async function _onTriangulateTagClick() {
         setStatus(`Error: ${(data && data.error) || `HTTP ${resp.status}`}`, true);
         return;
       }
+      _registerTriangulateJob(data.req_id, cam0, r.start, r.n);
       const done = await _pollTriangulateReq(data.req_id, (d) => {
         const pct = (d && typeof d.progress === "number") ? ` ${d.progress}%` : "";
         setStatus(`Range ${i + 1}/${ranges.length}: ${(d && d.stage) || "working"}…${pct}`);

@@ -156,15 +156,18 @@ def job_cancel(job_id: str):
 
 @lp_bp.route("/register-inline", methods=["POST"])
 def register_inline():
-    """Index an inline-analysis 'Start analysis' run so it shows in the Jobs card.
+    """Index an inline-analysis / triangulate run so it shows in the Jobs card.
 
-    The inline-analysis Celery task runs in the MAIN webapp (not the lp_3d queue),
-    so LP ``AsyncResult`` knows nothing about its ``req_id``. We only record the
-    req_id + a bit of context here; the Jobs card reads live progress for these
-    ``type:"analyze"`` rows from ``/dlc/project/inline-analysis/range/status``.
+    These Celery tasks run in the MAIN webapp (not the lp_3d queue), so LP
+    ``AsyncResult`` knows nothing about their ``req_id``. We only record the
+    req_id + a bit of context here; the Jobs card reads live progress from the
+    matching status endpoint per row ``type``:
+      - ``analyze``     → ``/dlc/project/inline-analysis/range/status``
+      - ``triangulate`` → ``/dlc/project/triangulate/range/status``
 
-    Body: ``{req_id, video, start_frame, n_frames}``. Best-effort: returns 503 when
-    redis is unavailable (registration is non-critical to the analysis run itself).
+    Body: ``{req_id, video, start_frame, n_frames, type?}`` (``type`` defaults to
+    ``analyze``). Best-effort: returns 503 when redis is unavailable (registration
+    is non-critical to the run itself).
     """
     from dlc_3d_bp.lp import job_registry
 
@@ -172,6 +175,9 @@ def register_inline():
     req_id = (body.get("req_id") or "").strip()
     if not req_id:
         return jsonify({"error": "req_id required"}), 400
+    jtype = (body.get("type") or "analyze").strip()
+    if jtype not in ("analyze", "triangulate"):
+        jtype = "analyze"
     video = (body.get("video") or "").strip()
     try:
         start = int(body.get("start_frame") or 0)
@@ -186,7 +192,7 @@ def register_inline():
     if not conn:
         return jsonify({"error": "redis unavailable"}), 503
     job_registry.register(conn, req_id, {
-        "type": "analyze",
+        "type": jtype,
         "video": video,
         "range": [start, n],
     })
