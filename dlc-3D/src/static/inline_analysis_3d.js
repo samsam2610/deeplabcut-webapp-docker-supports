@@ -74,6 +74,8 @@ let _redrawTriangulateCoverage = () => {};
 let _pose3d = null;
 let _pose3dChromeWired = false;
 let _pose3dLoaded = false;   // true once load(data) has real data (guards showFrame no-op).
+let _mirrorRaf = null;       // single rAF handle for the mini-cam mirror loop (never leaks).
+let _mirrorLastTs = 0;       // last mirror timestamp — throttles the loop to ~30fps.
 let _snTimeline = null;   // statusNoteTimeline feature handle (for .redraw() on resize)
 let _pendingTagRestore = null;  // active status/note tags stashed across a post-analysis reload
 
@@ -288,6 +290,9 @@ function _ensureViewer() {
     // refresh it) doesn't fire on open (the toggle is set checked without dispatching
     // change) — so a previously-finalized video would otherwise show an empty bar.
     _refreshFinalizeCoverage();
+    // The 3D-coverage bar now lives under the viewer (always visible), so populate
+    // it on video load too — not only when the Triangulate panel is opened.
+    _refreshTriangulateCoverage();
   });
   _viewer.on("frameChange", (n) => {
     _updateMetaStrip();
@@ -526,9 +531,10 @@ function _wireViewerChrome(v) {
   // consistently. Redraw is gated on the 3D panel being open (cheap no-op closed).
   const triCoverageCanvas = $("ia3d-triangulate-coverage");
   _wireSeekCanvas(triCoverageCanvas, () => ({ buckets: _triCoverageBuckets, frames: null }));
+  // Always-visible bar (relocated out of the collapsible Triangulate panel), so it
+  // redraws whenever there's data — like _redrawFinalizeCoverage (no toggle gate).
   _redrawTriangulateCoverage = () => {
-    if ($("ia3d-triangulate-toggle")?.checked)
-      _drawCoverageBar(triCoverageCanvas, _triCoverageBuckets, null, "#60a5fa");
+    _drawCoverageBar(triCoverageCanvas, _triCoverageBuckets, null, "#60a5fa");
   };
   v.on("frameChange", () => _redrawTriangulateCoverage());
 
@@ -1612,7 +1618,7 @@ function _wirePose3dChrome() {
   toggle?.addEventListener("change", async () => {
     const on = !!toggle.checked;
     $("ia3d-pose3d-controls")?.classList.toggle("hidden", !on);
-    if (!on) return;
+    if (!on) { _stopMirrorLoop(); return; }
 
     // Lazily create + init the viewer once.
     if (!_pose3d) {
@@ -1655,31 +1661,96 @@ function _wirePose3dChrome() {
     _pose3d?.setThresholds({ error: v });
   });
 
+  // ── 3D marker size → setMarkerSize (scales the spheres live, no reload) ─────
+  const markerSize = $("ia3d-pose3d-marker-size");
+  markerSize?.addEventListener("input", () => {
+    const v = parseFloat(markerSize.value);
+    const lbl = $("ia3d-pose3d-marker-size-val");
+    if (lbl) lbl.textContent = Number.isFinite(v) ? v.toFixed(1) : "1.0";
+    _pose3d?.setMarkerSize(v);
+  });
+
   // ── Part 4: median re-filter → POST /dlc/project/triangulate/refilter ──────
   $("ia3d-pose3d-apply")?.addEventListener("click", _applyPose3dRefilter);
 }
 
-// Mirror the MAIN viewer's current-frame tiles into the composite mini-cams
-// (read-only). Each mini-cam wrapper hides when its tile / imgEl is absent
-// (single-cam). No-op when the 3D panel is closed.
+// Composite the MAIN viewer's current-frame tiles into the mini-cam <canvas>es
+// (read-only). Per cam we draw the frame image (tile.imgEl) then the marker
+// overlay canvas (tile.canvasEl) on top, scaled proportionally into the smaller
+// mini rect. The overlay canvas already reflects every original adjustment
+// (threshold / marker-size / overlay on-off / bodypart visibility), so the mirror
+// reproduces the original exactly for free. Each wrapper hides when its tile /
+// frame img is absent (single-cam). No-op when the 3D panel is closed.
 function _mirrorPose3dCams() {
   if (!_viewer || !$("ia3d-pose3d-toggle")?.checked) return;
-  const set = (imgId, wrapId, tileIdx) => {
-    const img = $(imgId);
-    if (!img) return;
+  const draw = (canvasId, wrapId, tileIdx) => {
+    const canvas = $(canvasId);
+    if (!canvas) return;
     const wrap = $(wrapId);
     const tile = _viewer.getTile(tileIdx);
-    const src = tile && tile.imgEl ? tile.imgEl.src : null;
-    if (src) {
-      img.src = src;
-      wrap?.classList.remove("hidden");
-    } else {
-      img.removeAttribute("src");
-      wrap?.classList.add("hidden");
-    }
+    const img = tile && tile.imgEl;
+    // Frame not loaded (single-cam, or naturalWidth still 0) → hide + skip.
+    if (!img || !img.naturalWidth) { wrap?.classList.add("hidden"); return; }
+    // DISPLAY size = the ORIGINAL tile's current rendered size, so the duplicate
+    // tracks the Viewer-size zoom (#ia3d-zoom) 1:1. Fall back to natural size if
+    // the original isn't laid out yet.
+    const rect = img.getBoundingClientRect();
+    const dispW = Math.max(1, Math.round(rect.width || img.clientWidth || img.naturalWidth));
+    const dispH = Math.max(1, Math.round(rect.height || dispW * img.naturalHeight / img.naturalWidth));
+    if (canvas.style.width !== dispW + "px") canvas.style.width = dispW + "px";
+    if (canvas.style.height !== dispH + "px") canvas.style.height = dispH + "px";
+    // Backing store: cap to the frame's native resolution for sharpness without
+    // allocating a huge canvas when the original is zoomed way up.
+    const bw = Math.max(1, Math.min(dispW, img.naturalWidth));
+    const bh = Math.max(1, Math.round(bw * img.naturalHeight / img.naturalWidth));
+    if (canvas.width !== bw || canvas.height !== bh) { canvas.width = bw; canvas.height = bh; }
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+    ctx.clearRect(0, 0, bw, bh);
+    // Guarded: an overlay canvas of size 0 (transient mid-resize) makes drawImage
+    // throw — swallow so a bad frame doesn't kill the loop.
+    try {
+      ctx.drawImage(img, 0, 0, bw, bh);
+      if (tile.canvasEl) ctx.drawImage(tile.canvasEl, 0, 0, bw, bh);
+    } catch (_) { /* transient bad size — skip this frame */ }
+    wrap?.classList.remove("hidden");
   };
-  set("ia3d-pose3d-cam0", "ia3d-pose3d-cam0-wrap", 0);
-  set("ia3d-pose3d-cam1", "ia3d-pose3d-cam1-wrap", 1);
+  draw("ia3d-pose3d-cam0", "ia3d-pose3d-cam0-wrap", 0);
+  draw("ia3d-pose3d-cam1", "ia3d-pose3d-cam1-wrap", 1);
+
+  // Cap the 3D viewer to ONE camera view: size its container to the current
+  // single-camera display width (cam0, fallback cam1), so the WebGL viewport is
+  // never wider than a single mini-cam and tracks the Viewer-size zoom. The
+  // three.js ResizeObserver on the canvas picks up the new size automatically.
+  const cam0 = $("ia3d-pose3d-cam0");
+  const cam1 = $("ia3d-pose3d-cam1");
+  const camW = (cam0 && cam0.clientWidth) || (cam1 && cam1.clientWidth) || 0;
+  const container = $("ia3d-pose3d-canvas")?.parentElement;
+  if (container && camW > 0) {
+    container.style.width = camW + "px";
+    container.style.maxWidth = camW + "px";
+  }
+}
+
+// Lightweight requestAnimationFrame loop that keeps the mini-cams composited
+// while the 3D panel is open. The main frame image + overlay canvas both update
+// async, so a one-shot mirror can catch a stale frame/overlay; the continuous
+// loop is the source of truth. Throttled to ~30fps; a single handle guarantees it
+// never leaks (start is idempotent, stop cancels). No-op body while the panel is
+// closed or 3D isn't loaded.
+function _startMirrorLoop() {
+  if (_mirrorRaf != null) return;
+  const tick = (ts) => {
+    _mirrorRaf = requestAnimationFrame(tick);
+    if (ts - _mirrorLastTs < 33) return;   // ~30fps throttle
+    _mirrorLastTs = ts;
+    if (_pose3dLoaded && $("ia3d-pose3d-toggle")?.checked) _mirrorPose3dCams();
+  };
+  _mirrorRaf = requestAnimationFrame(tick);
+}
+
+function _stopMirrorLoop() {
+  if (_mirrorRaf != null) { cancelAnimationFrame(_mirrorRaf); _mirrorRaf = null; }
 }
 
 // After a load(), configure the error slider's upper bound + default from the
@@ -1774,8 +1845,10 @@ async function _loadPose3d() {
     // Seek the 3D pose to whatever frame the 2D player is on.
     if (_viewer) _pose3d.showFrame(_viewer.currentFrame());
     // Mirror the mini-cams immediately so the composite shows without waiting for
-    // the next frameChange.
+    // the next frameChange, then start the continuous rAF mirror loop (source of
+    // truth — idempotent, so a refilter reload won't spawn a second loop).
     _mirrorPose3dCams();
+    _startMirrorLoop();
   } catch (err) {
     if (statusEl) statusEl.textContent = `Error: ${err.message}`;
   }
@@ -2046,6 +2119,10 @@ function _resetForOpen() {
 
 // Back button: tear down the viewer and hide the player section.
 function _iaBack() {
+  // Stop the mini-cam mirror rAF loop (dispose path) so it never outlives the
+  // viewer it reads tiles from.
+  _stopMirrorLoop();
+  _pose3dLoaded = false;
   // Unwire the keyframe windows first: their document-keydown + checkbox listeners
   // live on persistent nodes and would otherwise accumulate across open → Back →
   // reopen cycles. _ensureViewer composes fresh ones on the next open.

@@ -25,18 +25,21 @@ def _controls_block(html):
 
 def test_pose3d_mini_cams_present():
     block = _controls_block(CARD.read_text())
-    assert 'id="ia3d-pose3d-cam0"' in block, "mini cam0 <img> must be present"
-    assert 'id="ia3d-pose3d-cam1"' in block, "mini cam1 <img> must be present"
+    assert 'id="ia3d-pose3d-cam0"' in block, "mini cam0 <canvas> must be present"
+    assert 'id="ia3d-pose3d-cam1"' in block, "mini cam1 <canvas> must be present"
 
 
-def test_pose3d_mini_cams_are_imgs_with_contain():
+def test_pose3d_mini_cams_are_canvases():
+    """The mini-cams composite frame+overlay, so they must be <canvas> (not <img>)."""
     html = CARD.read_text()
     for cam in ("ia3d-pose3d-cam0", "ia3d-pose3d-cam1"):
         i = html.find(f'id="{cam}"')
         start = html.rindex("<", 0, i)
-        assert html[start:start + 4] == "<img", f"{cam} must be an <img>"
+        assert html[start:start + 7] == "<canvas", f"{cam} must be a <canvas>"
+        # Sized 1:1 to the original tile by JS (tracks the viewer-size zoom), so it
+        # must NOT be pinned to a fixed CSS width like width:100%.
         tag = html[start:html.index(">", start)]
-        assert "object-fit:contain" in tag, f"{cam} must use object-fit:contain"
+        assert "width:100%" not in tag, f"{cam} width is set by JS, not fixed CSS"
 
 
 def test_pose3d_mini_cam_wrappers_hideable():
@@ -90,6 +93,18 @@ def test_pose3d_error_slider_present():
     tag = html[html.rindex("<input", 0, i):html.index(">", i)]
     assert 'type="range"' in tag
     assert 'id="ia3d-pose3d-error-thr-val"' in html, "error value label required"
+
+
+def test_pose3d_marker_size_slider_present():
+    """Adjustable 3D marker-size range slider (0.2–5, default 1) with a value
+    label, living inside the pose3d controls near the threshold sliders."""
+    block = _controls_block(CARD.read_text())
+    i = block.find('id="ia3d-pose3d-marker-size"')
+    assert i >= 0, "missing #ia3d-pose3d-marker-size"
+    tag = block[block.rindex("<input", 0, i):block.index(">", i)]
+    assert 'type="range"' in tag, "marker-size control must be a range slider"
+    assert 'value="1"' in tag, "marker-size default should be 1"
+    assert 'id="ia3d-pose3d-marker-size-val"' in block, "marker-size value label required"
 
 
 # ── Part 4: median re-filter row ─────────────────────────────────────────────

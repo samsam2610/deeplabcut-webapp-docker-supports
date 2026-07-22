@@ -54,6 +54,7 @@ export function makePose3dViewer({ canvas, statusEl }) {
   let scoreThr = 0;             // min score gate (0 → show all)
   let errThr = Infinity;        // max error gate (Infinity → show all)
   let _lastFrame = null;        // last frame passed to showFrame (for threshold re-apply)
+  let markerMult = 1;           // sphere scale multiplier (adjustable marker size)
 
   const _setStatus = (msg) => { if (statusEl) statusEl.textContent = msg || ""; };
 
@@ -193,6 +194,10 @@ export function makePose3dViewer({ canvas, statusEl }) {
       group.add(boneLine);
     }
 
+    // Re-apply the current marker-size multiplier so it persists across reloads
+    // (refilter / source switch rebuild the spheres at unit scale).
+    spheres.forEach((m) => m.scale.setScalar(markerMult));
+
     _fitToBounds();
     _setStatus(`3D ready — ${frames.length} frames`);
   }
@@ -318,6 +323,16 @@ export function makePose3dViewer({ canvas, statusEl }) {
     return errorMax;
   }
 
+  // ── setMarkerSize(mult) — scale every sphere mesh (no geometry rebuild) ─────
+  // Stores the multiplier so load() can re-apply it after a rebuild, and scales
+  // the existing meshes live.
+  function setMarkerSize(mult) {
+    const m = Number(mult);
+    if (!Number.isFinite(m) || m <= 0) return;
+    markerMult = m;
+    spheres.forEach((mesh) => mesh.scale.setScalar(markerMult));
+  }
+
   function _fitToBounds() {
     if (!camera || !controls) return;
     let cx = 0, cy = 0, cz = 0, size = 1;
@@ -383,5 +398,5 @@ export function makePose3dViewer({ canvas, statusEl }) {
     errors = [];
   }
 
-  return { init, load, showFrame, resetView, zoomBy, orbit, setThresholds, getErrorMax, dispose };
+  return { init, load, showFrame, resetView, zoomBy, orbit, setThresholds, setMarkerSize, getErrorMax, dispose };
 }

@@ -366,6 +366,16 @@
             <canvas id="ia3d-finalize-coverage" height="14" title="Finalized frames — click or drag to seek"
               style="width:100%;display:block;cursor:pointer"></canvas>
           </div>
+          <!-- 3D coverage bar — mirrors the "Finalized frames" bar; relocated OUT of the
+               Triangulate panel so it's always visible under the viewer. -->
+          <div id="ia3d-triangulate-coverage-wrap" class="ia3d-bar">
+            <div class="ia3d-bar-header">
+              <span class="fe-csv-bar-label">3D coverage</span>
+              <span style="font-size:.7rem;color:var(--text-dim)">coverage of pose-3d</span>
+            </div>
+            <canvas id="ia3d-triangulate-coverage" height="14" title="Frames with 3D data"
+              style="width:100%;display:block;cursor:pointer"></canvas>
+          </div>
         </div>
         </div>
         <!-- end .ia3d-left -->
@@ -507,16 +517,6 @@
               </button>
               <span id="ia3d-triangulate-range-status" class="fe-extract-status" style="font-size:.73rem;flex:1;min-width:0"></span>
             </div>
-
-            <!-- 3D coverage bar — mirrors the "Finalized frames" bar; shows which frame regions have 3D data -->
-            <div id="ia3d-triangulate-coverage-wrap" class="ia3d-bar" style="margin-top:.5rem">
-              <div class="ia3d-bar-header">
-                <span class="fe-csv-bar-label">3D coverage</span>
-                <span style="font-size:.7rem;color:var(--text-dim)">coverage of pose-3d</span>
-              </div>
-              <canvas id="ia3d-triangulate-coverage" height="14" title="Frames with 3D data"
-                style="width:100%;display:block;cursor:pointer"></canvas>
-            </div>
           </div>
           <!-- end ia3d-triangulate-controls -->
         </div>
@@ -652,14 +652,16 @@
             <!-- Part 1: mini multi-cam row — mirrors the MAIN viewer's current-frame
                  tiles (read-only). Each wrapper hides when its tile is absent. -->
             <!-- Mini multi-cam: cam0 + cam1 fill the panel width (like the original viewer). -->
-            <div id="ia3d-pose3d-cams" style="display:flex;gap:.4rem;margin-bottom:.4rem">
-              <div id="ia3d-pose3d-cam0-wrap" class="hidden" style="flex:1 1 0;min-width:0">
-                <img id="ia3d-pose3d-cam0" alt="cam0"
-                  style="width:100%;height:auto;object-fit:contain;border:1px solid var(--border);border-radius:4px;background:var(--surface);display:block"/>
+            <!-- Mini-cams are sized 1:1 to the ORIGINAL tiles by JS (track the
+                 Viewer-size zoom); overflow-x scrolls if the duplicate is wider. -->
+            <div id="ia3d-pose3d-cams" style="display:flex;gap:.4rem;margin-bottom:.4rem;overflow-x:auto;align-items:flex-start">
+              <div id="ia3d-pose3d-cam0-wrap" class="hidden" style="flex:0 0 auto">
+                <canvas id="ia3d-pose3d-cam0"
+                  style="border:1px solid var(--border);border-radius:4px;background:var(--surface);display:block"></canvas>
               </div>
-              <div id="ia3d-pose3d-cam1-wrap" class="hidden" style="flex:1 1 0;min-width:0">
-                <img id="ia3d-pose3d-cam1" alt="cam1"
-                  style="width:100%;height:auto;object-fit:contain;border:1px solid var(--border);border-radius:4px;background:var(--surface);display:block"/>
+              <div id="ia3d-pose3d-cam1-wrap" class="hidden" style="flex:0 0 auto">
+                <canvas id="ia3d-pose3d-cam1"
+                  style="border:1px solid var(--border);border-radius:4px;background:var(--surface);display:block"></canvas>
               </div>
             </div>
 
@@ -711,6 +713,12 @@
                 <input type="range" id="ia3d-pose3d-error-thr" min="0" max="1" step="0.01" value="1"
                   style="flex:0 0 120px;width:120px;accent-color:var(--accent)"/>
                 <span id="ia3d-pose3d-error-thr-val" style="flex:0 0 2.5rem;text-align:right">—</span>
+              </label>
+              <label style="display:flex;align-items:center;gap:.5rem;font-size:.75rem">
+                <span style="flex:0 0 5.5rem">3D marker size</span>
+                <input type="range" id="ia3d-pose3d-marker-size" min="0.2" max="5" step="0.1" value="1"
+                  style="flex:0 0 120px;width:120px;accent-color:var(--accent)"/>
+                <span id="ia3d-pose3d-marker-size-val" style="flex:0 0 2.5rem;text-align:right">1.0</span>
               </label>
             </div>
 

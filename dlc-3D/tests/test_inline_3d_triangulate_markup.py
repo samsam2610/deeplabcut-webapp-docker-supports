@@ -80,10 +80,23 @@ def test_triangulate_range_status_span_present():
 def test_triangulate_coverage_bar_present():
     html = CARD.read_text()
     wrap = _idx(html, 'id="ia3d-triangulate-coverage-wrap"')
-    cur = _idx(html, 'id="ia3d-curation-panel"')
-    assert wrap < cur, "3D coverage bar must live inside the Triangulate panel"
     can = _idx(html, 'id="ia3d-triangulate-coverage"')
     # canvas carries a fixed height like the finalize-coverage canvas
     start = html.rindex("<canvas", 0, can)
     tag = html[start:html.index(">", start)]
     assert 'height="14"' in tag, "#ia3d-triangulate-coverage must be a height=14 canvas"
+
+
+def test_triangulate_coverage_bar_relocated_below_viewer():
+    """The 3D coverage bar was relocated OUT of the collapsible Triangulate panel
+    into the always-visible viewer timeline: it now sits directly AFTER the
+    "Finalized frames" bar and is NOT inside #ia3d-triangulate-controls."""
+    html = CARD.read_text()
+    fin = _idx(html, 'id="ia3d-finalize-coverage-wrap"')
+    wrap = _idx(html, 'id="ia3d-triangulate-coverage-wrap"')
+    tri_ctrls = _idx(html, 'id="ia3d-triangulate-controls"')
+    assert fin < wrap, "3D coverage bar must appear AFTER the Finalized-frames bar"
+    assert wrap < tri_ctrls, (
+        "3D coverage bar must NOT live inside #ia3d-triangulate-controls "
+        "(it now precedes the Triangulate panel in the viewer timeline)"
+    )
