@@ -451,6 +451,22 @@ function initJobsCard() {
   const TERMINAL = new Set(["SUCCESS", "FAILURE", "REVOKED"]);
   let autoRefreshTimer = null;
   let detailPollAbort = null;
+  const jobsById = new Map();   // id -> last-seen job row (used by openDetail)
+
+  // analyze rows come from the inline-analysis Celery task in the MAIN webapp,
+  // NOT the lp_3d queue — so /dlc-3d/lp/jobs reports PENDING for them. Pull live
+  // state straight from the inline-analysis status endpoint and map it onto the
+  // same celery_state vocabulary the LP rows use.
+  const _INLINE_STATE = { done: "SUCCESS", error: "FAILURE", pending: "STARTED" };
+  async function augmentAnalyze(job) {
+    try {
+      const r = await fetch(`/dlc/project/inline-analysis/range/status?req_id=${encodeURIComponent(job.id)}`);
+      if (!r.ok) return;
+      const d = await r.json();
+      job.celery_state = _INLINE_STATE[d.status] || "STARTED";
+      job.inline_status = d;
+    } catch (e) { /* leave row as registered; state shows '?' */ }
+  }
 
   function stopAutoRefresh() {
     if (autoRefreshTimer) { clearInterval(autoRefreshTimer); autoRefreshTimer = null; }
@@ -461,11 +477,20 @@ function initJobsCard() {
 
   function fmtRow(j) {
     const created = new Date((j.created_at || 0) * 1000).toLocaleString();
-    const target  = j.lp_project || j.out || (j.in_paths || [])[0] || j.model_dir || "";
+    const target  = j.lp_project || j.out || (j.in_paths || [])[0] || j.model_dir || j.video || "";
     const stateRaw = j.celery_state || "?";
-    const stage = j.celery_info?.stage || "";
+    let stage = j.celery_info?.stage || "";
+    // analyze rows carry inline-analysis counts instead of a Celery stage string.
+    if (j.type === "analyze" && j.inline_status) {
+      const s = j.inline_status;
+      stage = s.status === "done"  ? `${s.n_analyzed} analyzed / ${s.n_skipped} skipped`
+            : s.status === "error" ? (s.error || "error")
+            : "running…";
+    }
     const stateCell = stage ? `${stateRaw} <span style="color:var(--text-dim);font-size:.65rem">· ${stage}</span>` : stateRaw;
-    const canCancel = stateRaw && !TERMINAL.has(stateRaw) && stateRaw !== "?";
+    // analyze jobs run on the inline-analysis worker; LP Celery revoke can't reach
+    // them, so no Cancel button for those rows.
+    const canCancel = j.type !== "analyze" && stateRaw && !TERMINAL.has(stateRaw) && stateRaw !== "?";
     const cancelBtn = canCancel
       ? `<button class="btn-sm" data-cancel="${j.id}" title="Revoke this Celery task (SIGTERM)" style="opacity:.85">Cancel</button>`
       : `<button class="btn-sm" disabled style="opacity:.3">Cancel</button>`;
@@ -490,9 +515,13 @@ function initJobsCard() {
       return;
     }
     const jobs = body.jobs || [];
+    // Pull live state for analyze rows from the inline-analysis status endpoint.
+    await Promise.all(jobs.filter((j) => j.type === "analyze").map(augmentAnalyze));
+    jobsById.clear();
+    for (const j of jobs) jobsById.set(j.id, j);
     tbody.innerHTML = "";
     if (!jobs.length) {
-      tbody.innerHTML = `<tr><td colspan="5" style="color:var(--text-dim)">no jobs yet — kick off a Convert / Train / EKS / Predict run</td></tr>`;
+      tbody.innerHTML = `<tr><td colspan="5" style="color:var(--text-dim)">no jobs yet — kick off a Convert / Train / EKS / Predict / Analyze run</td></tr>`;
       return;
     }
     for (const j of jobs) {
@@ -522,7 +551,38 @@ function initJobsCard() {
     }
   }
 
+  async function openAnalyzeDetail(jobId, job) {
+    stopDetailPoll();
+    detail.hidden = false;
+    const token = detailPollAbort = { aborted: false };
+    while (!token.aborted && !card.classList.contains("hidden")) {
+      let d;
+      try {
+        const r = await fetch(`/dlc/project/inline-analysis/range/status?req_id=${encodeURIComponent(jobId)}`);
+        d = await r.json();
+      } catch (e) {
+        detail.textContent = `fetch failed: ${e.message}`;
+        return;
+      }
+      const rng = job.range || [];
+      detail.textContent =
+        `job: ${jobId}\n` +
+        `type: analyze\n` +
+        `status: ${d.status || "?"}\n` +
+        `video: ${job.video || ""}\n` +
+        `range: start ${rng[0] ?? "?"}, n ${rng[1] ?? "?"}\n` +
+        `created: ${new Date((job.created_at || 0) * 1000).toLocaleString()}\n` +
+        `analyzed: ${d.n_analyzed ?? 0}   skipped: ${d.n_skipped ?? 0}\n` +
+        (d.scorer ? `scorer: ${d.scorer}\n` : "") +
+        (d.error ? `error: ${d.error}\n` : "");
+      if (["done", "error"].includes(d.status)) return;
+      await new Promise((res) => setTimeout(res, 2000));
+    }
+  }
+
   async function openDetail(jobId) {
+    const job = jobsById.get(jobId);
+    if (job && job.type === "analyze") { return openAnalyzeDetail(jobId, job); }
     stopDetailPoll();
     detail.hidden = false;
     const token = detailPollAbort = { aborted: false };

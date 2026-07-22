@@ -154,6 +154,45 @@ def job_cancel(job_id: str):
     return jsonify({"ok": True, "job_id": job_id})
 
 
+@lp_bp.route("/register-inline", methods=["POST"])
+def register_inline():
+    """Index an inline-analysis 'Start analysis' run so it shows in the Jobs card.
+
+    The inline-analysis Celery task runs in the MAIN webapp (not the lp_3d queue),
+    so LP ``AsyncResult`` knows nothing about its ``req_id``. We only record the
+    req_id + a bit of context here; the Jobs card reads live progress for these
+    ``type:"analyze"`` rows from ``/dlc/project/inline-analysis/range/status``.
+
+    Body: ``{req_id, video, start_frame, n_frames}``. Best-effort: returns 503 when
+    redis is unavailable (registration is non-critical to the analysis run itself).
+    """
+    from dlc_3d_bp.lp import job_registry
+
+    body = request.get_json(force=True, silent=True) or {}
+    req_id = (body.get("req_id") or "").strip()
+    if not req_id:
+        return jsonify({"error": "req_id required"}), 400
+    video = (body.get("video") or "").strip()
+    try:
+        start = int(body.get("start_frame") or 0)
+    except (TypeError, ValueError):
+        start = 0
+    try:
+        n = int(body.get("n_frames") or 0)
+    except (TypeError, ValueError):
+        n = 0
+
+    conn = _redis_conn()
+    if not conn:
+        return jsonify({"error": "redis unavailable"}), 503
+    job_registry.register(conn, req_id, {
+        "type": "analyze",
+        "video": video,
+        "range": [start, n],
+    })
+    return jsonify({"ok": True, "job_id": req_id}), 202
+
+
 @lp_bp.route("/eks", methods=["POST"])
 def eks_run():
     from dlc_3d_bp.lp.tasks import lp_eks

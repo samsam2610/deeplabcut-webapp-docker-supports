@@ -2529,7 +2529,26 @@ async function _submitRange(sk, videoPath, startFrame, nFrames, overwrite = fals
   });
   const d = await r.json().catch(() => ({}));
   if (!r.ok) { if (lastRun) { lastRun.textContent = `Error: ${d.error || r.status}`; lastRun.className = "fe-extract-status err"; } return null; }
+  // Surface this dispatched run in the dlc-3D Jobs card. One row per submitted
+  // req (dual-cam runs produce two rows) — funnels every analyze path through
+  // here. Fire-and-forget: a registry failure must never break the analysis run.
+  _registerInlineJob(d.req_id, videoPath, startFrame, nFrames);
   return d.req_id;
+}
+
+// Register a dispatched inline-analysis req in the Jobs card's registry so its
+// progress is visible alongside LP / EKS / predict / train jobs. Best-effort.
+function _registerInlineJob(reqId, videoPath, startFrame, nFrames) {
+  if (!reqId) return;
+  try {
+    fetch("/dlc-3d/lp/register-inline", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        req_id: reqId, video: videoPath,
+        start_frame: startFrame, n_frames: nFrames,
+      }),
+    }).catch(() => {});
+  } catch (e) { /* ignore — registration is non-critical */ }
 }
 
 // ── Poll one req_id to terminal state ─
