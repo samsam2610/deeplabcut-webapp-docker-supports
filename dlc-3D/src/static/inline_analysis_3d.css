@@ -257,6 +257,9 @@
 #inline-analysis-3d-card .ia3d-start-count b { color: var(--accent); }
 #inline-analysis-3d-card .ia3d-start-hint { font-size: .66rem; color: var(--text-dim); text-align: center; line-height: 1.4; }
 
+/* Thin group divider between the analyze-block sub-groups. */
+#inline-analysis-3d-card .ia3d-group-sep { border-top: 1px solid var(--border); margin: .5rem 0; }
+
 /* Body-marker chips fill the empty space below the controls + frame#/time (original position). */
 #inline-analysis-3d-card .ia3d-bp-chips-wrap {
   flex: 1 1 0; padding-top: .4rem; border-top: 1px solid var(--border);
