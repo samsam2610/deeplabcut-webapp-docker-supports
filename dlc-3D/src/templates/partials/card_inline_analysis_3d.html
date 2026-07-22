@@ -673,85 +673,120 @@
               </div>
             </div>
 
-            <!-- Fixed-height WebGL viewport; canvas fills it (three.js renders here).
-                 Part 2: an absolutely-positioned on-screen control cluster overlays it. -->
-            <div style="position:relative;width:100%;max-width:460px;margin:0 auto;height:520px;border:1px solid var(--border);border-radius:6px;background:var(--surface);overflow:hidden">
-              <canvas id="ia3d-pose3d-canvas" style="width:100%;height:100%;display:block"></canvas>
+            <!-- Reflow row: left = all controls (stacked), right = the 3D viewport.
+                 Tops aligned so the sliders sit level with the canvas top. -->
+            <div style="display:flex;align-items:flex-start;gap:.6rem;flex-wrap:wrap;margin-top:.5rem">
 
-              <!-- Home (top-right) → resetView -->
-              <button class="btn-sm" id="ia3d-pose3d-home" title="Reset / fit view"
-                style="position:absolute;top:6px;right:6px;padding:.15rem .4rem;line-height:1">⌂</button>
+              <!-- Left controls column (sliders + view size + flips + re-filter). -->
+              <div class="ia3d-pose3d-ctl-col">
 
-              <!-- Zoom cluster (top-left) -->
-              <div style="position:absolute;top:6px;left:6px;display:flex;flex-direction:column;gap:.2rem">
-                <button class="btn-sm" id="ia3d-pose3d-zoom-in" title="Zoom in"
-                  style="padding:.1rem .4rem;line-height:1">+</button>
-                <button class="btn-sm" id="ia3d-pose3d-zoom-out" title="Zoom out"
-                  style="padding:.1rem .4rem;line-height:1">−</button>
+                <!-- Part 3: live quality-threshold sliders (score ≥ / error ≤). -->
+                <div style="display:flex;flex-direction:column;gap:.3rem">
+                  <label style="display:flex;align-items:center;gap:.5rem;font-size:.75rem">
+                    <span style="flex:0 0 5.5rem">score ≥</span>
+                    <input type="range" id="ia3d-pose3d-score-thr" min="0" max="1" step="0.01" value="0"
+                      style="flex:0 0 120px;width:120px;accent-color:var(--accent)"/>
+                    <span id="ia3d-pose3d-score-thr-val" style="flex:0 0 2.5rem;text-align:right">0.00</span>
+                  </label>
+                  <label style="display:flex;align-items:center;gap:.5rem;font-size:.75rem">
+                    <span style="flex:0 0 5.5rem">error ≤</span>
+                    <input type="range" id="ia3d-pose3d-error-thr" min="0" max="1" step="0.01" value="1"
+                      style="flex:0 0 120px;width:120px;accent-color:var(--accent)"/>
+                    <span id="ia3d-pose3d-error-thr-val" style="flex:0 0 2.5rem;text-align:right">—</span>
+                  </label>
+                  <label style="display:flex;align-items:center;gap:.5rem;font-size:.75rem">
+                    <span style="flex:0 0 5.5rem">3D marker size</span>
+                    <input type="range" id="ia3d-pose3d-marker-size" min="0.2" max="5" step="0.1" value="1"
+                      style="flex:0 0 120px;width:120px;accent-color:var(--accent)"/>
+                    <span id="ia3d-pose3d-marker-size-val" style="flex:0 0 2.5rem;text-align:right">1.0</span>
+                  </label>
+                  <label style="display:flex;align-items:center;gap:.5rem;font-size:.75rem">
+                    <span style="flex:0 0 5.5rem">Background</span>
+                    <input type="color" id="ia3d-pose3d-bg" value="#12141a"
+                      style="flex:0 0 2.5rem;width:2.5rem;height:1.4rem;padding:0;background:none;border:1px solid var(--border);border-radius:4px;cursor:pointer"/>
+                  </label>
+                </div>
+
+                <!-- View width / height (px, persisted) — size the viewport at right. -->
+                <div style="display:flex;flex-direction:column;gap:.3rem;margin-top:.4rem">
+                  <label style="display:flex;align-items:center;gap:.5rem;font-size:.75rem">
+                    <span style="flex:0 0 5.5rem">view width</span>
+                    <input type="number" id="ia3d-pose3d-view-w" value="460" min="200" max="1600" step="10"
+                      style="flex:0 0 4.5rem;width:4.5rem"/>
+                  </label>
+                  <label style="display:flex;align-items:center;gap:.5rem;font-size:.75rem">
+                    <span style="flex:0 0 5.5rem">view height</span>
+                    <input type="number" id="ia3d-pose3d-view-h" value="520" min="200" max="1200" step="10"
+                      style="flex:0 0 4.5rem;width:4.5rem"/>
+                  </label>
+                </div>
+
+                <!-- Flip X / Y / Z (mirror the pose group per axis, persisted). -->
+                <div style="display:flex;align-items:center;gap:.6rem;flex-wrap:wrap;margin-top:.4rem;font-size:.75rem">
+                  <span style="flex:0 0 5.5rem">flip</span>
+                  <label style="display:flex;align-items:center;gap:.25rem;cursor:pointer">
+                    <input type="checkbox" id="ia3d-pose3d-flip-x" style="accent-color:var(--accent);width:13px;height:13px"/>X</label>
+                  <label style="display:flex;align-items:center;gap:.25rem;cursor:pointer">
+                    <input type="checkbox" id="ia3d-pose3d-flip-y" style="accent-color:var(--accent);width:13px;height:13px"/>Y</label>
+                  <label style="display:flex;align-items:center;gap:.25rem;cursor:pointer">
+                    <input type="checkbox" id="ia3d-pose3d-flip-z" style="accent-color:var(--accent);width:13px;height:13px"/>Z</label>
+                </div>
+
+                <!-- Part 4: on-the-go median re-filter (synchronous rewrite of pose-3d-filtered). -->
+                <div style="display:flex;align-items:center;gap:.4rem;flex-wrap:wrap;margin-top:.5rem">
+                  <label style="display:flex;align-items:center;gap:.3rem;font-size:.75rem">
+                    medfilt
+                    <input type="number" id="ia3d-pose3d-medfilt" value="17" min="1" max="199" step="2"
+                      style="width:3.5rem"/>
+                  </label>
+                  <label style="display:flex;align-items:center;gap:.3rem;font-size:.75rem">
+                    offset
+                    <input type="number" id="ia3d-pose3d-offset" value="15" min="0" step="1"
+                      style="width:3.5rem"/>
+                  </label>
+                  <button class="btn-sm btn-create" id="ia3d-pose3d-apply"
+                    title="Re-filter the 3D poses with this median window + offset threshold">
+                    Apply filter
+                  </button>
+                  <span id="ia3d-pose3d-refilter-status" class="fe-extract-status" style="font-size:.73rem;flex:1;min-width:0"></span>
+                </div>
               </div>
 
-              <!-- Orbit d-pad (bottom-right) -->
-              <div style="position:absolute;bottom:6px;right:6px;display:grid;grid-template-columns:repeat(3,1.5rem);grid-template-rows:repeat(3,1.5rem);gap:.15rem;justify-items:center;align-items:center">
-                <span></span>
-                <button class="btn-sm" id="ia3d-pose3d-orbit-up" title="Orbit up"
-                  style="padding:0;width:1.5rem;height:1.5rem;line-height:1">↑</button>
-                <span></span>
-                <button class="btn-sm" id="ia3d-pose3d-orbit-left" title="Orbit left"
-                  style="padding:0;width:1.5rem;height:1.5rem;line-height:1">←</button>
-                <span></span>
-                <button class="btn-sm" id="ia3d-pose3d-orbit-right" title="Orbit right"
-                  style="padding:0;width:1.5rem;height:1.5rem;line-height:1">→</button>
-                <span></span>
-                <button class="btn-sm" id="ia3d-pose3d-orbit-down" title="Orbit down"
-                  style="padding:0;width:1.5rem;height:1.5rem;line-height:1">↓</button>
-                <span></span>
+              <!-- Right: fixed WebGL viewport; canvas fills it (three.js renders here).
+                   Size is driven by the view width/height inputs (no auto-centering).
+                   Part 2: an absolutely-positioned on-screen control cluster overlays it. -->
+              <div id="ia3d-pose3d-canvas-box" style="position:relative;flex:0 0 auto;width:460px;height:520px;border:1px solid var(--border);border-radius:6px;background:var(--surface);overflow:hidden">
+                <canvas id="ia3d-pose3d-canvas" style="width:100%;height:100%;display:block"></canvas>
+
+                <!-- Home (top-right) → resetView -->
+                <button class="btn-sm" id="ia3d-pose3d-home" title="Reset / fit view"
+                  style="position:absolute;top:6px;right:6px;padding:.15rem .4rem;line-height:1">⌂</button>
+
+                <!-- Zoom cluster (top-left) -->
+                <div style="position:absolute;top:6px;left:6px;display:flex;flex-direction:column;gap:.2rem">
+                  <button class="btn-sm" id="ia3d-pose3d-zoom-in" title="Zoom in"
+                    style="padding:.1rem .4rem;line-height:1">+</button>
+                  <button class="btn-sm" id="ia3d-pose3d-zoom-out" title="Zoom out"
+                    style="padding:.1rem .4rem;line-height:1">−</button>
+                </div>
+
+                <!-- Orbit d-pad (bottom-right) -->
+                <div style="position:absolute;bottom:6px;right:6px;display:grid;grid-template-columns:repeat(3,1.5rem);grid-template-rows:repeat(3,1.5rem);gap:.15rem;justify-items:center;align-items:center">
+                  <span></span>
+                  <button class="btn-sm" id="ia3d-pose3d-orbit-up" title="Orbit up"
+                    style="padding:0;width:1.5rem;height:1.5rem;line-height:1">↑</button>
+                  <span></span>
+                  <button class="btn-sm" id="ia3d-pose3d-orbit-left" title="Orbit left"
+                    style="padding:0;width:1.5rem;height:1.5rem;line-height:1">←</button>
+                  <span></span>
+                  <button class="btn-sm" id="ia3d-pose3d-orbit-right" title="Orbit right"
+                    style="padding:0;width:1.5rem;height:1.5rem;line-height:1">→</button>
+                  <span></span>
+                  <button class="btn-sm" id="ia3d-pose3d-orbit-down" title="Orbit down"
+                    style="padding:0;width:1.5rem;height:1.5rem;line-height:1">↓</button>
+                  <span></span>
+                </div>
               </div>
-            </div>
-
-            <!-- Part 3: live quality-threshold sliders (score ≥ / error ≤). -->
-            <div style="display:flex;flex-direction:column;gap:.3rem;margin-top:.5rem">
-              <label style="display:flex;align-items:center;gap:.5rem;font-size:.75rem">
-                <span style="flex:0 0 5.5rem">score ≥</span>
-                <input type="range" id="ia3d-pose3d-score-thr" min="0" max="1" step="0.01" value="0"
-                  style="flex:0 0 120px;width:120px;accent-color:var(--accent)"/>
-                <span id="ia3d-pose3d-score-thr-val" style="flex:0 0 2.5rem;text-align:right">0.00</span>
-              </label>
-              <label style="display:flex;align-items:center;gap:.5rem;font-size:.75rem">
-                <span style="flex:0 0 5.5rem">error ≤</span>
-                <input type="range" id="ia3d-pose3d-error-thr" min="0" max="1" step="0.01" value="1"
-                  style="flex:0 0 120px;width:120px;accent-color:var(--accent)"/>
-                <span id="ia3d-pose3d-error-thr-val" style="flex:0 0 2.5rem;text-align:right">—</span>
-              </label>
-              <label style="display:flex;align-items:center;gap:.5rem;font-size:.75rem">
-                <span style="flex:0 0 5.5rem">3D marker size</span>
-                <input type="range" id="ia3d-pose3d-marker-size" min="0.2" max="5" step="0.1" value="1"
-                  style="flex:0 0 120px;width:120px;accent-color:var(--accent)"/>
-                <span id="ia3d-pose3d-marker-size-val" style="flex:0 0 2.5rem;text-align:right">1.0</span>
-              </label>
-              <label style="display:flex;align-items:center;gap:.5rem;font-size:.75rem">
-                <span style="flex:0 0 5.5rem">Background</span>
-                <input type="color" id="ia3d-pose3d-bg" value="#12141a"
-                  style="flex:0 0 2.5rem;width:2.5rem;height:1.4rem;padding:0;background:none;border:1px solid var(--border);border-radius:4px;cursor:pointer"/>
-              </label>
-            </div>
-
-            <!-- Part 4: on-the-go median re-filter (synchronous rewrite of pose-3d-filtered). -->
-            <div style="display:flex;align-items:center;gap:.4rem;flex-wrap:wrap;margin-top:.5rem">
-              <label style="display:flex;align-items:center;gap:.3rem;font-size:.75rem">
-                medfilt
-                <input type="number" id="ia3d-pose3d-medfilt" value="17" min="1" max="199" step="2"
-                  style="width:3.5rem"/>
-              </label>
-              <label style="display:flex;align-items:center;gap:.3rem;font-size:.75rem">
-                offset
-                <input type="number" id="ia3d-pose3d-offset" value="15" min="0" step="1"
-                  style="width:3.5rem"/>
-              </label>
-              <button class="btn-sm btn-create" id="ia3d-pose3d-apply"
-                title="Re-filter the 3D poses with this median window + offset threshold">
-                Apply filter
-              </button>
-              <span id="ia3d-pose3d-refilter-status" class="fe-extract-status" style="font-size:.73rem;flex:1;min-width:0"></span>
             </div>
           </div>
           <!-- end ia3d-pose3d-controls -->

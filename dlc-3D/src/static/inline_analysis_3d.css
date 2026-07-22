@@ -294,3 +294,9 @@
 #inline-analysis-3d-card .ia3d-ptag.ia3d-ptag-add {
   border-style: dashed; border-color: var(--border); color: var(--text-dim); background: transparent;
 }
+
+/* 3D View panel — left controls column beside the canvas viewport (reflow). */
+#inline-analysis-3d-card .ia3d-pose3d-ctl-col {
+  flex: 0 0 auto; width: 210px; max-width: 210px;
+  display: flex; flex-direction: column;
+}

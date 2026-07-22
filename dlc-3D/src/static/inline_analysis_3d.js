@@ -77,6 +77,7 @@ let _pose3dLoaded = false;   // true once load(data) has real data (guards showF
 let _mirrorRaf = null;       // single rAF handle for the mini-cam mirror loop (never leaks).
 let _mirrorLastTs = 0;       // last mirror timestamp — throttles the loop to ~30fps.
 let _bgSaveTimer = null;     // debounce handle for the 3D background-colour ui-setting save.
+let _viewPrefsSaveTimer = null;  // debounce handle for the 3D view-prefs (size + flips) ui-setting save.
 let _snTimeline = null;   // statusNoteTimeline feature handle (for .redraw() on resize)
 let _pendingTagRestore = null;  // active status/note tags stashed across a post-analysis reload
 
@@ -1654,6 +1655,8 @@ function _wirePose3dChrome() {
       _pose3d.init();
       // Apply the per-project persisted background colour (if any) once inited.
       await _loadPose3dBgColor();
+      // Apply the per-project persisted view prefs (canvas size + axis flips).
+      await _loadPose3dViewPrefs();
     }
     await _loadPose3d();
   });
@@ -1710,8 +1713,61 @@ function _wirePose3dChrome() {
     }, 400);
   });
 
+  // ── View width/height → size the canvas box live (ResizeObserver repaints) ──
+  // + debounced per-project save under the consolidated pose3d_view_prefs key.
+  const viewW = $("ia3d-pose3d-view-w");
+  const viewH = $("ia3d-pose3d-view-h");
+  const onViewSize = () => { _applyPose3dViewSize(); _savePose3dViewPrefs(); };
+  viewW?.addEventListener("input", onViewSize);
+  viewH?.addEventListener("input", onViewSize);
+
+  // ── Flip X/Y/Z → setFlip (live) + debounced per-project save ────────────────
+  const onFlip = () => {
+    _pose3d?.setFlip(
+      !!$("ia3d-pose3d-flip-x")?.checked,
+      !!$("ia3d-pose3d-flip-y")?.checked,
+      !!$("ia3d-pose3d-flip-z")?.checked,
+    );
+    _savePose3dViewPrefs();
+  };
+  $("ia3d-pose3d-flip-x")?.addEventListener("change", onFlip);
+  $("ia3d-pose3d-flip-y")?.addEventListener("change", onFlip);
+  $("ia3d-pose3d-flip-z")?.addEventListener("change", onFlip);
+
   // ── Part 4: median re-filter → POST /dlc/project/triangulate/refilter ──────
   $("ia3d-pose3d-apply")?.addEventListener("click", _applyPose3dRefilter);
+}
+
+// Clamp + apply the width/height inputs to the canvas box inline size (px). The
+// canvas is width/height:100% and pose3d_viewer observes it via ResizeObserver,
+// so the renderer repaints automatically — no viewer method needed here.
+function _applyPose3dViewSize() {
+  const box = $("ia3d-pose3d-canvas-box");
+  if (!box) return;
+  const w = Math.min(1600, Math.max(200, parseInt($("ia3d-pose3d-view-w")?.value, 10) || 460));
+  const h = Math.min(1200, Math.max(200, parseInt($("ia3d-pose3d-view-h")?.value, 10) || 520));
+  box.style.width = w + "px";
+  box.style.height = h + "px";
+}
+
+// Serialize the current {w,h,flipX,flipY,flipZ} and save (debounced) under the
+// consolidated pose3d_view_prefs ui-setting key. Best-effort — a failed POST is
+// swallowed (mirrors the background-colour save flow).
+function _savePose3dViewPrefs() {
+  const prefs = {
+    w: Math.min(1600, Math.max(200, parseInt($("ia3d-pose3d-view-w")?.value, 10) || 460)),
+    h: Math.min(1200, Math.max(200, parseInt($("ia3d-pose3d-view-h")?.value, 10) || 520)),
+    flipX: !!$("ia3d-pose3d-flip-x")?.checked,
+    flipY: !!$("ia3d-pose3d-flip-y")?.checked,
+    flipZ: !!$("ia3d-pose3d-flip-z")?.checked,
+  };
+  if (_viewPrefsSaveTimer) clearTimeout(_viewPrefsSaveTimer);
+  _viewPrefsSaveTimer = setTimeout(() => {
+    fetch("/dlc/project/ui-setting", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ key: "pose3d_view_prefs", value: JSON.stringify(prefs) }),
+    }).catch(() => {});
+  }, 400);
 }
 
 // Load the persisted 3D background colour (per project) and apply it to the viewer
@@ -1727,6 +1783,36 @@ async function _loadPose3dBgColor() {
     const bg = $("ia3d-pose3d-bg");
     if (bg) bg.value = hex;
   } catch (_) { /* keep the default background */ }
+}
+
+// Load the persisted 3D view prefs (per project) — canvas size + axis flips — and
+// apply them to the canvas box + viewer, syncing the number inputs + checkboxes.
+// Called on pose3d load; absent/invalid → keep the 460×520 / no-flip defaults.
+// Best-effort: a fetch/parse failure leaves the defaults untouched.
+async function _loadPose3dViewPrefs() {
+  if (!_pose3d) return;
+  try {
+    const data = await (await fetch("/dlc/project/ui-setting?key=pose3d_view_prefs")).json();
+    if (!data || !data.value) return;
+    const prefs = JSON.parse(data.value);
+    if (!prefs || typeof prefs !== "object") return;
+    // Size: sync the inputs (clamped by _applyPose3dViewSize) then apply.
+    const w = Number(prefs.w), h = Number(prefs.h);
+    const viewW = $("ia3d-pose3d-view-w");
+    const viewH = $("ia3d-pose3d-view-h");
+    if (viewW && Number.isFinite(w) && w > 0) viewW.value = String(w);
+    if (viewH && Number.isFinite(h) && h > 0) viewH.value = String(h);
+    _applyPose3dViewSize();
+    // Flips: sync the checkboxes then push to the viewer.
+    const fx = !!prefs.flipX, fy = !!prefs.flipY, fz = !!prefs.flipZ;
+    const cbX = $("ia3d-pose3d-flip-x");
+    const cbY = $("ia3d-pose3d-flip-y");
+    const cbZ = $("ia3d-pose3d-flip-z");
+    if (cbX) cbX.checked = fx;
+    if (cbY) cbY.checked = fy;
+    if (cbZ) cbZ.checked = fz;
+    _pose3d.setFlip(fx, fy, fz);
+  } catch (_) { /* keep the default view prefs */ }
 }
 
 // Composite the MAIN viewer's current-frame tiles into the mini-cam <canvas>es

@@ -341,6 +341,15 @@ export function makePose3dViewer({ canvas, statusEl }) {
     if (renderer && camera) renderer.render(scene, camera);
   }
 
+  // ── setFlip(fx, fy, fz) — mirror the pose group along each requested axis ────
+  // Scales the spheres+skeleton group by ±1 per axis (the grid/axes helpers live
+  // on the scene, not the group, so they stay world-oriented). No-op before init().
+  function setFlip(fx, fy, fz) {
+    if (!group) return;
+    group.scale.set(fx ? -1 : 1, fy ? -1 : 1, fz ? -1 : 1);
+    if (renderer && camera) renderer.render(scene, camera);
+  }
+
   function _fitToBounds() {
     if (!camera || !controls) return;
     let cx = 0, cy = 0, cz = 0, size = 1;
@@ -406,5 +415,5 @@ export function makePose3dViewer({ canvas, statusEl }) {
     errors = [];
   }
 
-  return { init, load, showFrame, resetView, zoomBy, orbit, setThresholds, setMarkerSize, setBackground, getErrorMax, dispose };
+  return { init, load, showFrame, resetView, zoomBy, orbit, setThresholds, setMarkerSize, setBackground, setFlip, getErrorMax, dispose };
 }
