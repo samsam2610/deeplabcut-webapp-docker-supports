@@ -369,8 +369,11 @@ def get_frame():
         proj = _active_project
     video_path = request.args.get("video", "").strip()
     n_str      = request.args.get("n", "").strip()
-    if not video_path or not n_str or not proj:
-        return jsonify({"error": "video, n, and active project required"}), 400
+    # No active project is required for an ABSOLUTE /user-data path (the sibling
+    # camera tile in browse-folder mode is such a path). Relative paths still need
+    # a project to resolve against; _resolve_video_path enforces the sandbox.
+    if not video_path or not n_str:
+        return jsonify({"error": "video and n required"}), 400
     try:
         n = int(n_str)
     except ValueError:
@@ -380,7 +383,7 @@ def get_frame():
     if request.headers.get("If-None-Match") == etag:
         return Response(status=304)
 
-    full_path = _resolve_video_path(video_path, proj)
+    full_path = _resolve_video_path(video_path, proj or _USER_DATA_ROOT)
     if full_path is None:
         return jsonify({"error": "video path not allowed"}), 400
     try:
