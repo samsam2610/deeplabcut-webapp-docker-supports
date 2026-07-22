@@ -35,11 +35,15 @@ def test_triangulate_tag_button_inside_tag_batch():
 def test_on_triangulate_tag_click_defined():
     s = JS.read_text()
     assert re.search(r"async\s+function\s+_onTriangulateTagClick\s*\(", s), "must define _onTriangulateTagClick"
-    m = re.search(r"async\s+function\s+_onTriangulateTagClick[\s\S]{0,3200}", s)
+    m = re.search(r"async\s+function\s+_onTriangulateTagClick[\s\S]{0,4800}", s)
     body = m.group(0)
     assert "mergeWindows(" in body, "must reuse mergeWindows for range collection"
     assert "tagKeyframes(" in body, "must collect tagged frames via tagKeyframes"
-    assert "/dlc/project/triangulate/range" in body, "must POST /dlc/project/triangulate/range"
+    # The range POST is dispatched via the retry helper (transient-502 resilience),
+    # which is the sole owner of the /triangulate/range URL.
+    assert "_enqueueTriangulateRange(" in body, "must enqueue each range via the retry helper"
+    assert re.search(r"function\s+_enqueueTriangulateRange[\s\S]{0,800}/dlc/project/triangulate/range", s), \
+        "the retry helper must POST /dlc/project/triangulate/range"
     assert "_pollTriangulateReq(" in body, "must poll each req via _pollTriangulateReq"
     assert "_refreshTriangulateCoverage()" in body, "must refresh 3D coverage on completion"
 
@@ -62,7 +66,7 @@ def test_triangulate_tag_batch_handles_skipped_ranges():
     the tag-batch must count it separately and NOT abort, so one out-of-data tag
     window doesn't kill the whole batch."""
     s = JS.read_text()
-    m = re.search(r"async\s+function\s+_onTriangulateTagClick[\s\S]{0,3600}", s)
+    m = re.search(r"async\s+function\s+_onTriangulateTagClick[\s\S]{0,4800}", s)
     assert m
     body = m.group(0)
     assert "skipped" in body, "batch must inspect done.result.skipped"

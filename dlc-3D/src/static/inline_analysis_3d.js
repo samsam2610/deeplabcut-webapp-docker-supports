@@ -1456,19 +1456,13 @@ function _wireTriangulateChrome() {
     const batchId = crypto.randomUUID();
     _batchJob("start", batchId, { total: 1, video: cam0Video, done: 0, stage: "0/1" });
     try {
-      const r = await fetch("/dlc/project/triangulate/range", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ cam0_video: cam0Video, start_frame: startFrame, n_frames: nFrames }),
-      });
-      let data;
-      try { data = await r.json(); } catch { data = null; }
-      if (r.status !== 202 || !data || !data.req_id) {
-        setStatus(`Error: ${(data && data.error) || `HTTP ${r.status}`}`, true);
-        _batchJob("done", batchId, { done: 0, skipped: 0, stage: `error — ${(data && data.error) || `HTTP ${r.status}`}` });
+      const enq = await _enqueueTriangulateRange(cam0Video, startFrame, nFrames);
+      if (!enq.req_id) {
+        setStatus(`Error: ${enq.error}`, true);
+        _batchJob("done", batchId, { done: 0, skipped: 0, stage: `error — ${enq.error}` });
         return;
       }
-      const done = await _pollTriangulateReq(data.req_id, (d) => {
+      const done = await _pollTriangulateReq(enq.req_id, (d) => {
         const pct = (d && typeof d.progress === "number") ? ` ${d.progress}%` : "";
         setStatus(`${(d && d.stage) || "working"}…${pct}`);
       });
@@ -2017,6 +2011,37 @@ async function _loadPose3d() {
   } catch (err) {
     if (statusEl) statusEl.textContent = `Error: ${err.message}`;
   }
+}
+
+// Enqueue ONE triangulate-range req with retry on TRANSIENT failures. A gunicorn
+// worker recycling mid-request returns 502; a long tag batch (100+ ranges) must not
+// abort on a single hiccup. Retries on 5xx / network errors with linear backoff; a
+// 4xx (real client error) stops immediately. Re-submitting a range is idempotent
+// (same frames → same 3D overwrite), so a duplicate from a lost-response retry is
+// harmless. Returns { req_id } on success or { error } after exhausting tries.
+async function _enqueueTriangulateRange(cam0Video, startFrame, nFrames, tries = 4) {
+  let lastErr = "";
+  for (let attempt = 0; attempt < tries; attempt++) {
+    if (attempt > 0) await new Promise((res) => setTimeout(res, 1000 * attempt));  // 1s,2s,3s
+    try {
+      const resp = await fetch("/dlc/project/triangulate/range", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ cam0_video: cam0Video, start_frame: startFrame, n_frames: nFrames }),
+      });
+      let data = null;
+      try { data = await resp.json(); } catch { data = null; }
+      if (resp.status === 202 && data && data.req_id) return { req_id: data.req_id };
+      if (resp.status >= 500 || resp.status === 202) {   // 5xx or a 202 w/o req_id → transient, retry
+        lastErr = (data && data.error) || `HTTP ${resp.status}`;
+        continue;
+      }
+      return { error: (data && data.error) || `HTTP ${resp.status}` };   // 4xx → real error, stop
+    } catch (e) {
+      lastErr = e.message || "network error";   // network failure → retry
+    }
+  }
+  return { error: lastErr || "request failed after retries" };
 }
 
 // Poll one triangulate-range req_id to terminal state, per the
@@ -3005,22 +3030,16 @@ async function _onTriangulateTagClick() {
     for (let i = 0; i < ranges.length; i++) {
       const r = ranges[i];
       setStatus(`Triangulating range ${i + 1}/${ranges.length} (${r.n} frames from ${r.start})…`);
-      const resp = await fetch("/dlc/project/triangulate/range", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ cam0_video: cam0, start_frame: r.start, n_frames: r.n }),
-      });
-      let data;
-      try { data = await resp.json(); } catch { data = null; }
-      if (resp.status !== 202 || !data || !data.req_id) {
-        setStatus(`Error: ${(data && data.error) || `HTTP ${resp.status}`}`, true);
-        _batchJob("done", batchId, { done: doneCount, skipped: skipCount, stage: `error — ${(data && data.error) || `HTTP ${resp.status}`}` });
+      const enq = await _enqueueTriangulateRange(cam0, r.start, r.n);
+      if (!enq.req_id) {
+        setStatus(`Error: ${enq.error}`, true);
+        _batchJob("done", batchId, { done: doneCount, skipped: skipCount, stage: `error — ${enq.error}` });
         return;
       }
       // Track the last poll stage/pct so the per-range aggregate update carries a
       // short human progress string (coarse per-range granularity is fine).
       let lastStage = "", lastPct = "";
-      const done = await _pollTriangulateReq(data.req_id, (d) => {
+      const done = await _pollTriangulateReq(enq.req_id, (d) => {
         const pct = (d && typeof d.progress === "number") ? ` ${d.progress}%` : "";
         lastStage = (d && d.stage) || lastStage;
         lastPct = pct;
