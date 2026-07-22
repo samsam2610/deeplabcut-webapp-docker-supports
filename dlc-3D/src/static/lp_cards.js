@@ -499,8 +499,12 @@ function initJobsCard() {
             : s.status === "error" ? (s.error || "error")
             : "running…";
     }
-    // triangulate rows show the Celery stage/progress, or a terminal summary.
-    if (j.type === "triangulate" && j.tri_status) {
+    // Aggregate triangulate batches carry their own stage string in the registry
+    // meta (the batch_id is NOT a Celery task, so there's no per-req status to
+    // augment) — render it straight. Legacy per-range rows keep the augment path.
+    if (j.type === "triangulate" && (j.batch || j.stage)) {
+      stage = j.stage || "";
+    } else if (j.type === "triangulate" && j.tri_status) {
       const t = j.tri_status;
       stage = t.state === "SUCCESS"
                 ? (t.result && t.result.skipped ? "skipped — no 2D data" : "3D ✓")
@@ -536,9 +540,11 @@ function initJobsCard() {
       return;
     }
     const jobs = body.jobs || [];
-    // Pull live state for analyze + triangulate rows from their status endpoints.
+    // Pull live state for analyze + LEGACY (non-batch) triangulate rows from their
+    // status endpoints. Aggregate triangulate batches carry their own stage in the
+    // registry meta — their batch_id is not a Celery task, so don't augment them.
     await Promise.all(jobs.filter((j) => j.type === "analyze").map(augmentAnalyze));
-    await Promise.all(jobs.filter((j) => j.type === "triangulate").map(augmentTriangulate));
+    await Promise.all(jobs.filter((j) => j.type === "triangulate" && !(j.batch || j.stage)).map(augmentTriangulate));
     jobsById.clear();
     for (const j of jobs) jobsById.set(j.id, j);
     tbody.innerHTML = "";
@@ -609,6 +615,20 @@ function initJobsCard() {
   async function openTriangulateDetail(jobId, job) {
     stopDetailPoll();
     detail.hidden = false;
+    // Aggregate batch row: no per-req status endpoint applies (the batch_id isn't a
+    // Celery task). Render the stage/done/total stored in the registry meta.
+    if (job && (job.batch || job.stage)) {
+      const total = job.total ?? "?";
+      const done = job.done ?? 0;
+      detail.textContent =
+        `job: ${jobId}\n` +
+        `type: triangulate (batch)\n` +
+        `stage: ${job.stage || ""}\n` +
+        `video: ${job.video || ""}\n` +
+        `progress: ${done} / ${total}\n` +
+        `created: ${new Date((job.created_at || 0) * 1000).toLocaleString()}\n`;
+      return;
+    }
     const token = detailPollAbort = { aborted: false };
     while (!token.aborted && !card.classList.contains("hidden")) {
       let d;

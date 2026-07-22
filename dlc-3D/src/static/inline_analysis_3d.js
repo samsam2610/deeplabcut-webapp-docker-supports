@@ -1452,6 +1452,9 @@ function _wireTriangulateChrome() {
 
     rangeBtn.disabled = true;
     setStatus(`Triangulating ${nFrames} frames from ${startFrame}…`);
+    // One-range = a batch of 1: register ONE aggregate row up-front, finalize below.
+    const batchId = crypto.randomUUID();
+    _batchJob("start", batchId, { total: 1, video: cam0Video, done: 0, stage: "0/1" });
     try {
       const r = await fetch("/dlc/project/triangulate/range", {
         method: "POST",
@@ -1462,9 +1465,9 @@ function _wireTriangulateChrome() {
       try { data = await r.json(); } catch { data = null; }
       if (r.status !== 202 || !data || !data.req_id) {
         setStatus(`Error: ${(data && data.error) || `HTTP ${r.status}`}`, true);
+        _batchJob("done", batchId, { done: 0, skipped: 0, stage: `error — ${(data && data.error) || `HTTP ${r.status}`}` });
         return;
       }
-      _registerTriangulateJob(data.req_id, cam0Video, startFrame, nFrames);
       const done = await _pollTriangulateReq(data.req_id, (d) => {
         const pct = (d && typeof d.progress === "number") ? ` ${d.progress}%` : "";
         setStatus(`${(d && d.stage) || "working"}…${pct}`);
@@ -1482,8 +1485,13 @@ function _wireTriangulateChrome() {
           // until its panel has been opened at least once).
           if (_pose3d && _pose3dLoaded) await _loadPose3d();
         }
+        _batchJob("done", batchId, {
+          done: res.skipped ? 0 : 1, skipped: res.skipped ? 1 : 0,
+          stage: res.skipped ? "skipped — no 2D data" : "3D ✓",
+        });
       } else {
         setStatus(`Error: ${(done && done.error) || "triangulation failed"}`, true);
+        _batchJob("done", batchId, { done: 0, skipped: 0, stage: `error — ${(done && done.error) || "triangulation failed"}` });
       }
     } catch (err) {
       setStatus(`Error: ${err.message}`, true);
@@ -2701,18 +2709,23 @@ function _registerInlineJob(reqId, videoPath, startFrame, nFrames) {
   } catch (e) { /* ignore — registration is non-critical */ }
 }
 
-// Register a dispatched triangulate-range req in the Jobs card (type:"triangulate")
-// so batch/single triangulations show alongside analyze + LP jobs. Best-effort;
-// live progress comes from /dlc/project/triangulate/range/status.
-function _registerTriangulateJob(reqId, videoPath, startFrame, nFrames) {
-  if (!reqId) return;
+// Post one aggregate-batch triangulate update to BOTH Jobs surfaces. ONE row per
+// batch (not per range): the frontend owns a crypto.randomUUID batch_id and drives
+// both backends — MAIN /dlc/project/triangulate/batch (surfaces on the main /jobs
+// page) and dlc-3D /dlc-3d/lp/register-inline (upserts the dlc-3D Jobs card row).
+// Both fetches are best-effort; a registry failure must never break the run.
+function _batchJob(action, batchId, fields = {}) {
+  if (!batchId) return;
+  try {
+    fetch("/dlc/project/triangulate/batch", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ batch_id: batchId, action, ...fields }),
+    }).catch(() => {});
+  } catch (e) { /* ignore — registration is non-critical */ }
   try {
     fetch("/dlc-3d/lp/register-inline", {
       method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        type: "triangulate", req_id: reqId, video: videoPath,
-        start_frame: startFrame, n_frames: nFrames,
-      }),
+      body: JSON.stringify({ type: "triangulate", req_id: batchId, batch: true, ...fields }),
     }).catch(() => {});
   } catch (e) { /* ignore — registration is non-critical */ }
 }
@@ -2983,6 +2996,10 @@ async function _onTriangulateTagClick() {
   if (!ok) return;
   const btn = $("ia3d-btn-triangulate-tag");
   if (btn) btn.disabled = true;
+  // ONE aggregate row for the whole batch — a frontend-owned batch_id drives both
+  // Jobs surfaces (see _batchJob). Registered at start, upserted per range, finalized.
+  const batchId = crypto.randomUUID();
+  _batchJob("start", batchId, { total: ranges.length, video: cam0, done: 0, stage: `0/${ranges.length}` });
   try {
     let doneCount = 0, skipCount = 0;
     for (let i = 0; i < ranges.length; i++) {
@@ -2997,24 +3014,37 @@ async function _onTriangulateTagClick() {
       try { data = await resp.json(); } catch { data = null; }
       if (resp.status !== 202 || !data || !data.req_id) {
         setStatus(`Error: ${(data && data.error) || `HTTP ${resp.status}`}`, true);
+        _batchJob("done", batchId, { done: doneCount, skipped: skipCount, stage: `error — ${(data && data.error) || `HTTP ${resp.status}`}` });
         return;
       }
-      _registerTriangulateJob(data.req_id, cam0, r.start, r.n);
+      // Track the last poll stage/pct so the per-range aggregate update carries a
+      // short human progress string (coarse per-range granularity is fine).
+      let lastStage = "", lastPct = "";
       const done = await _pollTriangulateReq(data.req_id, (d) => {
         const pct = (d && typeof d.progress === "number") ? ` ${d.progress}%` : "";
+        lastStage = (d && d.stage) || lastStage;
+        lastPct = pct;
         setStatus(`Range ${i + 1}/${ranges.length}: ${(d && d.stage) || "working"}…${pct}`);
       });
       if (done.state !== "SUCCESS") {
         setStatus(`Error: ${(done && done.error) || "triangulation failed"}`, true);
+        _batchJob("done", batchId, { done: doneCount, skipped: skipCount, stage: `error — ${(done && done.error) || "triangulation failed"}` });
         return;
       }
       // A range entirely beyond the analyzed 2D data is skipped server-side
       // (no crash) — a tag on a never-finalized frame has no poses to triangulate.
       if (done.result && done.result.skipped) skipCount += 1;
       else doneCount += 1;
+      // Upsert the aggregate row once per completed range.
+      const stage = `${doneCount + skipCount}/${ranges.length} · ${lastStage || "triangulated"}${lastPct}`;
+      _batchJob("progress", batchId, { done: doneCount, skipped: skipCount, stage });
     }
     const skipMsg = skipCount ? ` (${skipCount} skipped — no 2D data)` : "";
     setStatus(`3D ✓ note tag "${tagValue}": ${doneCount}/${ranges.length} ranges triangulated${skipMsg}.`);
+    _batchJob("done", batchId, {
+      done: doneCount, skipped: skipCount,
+      stage: `${doneCount}/${ranges.length} done${skipCount ? ` · ${skipCount} skipped` : ""}`,
+    });
     // Only touch the coverage bar / 3D viewer if something was actually written.
     if (doneCount > 0) {
       await _refreshTriangulateCoverage();

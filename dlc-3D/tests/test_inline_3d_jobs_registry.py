@@ -83,6 +83,57 @@ def test_register_inline_accepts_triangulate_type(monkeypatch):
     assert captured["meta"]["range"] == [192148, 800]
 
 
+def test_register_inline_stores_batch_fields(monkeypatch):
+    """Contract C: batch/total/done/stage are stored in the meta when provided.
+
+    The aggregate triangulate batch upserts ONE row (req_id == batch_id); repeated
+    register() calls update its progress, so these fields must flow into the meta.
+    """
+    captured = {}
+
+    class _FakeRedis:
+        def ping(self):
+            return True
+
+    monkeypatch.setattr("dlc_3d_bp.lp_routes._redis_conn", lambda: _FakeRedis())
+    monkeypatch.setattr("dlc_3d_bp.lp.job_registry.register",
+                        lambda conn, jid, meta: captured.update(job_id=jid, meta=meta))
+
+    c = _app().test_client()
+    r = c.post("/dlc-3d/lp/register-inline", json={
+        "req_id": "batch-abc", "type": "triangulate",
+        "video": "/user-data/proj/videos/cam0.mp4",
+        "batch": True, "total": 119, "done": 7, "stage": "7/119 · triangulated 70%",
+    })
+    assert r.status_code == 202, r.get_data(as_text=True)
+    assert captured["job_id"] == "batch-abc"
+    m = captured["meta"]
+    assert m["type"] == "triangulate"
+    assert m["batch"] is True
+    assert m["total"] == 119
+    assert m["done"] == 7
+    assert m["stage"] == "7/119 · triangulated 70%"
+
+
+def test_register_inline_omits_batch_fields_when_absent(monkeypatch):
+    """A legacy (non-batch) register call must NOT carry batch/total/done/stage."""
+    captured = {}
+
+    class _FakeRedis:
+        def ping(self):
+            return True
+
+    monkeypatch.setattr("dlc_3d_bp.lp_routes._redis_conn", lambda: _FakeRedis())
+    monkeypatch.setattr("dlc_3d_bp.lp.job_registry.register",
+                        lambda conn, jid, meta: captured.update(meta=meta))
+    c = _app().test_client()
+    c.post("/dlc-3d/lp/register-inline", json={
+        "req_id": "plain", "type": "analyze", "video": "/user-data/x.mp4",
+    })
+    for k in ("batch", "total", "done", "stage"):
+        assert k not in captured["meta"], f"{k} must be absent for non-batch rows"
+
+
 def test_register_inline_unknown_type_falls_back_to_analyze(monkeypatch):
     captured = {}
 
@@ -174,27 +225,50 @@ def test_jobs_card_augments_analyze_rows_from_inline_status():
     assert "j.video" in s, "fmtRow must fall back to j.video for analyze rows"
 
 
-# ── JS wiring: triangulate rows registered + rendered ──────────────────────
+# ── JS wiring: triangulate is ONE aggregate batch row on BOTH surfaces ─────
 
-def test_triangulate_runs_register_a_job():
+def test_per_range_triangulate_helper_is_gone():
+    """The per-range _registerTriangulateJob helper + its calls are SUPERSEDED by
+    the aggregate batch model — one row per batch, not one per range."""
     s = INLINE_JS.read_text()
-    m = re.search(r"function\s+_registerTriangulateJob\s*\(", s)
-    assert m, "expected a _registerTriangulateJob helper"
-    # posts the triangulate type to the shared register route
-    assert re.search(r'type:\s*"triangulate"', s), "helper must tag the job type triangulate"
-    # both the single-range button and the tag-batch register their dispatched req
-    assert s.count("_registerTriangulateJob(data.req_id") >= 2, (
-        "both single-range and batch triangulate must register their req"
+    assert "_registerTriangulateJob" not in s, (
+        "per-range _registerTriangulateJob must be removed (aggregate batch supersedes it)"
     )
 
 
-def test_jobs_card_augments_triangulate_rows():
+def test_triangulate_batch_posts_to_both_backends():
+    s = INLINE_JS.read_text()
+    # A single helper drives BOTH Jobs surfaces for the aggregate batch.
+    m = re.search(r"function\s+_batchJob\s*\(", s)
+    assert m, "expected a _batchJob helper that fans out to both backends"
+    assert "/dlc/project/triangulate/batch" in s, "must POST the aggregate to the MAIN batch route"
+    assert "/dlc-3d/lp/register-inline" in s, "must POST the aggregate to the dlc-3D register route"
+    assert re.search(r'type:\s*"triangulate"', s), "dlc-3D upsert must tag type triangulate"
+    assert "batch: true" in s, "dlc-3D upsert must flag batch:true"
+    # A frontend-owned batch_id ties the aggregate row together.
+    assert "crypto.randomUUID" in s, "batch_id must be a frontend-generated crypto.randomUUID"
+    # Both the tag-batch AND the single-range button register a batch (start + done).
+    assert s.count('_batchJob("start"') >= 2, "tag-batch and single-range must each start a batch"
+    assert '_batchJob("progress"' in s, "the tag-batch must upsert progress per range"
+    assert s.count('_batchJob("done"') >= 2, "each batch must be finalized with a done call"
+
+
+def test_jobs_card_renders_batch_triangulate_without_augment():
     s = CARDS_JS.read_text()
+    # Legacy augment path still present for non-batch rows.
     assert "augmentTriangulate" in s
     assert "/dlc/project/triangulate/range/status" in s, (
-        "Jobs card must poll the triangulate status endpoint for triangulate rows"
+        "Jobs card must still poll the triangulate status endpoint for LEGACY rows"
     )
     assert 'j.type === "triangulate"' in s, "fmtRow must handle the triangulate type"
+    # Batch rows are recognised by batch/stage in the meta and render stage directly.
+    assert re.search(r"j\.batch\s*\|\|\s*j\.stage", s), (
+        "batch triangulate rows must be detected via j.batch / j.stage"
+    )
+    # Batch rows are excluded from the augment fan-out in refresh().
+    assert re.search(r'type\s*===\s*"triangulate"\s*&&\s*!\(j\.batch\s*\|\|\s*j\.stage\)', s), (
+        "refresh() must NOT augment batch triangulate rows (batch_id is not a Celery task)"
+    )
     # triangulate rows (main-webapp Celery) are not LP-cancelable
     assert 'j.type !== "triangulate"' in s, "triangulate rows must not offer Cancel"
     assert "openTriangulateDetail" in s, "detail view must handle triangulate rows"

@@ -168,6 +168,10 @@ def register_inline():
     Body: ``{req_id, video, start_frame, n_frames, type?}`` (``type`` defaults to
     ``analyze``). Best-effort: returns 503 when redis is unavailable (registration
     is non-critical to the run itself).
+
+    Aggregate triangulate batches (Contract C) additionally pass ``batch`` (bool),
+    ``total``, ``done`` and ``stage``. ``req_id`` is then the frontend-generated
+    batch_id; ``register()`` upserts, so repeated calls update batch progress.
     """
     from dlc_3d_bp.lp import job_registry
 
@@ -188,14 +192,32 @@ def register_inline():
     except (TypeError, ValueError):
         n = 0
 
-    conn = _redis_conn()
-    if not conn:
-        return jsonify({"error": "redis unavailable"}), 503
-    job_registry.register(conn, req_id, {
+    meta = {
         "type": jtype,
         "video": video,
         "range": [start, n],
-    })
+    }
+    # Aggregate-batch fields — stored only when present so per-range legacy rows
+    # (which never send them) keep their existing shape.
+    if "batch" in body:
+        meta["batch"] = bool(body.get("batch"))
+    if body.get("total") is not None:
+        try:
+            meta["total"] = int(body.get("total"))
+        except (TypeError, ValueError):
+            pass
+    if body.get("done") is not None:
+        try:
+            meta["done"] = int(body.get("done"))
+        except (TypeError, ValueError):
+            pass
+    if body.get("stage") is not None:
+        meta["stage"] = str(body.get("stage"))
+
+    conn = _redis_conn()
+    if not conn:
+        return jsonify({"error": "redis unavailable"}), 503
+    job_registry.register(conn, req_id, meta)
     return jsonify({"ok": True, "job_id": req_id}), 202
 
 
