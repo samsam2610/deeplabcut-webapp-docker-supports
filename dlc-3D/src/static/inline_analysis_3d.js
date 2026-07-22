@@ -1471,11 +1471,16 @@ function _wireTriangulateChrome() {
       if (done.state === "SUCCESS") {
         const res = done.result || {};
         const end = startFrame + nFrames - 1;
-        setStatus(`3D ✓ frames ${startFrame}–${end}${res.pair_name ? ` → ${res.pair_name}` : ""}`);
-        await _refreshTriangulateCoverage();
-        // Newly-triangulated frames → refetch + reload the 3D pose viewer (no-op
-        // until its panel has been opened at least once).
-        if (_pose3d && _pose3dLoaded) await _loadPose3d();
+        if (res.skipped) {
+          // Range lies beyond the analyzed 2D data — nothing to triangulate.
+          setStatus(`No 2D data in frames ${startFrame}–${end} — skipped.`);
+        } else {
+          setStatus(`3D ✓ frames ${startFrame}–${end}${res.pair_name ? ` → ${res.pair_name}` : ""}`);
+          await _refreshTriangulateCoverage();
+          // Newly-triangulated frames → refetch + reload the 3D pose viewer (no-op
+          // until its panel has been opened at least once).
+          if (_pose3d && _pose3dLoaded) await _loadPose3d();
+        }
       } else {
         setStatus(`Error: ${(done && done.error) || "triangulation failed"}`, true);
       }
@@ -2962,9 +2967,10 @@ async function _onTriangulateTagClick() {
   const btn = $("ia3d-btn-triangulate-tag");
   if (btn) btn.disabled = true;
   try {
-    let doneCount = 0;
-    for (const r of ranges) {
-      setStatus(`Triangulating range ${doneCount + 1}/${ranges.length} (${r.n} frames from ${r.start})…`);
+    let doneCount = 0, skipCount = 0;
+    for (let i = 0; i < ranges.length; i++) {
+      const r = ranges[i];
+      setStatus(`Triangulating range ${i + 1}/${ranges.length} (${r.n} frames from ${r.start})…`);
       const resp = await fetch("/dlc/project/triangulate/range", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -2978,19 +2984,26 @@ async function _onTriangulateTagClick() {
       }
       const done = await _pollTriangulateReq(data.req_id, (d) => {
         const pct = (d && typeof d.progress === "number") ? ` ${d.progress}%` : "";
-        setStatus(`Range ${doneCount + 1}/${ranges.length}: ${(d && d.stage) || "working"}…${pct}`);
+        setStatus(`Range ${i + 1}/${ranges.length}: ${(d && d.stage) || "working"}…${pct}`);
       });
       if (done.state !== "SUCCESS") {
         setStatus(`Error: ${(done && done.error) || "triangulation failed"}`, true);
         return;
       }
-      doneCount += 1;
+      // A range entirely beyond the analyzed 2D data is skipped server-side
+      // (no crash) — a tag on a never-finalized frame has no poses to triangulate.
+      if (done.result && done.result.skipped) skipCount += 1;
+      else doneCount += 1;
     }
-    setStatus(`3D ✓ note tag "${tagValue}": ${doneCount}/${ranges.length} ranges triangulated.`);
-    await _refreshTriangulateCoverage();
-    // Newly-triangulated frames → refetch + reload the 3D pose viewer (no-op until
-    // its panel has been opened at least once).
-    if (_pose3d && _pose3dLoaded) await _loadPose3d();
+    const skipMsg = skipCount ? ` (${skipCount} skipped — no 2D data)` : "";
+    setStatus(`3D ✓ note tag "${tagValue}": ${doneCount}/${ranges.length} ranges triangulated${skipMsg}.`);
+    // Only touch the coverage bar / 3D viewer if something was actually written.
+    if (doneCount > 0) {
+      await _refreshTriangulateCoverage();
+      // Newly-triangulated frames → refetch + reload the 3D pose viewer (no-op until
+      // its panel has been opened at least once).
+      if (_pose3d && _pose3dLoaded) await _loadPose3d();
+    }
   } catch (err) {
     setStatus(`Error: ${err.message}`, true);
   } finally {

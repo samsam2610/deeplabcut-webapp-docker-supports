@@ -55,3 +55,17 @@ def test_triangulate_tag_button_in_refresh_enablement():
     assert m
     body = m.group(0)
     assert "ia3d-btn-triangulate-tag" in body, "must gate #ia3d-btn-triangulate-tag in _refreshAnalyzeEnablement"
+
+
+def test_triangulate_tag_batch_handles_skipped_ranges():
+    """A range beyond the analyzed 2D data is skipped server-side (result.skipped);
+    the tag-batch must count it separately and NOT abort, so one out-of-data tag
+    window doesn't kill the whole batch."""
+    s = JS.read_text()
+    m = re.search(r"async\s+function\s+_onTriangulateTagClick[\s\S]{0,3600}", s)
+    assert m
+    body = m.group(0)
+    assert "skipped" in body, "batch must inspect done.result.skipped"
+    assert "skipCount" in body, "batch must track skipped ranges separately"
+    # coverage/viewer refresh is gated on something actually being written.
+    assert re.search(r"doneCount\s*>\s*0", body), "must only refresh when doneCount > 0"
