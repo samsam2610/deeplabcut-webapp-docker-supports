@@ -2798,6 +2798,80 @@ async function _onAnalyzeTagClick() {
   _refreshTagLockEnablement();
 }
 
+// Triangulate every frame carrying the single locked note tag, over the SAME
+// before/after windows as "Analyze for tag". Mirrors _onAnalyzeTagClick's guards +
+// mergeWindows range collection, but POSTs each merged range to
+// /dlc/project/triangulate/range (ONE call per range, cam0 only — the route handles
+// the sibling cam server-side). Progress goes to the Triangulate panel's status line.
+async function _onTriangulateTagClick() {
+  const status = $("ia3d-triangulate-range-status");
+  const setStatus = (msg, isErr = false) => {
+    if (!status) return;
+    status.textContent = msg || "";
+    status.className = "fe-extract-status" + (isErr ? " err" : "");
+  };
+  const cam0 = _cam0Path();
+  if (!cam0) { setStatus("Pick a cam0 video first.", true); return; }
+  if (!_siblingPath) { setStatus("No sibling camera — cannot triangulate.", true); return; }
+  const activeNotes = _snTimeline ? _snTimeline.getActiveTags().note : [];
+  if (activeNotes.length !== 1) { setStatus("Activate exactly one note tag first.", true); return; }
+  const tagValue = activeNotes[0];
+  const frames = tagKeyframes(_snTimeline.getRows(), tagValue);
+  const before = parseInt($("ia3d-finalize-before")?.value, 10) || 0;
+  const after  = parseInt($("ia3d-finalize-after")?.value, 10) || 0;
+  const frameCount = _viewer ? _viewer.frameCount() : 0;
+  const ranges = mergeWindows(frames, before, after, frameCount);
+  const totalFrames = ranges.reduce((s, r) => s + r.n, 0);
+  if (!frames.length || !ranges.length || totalFrames < 1) {
+    setStatus(`Note tag "${tagValue}" has no frames to triangulate.`, true);
+    return;
+  }
+  const ok = window.confirm(
+    `Triangulate note tag "${tagValue}":\n` +
+    `${frames.length} tagged frame(s) → ${ranges.length} range(s) → ${totalFrames} frames.` +
+    `\n\nProceed?`
+  );
+  if (!ok) return;
+  const btn = $("ia3d-btn-triangulate-tag");
+  if (btn) btn.disabled = true;
+  try {
+    let doneCount = 0;
+    for (const r of ranges) {
+      setStatus(`Triangulating range ${doneCount + 1}/${ranges.length} (${r.n} frames from ${r.start})…`);
+      const resp = await fetch("/dlc/project/triangulate/range", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ cam0_video: cam0, start_frame: r.start, n_frames: r.n }),
+      });
+      let data;
+      try { data = await resp.json(); } catch { data = null; }
+      if (resp.status !== 202 || !data || !data.req_id) {
+        setStatus(`Error: ${(data && data.error) || `HTTP ${resp.status}`}`, true);
+        return;
+      }
+      const done = await _pollTriangulateReq(data.req_id, (d) => {
+        const pct = (d && typeof d.progress === "number") ? ` ${d.progress}%` : "";
+        setStatus(`Range ${doneCount + 1}/${ranges.length}: ${(d && d.stage) || "working"}…${pct}`);
+      });
+      if (done.state !== "SUCCESS") {
+        setStatus(`Error: ${(done && done.error) || "triangulation failed"}`, true);
+        return;
+      }
+      doneCount += 1;
+    }
+    setStatus(`3D ✓ note tag "${tagValue}": ${doneCount}/${ranges.length} ranges triangulated.`);
+    await _refreshTriangulateCoverage();
+    // Newly-triangulated frames → refetch + reload the 3D pose viewer (no-op until
+    // its panel has been opened at least once).
+    if (_pose3d && _pose3dLoaded) await _loadPose3d();
+  } catch (err) {
+    setStatus(`Error: ${err.message}`, true);
+  } finally {
+    // Restore the gated disabled-state (same rules as Analyze-for-tag).
+    _refreshAnalyzeEnablement();
+  }
+}
+
 // Enable the Lock-tag checkbox only when exactly one note tag is active. If the
 // active-note count drifts off 1 (e.g. a video switch clears it), drop the lock and
 // unfreeze the chips. Called on chip toggles (onActiveTagsChange) and CSV reloads.
@@ -2854,6 +2928,9 @@ function _refreshAnalyzeEnablement() {
   const tagBtn = $("ia3d-btn-analyze-tag");
   const tagLocked = !!$("ia3d-tag-lock")?.checked;
   if (tagBtn) tagBtn.disabled = !(finOn && tagLocked && hasSibling);
+  // Triangulate-all-for-tag shares the tag-lock gate with Analyze-for-tag.
+  const triTagBtn = $("ia3d-btn-triangulate-tag");
+  if (triTagBtn) triTagBtn.disabled = !(finOn && tagLocked && hasSibling);
   const hint = $("ia3d-start-hint");
   if (hint) {
     if (rangeOk) {
@@ -3166,6 +3243,7 @@ function _wireStereoDispatch() {
     _refreshAnalyzeEnablement();
   });
   $("ia3d-btn-analyze-tag")?.addEventListener("click", _onAnalyzeTagClick);
+  $("ia3d-btn-triangulate-tag")?.addEventListener("click", _onTriangulateTagClick);
   // NOTE: the finalize keyframe-lock is now driven exclusively through the keyframe
   // window's onLockChange callback (see makeKeyframeWindow above). A direct DOM
   // change-listener that called _applyLockState would miss the 'l' shortcut
