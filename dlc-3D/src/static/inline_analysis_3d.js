@@ -535,7 +535,24 @@ function _wireViewerChrome(v) {
   // redraws whenever there's data — like _redrawFinalizeCoverage (no toggle gate).
   _redrawTriangulateCoverage = () => {
     _drawCoverageBar(triCoverageCanvas, _triCoverageBuckets, null, "#60a5fa");
+    const has = !!(_triCoverageBuckets && _triCoverageBuckets.length);
+    const pv = $("ia3d-triangulate-prev"), nx = $("ia3d-triangulate-next");
+    if (pv) pv.disabled = !has;
+    if (nx) nx.disabled = !has;
   };
+  const _triangulateNav = (dir) => {
+    if (!_viewer || !_triCoverageBuckets || !_triCoverageBuckets.length) return;
+    const nB = _triCoverageBuckets.length;
+    const fc = _viewer.frameCount();
+    const b = nextCoveredBucket(_triCoverageBuckets, frameToBucket(_viewer.currentFrame(), fc, nB), dir);
+    if (b == null) return;
+    _viewer.pause();
+    // The 3D coverage endpoint returns buckets only (no per-bucket frames), so seek
+    // to the bucket centre — the SAME target the bar's click-seek already lands on.
+    _viewer.seek(bucketToFrame(b, nB, fc));
+  };
+  $("ia3d-triangulate-prev")?.addEventListener("click", () => _triangulateNav(-1));
+  $("ia3d-triangulate-next")?.addEventListener("click", () => _triangulateNav(1));
   v.on("frameChange", () => _redrawTriangulateCoverage());
 
   _finalizeKW = makeKeyframeWindow({
