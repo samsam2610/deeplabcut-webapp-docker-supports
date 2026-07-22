@@ -1858,19 +1858,10 @@ function _mirrorPose3dCams() {
   };
   draw("ia3d-pose3d-cam0", "ia3d-pose3d-cam0-wrap", 0);
   draw("ia3d-pose3d-cam1", "ia3d-pose3d-cam1-wrap", 1);
-
-  // Cap the 3D viewer to ONE camera view: size its container to the current
-  // single-camera display width (cam0, fallback cam1), so the WebGL viewport is
-  // never wider than a single mini-cam and tracks the Viewer-size zoom. The
-  // three.js ResizeObserver on the canvas picks up the new size automatically.
-  const cam0 = $("ia3d-pose3d-cam0");
-  const cam1 = $("ia3d-pose3d-cam1");
-  const camW = (cam0 && cam0.clientWidth) || (cam1 && cam1.clientWidth) || 0;
-  const container = $("ia3d-pose3d-canvas")?.parentElement;
-  if (container && camW > 0) {
-    container.style.width = camW + "px";
-    container.style.maxWidth = camW + "px";
-  }
+  // NOTE: the 3D viewport size is now driven explicitly by the view width/height
+  // inputs (_applyPose3dViewSize → #ia3d-pose3d-canvas-box). The old auto-cap that
+  // pinned the container to a single camera's width was removed — it clobbered the
+  // width control every mirror tick (height was unaffected, so only width "stuck").
 }
 
 // Lightweight requestAnimationFrame loop that keeps the mini-cams composited
