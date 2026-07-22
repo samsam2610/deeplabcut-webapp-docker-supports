@@ -333,6 +333,14 @@ export function makePose3dViewer({ canvas, statusEl }) {
     spheres.forEach((mesh) => mesh.scale.setScalar(markerMult));
   }
 
+  // ── setBackground(hex) — set the scene backdrop colour (persisted per project) ─
+  // Accepts any THREE.Color-parseable value ("#12141a"); no-op before init().
+  function setBackground(hex) {
+    if (!scene || !scene.background) return;
+    scene.background.set(hex);
+    if (renderer && camera) renderer.render(scene, camera);
+  }
+
   function _fitToBounds() {
     if (!camera || !controls) return;
     let cx = 0, cy = 0, cz = 0, size = 1;
@@ -398,5 +406,5 @@ export function makePose3dViewer({ canvas, statusEl }) {
     errors = [];
   }
 
-  return { init, load, showFrame, resetView, zoomBy, orbit, setThresholds, setMarkerSize, getErrorMax, dispose };
+  return { init, load, showFrame, resetView, zoomBy, orbit, setThresholds, setMarkerSize, setBackground, getErrorMax, dispose };
 }

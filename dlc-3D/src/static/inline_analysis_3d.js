@@ -76,6 +76,7 @@ let _pose3dChromeWired = false;
 let _pose3dLoaded = false;   // true once load(data) has real data (guards showFrame no-op).
 let _mirrorRaf = null;       // single rAF handle for the mini-cam mirror loop (never leaks).
 let _mirrorLastTs = 0;       // last mirror timestamp — throttles the loop to ~30fps.
+let _bgSaveTimer = null;     // debounce handle for the 3D background-colour ui-setting save.
 let _snTimeline = null;   // statusNoteTimeline feature handle (for .redraw() on resize)
 let _pendingTagRestore = null;  // active status/note tags stashed across a post-analysis reload
 
@@ -1651,6 +1652,8 @@ function _wirePose3dChrome() {
       if (!canvas) return;
       _pose3d = makePose3dViewer({ canvas, statusEl });
       _pose3d.init();
+      // Apply the per-project persisted background colour (if any) once inited.
+      await _loadPose3dBgColor();
     }
     await _loadPose3d();
   });
@@ -1694,8 +1697,36 @@ function _wirePose3dChrome() {
     _pose3d?.setMarkerSize(v);
   });
 
+  // ── Background colour → setBackground (live) + debounced per-project save ────
+  const bg = $("ia3d-pose3d-bg");
+  bg?.addEventListener("input", () => {
+    _pose3d?.setBackground(bg.value);
+    if (_bgSaveTimer) clearTimeout(_bgSaveTimer);
+    _bgSaveTimer = setTimeout(() => {
+      fetch("/dlc/project/ui-setting", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ key: "pose3d_bg_color", value: bg.value }),
+      }).catch(() => {});
+    }, 400);
+  });
+
   // ── Part 4: median re-filter → POST /dlc/project/triangulate/refilter ──────
   $("ia3d-pose3d-apply")?.addEventListener("click", _applyPose3dRefilter);
+}
+
+// Load the persisted 3D background colour (per project) and apply it to the viewer
+// + sync the color input. Called on pose3d load; absent/invalid → keep the #12141a
+// default. Best-effort: a fetch failure leaves the default untouched.
+async function _loadPose3dBgColor() {
+  if (!_pose3d) return;
+  try {
+    const data = await (await fetch("/dlc/project/ui-setting?key=pose3d_bg_color")).json();
+    const hex = data && data.value;
+    if (!hex) return;
+    _pose3d.setBackground(hex);
+    const bg = $("ia3d-pose3d-bg");
+    if (bg) bg.value = hex;
+  } catch (_) { /* keep the default background */ }
 }
 
 // Composite the MAIN viewer's current-frame tiles into the mini-cam <canvas>es
