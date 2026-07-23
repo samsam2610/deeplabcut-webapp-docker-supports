@@ -23,7 +23,7 @@ function _colorForIndex(i) {
   return new THREE.Color(labelerColor(i));
 }
 
-export function makePose3dViewer({ canvas, statusEl }) {
+export function makePose3dViewer({ canvas, statusEl, onViewChange }) {
   // ── three.js objects (created lazily in init) ──────────────────────────────
   let scene = null;
   let camera = null;
@@ -83,6 +83,9 @@ export function makePose3dViewer({ canvas, statusEl }) {
     controls = new OrbitControls(camera, renderer.domElement);
     controls.enableDamping = true;
     controls.dampingFactor = 0.08;
+    // Notify on interaction end (drag/zoom released) so the frontend can persist
+    // the camera (zoom/rotation) per project. 'end' fires once per gesture.
+    if (onViewChange) controls.addEventListener("end", () => onViewChange());
 
     // Helpers — ground grid + world origin axes. Hidden by default; toggled via
     // setGrid()/setOrigin() (persisted per project, default off).
@@ -353,6 +356,21 @@ export function makePose3dViewer({ canvas, statusEl }) {
     if (renderer && camera) renderer.render(scene, camera);
   }
 
+  // ── camera state (zoom + rotation) get/set — persisted per project ──────────
+  function getCameraState() {
+    if (!camera || !controls) return null;
+    return { pos: camera.position.toArray(), target: controls.target.toArray() };
+  }
+  function setCameraState(s) {
+    if (!camera || !controls || !s || !Array.isArray(s.pos) || !Array.isArray(s.target)) return false;
+    camera.position.fromArray(s.pos);
+    controls.target.fromArray(s.target);
+    camera.lookAt(controls.target);
+    controls.update();
+    if (renderer && scene) renderer.render(scene, camera);
+    return true;
+  }
+
   // ── setGrid(on) / setOrigin(on) — show/hide the ground grid + world-origin axes ─
   // (persisted per project, default off). No-op before init().
   function setGrid(on) {
@@ -431,5 +449,5 @@ export function makePose3dViewer({ canvas, statusEl }) {
     errors = [];
   }
 
-  return { init, load, showFrame, resetView, zoomBy, orbit, setThresholds, setMarkerSize, setBackground, setFlip, setGrid, setOrigin, getErrorMax, dispose };
+  return { init, load, showFrame, resetView, zoomBy, orbit, setThresholds, setMarkerSize, setBackground, setFlip, setGrid, setOrigin, getCameraState, setCameraState, getErrorMax, dispose };
 }

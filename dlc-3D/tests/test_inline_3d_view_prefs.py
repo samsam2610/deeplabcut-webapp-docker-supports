@@ -145,3 +145,17 @@ def test_view_size_and_flip_wired_and_persisted():
     # persisted under the consolidated key via /dlc/project/ui-setting
     assert '"pose3d_view_prefs"' in s, "must persist under the pose3d_view_prefs ui-setting key"
     assert "/dlc/project/ui-setting" in s, "must save/load via /dlc/project/ui-setting"
+
+
+def test_camera_state_persisted_per_project():
+    js = JS.read_text()
+    viewer = POSE3D.read_text()
+    assert "function getCameraState" in viewer and "function setCameraState" in viewer, \
+        "viewer must expose camera get/set"
+    m = re.search(r"return\s*\{[^}]*\binit\b[^}]*\}", viewer)
+    assert m and "getCameraState" in m.group(0) and "setCameraState" in m.group(0), \
+        "camera get/set must be in the viewer API"
+    assert re.search(r'addEventListener\("end"', viewer), "must fire onViewChange on OrbitControls 'end'"
+    assert "onViewChange:" in js, "frontend must pass an onViewChange callback"
+    assert re.search(r"cam:\s*\(_pose3d", js), "view prefs must include the camera state"
+    assert "setCameraState(_savedCamState)" in js, "must restore the saved camera after a pose load"

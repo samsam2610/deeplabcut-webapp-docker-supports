@@ -134,14 +134,16 @@ def test_inline_wires_marker_size_slider():
     assert "setMarkerSize(" in s, "marker-size slider must call setMarkerSize"
 
 
-def test_inline_sizes_3d_container_to_camera_width():
-    """Adjustment 1: the 3D viewer container is capped to one camera view — its
-    width tracks the mini-cam display width inside the mirror routine."""
+def test_inline_sizes_3d_container_via_view_inputs():
+    """The 3D viewer box is sized by the view width/height number fields
+    (#ia3d-pose3d-view-w/-h → _applyPose3dViewSize → #ia3d-pose3d-canvas-box), NOT
+    auto-capped to the camera width by the mirror loop (that clobbered the width
+    control every tick — see the width-clobber fix)."""
     s = INLINE.read_text()
-    assert "parentElement" in s, \
-        "must resolve the 3D viewer container via the canvas parentElement"
-    assert re.search(r'container\.style\.(width|maxWidth)', s), \
-        "must set the 3D viewer container width/maxWidth to the camera width"
+    assert "ia3d-pose3d-canvas-box" in s, "the canvas box is the sized element"
+    assert "_applyPose3dViewSize" in s, "view width/height must drive the box size"
+    assert not re.search(r'container\.style\.(width|maxWidth)\s*=\s*camW', s), \
+        "the mirror loop must not cap the container to the camera width"
 
 
 def test_inline_triangulate_redraw_not_toggle_gated():

@@ -78,6 +78,7 @@ let _mirrorRaf = null;       // single rAF handle for the mini-cam mirror loop (
 let _mirrorLastTs = 0;       // last mirror timestamp — throttles the loop to ~30fps.
 let _bgSaveTimer = null;     // debounce handle for the 3D background-colour ui-setting save.
 let _viewPrefsSaveTimer = null;  // debounce handle for the 3D view-prefs (size + flips) ui-setting save.
+let _savedCamState = null;       // persisted 3D camera (zoom/rotation), restored after each load.
 let _snTimeline = null;   // statusNoteTimeline feature handle (for .redraw() on resize)
 let _pendingTagRestore = null;  // active status/note tags stashed across a post-analysis reload
 
@@ -1689,7 +1690,7 @@ function _wirePose3dChrome() {
       const canvas = $("ia3d-pose3d-canvas");
       const statusEl = $("ia3d-pose3d-status");
       if (!canvas) return;
-      _pose3d = makePose3dViewer({ canvas, statusEl });
+      _pose3d = makePose3dViewer({ canvas, statusEl, onViewChange: () => _savePose3dViewPrefs() });
       _pose3d.init();
       // Apply the per-project persisted background colour (if any) once inited.
       await _loadPose3dBgColor();
@@ -1699,43 +1700,40 @@ function _wirePose3dChrome() {
     await _loadPose3d();
   });
 
+  // Reset view re-fits, then persists the fitted camera so a later reload doesn't
+  // restore the pre-reset view over it.
+  const _resetAndPersist = () => { _pose3d?.resetView(); _savePose3dViewPrefs(); };
   const resetBtn = $("ia3d-pose3d-reset");
-  resetBtn?.addEventListener("click", () => _pose3d?.resetView());
+  resetBtn?.addEventListener("click", _resetAndPersist);
 
   // ── Part 2: on-screen 3D controls → viewer methods ─────────────────────────
   const ORBIT_STEP = Math.PI / 12;   // 15° per press
   const ZOOM_FACTOR = 1.2;
-  $("ia3d-pose3d-home")?.addEventListener("click", () => _pose3d?.resetView());
-  $("ia3d-pose3d-zoom-in")?.addEventListener("click", () => _pose3d?.zoomBy(1 / ZOOM_FACTOR));
-  $("ia3d-pose3d-zoom-out")?.addEventListener("click", () => _pose3d?.zoomBy(ZOOM_FACTOR));
-  $("ia3d-pose3d-orbit-left")?.addEventListener("click", () => _pose3d?.orbit(-ORBIT_STEP, 0));
-  $("ia3d-pose3d-orbit-right")?.addEventListener("click", () => _pose3d?.orbit(ORBIT_STEP, 0));
-  $("ia3d-pose3d-orbit-up")?.addEventListener("click", () => _pose3d?.orbit(0, -ORBIT_STEP));
-  $("ia3d-pose3d-orbit-down")?.addEventListener("click", () => _pose3d?.orbit(0, ORBIT_STEP));
+  $("ia3d-pose3d-home")?.addEventListener("click", _resetAndPersist);
+  // On-screen zoom/orbit change the camera programmatically (no OrbitControls
+  // 'end'), so persist the view after each press.
+  const _nudge = (fn) => { fn(); _savePose3dViewPrefs(); };
+  $("ia3d-pose3d-zoom-in")?.addEventListener("click", () => _nudge(() => _pose3d?.zoomBy(1 / ZOOM_FACTOR)));
+  $("ia3d-pose3d-zoom-out")?.addEventListener("click", () => _nudge(() => _pose3d?.zoomBy(ZOOM_FACTOR)));
+  $("ia3d-pose3d-orbit-left")?.addEventListener("click", () => _nudge(() => _pose3d?.orbit(-ORBIT_STEP, 0)));
+  $("ia3d-pose3d-orbit-right")?.addEventListener("click", () => _nudge(() => _pose3d?.orbit(ORBIT_STEP, 0)));
+  $("ia3d-pose3d-orbit-up")?.addEventListener("click", () => _nudge(() => _pose3d?.orbit(0, -ORBIT_STEP)));
+  $("ia3d-pose3d-orbit-down")?.addEventListener("click", () => _nudge(() => _pose3d?.orbit(0, ORBIT_STEP)));
 
-  // ── Part 3: quality-threshold sliders → setThresholds (live, no reload) ────
+  // ── Part 3: quality-threshold number fields → setThresholds (live, no reload) ─
   const scoreThr = $("ia3d-pose3d-score-thr");
   scoreThr?.addEventListener("input", () => {
-    const v = parseFloat(scoreThr.value);
-    const lbl = $("ia3d-pose3d-score-thr-val");
-    if (lbl) lbl.textContent = Number.isFinite(v) ? v.toFixed(2) : "0.00";
-    _pose3d?.setThresholds({ score: v });
+    _pose3d?.setThresholds({ score: parseFloat(scoreThr.value) });
   });
   const errThr = $("ia3d-pose3d-error-thr");
   errThr?.addEventListener("input", () => {
-    const v = parseFloat(errThr.value);
-    const lbl = $("ia3d-pose3d-error-thr-val");
-    if (lbl) lbl.textContent = Number.isFinite(v) ? v.toFixed(2) : "—";
-    _pose3d?.setThresholds({ error: v });
+    _pose3d?.setThresholds({ error: parseFloat(errThr.value) });
   });
 
   // ── 3D marker size → setMarkerSize (scales the spheres live, no reload) ─────
   const markerSize = $("ia3d-pose3d-marker-size");
   markerSize?.addEventListener("input", () => {
-    const v = parseFloat(markerSize.value);
-    const lbl = $("ia3d-pose3d-marker-size-val");
-    if (lbl) lbl.textContent = Number.isFinite(v) ? v.toFixed(1) : "1.0";
-    _pose3d?.setMarkerSize(v);
+    _pose3d?.setMarkerSize(parseFloat(markerSize.value));
   });
 
   // ── Background colour → setBackground (live) + debounced per-project save ────
@@ -1809,7 +1807,10 @@ function _savePose3dViewPrefs() {
     flipZ: !!$("ia3d-pose3d-flip-z")?.checked,
     gridOn: !!$("ia3d-pose3d-grid")?.checked,
     originOn: !!$("ia3d-pose3d-origin")?.checked,
+    cam: (_pose3d && _pose3d.getCameraState) ? _pose3d.getCameraState() : null,
   };
+  // Keep the in-memory camera current so a subsequent pose reload restores THIS view.
+  if (prefs.cam) _savedCamState = prefs.cam;
   if (_viewPrefsSaveTimer) clearTimeout(_viewPrefsSaveTimer);
   _viewPrefsSaveTimer = setTimeout(() => {
     fetch("/dlc/project/ui-setting", {
@@ -1869,6 +1870,9 @@ async function _loadPose3dViewPrefs() {
     if (cbOrigin) cbOrigin.checked = originOn;
     _pose3d.setGrid(gridOn);
     _pose3d.setOrigin(originOn);
+    // Camera (zoom/rotation): stash it — applied after the first pose load()
+    // (which auto-fits), and after every reload, via _loadPose3d.
+    _savedCamState = (prefs.cam && Array.isArray(prefs.cam.pos)) ? prefs.cam : null;
   } catch (_) { /* keep the default view prefs */ }
 }
 
@@ -1947,13 +1951,11 @@ function _stopMirrorLoop() {
 function _configurePose3dErrorSlider() {
   if (!_pose3d) return;
   const em = _pose3d.getErrorMax ? _pose3d.getErrorMax() : null;
-  const slider = $("ia3d-pose3d-error-thr");
-  const lbl = $("ia3d-pose3d-error-thr-val");
+  const slider = $("ia3d-pose3d-error-thr");   // now a number field
   if (slider && em != null && Number.isFinite(em) && em > 0) {
     slider.max = String(em);
     slider.step = String(Math.max(em / 100, 1e-6));
     slider.value = String(em);
-    if (lbl) lbl.textContent = Number(em).toFixed(2);
   }
   // Push the current slider values into the viewer so the gate matches the UI.
   const sv = parseFloat($("ia3d-pose3d-score-thr")?.value ?? "0");
@@ -2028,6 +2030,9 @@ async function _loadPose3d() {
     }
     _pose3d.load(data);
     _pose3dLoaded = true;
+    // Restore the persisted camera (zoom/rotation) over the auto-fit that load()
+    // just did; if none saved, the fit stands.
+    if (_savedCamState && _pose3d.setCameraState) _pose3d.setCameraState(_savedCamState);
     // Configure the error slider (max/default) from the freshly-loaded data and
     // sync both thresholds into the viewer's gate.
     _configurePose3dErrorSlider();
@@ -2937,32 +2942,45 @@ async function _onAnalyzeRangeConfinedClick() {
   _refreshAnalyzeEnablement();
 }
 
-// Analyze BOTH cameras over every frame carrying the single locked note tag.
-// Each tagged frame expands to the finalize before/after window; overlapping windows
-// are merged (deduped) into minimal ranges. Gated by the UI (finalize on && tag-lock
-// && sibling). Reuses the same session + dual-cam submit/poll as the for-range path.
+// Frames carrying ANY of the active note tags (1 or 2), deduped + sorted — the
+// union tagged-frame set for a batch analyze/triangulate.
+function _framesForActiveNoteTags(activeNotes) {
+  const rows = _snTimeline ? _snTimeline.getRows() : [];
+  const set = new Set();
+  for (const t of activeNotes) for (const f of tagKeyframes(rows, t)) set.add(f);
+  return [...set].sort((a, b) => a - b);
+}
+// Human label for 1–2 active tags: "foo" or "foo" + "bar".
+function _noteTagLabel(activeNotes) {
+  return activeNotes.map((t) => `"${t}"`).join(" + ");
+}
+
+// Analyze BOTH cameras over every frame carrying ANY of the (up to 2) locked note
+// tags. Each tagged frame expands to the finalize before/after window; overlapping
+// windows are merged (deduped) into minimal ranges. Gated by the UI (finalize on &&
+// tag-lock && sibling). Reuses the same session + dual-cam submit/poll as for-range.
 async function _onAnalyzeTagClick() {
   const lastRun = _ia3dEl.lastRun();
   const cam0 = _cam0Path();
   if (!cam0) { if (lastRun) lastRun.textContent = "Pick a cam0 video first."; return; }
   if (!_siblingPath) { if (lastRun) lastRun.textContent = "No sibling camera — cannot run 3D analysis."; return; }
   const activeNotes = _snTimeline ? _snTimeline.getActiveTags().note : [];
-  if (activeNotes.length !== 1) { if (lastRun) lastRun.textContent = "Activate exactly one note tag first."; return; }
-  const tagValue = activeNotes[0];
+  if (activeNotes.length < 1 || activeNotes.length > 2) { if (lastRun) lastRun.textContent = "Activate one or two note tags first."; return; }
+  const tagLabel = _noteTagLabel(activeNotes);
   const overwrite = !!$("ia3d-override-labels")?.checked;
   const ignoreAnalyzed = !!$("ia3d-ignore-analyzed")?.checked;
-  const frames = tagKeyframes(_snTimeline.getRows(), tagValue);
+  const frames = _framesForActiveNoteTags(activeNotes);
   const before = parseInt($("ia3d-finalize-before")?.value, 10) || 0;
   const after  = parseInt($("ia3d-finalize-after")?.value, 10) || 0;
   const frameCount = _viewer ? _viewer.frameCount() : 0;
   const ranges = mergeWindows(frames, before, after, frameCount);
   const totalFrames = ranges.reduce((s, r) => s + r.n, 0);
   if (!frames.length || !ranges.length || totalFrames < 1) {
-    if (lastRun) lastRun.textContent = `Note tag "${tagValue}" has no frames to analyze.`;
+    if (lastRun) lastRun.textContent = `Note tag(s) ${tagLabel} have no frames to analyze.`;
     return;
   }
   const ok = window.confirm(
-    `Analyze note tag "${tagValue}":\n` +
+    `Analyze note tag(s) ${tagLabel}:\n` +
     `${frames.length} tagged frame(s) → ${ranges.length} range(s) → ${totalFrames} frames × 2 cameras.` +
     (overwrite
       ? `\n\n⚠️ Override is ON: this will OVERWRITE existing predictions AND human corrections` +
@@ -2975,7 +2993,7 @@ async function _onAnalyzeTagClick() {
   if (!sk) return;
   const btn = $("ia3d-btn-analyze-tag");
   if (btn) btn.disabled = true;
-  if (lastRun) { lastRun.textContent = `Analyzing note tag "${tagValue}" (${ranges.length} ranges)…`; lastRun.className = "fe-extract-status"; }
+  if (lastRun) { lastRun.textContent = `Analyzing note tag(s) ${tagLabel} (${ranges.length} ranges)…`; lastRun.className = "fe-extract-status"; }
   const reqIds = [];
   let submitFailed = false;
   for (const r of ranges) {
@@ -2993,7 +3011,7 @@ async function _onAnalyzeTagClick() {
   if (lastRun) {
     lastRun.textContent = errs.length === results.length
       ? `All ranges failed: ${errs[0]?.error || "unknown"}`
-      : `Note tag "${tagValue}" done: ${results.length - errs.length}/${results.length} submits ok.`;
+      : `Note tag(s) ${tagLabel} done: ${results.length - errs.length}/${results.length} submits ok.`;
     if (errs.length === results.length) { lastRun.className = "fe-extract-status err"; _refreshAnalyzeEnablement(); return; }
   }
   // Post-analysis refresh — run ONCE (mirrors _onAnalyzeRangeConfinedClick).
@@ -3031,20 +3049,20 @@ async function _onTriangulateTagClick() {
   if (!cam0) { setStatus("Pick a cam0 video first.", true); return; }
   if (!_siblingPath) { setStatus("No sibling camera — cannot triangulate.", true); return; }
   const activeNotes = _snTimeline ? _snTimeline.getActiveTags().note : [];
-  if (activeNotes.length !== 1) { setStatus("Activate exactly one note tag first.", true); return; }
-  const tagValue = activeNotes[0];
-  const frames = tagKeyframes(_snTimeline.getRows(), tagValue);
+  if (activeNotes.length < 1 || activeNotes.length > 2) { setStatus("Activate one or two note tags first.", true); return; }
+  const tagLabel = _noteTagLabel(activeNotes);
+  const frames = _framesForActiveNoteTags(activeNotes);
   const before = parseInt($("ia3d-finalize-before")?.value, 10) || 0;
   const after  = parseInt($("ia3d-finalize-after")?.value, 10) || 0;
   const frameCount = _viewer ? _viewer.frameCount() : 0;
   const ranges = mergeWindows(frames, before, after, frameCount);
   const totalFrames = ranges.reduce((s, r) => s + r.n, 0);
   if (!frames.length || !ranges.length || totalFrames < 1) {
-    setStatus(`Note tag "${tagValue}" has no frames to triangulate.`, true);
+    setStatus(`Note tag(s) ${tagLabel} have no frames to triangulate.`, true);
     return;
   }
   const ok = window.confirm(
-    `Triangulate note tag "${tagValue}":\n` +
+    `Triangulate note tag(s) ${tagLabel}:\n` +
     `${frames.length} tagged frame(s) → ${ranges.length} range(s) → ${totalFrames} frames.` +
     `\n\nProceed?`
   );
@@ -3116,9 +3134,9 @@ function _refreshTagLockEnablement() {
   const lock = $("ia3d-tag-lock");
   if (!lock) return;
   const activeNotes = _snTimeline ? _snTimeline.getActiveTags().note : [];
-  const exactlyOne = activeNotes.length === 1;
-  lock.disabled = !exactlyOne;
-  if (!exactlyOne && lock.checked) {
+  const oneOrTwo = activeNotes.length >= 1 && activeNotes.length <= 2;
+  lock.disabled = !oneOrTwo;
+  if (!oneOrTwo && lock.checked) {
     lock.checked = false;
     _snTimeline?.setNoteChipsLocked(false);
   }
@@ -3132,13 +3150,14 @@ function _updateTagHint() {
   if (!hint) return;
   const activeNotes = _snTimeline ? _snTimeline.getActiveTags().note : [];
   const locked = !!$("ia3d-tag-lock")?.checked;
-  if (locked && activeNotes.length === 1) {
-    const n = tagKeyframes(_snTimeline.getRows(), activeNotes[0]).length;
-    hint.textContent = `1 note tag locked → analyzes ${n} tagged frame${n === 1 ? "" : "s"}. Unlock to disable.`;
-  } else if (activeNotes.length === 1) {
+  const nt = activeNotes.length;
+  if (locked && (nt === 1 || nt === 2)) {
+    const n = _framesForActiveNoteTags(activeNotes).length;
+    hint.textContent = `${nt} note tag${nt === 1 ? "" : "s"} locked → ${n} tagged frame${n === 1 ? "" : "s"}. Unlock to disable.`;
+  } else if (nt === 1 || nt === 2) {
     hint.textContent = 'check "Lock tag" to enable "Analyze for tag".';
   } else {
-    hint.textContent = 'activate exactly one note tag to enable "Analyze for tag".';
+    hint.textContent = 'activate one or two note tags to enable "Analyze for tag".';
   }
 }
 

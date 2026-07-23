@@ -77,13 +77,13 @@ def test_pose3d_canvas_container_is_relative():
 # ── Part 3: quality-threshold sliders ────────────────────────────────────────
 
 def test_pose3d_score_slider_present():
+    # score/error/marker are number fields now (match view width/height).
     html = CARD.read_text()
     i = html.find('id="ia3d-pose3d-score-thr"')
     assert i >= 0, "missing #ia3d-pose3d-score-thr"
     tag = html[html.rindex("<input", 0, i):html.index(">", i)]
-    assert 'type="range"' in tag
+    assert 'type="number"' in tag
     assert 'min="0"' in tag and 'max="1"' in tag
-    assert 'id="ia3d-pose3d-score-thr-val"' in html, "score value label required"
 
 
 def test_pose3d_error_slider_present():
@@ -91,20 +91,18 @@ def test_pose3d_error_slider_present():
     i = html.find('id="ia3d-pose3d-error-thr"')
     assert i >= 0, "missing #ia3d-pose3d-error-thr"
     tag = html[html.rindex("<input", 0, i):html.index(">", i)]
-    assert 'type="range"' in tag
-    assert 'id="ia3d-pose3d-error-thr-val"' in html, "error value label required"
+    assert 'type="number"' in tag
 
 
 def test_pose3d_marker_size_slider_present():
-    """Adjustable 3D marker-size range slider (0.2–5, default 1) with a value
-    label, living inside the pose3d controls near the threshold sliders."""
+    """Adjustable 3D marker-size number field (0.2–5, default 1), inside the pose3d
+    controls near the threshold fields."""
     block = _controls_block(CARD.read_text())
     i = block.find('id="ia3d-pose3d-marker-size"')
     assert i >= 0, "missing #ia3d-pose3d-marker-size"
     tag = block[block.rindex("<input", 0, i):block.index(">", i)]
-    assert 'type="range"' in tag, "marker-size control must be a range slider"
+    assert 'type="number"' in tag, "marker-size control must be a number field"
     assert 'value="1"' in tag, "marker-size default should be 1"
-    assert 'id="ia3d-pose3d-marker-size-val"' in block, "marker-size value label required"
 
 
 # ── Part 4: median re-filter row ─────────────────────────────────────────────

@@ -694,25 +694,23 @@
               <!-- Left controls column (sliders + view size + flips + re-filter). -->
               <div class="ia3d-pose3d-ctl-col">
 
-                <!-- Part 3: live quality-threshold sliders (score ≥ / error ≤). -->
+                <!-- Part 3: live quality thresholds (score ≥ / error ≤) + marker
+                     size — number fields (match view width/height). -->
                 <div style="display:flex;flex-direction:column;gap:.3rem">
                   <label style="display:flex;align-items:center;gap:.5rem;font-size:.75rem">
                     <span style="flex:0 0 5.5rem">score ≥</span>
-                    <input type="range" id="ia3d-pose3d-score-thr" min="0" max="1" step="0.01" value="0"
-                      style="flex:0 0 120px;width:120px;accent-color:var(--accent)"/>
-                    <span id="ia3d-pose3d-score-thr-val" style="flex:0 0 2.5rem;text-align:right">0.00</span>
+                    <input type="number" id="ia3d-pose3d-score-thr" min="0" max="1" step="0.01" value="0"
+                      style="flex:0 0 4.5rem;width:4.5rem"/>
                   </label>
                   <label style="display:flex;align-items:center;gap:.5rem;font-size:.75rem">
                     <span style="flex:0 0 5.5rem">error ≤</span>
-                    <input type="range" id="ia3d-pose3d-error-thr" min="0" max="1" step="0.01" value="1"
-                      style="flex:0 0 120px;width:120px;accent-color:var(--accent)"/>
-                    <span id="ia3d-pose3d-error-thr-val" style="flex:0 0 2.5rem;text-align:right">—</span>
+                    <input type="number" id="ia3d-pose3d-error-thr" min="0" step="0.01" value="1"
+                      style="flex:0 0 4.5rem;width:4.5rem"/>
                   </label>
                   <label style="display:flex;align-items:center;gap:.5rem;font-size:.75rem">
                     <span style="flex:0 0 5.5rem">3D marker size</span>
-                    <input type="range" id="ia3d-pose3d-marker-size" min="0.2" max="5" step="0.1" value="1"
-                      style="flex:0 0 120px;width:120px;accent-color:var(--accent)"/>
-                    <span id="ia3d-pose3d-marker-size-val" style="flex:0 0 2.5rem;text-align:right">1.0</span>
+                    <input type="number" id="ia3d-pose3d-marker-size" min="0.2" max="5" step="0.1" value="1"
+                      style="flex:0 0 4.5rem;width:4.5rem"/>
                   </label>
                   <label style="display:flex;align-items:center;gap:.5rem;font-size:.75rem">
                     <span style="flex:0 0 5.5rem">Background</span>

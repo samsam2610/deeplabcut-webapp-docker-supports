@@ -38,7 +38,8 @@ def test_on_triangulate_tag_click_defined():
     m = re.search(r"async\s+function\s+_onTriangulateTagClick[\s\S]{0,4800}", s)
     body = m.group(0)
     assert "mergeWindows(" in body, "must reuse mergeWindows for range collection"
-    assert "tagKeyframes(" in body, "must collect tagged frames via tagKeyframes"
+    # tagged-frame collection now goes through the union helper (supports 1–2 tags)
+    assert "_framesForActiveNoteTags(" in body, "must collect tagged frames via the union helper"
     # The range POST is dispatched via the retry helper (transient-502 resilience),
     # which is the sole owner of the /triangulate/range URL.
     assert "_enqueueTriangulateRange(" in body, "must enqueue each range via the retry helper"
@@ -73,3 +74,14 @@ def test_triangulate_tag_batch_handles_skipped_ranges():
     assert "skipCount" in body, "batch must track skipped ranges separately"
     # coverage/viewer refresh is gated on something actually being written.
     assert re.search(r"doneCount\s*>\s*0", body), "must only refresh when doneCount > 0"
+
+
+def test_batch_allows_up_to_two_tags():
+    """Analyze/Triangulate-for-tag accept 1 OR 2 active note tags and union their
+    tagged frames."""
+    s = JS.read_text()
+    assert "function _framesForActiveNoteTags" in s, "must define the union-frames helper"
+    assert s.count("activeNotes.length < 1 || activeNotes.length > 2") >= 2, \
+        "both tag handlers must accept 1–2 tags (not exactly one)"
+    assert re.search(r"activeNotes\.length >= 1 && activeNotes\.length <= 2", s), \
+        "lock enablement must accept 1–2 tags"
