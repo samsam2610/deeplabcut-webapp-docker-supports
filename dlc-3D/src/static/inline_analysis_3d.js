@@ -1519,6 +1519,7 @@ const _PARAM_FIELDS = [
   { id: "ia3d-param-tri-score_threshold",       section: "triangulation", key: "score_threshold",        type: "num"  },
   { id: "ia3d-param-tri-n_deriv_smooth",        section: "triangulation", key: "n_deriv_smooth",         type: "num"  },
   { id: "ia3d-param-tri-optim_chunking_size",   section: "triangulation", key: "optim_chunking_size",    type: "num"  },
+  { id: "ia3d-param-tri-constraints",           section: "triangulation", key: "constraints",            type: "list" },
   // [filter] (2D)
   { id: "ia3d-param-filter-enabled",            section: "filter", key: "enabled",           type: "bool" },
   { id: "ia3d-param-filter-spline",             section: "filter", key: "spline",            type: "bool" },
@@ -1534,6 +1535,18 @@ const _PARAM_FIELDS = [
   { id: "ia3d-param-f3d-offset_threshold",      section: "filter3d", key: "offset_threshold", type: "num"  },
 ];
 
+// constraints (skeleton) <-> textarea: one "A, B" pair per line.
+function _constraintsToText(list) {
+  return (Array.isArray(list) ? list : [])
+    .filter((p) => Array.isArray(p) && p.length === 2)
+    .map((p) => `${p[0]}, ${p[1]}`).join("\n");
+}
+function _textToConstraints(text) {
+  return String(text || "").split("\n")
+    .map((line) => line.split(",").map((s) => s.trim()).filter(Boolean))
+    .filter((pair) => pair.length === 2);
+}
+
 // Populate the fields from a {triangulation,filter,filter3d} params object.
 function _populateParamFields(params) {
   params = params || {};
@@ -1544,6 +1557,7 @@ function _populateParamFields(params) {
     if (!sect || !(f.key in sect)) continue;
     const v = sect[f.key];
     if (f.type === "bool") el.checked = !!v;
+    else if (f.type === "list") el.value = _constraintsToText(v);
     else el.value = (v == null) ? "" : String(v);
   }
 }
@@ -1557,6 +1571,7 @@ function _readParamFields() {
     if (!el) continue;
     if (f.type === "bool") out[f.section][f.key] = !!el.checked;
     else if (f.type === "num") out[f.section][f.key] = Number(el.value);
+    else if (f.type === "list") out[f.section][f.key] = _textToConstraints(el.value);
     else out[f.section][f.key] = String(el.value);
   }
   return out;
@@ -1571,11 +1586,25 @@ function _wireParamsChrome() {
 
   const status = $("ia3d-params-status");
   const saveBtn = $("ia3d-params-save");
+  let _cSuggestion = [];   // skeleton pairs from the last GET (Fill-from-skeleton)
   const setStatus = (msg, isErr = false) => {
     if (!status) return;
     status.textContent = msg || "";
     status.className = "fe-extract-status" + (isErr ? " err" : "");
   };
+
+  // "Fill from skeleton" → drop the backend-suggested finger-chain pairs into the
+  // constraints textarea (user still needs to tick `optim` + Save to enforce them).
+  $("ia3d-param-tri-constraints-fill")?.addEventListener("click", () => {
+    const ta = $("ia3d-param-tri-constraints");
+    if (!ta) return;
+    if (!_cSuggestion.length) {
+      setStatus("No skeleton suggestion — no Wrist/MCP/PIP/DIP bodyparts found.", true);
+      return;
+    }
+    ta.value = _constraintsToText(_cSuggestion);
+    setStatus(`Filled ${_cSuggestion.length} skeleton pairs — enable "optim" then Save.`);
+  });
 
   // GET the persisted params and populate the fields. Guards when config/cam0 is
   // absent (400) → disable Save + show the error in status.
@@ -1592,6 +1621,7 @@ function _wireParamsChrome() {
         return;
       }
       _populateParamFields(data);
+      _cSuggestion = Array.isArray(data.constraints_suggestion) ? data.constraints_suggestion : [];
       _paramsPrefilled = true;
       if (saveBtn) saveBtn.disabled = false;
       setStatus("");

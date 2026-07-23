@@ -52,3 +52,30 @@ def test_save_button_and_status_referenced():
     s = _js()
     assert "ia3d-params-save" in s
     assert "ia3d-params-status" in s
+
+
+# ── constraints (skeleton) field + Fill-from-skeleton ───────────────────────
+
+def test_constraints_field_present_in_markup():
+    html = (Path(__file__).resolve().parents[1] / "src" / "templates" /
+            "partials" / "card_inline_analysis_3d.html").read_text()
+    i = html.find('id="ia3d-param-tri-constraints"')
+    assert i >= 0, "missing #ia3d-param-tri-constraints textarea"
+    tag = html[html.rindex("<", 0, i):html.index(">", i)]
+    assert tag.startswith("<textarea"), "constraints must be a <textarea>"
+    assert 'id="ia3d-param-tri-constraints-fill"' in html, "missing Fill-from-skeleton button"
+
+
+def test_constraints_is_a_list_typed_param_field():
+    s = _js()
+    assert re.search(r'ia3d-param-tri-constraints"[^\n]*key:\s*"constraints"[^\n]*type:\s*"list"', s), \
+        "constraints must be a type:list _PARAM_FIELDS entry"
+    # list <-> textarea helpers + populate/read handle the list type
+    assert "_textToConstraints(" in s and "_constraintsToText(" in s
+    assert re.search(r'f\.type === "list"', s), "populate/read must branch on the list type"
+
+
+def test_fill_from_skeleton_wired_to_suggestion():
+    s = _js()
+    assert 'ia3d-param-tri-constraints-fill")?.addEventListener' in s, "Fill button must be wired"
+    assert "constraints_suggestion" in s, "must read constraints_suggestion from the GET"

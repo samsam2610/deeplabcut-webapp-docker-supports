@@ -577,6 +577,20 @@
                 <label style="display:flex;align-items:center;gap:.3rem;color:var(--text-dim)">optim_chunking_size
                   <input type="number" id="ia3d-param-tri-optim_chunking_size" style="width:3.6rem"/></label>
               </div>
+              <!-- constraints = the anipose skeleton (limb pairs). One "A, B" per
+                   line. Only enforced when `optim` is checked. -->
+              <div style="margin-top:.45rem">
+                <div style="display:flex;align-items:center;gap:.5rem;margin-bottom:.2rem;flex-wrap:wrap">
+                  <label style="color:var(--text-dim)">constraints</label>
+                  <span style="color:var(--text-dim);font-size:.66rem;flex:1;min-width:0">skeleton — one "A, B" pair per line; enforced only when <b>optim</b> is on</span>
+                  <button class="btn-sm" id="ia3d-param-tri-constraints-fill" type="button"
+                    title="Fill from the bodypart names (Wrist→MCP-k→PIP-k→DIP-k finger chains)"
+                    style="padding:.1rem .4rem;font-size:.7rem">Fill from skeleton</button>
+                </div>
+                <textarea id="ia3d-param-tri-constraints" rows="4" spellcheck="false" autocomplete="off"
+                  placeholder="Wrist, MCP-1&#10;MCP-1, PIP-1&#10;PIP-1, DIP-1"
+                  style="width:100%;box-sizing:border-box;font-family:var(--mono);font-size:.72rem;background:var(--surface);border:1px solid var(--border);border-radius:5px;color:var(--text);padding:.25rem .35rem;resize:vertical"></textarea>
+              </div>
             </div>
 
             <!-- ── [filter] (2D) ───────────────────────────────────── -->
