@@ -278,8 +278,9 @@ def classify(
 ) -> np.ndarray:
     """Assign a verdict code per frame for one bodypart in the TARGET view.
 
-    First match wins, so REJECT outranks every other outcome. RESCUE here means
-    "rescue candidate"; the 3D gate confirms or demotes it in apply_gate().
+    REJECT is applied last so it outranks every other outcome unconditionally.
+    RESCUE here means "rescue candidate"; the 3D gate confirms or demotes it
+    in apply_gate().
     """
     d = np.asarray(d, dtype=float)
     lr = np.asarray(lik_ref, dtype=float)
@@ -290,9 +291,9 @@ def classify(
     codes[~judged] = UNJUDGED
 
     near = judged & (d <= t_ok)
-    codes[judged & (d > t_bad)] = REJECT
     codes[near & (lt < low_tgt)] = RESCUE
     codes[near & (lt >= low_tgt)] = CONFIRM
+    codes[judged & (d > t_bad)] = REJECT
     return codes
 
 

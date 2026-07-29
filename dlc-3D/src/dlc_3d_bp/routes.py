@@ -824,6 +824,12 @@ def reproject_thresholds():
             return jsonify({"error": "missing: " + k}), 400
 
     cams = rp.load_calibration(paths["calibration"])
+    for key in (body["ref_cam"], body["tgt_cam"]):
+        if key not in cams:
+            return jsonify({
+                "error": "unknown camera {!r}; calibration has {}".format(
+                    key, sorted(cams))
+            }), 400
     cam_ref = cams[body["ref_cam"]]
     cam_tgt = cams[body["tgt_cam"]]
     df_ref, meta_ref = rp.read_pose_h5(paths["ref_h5"])
@@ -862,6 +868,14 @@ def reproject_run():
     for k in ("ref_cam", "tgt_cam"):
         if not (body.get(k) or "").strip():
             return jsonify({"error": "missing: " + k}), 400
+
+    cams = rp.load_calibration(paths["calibration"])
+    for key in (body["ref_cam"], body["tgt_cam"]):
+        if key not in cams:
+            return jsonify({
+                "error": "unknown camera {!r}; calibration has {}".format(
+                    key, sorted(cams))
+            }), 400
 
     out_dir = None
     if (body.get("out_dir") or "").strip():
@@ -928,6 +942,12 @@ def reproject_epiline():
         ), 400
 
     cams = rp.load_calibration(calib)
+    for key in (ref_cam_key, tgt_cam_key):
+        if key not in cams:
+            return jsonify({
+                "error": "unknown camera {!r}; calibration has {}".format(
+                    key, sorted(cams))
+            }), 400
     cam_ref, cam_tgt = cams[ref_cam_key], cams[tgt_cam_key]
     df_ref, meta_ref = rp.read_pose_h5(ref_h5)
     if bodypart not in meta_ref["bodyparts"]:

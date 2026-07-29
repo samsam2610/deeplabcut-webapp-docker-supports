@@ -370,3 +370,27 @@ def test_apply_verdicts_does_not_mutate_its_inputs():
     lik = np.array([0.2])
     apply_verdicts(xy, lik, np.array([REJECT], dtype=np.uint8))
     assert np.allclose(xy, [[1.0, 2.0]]) and lik[0] == 0.2
+
+
+def test_classify_reject_wins_even_when_thresholds_are_inverted():
+    """REJECT must outrank RESCUE unconditionally, not merely when t_ok <= t_bad.
+
+    The UI exposes k1 and k2 as independent inputs (k1 up to 20, k2 down to 1),
+    so t_ok > t_bad is reachable. A marker past the reject band must be deleted
+    even if it also falls inside an over-wide trust band — otherwise it is kept
+    and its likelihood is forced up to the rescue floor, injecting
+    confidently-wrong data.
+    """
+    got = classify(np.array([12.0]), np.array([1.0]), np.array([0.1]),
+                   t_ok=15.0, t_bad=8.0)
+    assert got[0] == REJECT
+
+    # And the same for a confident target point.
+    got = classify(np.array([12.0]), np.array([1.0]), np.array([0.99]),
+                   t_ok=15.0, t_bad=8.0)
+    assert got[0] == REJECT
+
+    # Normal ordering must be unaffected.
+    got = classify(np.array([1.0, 12.0]), np.ones(2), np.array([0.1, 0.1]),
+                   t_ok=5.0, t_bad=8.0)
+    assert list(got) == [RESCUE, REJECT]

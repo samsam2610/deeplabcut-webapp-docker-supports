@@ -7,15 +7,12 @@ from __future__ import annotations
 
 import ast
 import json
-import re
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
 
 from dlc_3d_bp import epipolar_core as ec
-
-_CAM_RE = re.compile(r"_cam(\d+)_")
 
 
 def _parse_toml(text: str) -> dict:
