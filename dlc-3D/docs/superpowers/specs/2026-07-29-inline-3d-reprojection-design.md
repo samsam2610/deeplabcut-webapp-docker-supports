@@ -201,10 +201,19 @@ coordinates and requires both:
 
 - **Working volume.** The point lies inside the axis-aligned box spanned by the 1st–99th
   percentile of that bodypart's `CONFIRM` triangulations, expanded by 20% per axis.
-- **Jump limit.** Distance from the last accepted 3D position of that bodypart is at most
-  `v₉₉ × frame_gap`, where `v₉₉` is the 99th percentile of frame-to-frame 3D speed in the
-  `CONFIRM` population. If no accepted position exists within 10 frames, this test is
-  skipped and the volume test alone decides.
+- **Jump limit.** Distance from the **most recent `CONFIRM` frame** at or before this one
+  is at most `v₉₉ × frame_gap`, where `v₉₉` is the 99th percentile of frame-to-frame 3D
+  speed in the `CONFIRM` population. If there is no `CONFIRM` frame within 10 frames, this
+  test is skipped and the volume test alone decides.
+
+The anchor is deliberately the most recent `CONFIRM` rather than the most recent accepted
+point of any kind. Chaining onto previously-rescued points would make each verdict depend
+on the order the frames were processed; anchoring only to independently-confident frames
+keeps the gate deterministic and order-independent.
+
+With fewer than 20 usable `CONFIRM` triangulations there is nothing to calibrate the gate
+against, so every candidate passes and the epipolar distance stands alone. The audit
+records this, since rescues in that regime carry only the one-dimensional guarantee.
 
 A candidate failing the gate is recorded as `RESCUE_REJECTED` and left untouched, not
 deleted.
