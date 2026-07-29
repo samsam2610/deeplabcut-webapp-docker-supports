@@ -351,6 +351,38 @@ session. Produces real verdict numbers and real output files with zero disruptio
 **Phase 2 — built but dormant.** Clone the card, JS and CSS; wire the button and routes.
 Nothing takes effect until `docker compose up -d dlc-3d`, triggered when the tool is idle.
 
+## Known deviations from this spec, as built
+
+Recorded after implementation so this document stays truthful.
+
+- **The reference-camera flip is not cached in practice.** This spec says a run caches
+  residuals in both directions so flipping the trusted camera "re-derives verdicts from
+  those cached arrays without rereading the h5 files". The engine does write both
+  directions to the npz, but the UI's Estimate and Run actions always call the endpoint,
+  which re-reads both h5 files regardless. On a 251,640-frame session that costs a few
+  seconds, not correctness. The optimisation is available but unrealised.
+
+- **Verdict percentages depend on the denominator.** The Evidence table above quotes shares
+  over frames where *both* views had a detection (1,510,400 on `eggtart-1`). The engine
+  counts verdicts over all frames x bodyparts (4,026,240), so the same result reads as a
+  smaller percentage in the audit JSON and the UI. Compare absolute counts, not
+  percentages. On the reference session the engine reports RESCUE 125,524 and
+  REJECT 106,965.
+
+- **The three output artifacts are not written atomically.** `_reprojected.h5` (both
+  cameras), then `.npz`, then `.json`. A crash mid-sequence leaves a partial set with no
+  audit file. It never touches the source data — every output is a new `_reprojected.*`
+  file — and a later successful run overwrites the partial set completely, so the
+  inconsistency is transient and self-healing.
+
+- **`classify` applies REJECT last, not first.** The decision table above is written
+  first-match-wins with REJECT at the top. The implementation instead assigns REJECT
+  *after* RESCUE and CONFIRM, which makes its precedence unconditional. Assigning it first
+  only preserved precedence while `t_ok <= t_bad`, and the UI exposes `k1` and `k2` as
+  independent inputs, so an inverted pair silently turned a geometrically impossible
+  marker into a rescued one. The table's semantics are correct; the ordering that achieves
+  them is inverted from how it reads.
+
 ## Risks
 
 - **Coverage is bounded by the trusted view.** Half of all points on `eggtart-1` had no
