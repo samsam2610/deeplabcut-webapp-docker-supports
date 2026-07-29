@@ -85,3 +85,30 @@ def test_server_routes_were_not_renamed(clone_texts):
     ):
         assert url in js, "rename damaged the URL {}".format(url)
     assert "ia3dr" not in "".join(re.findall(r'fetch\(\s*[`"\']([^`"\']*)', js))
+
+
+UI_SETTING_KEYS = (
+    "pose3d_bg_color", "pose3d_view_prefs", "finalize_window",
+    "clip_window", "postfix_tags", "status_tags", "note_tags",
+)
+
+
+def test_ui_setting_keys_are_namespaced(clone_texts):
+    """Per-project ui-setting keys are shared storage; un-suffixed keys would
+    make the two cards silently edit the same setting."""
+    js = clone_texts[JS.name]
+    for key in UI_SETTING_KEYS:
+        assert key + "_reproj" in js, "{} not namespaced".format(key)
+        assert not re.search(r'"{}"'.format(key), js), (
+            '"{}" still used un-suffixed'.format(key)
+        )
+
+
+def test_clone_never_stops_an_inline_analysis_session(clone_texts):
+    """snap_key is shared, so a stop from this card can kill the original
+    card's warm session. Sessions expire via their own ttl_seconds instead."""
+    assert "inline-analysis/session/stop" not in clone_texts[JS.name]
+
+
+def test_clone_still_starts_its_own_session(clone_texts):
+    assert "inline-analysis/session/start" in clone_texts[JS.name]

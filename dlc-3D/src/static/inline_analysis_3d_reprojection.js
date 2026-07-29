@@ -561,7 +561,7 @@ function _wireViewerChrome(v) {
   _finalizeKW = makeKeyframeWindow({
     viewer: v,
     panelEl: $("ia3dr-finalize-controls"),
-    settingKey: "finalize_window",
+    settingKey: "finalize_window_reproj",
     els: {
       keyframe: $("ia3dr-finalize-keyframe"), lock: $("ia3dr-finalize-lock"),
       before: $("ia3dr-finalize-before"), after: $("ia3dr-finalize-after"),
@@ -584,7 +584,7 @@ function _wireViewerChrome(v) {
   _clipKW = makeKeyframeWindow({
     viewer: v,
     panelEl: $("ia3dr-clip-panel"),
-    settingKey: "clip_window",
+    settingKey: "clip_window_reproj",
     els: {
       keyframe: $("ia3dr-clip-keyframe"), lock: $("ia3dr-clip-lock"),
       before: $("ia3dr-clip-before"), after: $("ia3dr-clip-after"),
@@ -1744,7 +1744,7 @@ function _wirePose3dChrome() {
     _bgSaveTimer = setTimeout(() => {
       fetch("/dlc/project/ui-setting", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ key: "pose3d_bg_color", value: bg.value }),
+        body: JSON.stringify({ key: "pose3d_bg_color_reproj", value: bg.value }),
       }).catch(() => {});
     }, 400);
   });
@@ -1815,7 +1815,7 @@ function _savePose3dViewPrefs() {
   _viewPrefsSaveTimer = setTimeout(() => {
     fetch("/dlc/project/ui-setting", {
       method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ key: "pose3d_view_prefs", value: JSON.stringify(prefs) }),
+      body: JSON.stringify({ key: "pose3d_view_prefs_reproj", value: JSON.stringify(prefs) }),
     }).catch(() => {});
   }, 400);
 }
@@ -1826,7 +1826,7 @@ function _savePose3dViewPrefs() {
 async function _loadPose3dBgColor() {
   if (!_pose3d) return;
   try {
-    const data = await (await fetch("/dlc/project/ui-setting?key=pose3d_bg_color")).json();
+    const data = await (await fetch("/dlc/project/ui-setting?key=pose3d_bg_color_reproj")).json();
     const hex = data && data.value;
     if (!hex) return;
     _pose3d.setBackground(hex);
@@ -1842,7 +1842,7 @@ async function _loadPose3dBgColor() {
 async function _loadPose3dViewPrefs() {
   if (!_pose3d) return;
   try {
-    const data = await (await fetch("/dlc/project/ui-setting?key=pose3d_view_prefs")).json();
+    const data = await (await fetch("/dlc/project/ui-setting?key=pose3d_view_prefs_reproj")).json();
     if (!data || !data.value) return;
     const prefs = JSON.parse(data.value);
     if (!prefs || typeof prefs !== "object") return;
@@ -2193,9 +2193,9 @@ function _makeQuickTags({ settingKey, containerId, inputId }) {
 
 let _postfixTags = null, _statusTags = null, _noteTags = null;
 function _wireQuickTags() {
-  _postfixTags = _makeQuickTags({ settingKey: "postfix_tags", containerId: "ia3dr-postfix-tags", inputId: "ia3dr-finalize-clip-postfix" });
-  _statusTags  = _makeQuickTags({ settingKey: "status_tags",  containerId: "ia3dr-status-tags",  inputId: "ia3dr-status-input" });
-  _noteTags    = _makeQuickTags({ settingKey: "note_tags",    containerId: "ia3dr-note-tags",    inputId: "ia3dr-note-input" });
+  _postfixTags = _makeQuickTags({ settingKey: "postfix_tags_reproj", containerId: "ia3dr-postfix-tags", inputId: "ia3dr-finalize-clip-postfix" });
+  _statusTags  = _makeQuickTags({ settingKey: "status_tags_reproj",  containerId: "ia3dr-status-tags",  inputId: "ia3dr-status-input" });
+  _noteTags    = _makeQuickTags({ settingKey: "note_tags_reproj",    containerId: "ia3dr-note-tags",    inputId: "ia3dr-note-input" });
 }
 
 // Load + render all three per-project tag lists. Called on each video open.
@@ -3541,22 +3541,16 @@ function _wireStereoDispatch() {
     _stopAllPolls();
     _stopStatusPoll();
     if (_snapKey) {
-      try {
-        fetch("/dlc/project/inline-analysis/session/stop", {
-          method: "POST", headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ snap_key: _snapKey }),
-        });
-      } catch (e) { /* ignore */ }
+      // Deliberately NOT stopping the session. snap_key is shared with the
+      // original 3D Inline Analysis card, so a stop from here can kill a warm
+      // session that card is still using. The session expires on its own ttl.
       _snapKey = null;
     }
   });
 
-  // beforeunload: stop polls + release the warm session via sendBeacon.
+  // beforeunload: stop polls. Deliberately NOT stopping the session (shared snap_key).
   window.addEventListener("beforeunload", () => {
-    if (_snapKey) navigator.sendBeacon?.(
-      "/dlc/project/inline-analysis/session/stop",
-      new Blob([JSON.stringify({ snap_key: _snapKey })], { type: "application/json" }),
-    );
+    // No-op: snap_key is shared with the original card; see card-close handler.
   });
 }
 
