@@ -15,6 +15,9 @@ from flask import Blueprint, Response, jsonify, render_template, request
 import config
 import viewer
 
+from dlc_3d_bp import epipolar_core as ec
+from dlc_3d_bp import reprojection as rp
+
 bp = Blueprint(
     "dlc_3d", __name__, url_prefix="/dlc-3d",
     template_folder="../templates",
@@ -777,3 +780,169 @@ def extract_clip_delete():
         return jsonify({"error": f"file not found: {p.name}"}), 404
     p.unlink()
     return jsonify({"ok": True})
+
+
+# ── Epipolar reprojection ─────────────────────────────────────────────────────
+
+# Indirection so tests can monkeypatch the engine without touching disk.
+_reproject_run_impl = rp.run_reprojection
+
+
+def _safe_user_data_path(raw: str) -> "Path | None":
+    """Resolve a caller-supplied path, requiring it to live under /user-data/."""
+    if not raw:
+        return None
+    p = Path(raw).resolve()
+    if not str(p).startswith(_USER_DATA_ROOT + "/"):
+        return None
+    return p
+
+
+def _reproject_args(body: dict, keys):
+    """Resolve required path args. Returns (paths, error_response)."""
+    missing = [k for k in keys if not (body.get(k) or "").strip()]
+    if missing:
+        return None, (jsonify({"error": "missing: " + ", ".join(missing)}), 400)
+    out = {}
+    for k in keys:
+        p = _safe_user_data_path(str(body[k]).strip())
+        if p is None:
+            return None, (jsonify({"error": "path outside /user-data: " + k}), 403)
+        out[k] = p
+    return out, None
+
+
+@bp.route("/reproject/thresholds", methods=["POST"])
+def reproject_thresholds():
+    """Per-bodypart residual statistics and auto-thresholds. Writes nothing."""
+    body = request.get_json(force=True) or {}
+    paths, err = _reproject_args(body, ("ref_h5", "tgt_h5", "calibration"))
+    if err:
+        return err
+    for k in ("ref_cam", "tgt_cam"):
+        if not (body.get(k) or "").strip():
+            return jsonify({"error": "missing: " + k}), 400
+
+    cams = rp.load_calibration(paths["calibration"])
+    cam_ref = cams[body["ref_cam"]]
+    cam_tgt = cams[body["tgt_cam"]]
+    df_ref, meta_ref = rp.read_pose_h5(paths["ref_h5"])
+    df_tgt, meta_tgt = rp.read_pose_h5(paths["tgt_h5"])
+    F = ec.fundamental_matrix(cam_ref, cam_tgt)
+
+    out = {}
+    for bp_name in meta_tgt["bodyparts"]:
+        if bp_name not in meta_ref["bodyparts"]:
+            continue
+        a = df_ref[meta_ref["scorer"]][bp_name]
+        b = df_tgt[meta_tgt["scorer"]][bp_name]
+        d = ec.epipolar_distance(
+            F,
+            ec.undistort_to_pixels(cam_ref, a[["x", "y"]].to_numpy(dtype=float)),
+            ec.undistort_to_pixels(cam_tgt, b[["x", "y"]].to_numpy(dtype=float)),
+        )
+        out[bp_name] = ec.auto_threshold(
+            d,
+            a["likelihood"].to_numpy(dtype=float),
+            b["likelihood"].to_numpy(dtype=float),
+            high_conf=float(body.get("high_conf", 0.9)),
+            k1=float(body.get("k1", 3.0)),
+            k2=float(body.get("k2", 8.0)),
+        )
+    return jsonify({"bodyparts": out})
+
+
+@bp.route("/reproject/run", methods=["POST"])
+def reproject_run():
+    """Full pass: verdicts, 3D gate, write the three artifacts."""
+    body = request.get_json(force=True) or {}
+    paths, err = _reproject_args(body, ("ref_h5", "tgt_h5", "calibration"))
+    if err:
+        return err
+    for k in ("ref_cam", "tgt_cam"):
+        if not (body.get(k) or "").strip():
+            return jsonify({"error": "missing: " + k}), 400
+
+    out_dir = None
+    if (body.get("out_dir") or "").strip():
+        out_dir = _safe_user_data_path(str(body["out_dir"]).strip())
+        if out_dir is None:
+            return jsonify({"error": "path outside /user-data: out_dir"}), 403
+
+    summary = _reproject_run_impl(
+        ref_h5=paths["ref_h5"], tgt_h5=paths["tgt_h5"],
+        calib_path=paths["calibration"],
+        ref_cam_key=body["ref_cam"], tgt_cam_key=body["tgt_cam"],
+        out_dir=out_dir,
+        k1=float(body.get("k1", 3.0)), k2=float(body.get("k2", 8.0)),
+        gate_ref=float(body.get("gate_ref", 0.6)),
+        low_tgt=float(body.get("low_tgt", 0.6)),
+        high_conf=float(body.get("high_conf", 0.9)),
+        rescue_floor=float(body.get("rescue_floor", 0.9)),
+        overrides=body.get("overrides") or {},
+    )
+    return jsonify(summary)
+
+
+@bp.route("/reproject/audit")
+def reproject_audit():
+    """Serve a previous run's JSON summary and npz arrays."""
+    tgt = _safe_user_data_path((request.args.get("tgt_h5") or "").strip())
+    if tgt is None:
+        return jsonify({"error": "tgt_h5 required and must be under /user-data"}), 403
+
+    stem = tgt.parent / (tgt.stem + "_reprojected")
+    json_path = Path(str(stem) + ".json")
+    npz_path = Path(str(stem) + ".npz")
+    if not json_path.is_file():
+        return jsonify({"error": "no audit for {}".format(tgt.name)}), 404
+
+    summary = json.loads(json_path.read_text())
+    arrays = {}
+    wanted = (request.args.get("arrays") or "").strip()
+    if npz_path.is_file() and wanted:
+        keep = {w for w in wanted.split(",") if w}
+        with np.load(str(npz_path)) as z:
+            for name in z.files:
+                if name in keep:
+                    arrays[name] = z[name].tolist()
+    return jsonify({"summary": summary, "arrays": arrays})
+
+
+@bp.route("/reproject/epiline")
+def reproject_epiline():
+    """Epipolar line for one reference point, clipped to the target image."""
+    args = request.args
+    ref_h5 = _safe_user_data_path((args.get("ref_h5") or "").strip())
+    calib = _safe_user_data_path((args.get("calibration") or "").strip())
+    if ref_h5 is None or calib is None:
+        return jsonify({"error": "ref_h5 and calibration must be under /user-data"}), 403
+
+    frame = args.get("frame", type=int)
+    bodypart = (args.get("bodypart") or "").strip()
+    ref_cam_key = (args.get("ref_cam") or "").strip()
+    tgt_cam_key = (args.get("tgt_cam") or "").strip()
+    if frame is None or not bodypart or not ref_cam_key or not tgt_cam_key:
+        return jsonify(
+            {"error": "frame, bodypart, ref_cam and tgt_cam required"}
+        ), 400
+
+    cams = rp.load_calibration(calib)
+    cam_ref, cam_tgt = cams[ref_cam_key], cams[tgt_cam_key]
+    df_ref, meta_ref = rp.read_pose_h5(ref_h5)
+    if bodypart not in meta_ref["bodyparts"]:
+        return jsonify({"error": "unknown bodypart " + bodypart}), 400
+    if frame < 0 or frame >= len(df_ref):
+        return jsonify({"error": "frame out of range"}), 400
+
+    row = df_ref[meta_ref["scorer"]][bodypart].iloc[frame]
+    pt = ec.undistort_to_pixels(
+        cam_ref, np.array([[float(row["x"]), float(row["y"])]])
+    )[0]
+    seg = ec.epiline_endpoints(
+        ec.fundamental_matrix(cam_ref, cam_tgt), pt, *cam_tgt.size
+    )
+    return jsonify({
+        "segment": None if seg is None else [list(seg[0]), list(seg[1])],
+        "likelihood": float(row["likelihood"]),
+    })
