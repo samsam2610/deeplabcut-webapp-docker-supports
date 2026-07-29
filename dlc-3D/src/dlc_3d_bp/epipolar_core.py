@@ -172,3 +172,42 @@ def epiline_endpoints(
     if far <= 1e-9:
         return None
     return best
+
+
+def triangulate_dlt(
+    ref: "Cam", tgt: "Cam", ref_pix: np.ndarray, tgt_pix: np.ndarray
+) -> np.ndarray:
+    """Triangulate correspondences into world coordinates by batched DLT.
+
+    Inputs are (N, 2) DISTORTED pixels; undistortion to normalized coordinates
+    happens here. Rows with NaN in either view come back as NaN.
+    """
+    a = undistort_to_normalized(ref, ref_pix)
+    b = undistort_to_normalized(tgt, tgt_pix)
+    n = len(a)
+    out = np.full((n, 3), np.nan)
+    ok = np.isfinite(a).all(axis=1) & np.isfinite(b).all(axis=1)
+    if not ok.any():
+        return out
+
+    R_ref, t_ref = extrinsics(ref)
+    R_tgt, t_tgt = extrinsics(tgt)
+    P_ref = np.hstack([R_ref, t_ref.reshape(3, 1)])
+    P_tgt = np.hstack([R_tgt, t_tgt.reshape(3, 1)])
+
+    ua, ub = a[ok], b[ok]
+    m = len(ua)
+    A = np.empty((m, 4, 4))
+    A[:, 0] = ua[:, 0:1] * P_ref[2] - P_ref[0]
+    A[:, 1] = ua[:, 1:2] * P_ref[2] - P_ref[1]
+    A[:, 2] = ub[:, 0:1] * P_tgt[2] - P_tgt[0]
+    A[:, 3] = ub[:, 1:2] * P_tgt[2] - P_tgt[1]
+
+    # Smallest right singular vector per point is the homogeneous solution.
+    _, _, vt = np.linalg.svd(A)
+    h = vt[:, 3, :]
+    with np.errstate(invalid="ignore", divide="ignore"):
+        xyz = h[:, :3] / h[:, 3:4]
+    xyz[~np.isfinite(xyz).all(axis=1)] = np.nan
+    out[ok] = xyz
+    return out

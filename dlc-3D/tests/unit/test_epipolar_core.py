@@ -142,3 +142,47 @@ def test_epiline_endpoints_returns_none_for_nan_input():
     ref, tgt = make_cam("0"), make_cam("1", tvec=(100, 0, 0))
     F = fundamental_matrix(ref, tgt)
     assert epiline_endpoints(F, np.array([np.nan, np.nan]), 800, 600) is None
+
+
+def test_triangulate_recovers_known_3d_points():
+    from dlc_3d_bp.epipolar_core import triangulate_dlt
+    ref = make_cam("0")
+    tgt = make_cam("1", rvec=(0, 0.3, 0), tvec=(100, 0, 0))
+    xyz = np.array([[10.0, -5.0, 500.0], [0.0, 0.0, 800.0], [-30.0, 20.0, 650.0]])
+    got = triangulate_dlt(ref, tgt, project_point(ref, xyz), project_point(tgt, xyz))
+    assert got.shape == (3, 3)
+    assert np.allclose(got, xyz, atol=1e-4)
+
+
+def test_triangulate_recovers_points_with_distortion():
+    from dlc_3d_bp.epipolar_core import triangulate_dlt
+    ref = make_cam("0", dist=(-0.035, 0, 0, 0, 0))
+    tgt = make_cam("1", rvec=(0, 0.3, 0), tvec=(100, 0, 0), dist=(-0.15, 0, 0, 0, 0))
+    xyz = np.array([[10.0, -5.0, 500.0], [-30.0, 20.0, 650.0]])
+    got = triangulate_dlt(ref, tgt, project_point(ref, xyz), project_point(tgt, xyz))
+    assert np.allclose(got, xyz, atol=1e-3)
+
+
+def test_triangulate_returns_nan_rows_for_nan_input():
+    from dlc_3d_bp.epipolar_core import triangulate_dlt
+    ref = make_cam("0")
+    tgt = make_cam("1", tvec=(100, 0, 0))
+    a = np.array([[400.0, 300.0], [np.nan, np.nan]])
+    b = np.array([[410.0, 300.0], [410.0, 300.0]])
+    got = triangulate_dlt(ref, tgt, a, b)
+    assert np.isfinite(got[0]).all()
+    assert np.isnan(got[1]).all()
+
+
+def test_triangulate_handles_large_batches():
+    from dlc_3d_bp.epipolar_core import triangulate_dlt
+    ref = make_cam("0")
+    tgt = make_cam("1", rvec=(0, 0.3, 0), tvec=(100, 0, 0))
+    rng = np.random.default_rng(0)
+    xyz = np.c_[
+        rng.uniform(-50, 50, 50_000),
+        rng.uniform(-50, 50, 50_000),
+        rng.uniform(400, 900, 50_000),
+    ]
+    got = triangulate_dlt(ref, tgt, project_point(ref, xyz), project_point(tgt, xyz))
+    assert np.nanmax(np.abs(got - xyz)) < 1e-3
