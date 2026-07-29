@@ -1,0 +1,233 @@
+import numpy as np
+import pandas as pd
+import pytest
+
+from dlc_3d_bp.epipolar_core import Cam, project_point
+from dlc_3d_bp.reprojection import (
+    load_calibration,
+    read_pose_h5,
+    run_reprojection,
+    write_pose_h5,
+)
+
+CALIB = """
+[cam_0]
+name = "0"
+size = [ 800, 600,]
+matrix = [ [ 2382.07, 0.0, 399.5,], [ 0.0, 2382.07, 299.5,], [ 0.0, 0.0, 1.0,],]
+distortions = [ -0.0355, 0.0, 0.0, 0.0, 0.0,]
+rotation = [ 0.0041, 0.0031, -0.0240,]
+translation = [ -0.844, 1.414, -13.840,]
+
+[cam_1]
+name = "1"
+size = [ 800, 600,]
+matrix = [ [ 2308.44, 0.0, 399.5,], [ 0.0, 2308.44, 299.5,], [ 0.0, 0.0, 1.0,],]
+distortions = [ -0.1512, 0.0, 0.0, 0.0, 0.0,]
+rotation = [ 0.0370, -0.4901, -0.0016,]
+translation = [ 149.34, 23.07, 104.69,]
+
+[metadata]
+adjusted = false
+error = 0.0735
+"""
+
+BODYPARTS = ["Snout", "Pellet"]
+SCORER = "DLC_TestNet_shuffle1_snapshot_best-180"
+
+
+def _write_calib(tmp_path):
+    p = tmp_path / "calibration.toml"
+    p.write_text(CALIB)
+    return p
+
+
+def _make_df(xy, lik):
+    """xy: (n_frames, n_bodyparts, 2); lik: (n_frames, n_bodyparts)."""
+    cols = pd.MultiIndex.from_product(
+        [[SCORER], BODYPARTS, ["x", "y", "likelihood"]],
+        names=["scorer", "bodyparts", "coords"],
+    )
+    data = np.empty((xy.shape[0], len(BODYPARTS) * 3), dtype=np.float32)
+    for j in range(len(BODYPARTS)):
+        data[:, j * 3 + 0] = xy[:, j, 0]
+        data[:, j * 3 + 1] = xy[:, j, 1]
+        data[:, j * 3 + 2] = lik[:, j]
+    return pd.DataFrame(data, columns=cols)
+
+
+def _write_h5(path, df):
+    df.to_hdf(str(path), key="df_with_missing", format="table", mode="w")
+
+
+def test_load_calibration_builds_cams():
+    import tempfile
+    from pathlib import Path
+
+    with tempfile.TemporaryDirectory() as td:
+        cams = load_calibration(_write_calib(Path(td)))
+
+    assert set(cams) == {"cam_0", "cam_1"}
+    assert isinstance(cams["cam_0"], Cam)
+    assert cams["cam_0"].K.shape == (3, 3)
+    assert cams["cam_0"].K[0, 0] == pytest.approx(2382.07)
+    assert cams["cam_1"].dist.shape == (5,)
+    assert cams["cam_1"].size == (800, 600)
+    assert cams["cam_1"].rvec[1] == pytest.approx(-0.4901)
+
+
+def test_write_pose_h5_mirrors_the_source_contract(tmp_path):
+    src = tmp_path / "a.h5"
+    df = _make_df(np.ones((10, 2, 2), dtype=np.float32),
+                  np.full((10, 2), 0.5, dtype=np.float32))
+    _write_h5(src, df)
+
+    got, meta = read_pose_h5(src)
+    assert meta["key"] == "df_with_missing"
+    assert meta["is_table"] is True
+    assert meta["scorer"] == SCORER
+    assert meta["bodyparts"] == BODYPARTS
+
+    dst = tmp_path / "b.h5"
+    write_pose_h5(got, meta, dst)
+    back, meta2 = read_pose_h5(dst)
+    assert meta2["key"] == meta["key"]
+    assert meta2["is_table"] == meta["is_table"]
+    assert list(back.columns.names) == ["scorer", "bodyparts", "coords"]
+    assert set(map(str, back.dtypes)) == {"float32"}
+    pd.testing.assert_frame_equal(got, back)
+
+
+def test_run_reprojection_rescues_and_rejects(tmp_path):
+    """Build a synthetic pair from the fixture calibration: 300 frames of a
+    moving 3D point, exactly consistent in both views. Then damage the target
+    view: frames 100-109 get a confident but geometrically impossible position,
+    frames 200-209 keep the correct position but a low likelihood."""
+    calib = _write_calib(tmp_path)
+    cams = load_calibration(calib)
+    ref_cam, tgt_cam = cams["cam_0"], cams["cam_1"]
+
+    n = 300
+    t = np.linspace(0.0, 1.0, n)
+    xyz = np.c_[10.0 + 2.0 * t, -5.0 + 2.0 * t, 250.0 + 5.0 * t]
+
+    ref_xy = np.stack([project_point(ref_cam, xyz)] * 2, axis=1)
+    tgt_xy = np.stack([project_point(tgt_cam, xyz)] * 2, axis=1)
+    ref_lik = np.full((n, 2), 0.99, dtype=np.float32)
+    tgt_lik = np.full((n, 2), 0.99, dtype=np.float32)
+
+    tgt_xy[100:110, 0] += 250.0          # far off the epipolar line
+    tgt_lik[200:210, 0] = 0.10           # correct place, low confidence
+
+    ref_h5 = tmp_path / "s_cam0_x.h5"
+    tgt_h5 = tmp_path / "s_cam1_x.h5"
+    _write_h5(ref_h5, _make_df(ref_xy, ref_lik))
+    _write_h5(tgt_h5, _make_df(tgt_xy, tgt_lik))
+
+    out = run_reprojection(
+        ref_h5=ref_h5, tgt_h5=tgt_h5, calib_path=calib,
+        ref_cam_key="cam_0", tgt_cam_key="cam_1", out_dir=tmp_path,
+    )
+
+    assert out["counts"]["REJECT"] >= 10
+    assert out["counts"]["RESCUE"] >= 10
+
+    # Both cameras get an output file, named identically apart from _cam{N}_.
+    ref_out = tmp_path / "s_cam0_x_reprojected.h5"
+    tgt_out = tmp_path / "s_cam1_x_reprojected.h5"
+    assert ref_out.is_file() and tgt_out.is_file()
+    assert ref_out.name.replace("_cam0_", "_cam1_") == tgt_out.name
+    assert (tmp_path / "s_cam1_x_reprojected.json").is_file()
+    assert (tmp_path / "s_cam1_x_reprojected.npz").is_file()
+
+    # The reference file is a faithful copy.
+    src_ref, _ = read_pose_h5(ref_h5)
+    got_ref, _ = read_pose_h5(ref_out)
+    pd.testing.assert_frame_equal(src_ref, got_ref)
+
+    # Damaged frames are gone; low-confidence-but-correct frames are lifted.
+    got_tgt, _ = read_pose_h5(tgt_out)
+    snout = got_tgt[SCORER]["Snout"]
+    assert snout["x"].iloc[100:110].isna().all()
+    assert (snout["likelihood"].iloc[100:110] == 0).all()
+    assert snout["x"].iloc[200:210].notna().all()
+    assert (snout["likelihood"].iloc[200:210] >= 0.9).all()
+
+    # Untouched frames keep their exact original coordinates.
+    src_tgt, _ = read_pose_h5(tgt_h5)
+    assert np.allclose(src_tgt[SCORER]["Snout"]["x"].iloc[0:50],
+                       snout["x"].iloc[0:50], equal_nan=True)
+
+
+def test_per_bodypart_override_corrects_the_other_file(tmp_path):
+    """Flipping a bodypart means the REFERENCE camera is the one judged for it,
+    so the correction must land in the reference output, not the target's."""
+    calib = _write_calib(tmp_path)
+    cams = load_calibration(calib)
+    ref_cam, tgt_cam = cams["cam_0"], cams["cam_1"]
+
+    n = 300
+    t = np.linspace(0.0, 1.0, n)
+    xyz = np.c_[10.0 + 2.0 * t, -5.0 + 2.0 * t, 250.0 + 5.0 * t]
+    ref_xy = np.stack([project_point(ref_cam, xyz)] * 2, axis=1)
+    tgt_xy = np.stack([project_point(tgt_cam, xyz)] * 2, axis=1)
+    ref_lik = np.full((n, 2), 0.99, dtype=np.float32)
+    tgt_lik = np.full((n, 2), 0.99, dtype=np.float32)
+
+    # Damage the REFERENCE view's Snout, and flip Snout so it gets judged.
+    ref_xy[100:110, 0] += 250.0
+
+    ref_h5 = tmp_path / "s_cam0_x.h5"
+    tgt_h5 = tmp_path / "s_cam1_x.h5"
+    _write_h5(ref_h5, _make_df(ref_xy, ref_lik))
+    _write_h5(tgt_h5, _make_df(tgt_xy, tgt_lik))
+
+    run_reprojection(
+        ref_h5=ref_h5, tgt_h5=tgt_h5, calib_path=calib,
+        ref_cam_key="cam_0", tgt_cam_key="cam_1", out_dir=tmp_path,
+        overrides={"Snout": "ref"},
+    )
+
+    got_ref, _ = read_pose_h5(tmp_path / "s_cam0_x_reprojected.h5")
+    got_tgt, _ = read_pose_h5(tmp_path / "s_cam1_x_reprojected.h5")
+
+    # The flipped bodypart was corrected in the reference file...
+    assert got_ref[SCORER]["Snout"]["x"].iloc[100:110].isna().all()
+    # ...and the target's own Snout, which was never wrong, is untouched.
+    src_tgt, _ = read_pose_h5(tgt_h5)
+    assert np.allclose(
+        src_tgt[SCORER]["Snout"]["x"].to_numpy(),
+        got_tgt[SCORER]["Snout"]["x"].to_numpy(), equal_nan=True,
+    )
+    # The un-flipped bodypart still leaves the reference file alone.
+    src_ref, _ = read_pose_h5(ref_h5)
+    assert np.allclose(
+        src_ref[SCORER]["Pellet"]["x"].to_numpy(),
+        got_ref[SCORER]["Pellet"]["x"].to_numpy(), equal_nan=True,
+    )
+
+
+def test_run_reprojection_never_writes_beside_the_source_when_out_dir_given(tmp_path):
+    calib = _write_calib(tmp_path)
+    src = tmp_path / "src"
+    src.mkdir()
+    out = tmp_path / "out"
+    out.mkdir()
+
+    cams = load_calibration(calib)
+    n = 60
+    xyz = np.c_[np.full(n, 10.0), np.full(n, -5.0), np.linspace(250, 260, n)]
+    xy0 = np.stack([project_point(cams["cam_0"], xyz)] * 2, axis=1)
+    xy1 = np.stack([project_point(cams["cam_1"], xyz)] * 2, axis=1)
+    lik = np.full((n, 2), 0.99, dtype=np.float32)
+
+    _write_h5(src / "s_cam0_x.h5", _make_df(xy0, lik))
+    _write_h5(src / "s_cam1_x.h5", _make_df(xy1, lik))
+
+    run_reprojection(
+        ref_h5=src / "s_cam0_x.h5", tgt_h5=src / "s_cam1_x.h5",
+        calib_path=calib, ref_cam_key="cam_0", tgt_cam_key="cam_1",
+        out_dir=out,
+    )
+    assert not list(src.glob("*_reprojected.*"))
+    assert (out / "s_cam1_x_reprojected.h5").is_file()
