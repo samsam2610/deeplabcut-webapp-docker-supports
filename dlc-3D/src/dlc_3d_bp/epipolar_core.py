@@ -68,3 +68,65 @@ def fundamental_matrix(ref: "Cam", tgt: "Cam") -> np.ndarray:
     t = t_tgt - R @ t_ref
     E = _skew(t) @ R
     return np.linalg.inv(tgt.K).T @ E @ np.linalg.inv(ref.K)
+
+
+def _as_points(pts: np.ndarray) -> np.ndarray:
+    return np.asarray(pts, dtype=np.float64).reshape(-1, 2)
+
+
+def undistort_to_pixels(cam: "Cam", pts: np.ndarray) -> np.ndarray:
+    """Undistort (N, 2) pixel coordinates, returning ideal-pinhole PIXELS.
+
+    P=cam.K is essential: without it cv2 returns normalized coordinates.
+    """
+    p = _as_points(pts)
+    out = np.full_like(p, np.nan)
+    ok = np.isfinite(p).all(axis=1)
+    if ok.any():
+        u = cv2.undistortPoints(
+            p[ok].reshape(-1, 1, 2), cam.K, np.asarray(cam.dist, dtype=float),
+            P=cam.K,
+        )
+        out[ok] = u.reshape(-1, 2)
+    return out
+
+
+def undistort_to_normalized(cam: "Cam", pts: np.ndarray) -> np.ndarray:
+    """Undistort (N, 2) pixel coordinates to NORMALIZED image coordinates."""
+    p = _as_points(pts)
+    out = np.full_like(p, np.nan)
+    ok = np.isfinite(p).all(axis=1)
+    if ok.any():
+        u = cv2.undistortPoints(
+            p[ok].reshape(-1, 1, 2), cam.K, np.asarray(cam.dist, dtype=float),
+        )
+        out[ok] = u.reshape(-1, 2)
+    return out
+
+
+def project_point(cam: "Cam", xyz: np.ndarray) -> np.ndarray:
+    """Project (N, 3) world points to (N, 2) distorted pixels."""
+    p = np.asarray(xyz, dtype=np.float64).reshape(-1, 3)
+    proj, _ = cv2.projectPoints(
+        p, np.asarray(cam.rvec, dtype=float).reshape(3, 1),
+        np.asarray(cam.tvec, dtype=float).reshape(3, 1),
+        cam.K, np.asarray(cam.dist, dtype=float),
+    )
+    return proj.reshape(-1, 2)
+
+
+def epipolar_distance(
+    F: np.ndarray, ref_pix: np.ndarray, tgt_pix: np.ndarray
+) -> np.ndarray:
+    """Perpendicular distance from each target point to its epipolar line.
+
+    Both inputs must already be UNDISTORTED pixels. Result is in target-view
+    pixels. NaN in either input yields NaN.
+    """
+    a = _as_points(ref_pix)
+    b = _as_points(tgt_pix)
+    lines = np.c_[a, np.ones(len(a))] @ F.T
+    num = np.abs(np.sum(lines * np.c_[b, np.ones(len(b))], axis=1))
+    den = np.sqrt(lines[:, 0] ** 2 + lines[:, 1] ** 2)
+    with np.errstate(invalid="ignore", divide="ignore"):
+        return num / np.where(den > 1e-12, den, np.nan)
