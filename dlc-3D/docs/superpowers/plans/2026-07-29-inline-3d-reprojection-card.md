@@ -17,6 +17,24 @@
 - **Namespace completely.** No `ia3d-` identifier, no `window.__iaViewer`, and no un-suffixed `ui-setting` key may appear in cloned files. Task 1 enforces this with a test.
 - **Never call `/dlc/project/inline-analysis/session/stop` from the clone.** See Task 3.
 - Tests run from `dlc-3D/` with `python3 -m pytest` (host Python 3.9).
+- **Baseline is not clean.** Ten tests already fail on the host environment at
+  the branch point (numpy 2.x `isinstance(np.int64, int)`, missing browser for
+  the playwright e2e pair, ffmpeg-dependent LP transcode tests). They are
+  unrelated to this work. Do NOT fix them, and do not treat them as regressions:
+
+  - tests/e2e/test_analyzed_viewer.py::test_card_opens_and_lists_project_content[chromium]
+  - tests/e2e/test_sync_frame.py::test_f2_focus_swap_then_marker_routes_to_sibling[chromium]
+  - tests/test_inline_analysis_3d_ui_isolation.py::test_finalize3d_confirms_before_overwrite
+  - tests/test_lp_csv_to_h5.py::test_csv_to_h5_writes_table_format
+  - tests/test_lp_csv_to_h5.py::test_emit_h5_sidecars_filters_metric_csvs
+  - tests/test_lp_predict_pairing.py::test_transcode_skips_when_mp4_exists
+  - tests/test_lp_predict_pairing.py::test_transcode_invokes_ffmpeg_stream_copy
+  - tests/test_lp_predict_pairing.py::test_transcode_falls_back_on_copy_failure
+  - tests/test_lp_predict_pairing.py::test_prepare_predict_inputs_end_to_end_multiview
+  - tests/test_lp_predict_pairing.py::test_prepare_predict_inputs_singleview_transcodes_only
+
+  A suite run is clean when these ten — and only these ten — fail.
+
 
 ## File Structure
 
@@ -1216,8 +1234,11 @@ Expected: PASS, all
 
 - [ ] **Step 6: Run the whole suite**
 
-Run: `cd dlc-3D && python3 -m pytest -q`
-Expected: all tests pass, including every pre-existing test
+Run: `cd dlc-3D && python3 -m pytest -q -p no:randomly 2>&1 | tail -20`
+Expected: your new tests pass, and the ONLY failures are the 10 pre-existing
+host-environment failures listed in the plan's Global Constraints. If a failure
+appears that is NOT on that list, it is yours — fix it. Do not attempt to fix
+the 10 known ones; they are unrelated to this work.
 
 - [ ] **Step 7: Commit**
 

@@ -18,6 +18,24 @@
 - **`cv2.undistortPoints` must be called with `P=K`** to return pixels. Without it the function returns normalized coordinates, and mixing those with a pixel-space `F` produces a near-constant residual (~101.7 px for every bodypart) that looks like real data.
 - **Tests run under the existing `dlc-3D/pytest.ini`**, whose `tests/conftest.py` cleanup hooks are mandatory. This project previously leaked 614 GB into `/tmp` from unhooked runs. Never bypass them.
 - Run tests from `dlc-3D/` with `python3 -m pytest`.
+- **Baseline is not clean.** Ten tests already fail on the host environment at
+  the branch point (numpy 2.x `isinstance(np.int64, int)`, missing browser for
+  the playwright e2e pair, ffmpeg-dependent LP transcode tests). They are
+  unrelated to this work. Do NOT fix them, and do not treat them as regressions:
+
+  - tests/e2e/test_analyzed_viewer.py::test_card_opens_and_lists_project_content[chromium]
+  - tests/e2e/test_sync_frame.py::test_f2_focus_swap_then_marker_routes_to_sibling[chromium]
+  - tests/test_inline_analysis_3d_ui_isolation.py::test_finalize3d_confirms_before_overwrite
+  - tests/test_lp_csv_to_h5.py::test_csv_to_h5_writes_table_format
+  - tests/test_lp_csv_to_h5.py::test_emit_h5_sidecars_filters_metric_csvs
+  - tests/test_lp_predict_pairing.py::test_transcode_skips_when_mp4_exists
+  - tests/test_lp_predict_pairing.py::test_transcode_invokes_ffmpeg_stream_copy
+  - tests/test_lp_predict_pairing.py::test_transcode_falls_back_on_copy_failure
+  - tests/test_lp_predict_pairing.py::test_prepare_predict_inputs_end_to_end_multiview
+  - tests/test_lp_predict_pairing.py::test_prepare_predict_inputs_singleview_transcodes_only
+
+  A suite run is clean when these ten — and only these ten — fail.
+
 
 ## File Structure
 
@@ -387,12 +405,13 @@ def test_epiline_endpoints_lie_on_the_line_and_inside_the_image():
     seg = epiline_endpoints(F, p_ref[0], w, h)
     assert seg is not None
     line = F @ np.array([p_ref[0, 0], p_ref[0, 1], 1.0])
+    nrm = np.hypot(line[0], line[1])
+    assert nrm > 0
     for (x, y) in seg:
         assert -1e-6 <= x <= w + 1e-6
         assert -1e-6 <= y <= h + 1e-6
-        assert abs(line[0] * x + line[1] * y + line[2]) < 1e-6 * max(
-            1.0, abs(line[0]) + abs(line[1])
-        ) * 1e6
+        # Normalised point-line distance: the endpoint must lie ON the line.
+        assert abs(line[0] * x + line[1] * y + line[2]) / nrm < 1e-6
 
 
 def test_epiline_endpoints_passes_through_the_true_correspondence():
@@ -826,22 +845,27 @@ def test_plausibility_gate_accepts_a_point_among_the_confirms():
     codes = np.array([CONFIRM] * 20 + [RESCUE], dtype=np.uint8)
     pts = np.zeros((21, 3))
     pts[:20] = np.linspace(0, 1, 20)[:, None] + np.array([10.0, 10.0, 500.0])
-    pts[20] = [10.5, 10.5, 500.5]
+    # Adjacent to the last CONFIRM (frame 19 == [11, 11, 501]), so it passes
+    # both the volume test and the jump test.
+    pts[20] = [11.02, 11.02, 501.02]
     assert plausibility_gate(pts, codes)[20] == True
 
 
 def test_plausibility_gate_rejects_an_implausible_jump():
-    """Inside the volume but far from the nearest recent CONFIRM."""
+    """Inside the volume, but too far from the nearest recent CONFIRM.
+
+    CONFIRM frames 0-49 travel x = 0 -> 4.9 at 0.1/frame, so v99 ~= 0.1 and the
+    volume spans x in roughly [0, 5]. The candidate at frame 50 is one frame
+    after the anchor at x = 4.9, giving a limit of ~0.1, but sits at x = 0.5 —
+    comfortably inside the volume and 4.4 away from the anchor.
+    """
     codes = np.zeros(60, dtype=np.uint8)
     codes[:50] = CONFIRM
-    codes[55] = RESCUE
+    codes[50] = RESCUE
     pts = np.full((60, 3), np.nan)
-    # Slow, steady motion establishes a small v99.
     pts[:50] = np.c_[np.arange(50) * 0.1, np.zeros(50), np.full(50, 500.0)]
-    # Candidate sits at the far end of the established volume: in-volume, but
-    # unreachable from frame 49 in 6 frames at the observed speed.
-    pts[55] = [4.9, 0.0, 500.0]
-    assert plausibility_gate(pts, codes, max_gap=10)[55] == False
+    pts[50] = [0.5, 0.0, 500.0]
+    assert plausibility_gate(pts, codes, max_gap=10)[50] == False
 
 
 def test_plausibility_gate_skips_jump_test_without_a_recent_confirm():
@@ -1234,6 +1258,54 @@ def test_run_reprojection_rescues_and_rejects(tmp_path):
                        snout["x"].iloc[0:50], equal_nan=True)
 
 
+def test_per_bodypart_override_corrects_the_other_file(tmp_path):
+    """Flipping a bodypart means the REFERENCE camera is the one judged for it,
+    so the correction must land in the reference output, not the target's."""
+    calib = _write_calib(tmp_path)
+    cams = load_calibration(calib)
+    ref_cam, tgt_cam = cams["cam_0"], cams["cam_1"]
+
+    n = 300
+    t = np.linspace(0.0, 1.0, n)
+    xyz = np.c_[10.0 + 2.0 * t, -5.0 + 2.0 * t, 250.0 + 5.0 * t]
+    ref_xy = np.stack([project_point(ref_cam, xyz)] * 2, axis=1)
+    tgt_xy = np.stack([project_point(tgt_cam, xyz)] * 2, axis=1)
+    ref_lik = np.full((n, 2), 0.99, dtype=np.float32)
+    tgt_lik = np.full((n, 2), 0.99, dtype=np.float32)
+
+    # Damage the REFERENCE view's Snout, and flip Snout so it gets judged.
+    ref_xy[100:110, 0] += 250.0
+
+    ref_h5 = tmp_path / "s_cam0_x.h5"
+    tgt_h5 = tmp_path / "s_cam1_x.h5"
+    _write_h5(ref_h5, _make_df(ref_xy, ref_lik))
+    _write_h5(tgt_h5, _make_df(tgt_xy, tgt_lik))
+
+    run_reprojection(
+        ref_h5=ref_h5, tgt_h5=tgt_h5, calib_path=calib,
+        ref_cam_key="cam_0", tgt_cam_key="cam_1", out_dir=tmp_path,
+        overrides={"Snout": "ref"},
+    )
+
+    got_ref, _ = read_pose_h5(tmp_path / "s_cam0_x_reprojected.h5")
+    got_tgt, _ = read_pose_h5(tmp_path / "s_cam1_x_reprojected.h5")
+
+    # The flipped bodypart was corrected in the reference file...
+    assert got_ref[SCORER]["Snout"]["x"].iloc[100:110].isna().all()
+    # ...and the target's own Snout, which was never wrong, is untouched.
+    src_tgt, _ = read_pose_h5(tgt_h5)
+    assert np.allclose(
+        src_tgt[SCORER]["Snout"]["x"].to_numpy(),
+        got_tgt[SCORER]["Snout"]["x"].to_numpy(), equal_nan=True,
+    )
+    # The un-flipped bodypart still leaves the reference file alone.
+    src_ref, _ = read_pose_h5(ref_h5)
+    assert np.allclose(
+        src_ref[SCORER]["Pellet"]["x"].to_numpy(),
+        got_ref[SCORER]["Pellet"]["x"].to_numpy(), equal_nan=True,
+    )
+
+
 def test_run_reprojection_never_writes_beside_the_source_when_out_dir_given(tmp_path):
     calib = _write_calib(tmp_path)
     src = tmp_path / "src"
@@ -1424,7 +1496,11 @@ def run_reprojection(
         "ref": ec.fundamental_matrix(cam_tgt, cam_ref),
     }
 
-    df_out = df_tgt.copy()
+    # Both sides are copied because a per-bodypart override flips which camera
+    # is judged for that bodypart, and therefore which file receives the
+    # correction. With no overrides, df_ref_out stays a faithful copy.
+    df_tgt_out = df_tgt.copy()
+    df_ref_out = df_ref.copy()
     arrays: "dict" = {}
     stats_out: "dict" = {}
     counts = {name: 0 for name in ec.VERDICT_NAMES.values()}
@@ -1460,15 +1536,21 @@ def run_reprojection(
         pts3d = ec.triangulate_dlt(cam_ref, cam_tgt, xy_ref, xy_tgt)
         codes = ec.apply_gate(codes, ec.plausibility_gate(pts3d, codes))
 
-        if not flipped:
-            xy_new, lik_new = ec.apply_verdicts(
-                xy_tgt, lik_tgt, codes, rescue_floor=rescue_floor
-            )
-            sc = meta_tgt["scorer"]
-            dtype = df_out[(sc, bp, "x")].dtype
-            df_out[(sc, bp, "x")] = xy_new[:, 0].astype(dtype)
-            df_out[(sc, bp, "y")] = xy_new[:, 1].astype(dtype)
-            df_out[(sc, bp, "likelihood")] = lik_new.astype(dtype)
+        # The judged side is the one whose markers are being corrected: normally
+        # the target, or the reference for a bodypart the caller flipped.
+        if flipped:
+            frame_out, meta_j, xy_j, lik_j = df_ref_out, meta_ref, xy_ref, lik_ref
+        else:
+            frame_out, meta_j, xy_j, lik_j = df_tgt_out, meta_tgt, xy_tgt, lik_tgt
+
+        xy_new, lik_new = ec.apply_verdicts(
+            xy_j, lik_j, codes, rescue_floor=rescue_floor
+        )
+        sc = meta_j["scorer"]
+        dtype = frame_out[(sc, bp, "x")].dtype
+        frame_out[(sc, bp, "x")] = xy_new[:, 0].astype(dtype)
+        frame_out[(sc, bp, "y")] = xy_new[:, 1].astype(dtype)
+        frame_out[(sc, bp, "likelihood")] = lik_new.astype(dtype)
 
         for code, name in ec.VERDICT_NAMES.items():
             counts[name] += int((codes == code).sum())
@@ -1482,8 +1564,8 @@ def run_reprojection(
 
     ref_out = _out_path(ref_h5, out_dir, ".h5")
     tgt_out = _out_path(tgt_h5, out_dir, ".h5")
-    write_pose_h5(df_ref, meta_ref, ref_out)
-    write_pose_h5(df_out, meta_tgt, tgt_out)
+    write_pose_h5(df_ref_out, meta_ref, ref_out)
+    write_pose_h5(df_tgt_out, meta_tgt, tgt_out)
 
     npz_path = _out_path(tgt_h5, out_dir, ".npz")
     np.savez_compressed(str(npz_path), **arrays)
@@ -1512,12 +1594,15 @@ def run_reprojection(
 - [ ] **Step 4: Run test to verify it passes**
 
 Run: `cd dlc-3D && python3 -m pytest tests/test_reprojection_io.py -v`
-Expected: PASS, 4 tests
+Expected: PASS, 5 tests
 
 - [ ] **Step 5: Run the whole suite to check nothing regressed**
 
-Run: `cd dlc-3D && python3 -m pytest -q`
-Expected: all pre-existing tests still pass
+Run: `cd dlc-3D && python3 -m pytest -q -p no:randomly 2>&1 | tail -20`
+Expected: your new tests pass, and the ONLY failures are the 10 pre-existing
+host-environment failures listed in the plan's Global Constraints. If a failure
+appears that is NOT on that list, it is yours — fix it. Do not attempt to fix
+the 10 known ones; they are unrelated to this work.
 
 - [ ] **Step 6: Commit**
 
@@ -1808,8 +1893,11 @@ Expected: PASS, 6 tests
 
 - [ ] **Step 5: Run the whole suite**
 
-Run: `cd dlc-3D && python3 -m pytest -q`
-Expected: all tests pass
+Run: `cd dlc-3D && python3 -m pytest -q -p no:randomly 2>&1 | tail -20`
+Expected: your new tests pass, and the ONLY failures are the 10 pre-existing
+host-environment failures listed in the plan's Global Constraints. If a failure
+appears that is NOT on that list, it is yours — fix it. Do not attempt to fix
+the 10 known ones; they are unrelated to this work.
 
 - [ ] **Step 6: Commit**
 
