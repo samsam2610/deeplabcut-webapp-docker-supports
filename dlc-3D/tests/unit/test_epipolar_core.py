@@ -247,3 +247,126 @@ def test_auto_threshold_survives_zero_mad():
     stats = auto_threshold(d, lr, lt)
     assert np.isfinite(stats["t_ok"]) and np.isfinite(stats["t_bad"])
     assert stats["t_ok"] <= stats["t_bad"]
+
+
+from dlc_3d_bp.epipolar_core import (
+    AMBIGUOUS,
+    CONFIRM,
+    REJECT,
+    RESCUE,
+    RESCUE_REJECTED,
+    UNJUDGED,
+    apply_gate,
+    apply_verdicts,
+    classify,
+    plausibility_gate,
+)
+
+
+def test_classify_covers_every_verdict():
+    #                UNJUDGED  REJECT  RESCUE  CONFIRM  AMBIGUOUS  UNJUDGED(nan ref)
+    d = np.array([        1.0,   99.0,    1.0,     1.0,       7.0,      np.nan])
+    lik_ref = np.array([  0.1,    1.0,    1.0,     1.0,       1.0,         1.0])
+    lik_tgt = np.array([  1.0,    1.0,    0.2,     0.9,       0.9,         0.9])
+    got = classify(d, lik_ref, lik_tgt, t_ok=5.0, t_bad=20.0,
+                   gate_ref=0.6, low_tgt=0.6)
+    assert list(got) == [UNJUDGED, REJECT, RESCUE, CONFIRM, AMBIGUOUS, UNJUDGED]
+
+
+def test_classify_rejects_regardless_of_target_likelihood():
+    """A geometrically impossible point goes whatever DLC thought of it."""
+    d = np.array([99.0, 99.0])
+    got = classify(d, np.ones(2), np.array([0.01, 0.99]), t_ok=5.0, t_bad=20.0)
+    assert list(got) == [REJECT, REJECT]
+
+
+def test_classify_reject_outranks_rescue():
+    """Precedence: REJECT is evaluated before RESCUE."""
+    got = classify(np.array([99.0]), np.ones(1), np.array([0.1]),
+                   t_ok=5.0, t_bad=20.0)
+    assert got[0] == REJECT
+
+
+def test_plausibility_gate_rejects_points_outside_the_working_volume():
+    codes = np.array([CONFIRM] * 20 + [RESCUE], dtype=np.uint8)
+    pts = np.zeros((21, 3))
+    pts[:20] = np.linspace(0, 1, 20)[:, None] + np.array([10.0, 10.0, 500.0])
+    pts[20] = [10.0, 10.0, 5000.0]           # far outside in z
+    assert plausibility_gate(pts, codes)[20] == False
+
+
+def test_plausibility_gate_accepts_a_point_among_the_confirms():
+    codes = np.array([CONFIRM] * 20 + [RESCUE], dtype=np.uint8)
+    pts = np.zeros((21, 3))
+    pts[:20] = np.linspace(0, 1, 20)[:, None] + np.array([10.0, 10.0, 500.0])
+    # Adjacent to the last CONFIRM (frame 19 == [11, 11, 501]), so it passes
+    # both the volume test and the jump test.
+    pts[20] = [11.02, 11.02, 501.02]
+    assert plausibility_gate(pts, codes)[20] == True
+
+
+def test_plausibility_gate_rejects_an_implausible_jump():
+    """Inside the volume, but too far from the nearest recent CONFIRM.
+
+    CONFIRM frames 0-49 travel x = 0 -> 4.9 at 0.1/frame, so v99 ~= 0.1 and the
+    volume spans x in roughly [0, 5]. The candidate at frame 50 is one frame
+    after the anchor at x = 4.9, giving a limit of ~0.1, but sits at x = 0.5 —
+    comfortably inside the volume and 4.4 away from the anchor.
+    """
+    codes = np.zeros(60, dtype=np.uint8)
+    codes[:50] = CONFIRM
+    codes[50] = RESCUE
+    pts = np.full((60, 3), np.nan)
+    pts[:50] = np.c_[np.arange(50) * 0.1, np.zeros(50), np.full(50, 500.0)]
+    pts[50] = [0.5, 0.0, 500.0]
+    assert plausibility_gate(pts, codes, max_gap=10)[50] == False
+
+
+def test_plausibility_gate_skips_jump_test_without_a_recent_confirm():
+    codes = np.zeros(100, dtype=np.uint8)
+    codes[:30] = CONFIRM
+    codes[90] = RESCUE
+    pts = np.full((100, 3), np.nan)
+    pts[:30] = np.c_[np.arange(30) * 0.1, np.zeros(30), np.full(30, 500.0)]
+    pts[90] = [1.5, 0.0, 500.0]              # in volume; no CONFIRM within 10
+    assert plausibility_gate(pts, codes, max_gap=10)[90] == True
+
+
+def test_plausibility_gate_passes_everything_without_enough_confirms():
+    codes = np.array([RESCUE, RESCUE], dtype=np.uint8)
+    pts = np.array([[0.0, 0.0, 1.0], [0.0, 0.0, 2.0]])
+    assert list(plausibility_gate(pts, codes)) == [True, True]
+
+
+def test_apply_gate_demotes_failing_rescues_only():
+    codes = np.array([RESCUE, RESCUE, CONFIRM, REJECT], dtype=np.uint8)
+    out = apply_gate(codes, np.array([True, False, False, False]))
+    assert list(out) == [RESCUE, RESCUE_REJECTED, CONFIRM, REJECT]
+
+
+def test_apply_verdicts_nans_rejects_and_raises_rescues():
+    xy = np.array([[1.0, 2.0], [3.0, 4.0], [5.0, 6.0], [7.0, 8.0], [9.0, 10.0]])
+    lik = np.array([0.95, 0.20, 0.95, 0.30, 0.40])
+    codes = np.array([REJECT, RESCUE, CONFIRM, RESCUE_REJECTED, AMBIGUOUS],
+                     dtype=np.uint8)
+    xy_out, lik_out = apply_verdicts(xy, lik, codes, rescue_floor=0.9)
+
+    assert np.isnan(xy_out[0]).all() and lik_out[0] == 0.0
+    assert np.allclose(xy_out[1], [3.0, 4.0]) and lik_out[1] == 0.9
+    for i in (2, 3, 4):
+        assert np.allclose(xy_out[i], xy[i]) and lik_out[i] == lik[i]
+
+
+def test_apply_verdicts_never_lowers_a_rescued_likelihood():
+    xy = np.array([[1.0, 2.0]])
+    lik_out = apply_verdicts(xy, np.array([0.97]),
+                             np.array([RESCUE], dtype=np.uint8),
+                             rescue_floor=0.9)[1]
+    assert lik_out[0] == 0.97
+
+
+def test_apply_verdicts_does_not_mutate_its_inputs():
+    xy = np.array([[1.0, 2.0]])
+    lik = np.array([0.2])
+    apply_verdicts(xy, lik, np.array([REJECT], dtype=np.uint8))
+    assert np.allclose(xy, [[1.0, 2.0]]) and lik[0] == 0.2

@@ -265,3 +265,140 @@ def auto_threshold(
         "t_ok": med + k1 * mad, "t_bad": med + k2 * mad,
         "n_highconf": n, "threshold_source": source,
     }
+
+
+def classify(
+    d: np.ndarray,
+    lik_ref: np.ndarray,
+    lik_tgt: np.ndarray,
+    t_ok: float,
+    t_bad: float,
+    gate_ref: float = 0.6,
+    low_tgt: float = 0.6,
+) -> np.ndarray:
+    """Assign a verdict code per frame for one bodypart in the TARGET view.
+
+    First match wins, so REJECT outranks every other outcome. RESCUE here means
+    "rescue candidate"; the 3D gate confirms or demotes it in apply_gate().
+    """
+    d = np.asarray(d, dtype=float)
+    lr = np.asarray(lik_ref, dtype=float)
+    lt = np.asarray(lik_tgt, dtype=float)
+
+    codes = np.full(d.shape, AMBIGUOUS, dtype=np.uint8)
+    judged = np.isfinite(d) & (lr > gate_ref)
+    codes[~judged] = UNJUDGED
+
+    near = judged & (d <= t_ok)
+    codes[judged & (d > t_bad)] = REJECT
+    codes[near & (lt < low_tgt)] = RESCUE
+    codes[near & (lt >= low_tgt)] = CONFIRM
+    return codes
+
+
+def plausibility_gate(
+    pts3d: np.ndarray,
+    codes: np.ndarray,
+    max_gap: int = 10,
+    expand: float = 0.2,
+    speed_pct: float = 99.0,
+    min_confirm: int = 20,
+) -> np.ndarray:
+    """Test rescue candidates for 3D plausibility.
+
+    An epipolar line is a one-degree-of-freedom constraint, so a point can lie
+    exactly on the correct line at a badly wrong depth. Two tests close that
+    gap, both calibrated from this bodypart's own CONFIRM population:
+
+    * working volume — the 1st-99th percentile box per axis, expanded by
+      `expand`;
+    * jump limit — distance from the most recent CONFIRM frame within `max_gap`
+      must not exceed the 99th-percentile observed 3D speed times the gap.
+
+    Returns a boolean array, True where a candidate passes. Entries that are not
+    rescue candidates are True and meaningless. With fewer than `min_confirm`
+    usable CONFIRM points there is nothing to calibrate against, so everything
+    passes and the epipolar distance stands alone.
+    """
+    pts3d = np.asarray(pts3d, dtype=float)
+    codes = np.asarray(codes)
+    n = len(codes)
+    out = np.ones(n, dtype=bool)
+
+    finite = np.isfinite(pts3d).all(axis=1)
+    conf = (codes == CONFIRM) & finite
+    cand = (codes == RESCUE) & finite
+    if not cand.any():
+        return out
+    out[(codes == RESCUE) & ~finite] = False
+    if int(conf.sum()) < min_confirm:
+        return out
+
+    ref_pts = pts3d[conf]
+    lo = np.percentile(ref_pts, 1.0, axis=0)
+    hi = np.percentile(ref_pts, 99.0, axis=0)
+    pad = (hi - lo) * expand
+    lo, hi = lo - pad, hi + pad
+
+    idx = np.flatnonzero(cand)
+    inside = ((pts3d[idx] >= lo) & (pts3d[idx] <= hi)).all(axis=1)
+    out[idx[~inside]] = False
+
+    # v99 from frame-to-frame speed between consecutive CONFIRM frames.
+    cframes = np.flatnonzero(conf)
+    gaps = np.diff(cframes)
+    step = np.linalg.norm(np.diff(ref_pts, axis=0), axis=1)
+    usable = gaps > 0
+    if not usable.any():
+        return out
+    v99 = float(np.percentile(step[usable] / gaps[usable], speed_pct))
+
+    # Most recent CONFIRM at or before each candidate frame.
+    prev_pos = np.searchsorted(cframes, idx, side="left") - 1
+    for k, cand_frame in enumerate(idx):
+        if not out[cand_frame]:
+            continue
+        p = prev_pos[k]
+        if p < 0:
+            continue
+        gap = int(cand_frame - cframes[p])
+        if gap <= 0 or gap > max_gap:
+            continue                       # no recent anchor: volume test only
+        limit = v99 * gap
+        moved = float(np.linalg.norm(pts3d[cand_frame] - ref_pts[p]))
+        if moved > limit:
+            out[cand_frame] = False
+    return out
+
+
+def apply_gate(codes: np.ndarray, gate_pass: np.ndarray) -> np.ndarray:
+    """Demote rescue candidates that failed the 3D gate."""
+    out = np.asarray(codes).copy()
+    out[(out == RESCUE) & ~np.asarray(gate_pass, dtype=bool)] = RESCUE_REJECTED
+    return out
+
+
+def apply_verdicts(
+    xy: np.ndarray,
+    lik: np.ndarray,
+    codes: np.ndarray,
+    rescue_floor: float = 0.9,
+) -> "tuple[np.ndarray, np.ndarray]":
+    """Produce corrected (xy, likelihood) for one bodypart. Inputs unchanged.
+
+    REJECT clears the coordinates and zeroes the likelihood so every downstream
+    filter drops the point. RESCUE keeps the coordinates and lifts the
+    likelihood to the floor so a likelihood filter stops discarding it. Every
+    other verdict is a pass-through.
+    """
+    xy_out = np.asarray(xy, dtype=float).copy()
+    lik_out = np.asarray(lik, dtype=float).copy()
+    codes = np.asarray(codes)
+
+    rej = codes == REJECT
+    xy_out[rej] = np.nan
+    lik_out[rej] = 0.0
+
+    res = codes == RESCUE
+    lik_out[res] = np.maximum(lik_out[res], rescue_floor)
+    return xy_out, lik_out
