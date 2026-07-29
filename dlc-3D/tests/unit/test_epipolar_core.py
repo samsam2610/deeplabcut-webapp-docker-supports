@@ -99,3 +99,46 @@ def test_epipolar_distance_propagates_nan():
     F = fundamental_matrix(ref, tgt)
     d = epipolar_distance(F, np.array([[np.nan, np.nan]]), np.array([[1.0, 2.0]]))
     assert np.isnan(d[0])
+
+
+def test_epiline_endpoints_lie_on_the_line_and_inside_the_image():
+    from dlc_3d_bp.epipolar_core import epiline_endpoints
+    ref = make_cam("0")
+    tgt = make_cam("1", rvec=(0, 0.3, 0), tvec=(100, 0, 0))
+    F = fundamental_matrix(ref, tgt)
+    xyz = np.array([[10.0, -5.0, 500.0]])
+    p_ref = project_point(ref, xyz)
+    w, h = tgt.size
+    seg = epiline_endpoints(F, p_ref[0], w, h)
+    assert seg is not None
+    line = F @ np.array([p_ref[0, 0], p_ref[0, 1], 1.0])
+    nrm = np.hypot(line[0], line[1])
+    assert nrm > 0
+    for (x, y) in seg:
+        assert -1e-6 <= x <= w + 1e-6
+        assert -1e-6 <= y <= h + 1e-6
+        # Normalised point-line distance: the endpoint must lie ON the line.
+        assert abs(line[0] * x + line[1] * y + line[2]) / nrm < 1e-6
+
+
+def test_epiline_endpoints_passes_through_the_true_correspondence():
+    from dlc_3d_bp.epipolar_core import epiline_endpoints
+    ref = make_cam("0")
+    tgt = make_cam("1", rvec=(0, 0.3, 0), tvec=(100, 0, 0))
+    F = fundamental_matrix(ref, tgt)
+    xyz = np.array([[10.0, -5.0, 500.0]])
+    p_ref = project_point(ref, xyz)
+    p_tgt = project_point(tgt, xyz)[0]
+    (x1, y1), (x2, y2) = epiline_endpoints(F, p_ref[0], *tgt.size)
+    # Distance from the true target point to the segment's infinite line is 0.
+    dx, dy = x2 - x1, y2 - y1
+    norm = np.hypot(dx, dy)
+    cross = abs(dx * (y1 - p_tgt[1]) - dy * (x1 - p_tgt[0])) / norm
+    assert cross < 1e-3
+
+
+def test_epiline_endpoints_returns_none_for_nan_input():
+    from dlc_3d_bp.epipolar_core import epiline_endpoints
+    ref, tgt = make_cam("0"), make_cam("1", tvec=(100, 0, 0))
+    F = fundamental_matrix(ref, tgt)
+    assert epiline_endpoints(F, np.array([np.nan, np.nan]), 800, 600) is None

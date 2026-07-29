@@ -130,3 +130,45 @@ def epipolar_distance(
     den = np.sqrt(lines[:, 0] ** 2 + lines[:, 1] ** 2)
     with np.errstate(invalid="ignore", divide="ignore"):
         return num / np.where(den > 1e-12, den, np.nan)
+
+
+def epiline_endpoints(
+    F: np.ndarray, ref_pix_point: np.ndarray, width: int, height: int
+) -> "tuple | None":
+    """Clip the epipolar line of one undistorted reference point to the target
+    image rectangle.
+
+    Returns ((x1, y1), (x2, y2)) or None when the input is not finite, the line
+    is degenerate, or the line misses the image.
+    """
+    p = np.asarray(ref_pix_point, dtype=np.float64).reshape(2)
+    if not np.isfinite(p).all():
+        return None
+    a, b, c = F @ np.array([p[0], p[1], 1.0])
+    if not np.isfinite([a, b, c]).all() or (abs(a) < 1e-12 and abs(b) < 1e-12):
+        return None
+
+    hits = []
+    if abs(b) > 1e-12:                      # intersect left and right edges
+        for x in (0.0, float(width)):
+            y = -(a * x + c) / b
+            if -1e-9 <= y <= height + 1e-9:
+                hits.append((x, y))
+    if abs(a) > 1e-12:                      # intersect top and bottom edges
+        for y in (0.0, float(height)):
+            x = -(b * y + c) / a
+            if -1e-9 <= x <= width + 1e-9:
+                hits.append((x, y))
+    if len(hits) < 2:
+        return None
+
+    # Keep the two most distant hits; corner cases produce duplicates.
+    best, far = None, -1.0
+    for i in range(len(hits)):
+        for j in range(i + 1, len(hits)):
+            d = np.hypot(hits[i][0] - hits[j][0], hits[i][1] - hits[j][1])
+            if d > far:
+                far, best = d, (hits[i], hits[j])
+    if far <= 1e-9:
+        return None
+    return best
