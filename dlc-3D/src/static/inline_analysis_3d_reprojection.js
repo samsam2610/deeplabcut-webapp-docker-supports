@@ -3565,16 +3565,14 @@ function _wireStereoDispatch() {
 // baked into the dlc-3d image, so we move the node (preserving its click
 // listeners) instead of adding it at the template level.
 function _ia3drPlaceNavButton() {
-  const nav = $("dlc-frame-extract-launch");
-  const btn = $("btn-open-inline-analysis-3d-reprojection");
-  if (!nav || !btn) return;
-  if (btn.parentElement !== nav) {
-    const anchor = $("btn-open-view-analyzed");
-    if (anchor && anchor.parentElement === nav) anchor.insertAdjacentElement("afterend", btn);
-    else nav.appendChild(btn);
-  }
-  btn.style.display = "";   // reveal now that it sits in the nav list
+  // Superseded by _reprojPlaceNavButton (see REPROJECTION BOOTSTRAP): this
+  // clone creates its own button at runtime and anchors it below the original
+  // card's button, not below "View Analyzed".
+  _reprojPlaceNavButton();
 }
+
+// Replaced in full by the REPROJECTION PANEL block (Task 5).
+function _reprojWirePanel() {}
 
 // ── Init ──────────────────────────────────────────────────────────────────────
 
@@ -3587,6 +3585,101 @@ if (document.readyState !== "loading") {
   // Module evaluated after DOMContentLoaded — run the nav placement now too
   // (the DOMContentLoaded listener above won't fire). Idempotent.
   _ia3drPlaceNavButton();
+}
+
+// ── REPROJECTION BOOTSTRAP ───────────────────────────────────────────────────
+// This clone owns its whole DOM footprint at runtime rather than through Jinja.
+// templates/partials/*.html are bind-mounted file-by-file, so a new partial
+// would require a docker-compose.yml edit and a container recreate; a fragment
+// under static/ (a whole-directory mount) needs neither. dlc_3d.html therefore
+// contains exactly one line for this card: the <script> tag that loads it.
+
+const REPROJ_CARD_URL = "/dlc-3d/static/card_inline_analysis_3d_reprojection.html";
+const REPROJ_CSS_URL = "/dlc-3d/static/inline_analysis_3d_reprojection.css";
+
+function _reprojInjectStylesheet() {
+  if (document.querySelector(`link[href="${REPROJ_CSS_URL}"]`)) return;
+  const link = document.createElement("link");
+  link.rel = "stylesheet";
+  link.href = REPROJ_CSS_URL;
+  document.head.appendChild(link);
+}
+
+function _reprojMakeLauncherButton() {
+  let btn = document.getElementById("btn-open-inline-analysis-3d-reprojection");
+  if (btn) return btn;
+  btn = document.createElement("button");
+  btn.id = "btn-open-inline-analysis-3d-reprojection";
+  btn.className = "inspect-btn";
+  btn.style.cssText = "width:100%;gap:.55rem;display:none";
+  btn.innerHTML = `
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+         stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+      <rect x="3" y="3" width="14" height="14" rx="2"></rect>
+      <rect x="7" y="7" width="14" height="14" rx="2"></rect>
+      <path d="M3 17 L21 7"></path>
+    </svg>
+    <span>3D Inline Analysis - Reprojection</span>`;
+  document.body.appendChild(btn);   // parked until placed in the nav list
+  return btn;
+}
+
+// Overrides the renamed clone of _ia3drPlaceNavButton: anchor directly BELOW the
+// original card's launcher button instead of below "View Analyzed".
+function _reprojPlaceNavButton() {
+  const nav = document.getElementById("dlc-frame-extract-launch");
+  const btn = _reprojMakeLauncherButton();
+  if (!nav) return;
+  if (btn.parentElement !== nav) {
+    const anchor = document.getElementById("btn-open-inline-analysis-3d");
+    if (anchor && anchor.parentElement === nav) {
+      anchor.insertAdjacentElement("afterend", btn);
+    } else {
+      nav.appendChild(btn);
+    }
+  }
+  btn.style.display = "";
+}
+
+let _reprojCardInjected = null;
+
+async function _reprojInjectCard() {
+  if (_reprojCardInjected) return _reprojCardInjected;
+  _reprojCardInjected = (async () => {
+    if (document.getElementById("inline-analysis-3d-reprojection-card")) return;
+    const host = document.querySelector("main.cards");
+    if (!host) return;
+    const res = await fetch(REPROJ_CARD_URL);
+    if (!res.ok) throw new Error(`card fragment ${res.status}`);
+    const holder = document.createElement("div");
+    holder.innerHTML = await res.text();
+    while (holder.firstElementChild) host.appendChild(holder.firstElementChild);
+  })();
+  return _reprojCardInjected;
+}
+
+async function _reprojBootstrap() {
+  _reprojInjectStylesheet();
+  await _reprojInjectCard();
+  _reprojPlaceNavButton();
+  // Wiring must run after the markup exists — the cloned wiring functions look
+  // up ia3dr- ids directly.
+  _reprojWireAfterInject();
+}
+
+// Re-runs the cloned module's own wiring against the freshly injected markup.
+// The cloned _wireLauncher / _wireStereoDispatch already ran on
+// DOMContentLoaded and found nothing, so they are re-invoked here.
+function _reprojWireAfterInject() {
+  try { _wireLauncher(); } catch (e) { console.warn("[reproj] wireLauncher", e); }
+  try { _wireStereoDispatch(); } catch (e) { console.warn("[reproj] wireStereo", e); }
+  try { _reprojWirePanel(); } catch (e) { console.warn("[reproj] wirePanel", e); }
+}
+
+if (document.readyState === "loading") {
+  document.addEventListener("DOMContentLoaded", () => { _reprojBootstrap(); });
+} else {
+  _reprojBootstrap();
 }
 
 // Expose the VideoViewer instance for the co-evolved static/E2E tests (replaces
