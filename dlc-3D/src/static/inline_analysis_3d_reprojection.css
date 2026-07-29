@@ -300,3 +300,20 @@
   flex: 0 0 auto; width: 210px; max-width: 210px;
   display: flex; flex-direction: column;
 }
+
+/* ── REPROJECTION PANEL ──────────────────────────────────────────────────── */
+#ia3dr-reproj-panel .ia3dr-hint { opacity: .7; font-size: .85em; }
+#ia3dr-reproj-panel .ia3dr-inline-check {
+  display: inline-flex; align-items: center; gap: .35rem;
+}
+#ia3dr-reproj-panel .ia3dr-table-wrap { width: 100%; overflow-x: auto; }
+#ia3dr-reproj-panel table { border-collapse: collapse; font-size: .85em; }
+#ia3dr-reproj-panel th,
+#ia3dr-reproj-panel td {
+  padding: .15rem .5rem; text-align: right; white-space: nowrap;
+}
+#ia3dr-reproj-panel th:first-child,
+#ia3dr-reproj-panel td:first-child { text-align: left; }
+#ia3dr-reproj-panel tr.src-default td,
+#ia3dr-reproj-panel tr.src-pooled td { opacity: .65; font-style: italic; }
+#ia3dr-reproj-status { min-height: 1.2em; margin: .35rem 0; }

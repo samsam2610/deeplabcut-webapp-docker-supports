@@ -935,5 +935,60 @@
           </div>
         </div>
 
+      <!-- ── REPROJECTION PANEL ──────────────────────────────────────────── -->
+      <div class="ia3dr-bar" id="ia3dr-reproj-panel">
+        <div class="ia3dr-bar-header">Epipolar reprojection</div>
+
+        <div class="ia3dr-ctrl-row">
+          <label for="ia3dr-reproj-ref-cam">Trusted camera</label>
+          <select id="ia3dr-reproj-ref-cam">
+            <option value="cam_0">cam0</option>
+            <option value="cam_1" selected>cam1</option>
+          </select>
+          <span class="ia3dr-hint">
+            The other camera is judged against this one.
+          </span>
+        </div>
+
+        <div class="ia3dr-ctrl-row">
+          <label for="ia3dr-reproj-k1">Trust band k&#8321;</label>
+          <input type="number" id="ia3dr-reproj-k1" min="0.5" max="20"
+                 step="0.5" value="3">
+          <span id="ia3dr-reproj-k1-val"></span>
+          <label for="ia3dr-reproj-k2">Reject band k&#8322;</label>
+          <input type="number" id="ia3dr-reproj-k2" min="1" max="50"
+                 step="0.5" value="8">
+          <span id="ia3dr-reproj-k2-val"></span>
+        </div>
+
+        <div class="ia3dr-ctrl-row">
+          <button id="ia3dr-reproj-estimate" class="inspect-btn">
+            Estimate thresholds
+          </button>
+          <button id="ia3dr-reproj-run" class="inspect-btn">
+            Run and write _reprojected.h5
+          </button>
+          <label class="ia3dr-inline-check">
+            <input type="checkbox" id="ia3dr-reproj-show-lines">
+            Show epipolar lines
+          </label>
+        </div>
+
+        <div id="ia3dr-reproj-status" class="ia3dr-status"></div>
+
+        <div class="ia3dr-ctrl-row">
+          <div id="ia3dr-reproj-thresholds" class="ia3dr-table-wrap"></div>
+        </div>
+
+        <div class="ia3dr-ctrl-row">
+          <div id="ia3dr-reproj-counts" class="ia3dr-table-wrap"></div>
+        </div>
+
+        <details>
+          <summary>Per-bodypart trusted-camera overrides</summary>
+          <div id="ia3dr-reproj-overrides" class="ia3dr-bp-chips-wrap"></div>
+        </details>
+      </div>
+
       </div>
     </section>
