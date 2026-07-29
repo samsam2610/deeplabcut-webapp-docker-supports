@@ -1,0 +1,302 @@
+/* dlc-3D/src/static/viewer_3d.css */
+
+/* Disabled buttons must visibly grey out (the shared .btn-sm base has no
+   :disabled rule, so a disabled button otherwise looks clickable). */
+.btn-sm:disabled {
+  opacity: .5;
+  cursor: not-allowed;
+}
+
+.ia3dr-tile-row {
+  display: flex;
+  gap: .5rem;
+  margin-bottom: .25rem;
+  align-items: flex-start;
+}
+.ia3dr-tile {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  flex-basis: 0;
+  flex-grow: 100;
+}
+.ia3dr-tile-header {
+  display: flex;
+  align-items: center;
+  gap: .35rem;
+  font-size: .72rem;
+  color: var(--text-dim);
+  margin-bottom: .2rem;
+  min-height: 1.4rem;
+}
+.ia3dr-tile-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--mono);
+}
+.ia3dr-tile-pill {
+  font-size: .65rem;
+  padding: .05rem .35rem;
+  border-radius: 3px;
+  background: var(--surface);
+  color: var(--text-dim);
+  border: 1px solid var(--border);
+  flex-shrink: 0;
+}
+.ia3dr-tile-size { width: 70px; accent-color: var(--accent); flex-shrink: 0; }
+.ia3dr-tile-size-val { min-width: 2.6rem; text-align: right; font-family: var(--mono); flex-shrink: 0; }
+.ia3dr-tile.focused .ia3dr-tile-canvas-wrap {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+/* ── VideoViewer (shared library) tiles in the 3D Inline Analysis card ───────────
+   Phase 4c migration: the old #ia3dr-tile-row markup was replaced by a single
+   #ia3dr-viewer-mount that the VideoViewer library populates with .vv-* tiles.
+   Mirrors viewer_3d.css's #va3d-viewer-mount rules (no forced aspect-ratio).
+   The legacy .ia3dr-tile* rules above are kept dormant (orphaned by the mount). */
+#ia3dr-viewer-mount .vv-tile-row { gap: .75rem; }
+#ia3dr-viewer-mount .vv-tile { display: flex; flex-direction: column; flex: 1 1 0; min-width: 0; }
+#ia3dr-viewer-mount .vv-tile-label { font-size: .72rem; color: var(--text-dim); margin-bottom: .2rem; order: -1; }
+/* Wrap is position:relative so the overlay canvas (marker editing) overlays the img. */
+#ia3dr-viewer-mount .vv-tile-canvas-wrap { position: relative; }
+#ia3dr-viewer-mount .vv-frame-img {
+  display: block; width: 100%; max-height: 70vh; height: auto;
+  border: 1px solid var(--border); border-radius: 8px; background: #000;
+}
+#ia3dr-viewer-mount .vv-overlay-canvas {
+  position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+  /* pointer-events left to the library / MarkerEditor */
+}
+/* Focused-tile indicator for multi-view editing — only shown with a sibling tile
+   (markerEditor sets .vv-tile-focused; the focused cam accepts marker edits). */
+#ia3dr-viewer-mount .vv-tile:not(:only-child).vv-tile-focused .vv-frame-img {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent);
+}
+/* Per-view size slider: small + pinned ABOVE the image (order:-1, below the
+   label), mirroring the old .ia3dr-tile-header — not a full-width bottom bar. */
+#ia3dr-viewer-mount .vv-tile-size-row {
+  order: -1; display: flex; align-items: center; justify-content: flex-start;
+  gap: .3rem; margin: 0 0 .25rem;
+}
+#ia3dr-viewer-mount .vv-tile-size { flex: none; width: 72px; accent-color: var(--accent); height: 14px; }
+#ia3dr-viewer-mount .vv-tile-size-val {
+  font-family: var(--mono); font-size: .68rem; color: var(--text-dim);
+  min-width: 2.4rem; text-align: right;
+}
+
+/* Marker chips (vv-bp-chip, --bp-color) AND status/note tag chips (vv-tag-chip,
+   --chip-color) styled to match the frame labeler's .fl-bp-chip: a colored dot +
+   pill, brighten on hover, subtle tint when active. Each chip's --bp-color /
+   --chip-color drives the dot + accents. */
+#inline-analysis-3d-reprojection-card .vv-bp-chip,
+#inline-analysis-3d-reprojection-card .vv-tag-chip {
+  display: inline-flex; align-items: center; gap: .32rem;
+  padding: .28rem .6rem; border-radius: 6px;
+  border: 1px solid var(--border); background: var(--surface-2);
+  color: var(--text-dim); font-family: var(--mono); font-size: .75rem;
+  cursor: pointer; user-select: none;
+  transition: border-color .15s, background .15s, color .15s;
+}
+#inline-analysis-3d-reprojection-card .vv-tag-chip::before {
+  content: ""; width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0;
+  background: var(--bp-color, var(--chip-color, var(--accent-dim)));
+}
+#inline-analysis-3d-reprojection-card .vv-bp-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; background: var(--bp-color, var(--accent-dim)); }
+#inline-analysis-3d-reprojection-card .vv-bp-name { line-height: 1; }
+#inline-analysis-3d-reprojection-card .vv-bp-check { display: none; flex-shrink: 0; color: var(--bp-color, var(--accent)); }
+#inline-analysis-3d-reprojection-card .vv-bp-chip.labeled .vv-bp-check { display: block; }
+#inline-analysis-3d-reprojection-card .vv-bp-eye-slash { display: none; flex-shrink: 0; }
+#inline-analysis-3d-reprojection-card .vv-bp-chip.vis-hidden .vv-bp-eye-slash { display: block; }
+#inline-analysis-3d-reprojection-card .vv-bp-chip:hover,
+#inline-analysis-3d-reprojection-card .vv-tag-chip:hover {
+  border-color: var(--bp-color, var(--chip-color, var(--accent))); color: var(--text);
+}
+#inline-analysis-3d-reprojection-card .vv-bp-chip.active,
+#inline-analysis-3d-reprojection-card .vv-tag-chip.active {
+  border-color: var(--bp-color, var(--chip-color, var(--accent)));
+  background: color-mix(in srgb, var(--bp-color, var(--chip-color, var(--accent))) 14%, transparent);
+  color: var(--text);
+}
+/* Frozen note chips while a tag is locked for "Analyze for tag": inert, dimmed. */
+#inline-analysis-3d-reprojection-card .vv-tag-chip.locked {
+  cursor: default;
+  opacity: .5;
+}
+#inline-analysis-3d-reprojection-card .vv-tag-chip.locked:hover {
+  border-color: var(--border);
+  color: var(--text-dim);
+}
+#inline-analysis-3d-reprojection-card .vv-tag-chip.locked.active {
+  opacity: 1;
+}
+#inline-analysis-3d-reprojection-card .vv-bp-chip.labeled { font-weight: 600; color: var(--text); }
+#inline-analysis-3d-reprojection-card .vv-bp-chip.vis-hidden { opacity: .45; }
+
+/* Lock-BP checkbox in the marker-edit controls — small inline pill matching the
+   controls row typography (reuses existing tokens). */
+#inline-analysis-3d-reprojection-card .ia3dr-lock-bp-label {
+  display: inline-flex; align-items: center; gap: .3rem;
+  font-size: .77rem; color: var(--text-dim); user-select: none; cursor: pointer;
+}
+#inline-analysis-3d-reprojection-card .ia3dr-lock-bp-label input { accent-color: var(--accent); cursor: pointer; }
+
+/* Main timeline (seek slider) — bigger + visible track (base .fe-seek is 4px). */
+#inline-analysis-3d-reprojection-card .fe-seek {
+  height: 9px; border-radius: 6px; accent-color: var(--accent);
+  background: var(--surface); border: 1px solid var(--border);
+}
+
+/* Status / note timeline bars — recessed dark track so they stand out from the
+   card (the canvases were background:var(--surface), identical to .card's bg). */
+#inline-analysis-3d-reprojection-card #ia3dr-status-canvas,
+#inline-analysis-3d-reprojection-card #ia3dr-note-canvas {
+  background: var(--bg) !important;
+  border: 1px solid var(--border); border-radius: 4px;
+}
+#inline-analysis-3d-reprojection-card .fe-csv-bar-label { color: var(--text); font-weight: 600; }
+
+#inline-analysis-3d-reprojection-card .ia3dr-skip-preset {
+  width: 28px; padding: 2px 0; font-size: .68rem; font-family: var(--mono);
+  text-align: center; border: 1px solid var(--border); border-radius: 10px;
+  background: transparent; color: var(--text-dim); cursor: pointer;
+}
+#inline-analysis-3d-reprojection-card .ia3dr-skip-preset.active { border-color: var(--accent); color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, transparent); }
+
+#inline-analysis-3d-reprojection-card #ia3dr-seek-canvas {
+  background: var(--bg); border: 1px solid var(--border); border-radius: 4px;
+  margin-top: .9rem;  /* breathing room between the video tiles and the timeline */
+}
+
+#inline-analysis-3d-reprojection-card #ia3dr-finalize-coverage {
+  background: var(--bg); border: 1px solid var(--border); border-radius: 4px;
+}
+
+#inline-analysis-3d-reprojection-card #ia3dr-triangulate-coverage {
+  background: var(--bg); border: 1px solid var(--border); border-radius: 4px;
+}
+
+/* Measuring helper: force every checkmark visible so we can reserve the chip
+   list's tallest wrap (per project). Toggled on only during measurement. */
+#inline-analysis-3d-reprojection-card #ia3dr-bp-chips.ia3dr-measuring .vv-bp-check { display: block; }
+
+/* Keep the multi-frame skip controls together as one unit so .fe-controls wraps
+   the whole group — never orphaning skip-forward (»») onto a second line. */
+#inline-analysis-3d-reprojection-card .ia3dr-skip-group {
+  display: inline-flex; align-items: center; gap: .3rem; flex-shrink: 0;
+}
+
+/* Player controls laid out as three stacked rows (playback / frame-jump /
+   counter+time+help) instead of one wrapping row. Scoped to the inline card so
+   other .fe-controls consumers are unaffected. */
+#inline-analysis-3d-reprojection-card .fe-controls { flex-direction: column; align-items: stretch; gap: .35rem; }
+#inline-analysis-3d-reprojection-card .ia3dr-ctrl-row { display: flex; align-items: center; gap: .4rem; flex-wrap: wrap; }
+
+/* ── Inline-3D reorg: full-width card + two-column working layout ─────────────
+   Ported from the live mockup (mockup_inline_3d.html.j2). Scoped to the card so
+   no other consumer is affected. */
+#inline-analysis-3d-reprojection-card { max-width: none; width: 100%; }
+
+#inline-analysis-3d-reprojection-card .ia3dr-split { display: flex; gap: 1rem; align-items: flex-start; }
+#inline-analysis-3d-reprojection-card .ia3dr-left  { flex: 1 1 0; min-width: 0; position: relative; }
+/* Finalize sub-card follows the scroll: sticky sidebar that stays in view while the
+   taller left column (video + controls + timelines) scrolls past, releasing at the
+   end of the card (it sticks within .ia3dr-split; the split is align-items:flex-start,
+   so the column keeps its natural height). max-height + overflow-y keep it usable when
+   its own content is taller than the viewport. */
+#inline-analysis-3d-reprojection-card .ia3dr-right {
+  width: 300px;
+  flex-shrink: 0;
+  position: sticky;
+  top: .5rem;
+  align-self: flex-start;
+  max-height: calc(100vh - 1rem);
+  overflow-y: auto;
+}
+
+/* Keyframe-lock red flag above the cam0 tile label (normal flow, not overlaying). */
+#inline-analysis-3d-reprojection-card .ia3dr-lock-flag {
+  display: inline-flex; align-items: center; gap: .3rem; margin-bottom: .4rem;
+  background: color-mix(in srgb, #ef4444 25%, #11161a);
+  border: 1px solid #ef4444; color: #fca5a5;
+  padding: .22rem .5rem; border-radius: 6px; font-size: .72rem; font-weight: 600;
+}
+
+/* Seek bar wrap + red range block (locked: block over [start,end], dim outside). */
+#inline-analysis-3d-reprojection-card .ia3dr-seek-wrap { position: relative; margin-top: .9rem; }
+#inline-analysis-3d-reprojection-card .ia3dr-seek-wrap #ia3dr-seek-canvas { margin-top: 0; }
+#inline-analysis-3d-reprojection-card .ia3dr-lock-out {
+  position: absolute; top: 0; bottom: 0; background: rgba(0,0,0,.45); pointer-events: none;
+}
+#inline-analysis-3d-reprojection-card .ia3dr-lock-range {
+  position: absolute; top: 0; bottom: 0; pointer-events: none;
+  background: color-mix(in srgb, #ef4444 35%, transparent);
+  border: 1px solid #ef4444; border-radius: 3px;
+}
+
+/* Controls + analysis flank. */
+#inline-analysis-3d-reprojection-card .ia3dr-controls-flank { display: flex; gap: .8rem; align-items: stretch; margin-top: .55rem; }
+#inline-analysis-3d-reprojection-card .ia3dr-controls-left { flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; gap: .5rem; }
+#inline-analysis-3d-reprojection-card .ia3dr-ctrl-top { display: flex; align-items: center; gap: .8rem; }
+#inline-analysis-3d-reprojection-card .ia3dr-controls-main { flex: 0 0 auto; }
+#inline-analysis-3d-reprojection-card .ia3dr-meta-mid {
+  display: flex; align-items: center; gap: .4rem;
+  padding-left: .7rem; border-left: 1px solid var(--border);
+}
+/* Analyze block inside the finalize panel (moved from the old start flank): the count,
+   the two full-width analyze buttons + hint, and the add-current-frame button. */
+#inline-analysis-3d-reprojection-card .ia3dr-analyze-block {
+  display: flex; flex-direction: column; gap: .4rem; margin: .45rem 0;
+}
+#inline-analysis-3d-reprojection-card .ia3dr-analyze-block .btn-sm { width: 100%; padding: .5rem; }
+#inline-analysis-3d-reprojection-card .ia3dr-start-count { font-size: .74rem; color: var(--text); text-align: center; }
+#inline-analysis-3d-reprojection-card .ia3dr-start-count b { color: var(--accent); }
+#inline-analysis-3d-reprojection-card .ia3dr-start-hint { font-size: .66rem; color: var(--text-dim); text-align: center; line-height: 1.4; }
+
+/* Thin group divider between the analyze-block sub-groups. */
+#inline-analysis-3d-reprojection-card .ia3dr-group-sep { border-top: 1px solid var(--border); margin: .5rem 0; }
+
+/* Body-marker chips fill the empty space below the controls + frame#/time (original position). */
+#inline-analysis-3d-reprojection-card .ia3dr-bp-chips-wrap {
+  flex: 1 1 0; padding-top: .4rem; border-top: 1px solid var(--border);
+}
+
+/* Compact timeline bar header (label + nav + chips inline). */
+#inline-analysis-3d-reprojection-card .ia3dr-bar { margin-top: .5rem; }
+#inline-analysis-3d-reprojection-card .ia3dr-bar-header {
+  display: flex; align-items: center; gap: .35rem; margin-bottom: .2rem; flex-wrap: wrap;
+}
+
+/* Per-frame status/note edit row below each timeline. */
+#inline-analysis-3d-reprojection-card .ia3dr-edit-row {
+  display: flex; align-items: center; gap: .4rem; margin-top: .35rem; flex-wrap: wrap;
+}
+#inline-analysis-3d-reprojection-card .ia3dr-edit-row input.ia3dr-edit-input {
+  flex: 0 0 180px; background: var(--surface); border: 1px solid var(--border);
+  color: var(--text); border-radius: 4px; padding: .25rem .4rem; font-size: .76rem;
+}
+#inline-analysis-3d-reprojection-card .ia3dr-edit-tags { display: flex; flex-wrap: wrap; gap: .3rem; align-items: center; }
+#inline-analysis-3d-reprojection-card .ia3dr-edit-tags .ia3dr-tags-lbl { font-size: .68rem; color: var(--text-dim); }
+
+/* Quick-tag pills (postfix/status/note), click-to-fill, with × remove + dashed add. */
+#inline-analysis-3d-reprojection-card .ia3dr-tags { display: flex; flex-wrap: wrap; gap: .3rem; margin: .1rem 0 .5rem; }
+#inline-analysis-3d-reprojection-card .ia3dr-ptag {
+  display: inline-flex; align-items: center; gap: .25rem; padding: .12rem .45rem;
+  border-radius: 10px; font-size: .7rem; cursor: pointer;
+  border: 1px solid var(--accent); color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+}
+#inline-analysis-3d-reprojection-card .ia3dr-ptag .x { opacity: .5; font-size: .72rem; }
+#inline-analysis-3d-reprojection-card .ia3dr-ptag.ia3dr-ptag-add {
+  border-style: dashed; border-color: var(--border); color: var(--text-dim); background: transparent;
+}
+
+/* 3D View panel — left controls column beside the canvas viewport (reflow). */
+#inline-analysis-3d-reprojection-card .ia3dr-pose3d-ctl-col {
+  flex: 0 0 auto; width: 210px; max-width: 210px;
+  display: flex; flex-direction: column;
+}
