@@ -44,6 +44,30 @@ traps; new code in this area should be checked against them.
 
 ---
 
+### Traps found while building the reprojection engine (July 2026)
+
+- **`cv2.undistortPoints` without `P=K` returns NORMALIZED coords, not pixels.** Mixing those
+  with a pixel-space fundamental matrix produces a *near-constant* residual (~101.7 px for every
+  bodypart) that looks like plausible data rather than an error. Cost a full debugging cycle on
+  the first probe. Guard: `test_undistort_to_pixels_differs_from_normalized`.
+- **Assigning the scalar `np.nan` upcasts a float32 column to float64.** DLC pose h5 columns are
+  `float32`; writing corrections back must assign a float32 *array*
+  (`arr.astype(dtype)`), never the bare scalar. The `.astype(dtype)` calls in
+  `reprojection.run_reprojection` are load-bearing — do not "simplify" them away. Breaks the
+  dtype-preservation checks in `test_reprojection_io.py` and `scripts/verify_reprojection.py`.
+- **Assigning a verdict "first-match-wins" only works if the bands cannot overlap.**
+  `epipolar_core.classify` originally wrote REJECT before RESCUE/CONFIRM, which silently lost
+  REJECT precedence whenever `t_ok > t_bad` — reachable because the UI exposes `k1` and `k2` as
+  independent inputs. A marker 12 px off its epipolar line was kept and had its likelihood forced
+  to 0.9. Fixed by applying REJECT *last*. Guard:
+  `test_classify_reject_wins_even_when_thresholds_are_inverted`. Lesson: a per-function review
+  cannot see the UI that supplies the arguments — check the input ranges, not just the defaults.
+- **Verdict percentages are denominator-dependent.** Counting over all frames x bodyparts vs only
+  frames where both views had a detection changes 8.9% into 3.1% for the same result. Always state
+  the denominator; compare absolute counts.
+
+---
+
 ## Bug table
 
 | # | Layer | Symptom | Root cause | Fix | Guard test |
