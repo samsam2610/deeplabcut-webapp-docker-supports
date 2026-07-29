@@ -211,3 +211,57 @@ def triangulate_dlt(
     xyz[~np.isfinite(xyz).all(axis=1)] = np.nan
     out[ok] = xyz
     return out
+
+
+DEFAULT_T_OK = 10.0
+DEFAULT_T_BAD = 25.0
+
+# Floor on mad so a degenerate (all-identical) residual distribution cannot
+# collapse t_ok and t_bad onto the median and reject everything.
+_MAD_FLOOR = 1e-3
+
+
+def auto_threshold(
+    d: np.ndarray,
+    lik_ref: np.ndarray,
+    lik_tgt: np.ndarray,
+    high_conf: float = 0.9,
+    k1: float = 3.0,
+    k2: float = 8.0,
+    min_n: int = 200,
+    pooled: "dict | None" = None,
+) -> dict:
+    """Estimate (t_ok, t_bad) for one bodypart from high-confidence agreement.
+
+    Frames where BOTH views exceed `high_conf` are presumed correct
+    correspondences, so their residual spread measures this session's real
+    geometric noise for this bodypart.
+    """
+    d = np.asarray(d, dtype=float)
+    hi = (
+        np.isfinite(d)
+        & (np.asarray(lik_ref, dtype=float) > high_conf)
+        & (np.asarray(lik_tgt, dtype=float) > high_conf)
+    )
+    n = int(hi.sum())
+
+    if n >= min_n:
+        sample = d[hi]
+        med = float(np.median(sample))
+        mad = float(1.4826 * np.median(np.abs(sample - med)))
+        source = "self"
+    elif pooled is not None:
+        med, mad, source = float(pooled["med"]), float(pooled["mad"]), "pooled"
+    else:
+        return {
+            "med": float("nan"), "mad": float("nan"),
+            "t_ok": DEFAULT_T_OK, "t_bad": DEFAULT_T_BAD,
+            "n_highconf": n, "threshold_source": "default",
+        }
+
+    mad = max(mad, _MAD_FLOOR)
+    return {
+        "med": med, "mad": mad,
+        "t_ok": med + k1 * mad, "t_bad": med + k2 * mad,
+        "n_highconf": n, "threshold_source": source,
+    }

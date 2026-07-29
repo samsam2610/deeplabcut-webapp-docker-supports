@@ -186,3 +186,64 @@ def test_triangulate_handles_large_batches():
     ]
     got = triangulate_dlt(ref, tgt, project_point(ref, xyz), project_point(tgt, xyz))
     assert np.nanmax(np.abs(got - xyz)) < 1e-3
+
+
+from dlc_3d_bp.epipolar_core import DEFAULT_T_BAD, DEFAULT_T_OK, auto_threshold
+
+
+def _highconf(n, d_values):
+    """n high-confidence pairs carrying the given residuals."""
+    return np.asarray(d_values), np.ones(n), np.ones(n)
+
+
+def test_auto_threshold_recovers_injected_median_and_mad():
+    rng = np.random.default_rng(1)
+    d = np.abs(rng.normal(0.0, 2.0, 5000)) + 3.0
+    stats = auto_threshold(*_highconf(5000, d), k1=3.0, k2=8.0)
+    assert stats["threshold_source"] == "self"
+    assert abs(stats["med"] - np.median(d)) < 1e-9
+    expected_mad = 1.4826 * np.median(np.abs(d - np.median(d)))
+    assert abs(stats["mad"] - expected_mad) < 1e-9
+    assert abs(stats["t_ok"] - (stats["med"] + 3.0 * stats["mad"])) < 1e-9
+    assert abs(stats["t_bad"] - (stats["med"] + 8.0 * stats["mad"])) < 1e-9
+
+
+def test_auto_threshold_uses_only_high_confidence_pairs():
+    """Low-confidence junk must not move the estimate."""
+    d = np.concatenate([np.full(1000, 1.0), np.full(1000, 900.0)])
+    lik_ref = np.concatenate([np.ones(1000), np.ones(1000)])
+    lik_tgt = np.concatenate([np.ones(1000), np.zeros(1000)])
+    stats = auto_threshold(d, lik_ref, lik_tgt, high_conf=0.9)
+    assert stats["n_highconf"] == 1000
+    assert abs(stats["med"] - 1.0) < 1e-9
+
+
+def test_auto_threshold_falls_back_to_pooled_when_too_few_samples():
+    d, lr, lt = _highconf(50, np.full(50, 4.0))
+    pooled = {"med": 2.0, "mad": 0.5}
+    stats = auto_threshold(d, lr, lt, min_n=200, k1=3.0, k2=8.0, pooled=pooled)
+    assert stats["threshold_source"] == "pooled"
+    assert abs(stats["t_ok"] - (2.0 + 3.0 * 0.5)) < 1e-9
+
+
+def test_auto_threshold_falls_back_to_defaults_without_pooled():
+    d, lr, lt = _highconf(5, np.full(5, 4.0))
+    stats = auto_threshold(d, lr, lt, min_n=200, pooled=None)
+    assert stats["threshold_source"] == "default"
+    assert stats["t_ok"] == DEFAULT_T_OK
+    assert stats["t_bad"] == DEFAULT_T_BAD
+
+
+def test_auto_threshold_ignores_nan_residuals():
+    d = np.array([1.0, np.nan, 1.0, 1.0])
+    stats = auto_threshold(d, np.ones(4), np.ones(4), min_n=1)
+    assert stats["n_highconf"] == 3
+
+
+def test_auto_threshold_survives_zero_mad():
+    """Identical residuals give mad == 0; thresholds must stay finite and
+    ordered so classification cannot degenerate."""
+    d, lr, lt = _highconf(500, np.full(500, 2.0))
+    stats = auto_threshold(d, lr, lt)
+    assert np.isfinite(stats["t_ok"]) and np.isfinite(stats["t_bad"])
+    assert stats["t_ok"] <= stats["t_bad"]
