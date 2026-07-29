@@ -22,6 +22,7 @@ import { markerEditor } from "./components/viewer/features/marker_editor.js";
 import { clipExtractor } from "./components/viewer/features/clip_extractor.js";
 import { coverageRects, coverageFrameRects, nearestCoveredFrame, xToFrame, nextCoveredBucket, bucketToFrame, frameToBucket } from "./components/viewer/internal/coverage_timeline.mjs";
 import { pickLatestVariant } from "./components/viewer/internal/pick_latest_variant.mjs";
+import { scaleFor, videoToCanvas } from "./components/viewer/internal/marker_overlay.mjs";
 import { makeKeyframeWindow } from "./keyframe_window_ui.js";
 import { makePose3dViewer } from "./pose3d_viewer.js";
 import { clampToBounds } from "./internal/clamp_bounds.mjs";
@@ -3565,8 +3566,296 @@ function _ia3drPlaceNavButton() {
   _reprojPlaceNavButton();
 }
 
-// Replaced in full by the REPROJECTION PANEL block (Task 5).
-function _reprojWirePanel() {}
+// ── REPROJECTION PANEL ──────────────────────────────────────────────────────
+// Drives the epipolar reprojection engine. The trusted camera judges the other;
+// the engine writes <stem>_reprojected.h5 for BOTH cameras so the existing
+// _cam{N}_ sibling pairing still discovers the pair.
+
+let _reprojAudit = null;              // last run summary (or estimate result)
+let _reprojOverrides = {};            // bodypart -> "ref" | "tgt"
+
+const _reprojEl = {
+  panel:      () => document.getElementById("ia3dr-reproj-panel"),
+  refCam:     () => document.getElementById("ia3dr-reproj-ref-cam"),
+  k1:         () => document.getElementById("ia3dr-reproj-k1"),
+  k1Val:      () => document.getElementById("ia3dr-reproj-k1-val"),
+  k2:         () => document.getElementById("ia3dr-reproj-k2"),
+  k2Val:      () => document.getElementById("ia3dr-reproj-k2-val"),
+  estimate:   () => document.getElementById("ia3dr-reproj-estimate"),
+  run:        () => document.getElementById("ia3dr-reproj-run"),
+  status:     () => document.getElementById("ia3dr-reproj-status"),
+  thresholds: () => document.getElementById("ia3dr-reproj-thresholds"),
+  counts:     () => document.getElementById("ia3dr-reproj-counts"),
+  showLines:  () => document.getElementById("ia3dr-reproj-show-lines"),
+  overrides:  () => document.getElementById("ia3dr-reproj-overrides"),
+};
+
+function _reprojStatus(msg, isError) {
+  const el = _reprojEl.status();
+  if (!el) return;
+  el.textContent = msg || "";
+  el.style.color = isError ? "#ff6b6b" : "";
+}
+
+// calibration.toml sits in the video's folder, or its parent when the video is
+// inside a clip subfolder — the same priority the save-frame route uses.
+function _reprojResolveCalibration(h5Path) {
+  if (!h5Path) return null;
+  const parts = String(h5Path).split("/");
+  parts.pop();
+  return parts.join("/") + "/calibration.toml";
+}
+
+// The trusted camera drives which of the two h5 files is reference vs target.
+function _reprojPair() {
+  const refCam = _reprojEl.refCam()?.value || "cam_1";
+  const tgtCam = refCam === "cam_0" ? "cam_1" : "cam_0";
+  const primary = _overlayPrimaryH5;
+  const sibling = _siblingPrimaryH5;
+  if (!primary || !sibling) return null;
+
+  // _overlayPrimaryH5 is cam0's file (the primary tile); the sibling is cam1's.
+  const byCam = { cam_0: primary, cam_1: sibling };
+  return {
+    ref_cam: refCam,
+    tgt_cam: tgtCam,
+    ref_h5: byCam[refCam],
+    tgt_h5: byCam[tgtCam],
+    calibration: _reprojResolveCalibration(primary),
+  };
+}
+
+function _reprojPayload() {
+  const pair = _reprojPair();
+  if (!pair) return null;
+  return Object.assign({}, pair, {
+    k1: parseFloat(_reprojEl.k1()?.value) || 3.0,
+    k2: parseFloat(_reprojEl.k2()?.value) || 8.0,
+    overrides: _reprojOverrides,
+  });
+}
+
+function _reprojRenderThresholds(bodyparts) {
+  const host = _reprojEl.thresholds();
+  if (!host) return;
+  const rows = Object.keys(bodyparts).map((bp) => {
+    const s = bodyparts[bp];
+    const cls = s.threshold_source === "self" ? "" : ` class="src-${s.threshold_source}"`;
+    const fmt = (v) => (Number.isFinite(v) ? v.toFixed(2) : "—");
+    return `<tr${cls}><td>${bp}</td><td>${fmt(s.t_ok)}</td><td>${fmt(s.t_bad)}</td>` +
+           `<td>${fmt(s.med)}</td><td>${fmt(s.mad)}</td>` +
+           `<td>${s.n_highconf}</td><td>${s.threshold_source}</td></tr>`;
+  }).join("");
+  host.innerHTML =
+    `<table><thead><tr><th>bodypart</th><th>t_ok</th><th>t_bad</th>` +
+    `<th>med</th><th>mad</th><th>n high-conf</th><th>source</th></tr></thead>` +
+    `<tbody>${rows}</tbody></table>`;
+}
+
+function _reprojRenderCounts(counts) {
+  const host = _reprojEl.counts();
+  if (!host) return;
+  const total = Object.values(counts).reduce((a, b) => a + b, 0) || 1;
+  const rows = Object.keys(counts)
+    .sort((a, b) => counts[b] - counts[a])
+    .map((k) => `<tr><td>${k}</td><td>${counts[k]}</td>` +
+                `<td>${(100 * counts[k] / total).toFixed(2)}%</td></tr>`)
+    .join("");
+  host.innerHTML =
+    `<table><thead><tr><th>verdict</th><th>points</th><th>share</th></tr>` +
+    `</thead><tbody>${rows}</tbody></table>`;
+}
+
+function _reprojRenderOverrides(bodyparts) {
+  const host = _reprojEl.overrides();
+  if (!host) return;
+  host.innerHTML = Object.keys(bodyparts).map((bp) => {
+    const cur = _reprojOverrides[bp] === "ref" ? "ref" : "tgt";
+    return `<label class="ia3dr-inline-check"><span>${bp}</span>` +
+           `<select data-reproj-bp="${bp}">` +
+           `<option value="tgt"${cur === "tgt" ? " selected" : ""}>session default</option>` +
+           `<option value="ref"${cur === "ref" ? " selected" : ""}>flip for this part</option>` +
+           `</select></label>`;
+  }).join("");
+  host.querySelectorAll("select[data-reproj-bp]").forEach((sel) => {
+    sel.addEventListener("change", () => {
+      const bp = sel.getAttribute("data-reproj-bp");
+      if (sel.value === "ref") _reprojOverrides[bp] = "ref";
+      else delete _reprojOverrides[bp];
+    });
+  });
+}
+
+async function _reprojEstimate() {
+  const payload = _reprojPayload();
+  if (!payload) { _reprojStatus("Open a paired session with an overlay h5 first.", true); return; }
+  const btn = _reprojEl.estimate();
+  if (btn) btn.disabled = true;
+  _reprojStatus("Estimating thresholds…");
+  try {
+    const res = await fetch("/dlc-3d/reproject/thresholds", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+    _reprojRenderThresholds(data.bodyparts);
+    _reprojRenderOverrides(data.bodyparts);
+    const fellBack = Object.values(data.bodyparts)
+      .filter((s) => s.threshold_source !== "self").length;
+    _reprojStatus(
+      fellBack
+        ? `Thresholds ready. ${fellBack} bodypart(s) had too few confident frames — their verdicts are not self-calibrated.`
+        : "Thresholds ready.",
+    );
+  } catch (e) {
+    _reprojStatus(`Threshold estimation failed: ${e.message}`, true);
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
+async function _reprojRun() {
+  const payload = _reprojPayload();
+  if (!payload) { _reprojStatus("Open a paired session with an overlay h5 first.", true); return; }
+  const btn = _reprojEl.run();
+  if (btn) btn.disabled = true;
+  _reprojStatus("Running reprojection — this rewrites nothing until it finishes…");
+  try {
+    const res = await fetch("/dlc-3d/reproject/run", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+    _reprojAudit = data;
+    _reprojRenderThresholds(data.bodyparts);
+    _reprojRenderCounts(data.counts);
+    _reprojStatus(
+      `Wrote ${data.outputs.ref_h5.split("/").pop()} and ` +
+      `${data.outputs.tgt_h5.split("/").pop()}.`,
+    );
+  } catch (e) {
+    _reprojStatus(`Run failed: ${e.message}`, true);
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
+function _reprojWirePanel() {
+  if (!_reprojEl.panel()) return;
+  _reprojEl.estimate()?.addEventListener("click", _reprojEstimate);
+  _reprojEl.run()?.addEventListener("click", _reprojRun);
+  const mirror = (input, out) => {
+    const el = input(), o = out();
+    if (!el || !o) return;
+    const sync = () => { o.textContent = `×${el.value}`; };
+    el.addEventListener("input", sync);
+    sync();
+  };
+  mirror(_reprojEl.k1, _reprojEl.k1Val);
+  mirror(_reprojEl.k2, _reprojEl.k2Val);
+  _reprojEl.refCam()?.addEventListener("change", () => {
+    _reprojStatus("Trusted camera changed — re-estimate thresholds.");
+  });
+  _reprojWireEpipolarOverlay();
+}
+
+// ── EPIPOLAR OVERLAY ────────────────────────────────────────────────────────
+// Draws the trusted camera's epipolar line onto the judged camera's tile, so a
+// marker can be eyeballed against the geometry it is being judged by.
+//
+// VideoViewer emits drawTile(tile, frame) per tile after every seek. markerEditor
+// subscribes first and clears the canvas, so subscribing here — after the
+// feature modules are composed — paints on top of the markers.
+
+const _reprojLineCache = new Map();     // `${frame}|${bodypart}` -> segment|null
+let _reprojOverlayBound = false;
+
+function _reprojCacheKey(frame, bodypart) {
+  return `${frame}|${bodypart}`;
+}
+
+function _reprojActiveBodyparts() {
+  // Mirror whatever the marker overlay is currently showing; fall back to the
+  // bodyparts the last threshold estimate reported.
+  const posed = _markerEditor?.posedBodyparts?.();
+  if (posed && posed.length) return posed;
+  return _reprojAudit ? Object.keys(_reprojAudit.bodyparts) : [];
+}
+
+async function _reprojFetchSegment(frame, bodypart) {
+  const key = _reprojCacheKey(frame, bodypart);
+  if (_reprojLineCache.has(key)) return _reprojLineCache.get(key);
+
+  const pair = _reprojPair();
+  if (!pair) return null;
+  const qs = new URLSearchParams({
+    ref_h5: pair.ref_h5,
+    calibration: pair.calibration,
+    ref_cam: pair.ref_cam,
+    tgt_cam: pair.tgt_cam,
+    frame: String(frame),
+    bodypart,
+  });
+  let seg = null;
+  try {
+    const res = await fetch(`/dlc-3d/reproject/epiline?${qs}`);
+    if (res.ok) seg = (await res.json()).segment || null;
+  } catch (e) { /* leave seg null; the overlay simply draws nothing */ }
+
+  // Bound the cache so long scrubbing sessions cannot grow it without limit.
+  if (_reprojLineCache.size > 4000) _reprojLineCache.clear();
+  _reprojLineCache.set(key, seg);
+  return seg;
+}
+
+function _reprojDrawSegment(tile, seg, color) {
+  const canvas = tile.canvasEl, img = tile.imgEl;
+  if (!canvas || !img || !seg) return;
+  const scale = scaleFor(
+    img.naturalWidth, img.naturalHeight, canvas.width, canvas.height,
+  );
+  const a = videoToCanvas(seg[0][0], seg[0][1], scale);
+  const b = videoToCanvas(seg[1][0], seg[1][1], scale);
+  const ctx = canvas.getContext("2d");
+  ctx.save();
+  ctx.strokeStyle = color;
+  ctx.lineWidth = 1;
+  ctx.setLineDash([6, 4]);
+  ctx.beginPath();
+  ctx.moveTo(a.cx, a.cy);
+  ctx.lineTo(b.cx, b.cy);
+  ctx.stroke();
+  ctx.restore();
+}
+
+function _reprojJudgedCam() {
+  // The judged camera is the one that is NOT the trusted reference.
+  return (_reprojEl.refCam()?.value || "cam_1") === "cam_0" ? 1 : 0;
+}
+
+function _reprojWireEpipolarOverlay() {
+  if (_reprojOverlayBound || !_viewer) return;
+  _reprojOverlayBound = true;
+
+  _viewer.on("drawTile", async (tile, frame) => {
+    if (!_reprojEl.showLines()?.checked) return;
+    if (tile.cam !== _reprojJudgedCam()) return;
+    const parts = _reprojActiveBodyparts();
+    if (!parts.length) return;
+    for (const bp of parts) {
+      const seg = await _reprojFetchSegment(frame, bp);
+      if (seg) _reprojDrawSegment(tile, seg, "rgba(120,200,255,.85)");
+    }
+  });
+
+  // A trusted-camera change invalidates every cached line.
+  _reprojEl.refCam()?.addEventListener("change", () => _reprojLineCache.clear());
+  _reprojEl.showLines()?.addEventListener("change", () => {
+    try { _viewer?.redraw?.(); } catch (e) { /* redraw is best-effort */ }
+  });
+}
 
 // ── Init ──────────────────────────────────────────────────────────────────────
 
