@@ -1,7 +1,7 @@
 # 3D Inline Analysis — Reprojection
 
 **Date:** 2026-07-29
-**Status:** design approved, not yet implemented
+**Status:** implemented and deployed 2026-07-30 (see Rollout)
 **Module:** `dlc-3D`
 
 ## Problem
@@ -73,7 +73,8 @@ dlc-3D/src/static/
   inline_analysis_3d_reprojection.css   ← clone of inline_analysis_3d.css
   card_inline_analysis_3d_reprojection.html  ← card markup, fetched and injected (see Rollout)
 dlc-3D/src/templates/
-  dlc_3d.html         ← + launcher button, + <link>, + <script>
+  dlc_3d.html         ← + <script> only (as built: the clone injects its own
+                        launcher button, stylesheet and card fragment at runtime)
 ```
 
 `epipolar_core.py` performs no I/O. That is what makes verdicts testable against the
@@ -343,6 +344,21 @@ fetches and injects into `<main class="cards">`, rather than as a Jinja include.
 avoids a `docker-compose.yml` edit entirely and makes every subsequent markup, JS and CSS
 change live-reloading. The cost is that this one file diverges from the include-based
 pattern and must be moved into a partial when the clone is merged back.
+
+**Both phases are complete and the restart happened on 2026-07-30.** What the rollout
+actually showed, recorded here because the plan could only predict it:
+
+- `docker compose up -d dlc-3d` is a **no-op** when no compose config changed — it
+  reports "Container ... Running" and never reloads gunicorn, so the routes stay
+  unregistered. `docker compose restart dlc-3d` is the correct command. The rollout
+  checklist has been corrected.
+- Gunicorn booted clean, confirming `epipolar_core` and `reprojection` import fine in
+  the real container (the `numba`-free constraint held).
+- All four `/dlc-3d/reproject/*` routes registered, each returning 403 with its
+  `/user-data` guard message on an out-of-tree path.
+- The live `thresholds` endpoint on the reference session returned in 0.6 s with all
+  16 bodyparts self-calibrated, matching the pre-deploy verified values to 0.0045 px.
+- `flask`, both workers and redis were untouched by the restart.
 
 **Phase 1 — no restart.** Build and validate the engine. Run it via `docker exec` into the
 `dlc-3d` container, the real target environment, against the scratchpad copy of the

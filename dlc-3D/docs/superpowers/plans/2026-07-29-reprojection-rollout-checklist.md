@@ -24,7 +24,10 @@ as a static fragment instead of a Jinja partial.
 
 ```bash
 cd /home/sam/docker-images/deeplabcut-webapp-docker
-docker compose up -d dlc-3d
+# NOTE: `up -d` is a NO-OP here. With no docker-compose.yml change it just
+# reports "Container ... Running" and does not reload gunicorn, so the new
+# routes stay unregistered. `restart` is what actually reloads the app.
+docker compose restart dlc-3d
 ```
 
 ## Smoke test after restart
