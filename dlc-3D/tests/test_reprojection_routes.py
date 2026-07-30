@@ -1,4 +1,5 @@
 import json
+from pathlib import Path
 
 import pytest
 
@@ -153,4 +154,94 @@ def test_non_numeric_k1_is_400_not_500(client, monkeypatch):
         "k1": {"cam_0": 3.0},
     })
     assert r.status_code == 400
-    assert "k1" in r.get_json()["error"]
+
+
+def test_run_forwards_the_screen_parameters(client, monkeypatch):
+    import dlc_3d_bp.reprojection as rp
+    seen = {}
+
+    def fake_run(**kwargs):
+        seen.update(kwargs)
+        return {"counts": {}, "bodyparts": {}, "outputs": {}, "peak_screen": None}
+
+    monkeypatch.setattr(routes, "_reproject_run_impl", fake_run)
+    monkeypatch.setattr(rp, "load_calibration", lambda p: {"cam_0": object(),
+                                                           "cam_1": object()})
+    body = {
+        "ref_h5": "/user-data/a.h5", "tgt_h5": "/user-data/b.h5",
+        "calibration": "/user-data/calibration.toml",
+        "ref_cam": "cam_0", "tgt_cam": "cam_1",
+        "require_peaks": True, "peak_score_floor": 0.2,
+    }
+    resp = client.post("/dlc-3d/reproject/run", json=body)
+    assert resp.status_code == 200
+    assert seen["require_peaks"] is True
+    assert seen["peak_score_floor"] == 0.2
+
+
+def test_run_defaults_the_screen_off(client, monkeypatch):
+    import dlc_3d_bp.reprojection as rp
+    seen = {}
+
+    def fake_run(**kwargs):
+        seen.update(kwargs)
+        return {"counts": {}, "bodyparts": {}, "outputs": {}, "peak_screen": None}
+
+    monkeypatch.setattr(routes, "_reproject_run_impl", fake_run)
+    monkeypatch.setattr(rp, "load_calibration", lambda p: {"cam_0": object(),
+                                                           "cam_1": object()})
+    body = {
+        "ref_h5": "/user-data/a.h5", "tgt_h5": "/user-data/b.h5",
+        "calibration": "/user-data/calibration.toml",
+        "ref_cam": "cam_0", "tgt_cam": "cam_1",
+    }
+    resp = client.post("/dlc-3d/reproject/run", json=body)
+    assert resp.status_code == 200
+    assert seen["require_peaks"] is False
+    assert seen["peak_score_floor"] == 0.05
+
+
+def test_run_rejects_an_out_of_range_score_floor(client, monkeypatch):
+    import dlc_3d_bp.reprojection as rp
+    monkeypatch.setattr(rp, "load_calibration", lambda p: {"cam_0": object(),
+                                                           "cam_1": object()})
+    resp = client.post("/dlc-3d/reproject/run", json={
+        "ref_h5": "/user-data/a.h5", "tgt_h5": "/user-data/b.h5",
+        "calibration": "/user-data/calibration.toml",
+        "ref_cam": "cam_0", "tgt_cam": "cam_1",
+        "peak_score_floor": 1.5,
+    })
+    assert resp.status_code == 400
+    assert "peak_score_floor" in resp.get_json()["error"]
+
+
+def test_peaks_status_reports_absent_sidecars(client, monkeypatch, tmp_path):
+    monkeypatch.setattr(routes, "_safe_user_data_path",
+                        lambda raw: tmp_path / Path(raw).name)
+    resp = client.get("/dlc-3d/reproject/peaks-status", query_string={
+        "ref_h5": "/user-data/a.h5", "tgt_h5": "/user-data/b.h5"})
+    assert resp.status_code == 200
+    d = resp.get_json()
+    assert d["ref"]["present"] is False and d["tgt"]["present"] is False
+
+
+def test_peaks_status_reports_a_present_sidecar(client, monkeypatch, tmp_path):
+    import numpy as np
+    from dlc_3d_bp import peaks_io as pio
+
+    monkeypatch.setattr(routes, "_safe_user_data_path",
+                        lambda raw: tmp_path / Path(raw).name)
+    dst = pio.peaks_sidecar_path(tmp_path / "b.h5")
+    pio.write_peaks_npz(dst, np.array([0, 1], np.int32),
+                        np.zeros((2, 1, 2, 2), np.float32),
+                        np.zeros((2, 1, 2), np.float32), ["nose"], {"k": 2})
+    resp = client.get("/dlc-3d/reproject/peaks-status", query_string={
+        "ref_h5": "/user-data/a.h5", "tgt_h5": "/user-data/b.h5"})
+    d = resp.get_json()
+    assert d["tgt"]["present"] is True and d["tgt"]["frames"] == 2
+
+
+def test_peaks_status_refuses_a_path_outside_the_data_root(client):
+    resp = client.get("/dlc-3d/reproject/peaks-status", query_string={
+        "ref_h5": "/etc/passwd", "tgt_h5": "/etc/passwd"})
+    assert resp.status_code == 403

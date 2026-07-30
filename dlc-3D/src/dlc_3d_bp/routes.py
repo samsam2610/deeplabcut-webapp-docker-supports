@@ -16,6 +16,7 @@ import config
 import viewer
 
 from dlc_3d_bp import epipolar_core as ec
+from dlc_3d_bp import peaks_io as pio
 from dlc_3d_bp import reprojection as rp
 
 bp = Blueprint(
@@ -917,6 +918,9 @@ def reproject_run():
     try:
         k1 = _float_arg(body, "k1", 3.0)
         k2 = _float_arg(body, "k2", 8.0)
+        peak_score_floor = _float_arg(body, "peak_score_floor", 0.05)
+        if not (0.0 <= peak_score_floor <= 1.0):
+            raise ValueError("peak_score_floor must be in 0..1")
         summary = _reproject_run_impl(
             ref_h5=paths["ref_h5"], tgt_h5=paths["tgt_h5"],
             calib_path=paths["calibration"],
@@ -928,12 +932,45 @@ def reproject_run():
             high_conf=body.get("high_conf", 0.9),
             rescue_floor=body.get("rescue_floor", 0.9),
             overrides=body.get("overrides") or {},
+            require_peaks=bool(body.get("require_peaks", False)),
+            peak_score_floor=peak_score_floor,
         )
     except ValueError as exc:
         # normalize_per_cam rejects unknown camera keys and out-of-range values.
-        # _float_arg also raises ValueError for non-numeric k1/k2.
+        # _float_arg also raises ValueError for non-numeric k1/k2/peak_score_floor.
         return jsonify({"error": str(exc)}), 400
     return jsonify(summary)
+
+
+@bp.route("/reproject/peaks-status")
+def reproject_peaks_status():
+    """Whether a candidate-peak sidecar exists for each side. Writes nothing.
+
+    The card uses this to enable or grey out "Require peak evidence", so that a
+    screen with nothing to screen with is unreachable from the UI rather than
+    silently inert.
+    """
+    args = {k: (request.args.get(k) or "").strip() for k in ("ref_h5", "tgt_h5")}
+    for k, v in args.items():
+        if not v:
+            return jsonify({"error": "missing: " + k}), 400
+
+    out = {}
+    for side, key in (("ref", "ref_h5"), ("tgt", "tgt_h5")):
+        safe = _safe_user_data_path(args[key])
+        if safe is None:
+            return jsonify({"error": "path outside /user-data: " + key}), 403
+        sc = pio.peaks_sidecar_path(safe)
+        if not sc.is_file():
+            out[side] = {"present": False, "frames": None}
+            continue
+        try:
+            n = int(len(pio.read_peaks_npz(sc)["frames"]))
+        except Exception as exc:
+            out[side] = {"present": False, "frames": None, "error": str(exc)[:200]}
+            continue
+        out[side] = {"present": True, "frames": n}
+    return jsonify(out)
 
 
 @bp.route("/reproject/audit")
