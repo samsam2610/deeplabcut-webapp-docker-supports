@@ -1,7 +1,7 @@
 # Candidate-peak epipolar correction
 
 **Date:** 2026-07-30
-**Status:** design approved, not yet implemented
+**Status:** Phase 1 implemented and verified (0.47 px worst median); Phase 2 not yet started
 **Module:** `dlc-3D`
 **Builds on:** [2026-07-29-inline-3d-reprojection-design.md](2026-07-29-inline-3d-reprojection-design.md)
 
@@ -72,7 +72,7 @@ holds.
 | Question | Finding |
 | --- | --- |
 | DLC version | 3.0.0rc14, PyTorch engine |
-| Model | `hrnet_w48`, 448×448 input, `num_heatmaps: 16` |
+| Model | `hrnet_w48`, `num_heatmaps: 16`. Inference runs at NATIVE resolution padded to a multiple of 32 — **not** resized. Stride exactly 2; `locref_std` 7.2801 |
 | Does `analyze_videos` expose raw output? | **No.** 25 parameters, none for full/heatmap output |
 | Is the heatmap reachable? | **Yes** — `HeatmapPredictor.forward` receives `outputs["heatmap"]` before the argmax |
 | Can the predictor be swapped? | **Yes** — `PREDICTORS` is a `Registry` with `register_module` and `build` |
@@ -99,16 +99,20 @@ The interface between the two phases, so it is specified once.
 Peaks are ordered by descending score, so `k=0` is the argmax and must reproduce
 the pose h5's coordinate. Missing peaks are `NaN` with score `0`.
 
-**Coordinates are in original video pixels, not model input space.** The model
-runs at 448×448 on 800×600 frames, so peaks must be carried back through the same
-resize/pad transform DLC applies to poses, after `locref` sub-pixel refinement.
-This is the highest-risk part of the implementation and is what the `k=0`
-equality test exists to catch.
+**Coordinates are in original video pixels.** VERIFIED in Phase 1 against the
+existing pose h5: native resolution padded to a multiple of 32 (never resized),
+ImageNet mean/std normalisation, model output nested at `out["bodypart"]`, stride
+exactly 2, and `locref` refinement applied. An earlier draft assumed a 448×448
+resize with plain `/255` and no locref, which gave 427 px of error. Measured
+result with the correct pipeline: **0.47 px worst median** over 15,328 marker
+comparisons across both cameras.
 
 ## Phase 1 — emit the peaks
 
-A predictor registered into `PREDICTORS` that returns top-K local maxima instead
-of a single argmax.
+Peak extraction runs the model directly and reads `out["bodypart"]["heatmap"]`,
+rather than registering a custom predictor. `PREDICTORS` is a swappable
+`Registry`, but going direct avoids any risk of altering normal analysis, and the
+`k=0` equality check proves the result matches DeepLabCut's own output.
 
 **Non-maximum suppression is essential.** A naive top-K over a heatmap returns K
 adjacent cells of the same blob. Peaks must be local maxima separated by a
