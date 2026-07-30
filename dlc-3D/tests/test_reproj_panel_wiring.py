@@ -421,11 +421,25 @@ def test_analyze_for_tag_posts_to_the_peaks_endpoint(js):
 
 
 def test_peaks_payload_carries_h5_paths_parallel_to_video_paths(js):
-    """The endpoint 400s without h5_paths — same length/order as video_paths.
-    See dlc/inline_analysis.py:peaks_submit()."""
+    """The endpoint 400s without h5_paths of the same length/order as
+    video_paths (see dlc/inline_analysis.py:peaks_submit()). Assert the
+    actual construction — mapping over videoPaths, one h5 per video, built
+    from <stem> + scorer + '.h5' — not just that both key strings appear
+    somewhere in the function (a truncated or scorer-less list would still
+    satisfy that)."""
     fn = js.split("async function _reprojEmitPeaks")[1].split("\nasync function")[0]
     assert fn, "could not locate _reprojEmitPeaks"
-    assert "h5_paths" in fn and "video_paths" in fn
+    assert "videoPaths.map(" in fn, (
+        "h5_paths must be derived by mapping videoPaths 1:1, not built "
+        "separately or truncated"
+    )
+    assert "+ scorer +" in fn, (
+        "each h5 path must be built from <stem> + scorer + '.h5' — a path "
+        "missing the scorer writes the sidecar where nothing will find it"
+    )
+    assert "h5_paths: h5Paths" in fn, (
+        "the full mapped array must be sent, not a slice of it"
+    )
 
 
 def test_the_peaks_pass_skips_rather_than_guesses_when_scorer_is_unknown(js):
@@ -509,13 +523,22 @@ def test_new_controls_are_registered_for_persistence(js):
 
 
 def test_the_require_peaks_checkbox_is_gated_on_sidecar_presence(js):
+    """Assert the actual disabled/checked assignments the response drives, not
+    just that the substring "disabled" appears somewhere nearby — the catch
+    branch's unconditional `box.disabled = true` would already satisfy a bare
+    "disabled in window" check even if the success branch never greyed the
+    box out at all."""
     assert "/dlc-3d/reproject/peaks-status" in js
-    i = js.index("/dlc-3d/reproject/peaks-status")
-    window = js[i:i + 1500]
-    assert "disabled" in window, (
-        "require-peaks must be disabled when no sidecar is present"
+    fn = js.split("async function _reprojRefreshPeaksAvailability")[1].split(
+        "\nasync function"
+    )[0]
+    assert fn, "could not locate _reprojRefreshPeaksAvailability"
+    assert "box.disabled = !any" in fn, (
+        "disabled must be DERIVED from sidecar presence, not a constant"
     )
-    assert "ia3dr-reproj-require-peaks" in window or "requirePeaks" in window
+    assert "if (!any) box.checked = false" in fn, (
+        "require-peaks must be force-UNCHECKED when no sidecar covers the pair"
+    )
 
 
 def test_availability_refresh_uses_reprojpair_not_missing_accessors(js):
@@ -530,8 +553,76 @@ def test_availability_refresh_uses_reprojpair_not_missing_accessors(js):
     assert "_reprojPair(" in fn
 
 
+def test_availability_refresh_actually_fetches_and_assigns_disabled(js):
+    """Guards against a trivially-short-circuited body: the fetch to
+    peaks-status and the disabled assignment derived from its response must
+    both be present, and the fetch must happen BEFORE the assignment it
+    supposedly drives."""
+    fn = js.split("async function _reprojRefreshPeaksAvailability")[1].split(
+        "\nasync function"
+    )[0]
+    assert fn, "could not locate _reprojRefreshPeaksAvailability"
+    assert "fetch(`/dlc-3d/reproject/peaks-status" in fn
+    assert fn.index("fetch(`/dlc-3d/reproject/peaks-status") < fn.index(
+        "box.disabled = !any"
+    ), "box.disabled must be derived from the fetch response, not assigned before it"
+
+
+def test_availability_refresh_is_not_gutted_by_an_early_return(js):
+    """REGRESSION GUARD. An unconditional `return;` inserted ahead of the
+    fetch would leave every string above present as unreachable dead code —
+    none of the substring-presence tests could see it. Strip the two
+    legitimate guarded returns (missing box element; no pair loaded yet) and
+    require nothing to be left over."""
+    fn = js.split("async function _reprojRefreshPeaksAvailability")[1].split(
+        "\nasync function"
+    )[0]
+    assert fn, "could not locate _reprojRefreshPeaksAvailability"
+    stripped = fn.replace("if (!box) return;", "")
+    stripped = re.sub(r"if \(!pair\) \{[^}]*return;\s*\}", "", stripped, flags=re.S)
+    assert "return;" not in stripped, (
+        "an extra unconditional return would gut the function while its fetch "
+        "+ assignment logic stays present but unreachable"
+    )
+
+
+def test_availability_refresh_is_called_once_the_pair_resolves(js):
+    """A correct, never-invoked function would pass every test above.
+    _applyOverlayPrimary is where ref/tgt h5 actually become known — the same
+    place /reproject/run's own pair comes from — so the refresh must be
+    called from there. Regression shape: the epipolar overlay has twice
+    shipped correctly-written-but-never-subscribed."""
+    fn = js.split("async function _applyOverlayPrimary")[1].split("\nasync function")[0]
+    assert fn, "could not locate _applyOverlayPrimary"
+    assert "_reprojRefreshPeaksAvailability()" in fn
+
+
 def test_the_audit_surfaces_the_screen_coverage(js):
     fn = js.split("async function _reprojRun")[1].split("\nfunction _reprojRenderHelp")[0]
     assert fn, "could not locate _reprojRun"
     assert "peak_screen" in fn
     assert "_reprojEl.status()" in fn
+
+
+def test_peak_screen_coverage_line_is_null_guarded(js):
+    """summary.peak_screen is null when the screen did not run (no
+    require_peaks / no peaks sidecar) — the coverage line must not assume it
+    is always an object."""
+    fn = js.split("async function _reprojRun")[1].split("\nfunction _reprojRenderHelp")[0]
+    assert fn, "could not locate _reprojRun"
+    assert "const scr = data.peak_screen;" in fn
+    assert "if (scr)" in fn, "the coverage line must be guarded on peak_screen truthiness"
+
+
+def test_peak_score_floor_preserves_an_explicit_zero(js):
+    """0 is a legitimate 'no score requirement' setting (the backend
+    range-checks 0..1 and accepts it) — same reasoning the spec gives for
+    line_lik's "0 genuinely means show everything". `|| 0.05` would silently
+    turn a typed 0 into the default; a Number.isFinite check must be used
+    instead so only a blank/unparseable field falls back."""
+    fn = js.split("function _reprojPayload")[1].split("\nfunction ")[0]
+    assert fn, "could not locate _reprojPayload"
+    assert "Number.isFinite(v) ? v : 0.05" in fn
+    assert "peakFloor()?.value) || 0.05" not in fn, (
+        "|| 0.05 turns an explicitly-typed 0 into the default"
+    )

@@ -3783,7 +3783,15 @@ function _reprojPayload() {
     rescue_floor: _reprojPerCam("rescue-floor", 0.9),
     overrides: _reprojOverrides,
     require_peaks: !!_reprojEl.requirePeaks()?.checked,
-    peak_score_floor: parseFloat(_reprojEl.peakFloor()?.value) || 0.05,
+    // `|| 0.05` would silently turn an explicitly-typed 0 into 0.05. 0 is a
+    // legitimate setting (impose no score requirement; the backend accepts
+    // 0..1) — the display-threshold field elsewhere in this panel documents
+    // the identical "0 genuinely means show everything" reasoning. Only a
+    // blank/unparseable field falls back to the default here.
+    peak_score_floor: (() => {
+      const v = parseFloat(_reprojEl.peakFloor()?.value);
+      return Number.isFinite(v) ? v : 0.05;
+    })(),
   });
 }
 
