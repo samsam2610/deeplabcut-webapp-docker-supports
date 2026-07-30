@@ -129,6 +129,90 @@ def _sidecar_for(h5_path, frames, bodyparts, xy_per_frame, k=3):
          "stride": 2.0, "locref_std": 7.2801})
 
 
+def _sidecar_with_score(h5_path, frames, bodyparts, xy_per_frame, score, k=3):
+    """Like _sidecar_for but with a caller-chosen peak score, needed to prove
+    peak_score_floor is actually consulted rather than a hard-coded value."""
+    n, b = len(frames), len(bodyparts)
+    xy = np.full((n, b, k, 2), np.nan, np.float32)
+    sc = np.zeros((n, b, k), np.float32)
+    for i in range(n):
+        for j in range(b):
+            xy[i, j, 0] = xy_per_frame[i]
+            sc[i, j, 0] = score
+    pio.write_peaks_npz(
+        pio.peaks_sidecar_path(h5_path), np.asarray(frames, np.int32),
+        xy, sc, list(bodyparts),
+        {"k": k, "min_distance": 3, "snapshot": "s.pt",
+         "stride": 2.0, "locref_std": 7.2801})
+
+
+def _build_pair_both_bodyparts_rescued(tmp_path):
+    """Both bodyparts get their own RESCUE-eligible low-likelihood window, at
+    disjoint frame ranges, with positions left correct (on the epipolar line)
+    throughout in both views.
+
+    _build_pair above only ever damages bodypart 0 ("Snout"), so no existing
+    fixture can prove the screen reads a bodypart's OWN peaks rather than
+    reusing bodypart 0's for everyone — a screen that hard-coded the
+    bodypart-axis index would pass every other test in this file.
+    """
+    calib = _write_calib(tmp_path)
+    cams = rp.load_calibration(calib)
+    ref_cam, tgt_cam = cams["cam_0"], cams["cam_1"]
+
+    n = 300
+    t = np.linspace(0.0, 1.0, n)
+    xyz0 = np.c_[10.0 + 2.0 * t, -5.0 + 2.0 * t, 250.0 + 5.0 * t]
+    xyz1 = np.c_[-8.0 + 1.5 * t, 6.0 - 1.0 * t, 260.0 + 4.0 * t]
+
+    ref_xy = np.stack(
+        [project_point(ref_cam, xyz0), project_point(ref_cam, xyz1)], axis=1)
+    tgt_xy = np.stack(
+        [project_point(tgt_cam, xyz0), project_point(tgt_cam, xyz1)], axis=1)
+    ref_lik = np.full((n, 2), 0.99, dtype=np.float32)
+    tgt_lik = np.full((n, 2), 0.99, dtype=np.float32)
+
+    tgt_lik[200:210, 0] = 0.10   # Snout RESCUE window
+    tgt_lik[220:230, 1] = 0.10   # Pellet RESCUE window (disjoint frames)
+
+    ref_h5 = tmp_path / "s_cam0_x.h5"
+    tgt_h5 = tmp_path / "s_cam1_x.h5"
+    _write_h5(ref_h5, _make_df(ref_xy, ref_lik))
+    _write_h5(tgt_h5, _make_df(tgt_xy, tgt_lik))
+    return calib, ref_h5, tgt_h5
+
+
+def _sidecar_per_bodypart(h5_path, frames, sidecar_bodyparts, xy_by_bodypart,
+                          score=0.9, k=3):
+    """Like _sidecar_for but each bodypart gets its OWN peak position, AND
+    the sidecar's bodypart axis order (`sidecar_bodyparts`) is caller-chosen
+    rather than assumed to match the pose h5's column order.
+
+    That mismatch matters: if `sidecar_bodyparts` happened to equal the pose
+    h5's own bodypart order (["Snout", "Pellet"], both index 0/1 the same
+    way), a screen that hard-coded the bodypart-axis index to 0 would
+    retrieve the CORRECT peaks for whichever bodypart is first by sheer
+    coincidence and only misbehave on the second — and even then only if the
+    first bodypart's peak happens to also miss the second bodypart's own
+    epipolar line, which it usually does anyway (different 3D trajectory),
+    producing the same REFUSED outcome either way. Deliberately reversing
+    the order here means a hard-coded index 0 feeds the WRONG bodypart's
+    peak in a way that changes the KEPT/REFUSED outcome, not just by luck."""
+    n, b = len(frames), len(sidecar_bodyparts)
+    xy = np.full((n, b, k, 2), np.nan, np.float32)
+    sc = np.zeros((n, b, k), np.float32)
+    for j, bp in enumerate(sidecar_bodyparts):
+        pts = xy_by_bodypart[bp]
+        for i in range(n):
+            xy[i, j, 0] = pts[i]
+            sc[i, j, 0] = score
+    pio.write_peaks_npz(
+        pio.peaks_sidecar_path(h5_path), np.asarray(frames, np.int32),
+        xy, sc, list(sidecar_bodyparts),
+        {"k": k, "min_distance": 3, "snapshot": "s.pt",
+         "stride": 2.0, "locref_std": 7.2801})
+
+
 def test_align_maps_sparse_sidecar_rows_onto_dense_frame_positions():
     peaks = {
         "frames": np.array([0, 2], np.int32),
@@ -382,6 +466,88 @@ def test_summary_records_sidecar_snapshot_provenance(tmp_path):
     out = rp.run_reprojection(ref_h5, tgt_h5, calib, "cam_0", "cam_1",
                               out_dir=tmp_path, require_peaks=True)
     assert out["peak_screen"]["snapshot"] == {"ref": None, "tgt": "s.pt"}
+
+
+def test_peak_score_floor_gates_a_borderline_peak(tmp_path):
+    """A peak sitting exactly on the epipolar line (the TRUE marker position)
+    but scored between 0 and the default floor must be refused at the
+    default peak_score_floor=0.05, and kept once peak_score_floor=0.0 is
+    passed explicitly.
+
+    Every other test in this file uses a sidecar scored 0.9 (always above
+    any sane floor) or parked at 9e4 (always off the line regardless of
+    score), so neither the caller's peak_score_floor nor the sidecar's score
+    VALUES were ever load-bearing before this test. That let two mutations
+    slip through: hard-coding score_floor to a constant instead of the
+    caller's peak_score_floor, and fabricating every peak's score as 1.0.
+    Both would make this borderline peak "qualify" regardless of what floor
+    is asked for; this test's two runs disagree only if the floor and the
+    score value are both actually consulted.
+    """
+    calib, ref_h5, tgt_h5 = _build_pair(tmp_path)
+    (tmp_path / "a").mkdir()
+    base = rp.run_reprojection(ref_h5, tgt_h5, calib, "cam_0", "cam_1",
+                               out_dir=tmp_path / "a", require_peaks=False)
+    if base["counts"]["RESCUE"] == 0:
+        pytest.skip("fixture produced no rescues to screen")
+
+    df, meta = rp.read_pose_h5(tgt_h5)
+    n = len(df)
+    _sidecar_with_score(tgt_h5, list(range(n)), meta["bodyparts"],
+                        _true_xy(tgt_h5, "Snout"), score=0.02)
+
+    (tmp_path / "default").mkdir()
+    refused = rp.run_reprojection(ref_h5, tgt_h5, calib, "cam_0", "cam_1",
+                                  out_dir=tmp_path / "default", require_peaks=True)
+    assert refused["counts"]["RESCUE"] == 0
+    assert refused["counts"]["NO_EVIDENCE"] == base["counts"]["RESCUE"]
+    assert refused["peak_screen"]["bodyparts"]["Snout"]["no_evidence"] > 0
+
+    (tmp_path / "zero").mkdir()
+    kept = rp.run_reprojection(ref_h5, tgt_h5, calib, "cam_0", "cam_1",
+                               out_dir=tmp_path / "zero", require_peaks=True,
+                               peak_score_floor=0.0)
+    assert kept["counts"]["RESCUE"] == base["counts"]["RESCUE"]
+    assert kept["peak_screen"]["bodyparts"]["Snout"]["kept"] > 0
+    assert kept["peak_screen"]["bodyparts"]["Snout"]["no_evidence"] == 0
+
+
+def test_peak_screen_reads_each_bodyparts_own_peaks(tmp_path):
+    """Snout's peak sits on its own epipolar line (kept); Pellet's peak is
+    parked far off ITS line (refused) — different bodyparts, opposite
+    outcomes, in the same run. Every other test in this file gives every
+    bodypart identical peaks (via _sidecar_for), so the bodypart axis
+    (`j = list(peaks["bodyparts"]).index(bodypart)` and the two array reads
+    that key off it) was never exercised. A screen that silently used
+    bodypart 0's peaks for every bodypart would pass every other test here."""
+    calib, ref_h5, tgt_h5 = _build_pair_both_bodyparts_rescued(tmp_path)
+    (tmp_path / "a").mkdir()
+    (tmp_path / "b").mkdir()
+    base = rp.run_reprojection(ref_h5, tgt_h5, calib, "cam_0", "cam_1",
+                               out_dir=tmp_path / "a", require_peaks=False)
+    if base["counts"]["RESCUE"] < 2:
+        pytest.skip("fixture produced fewer than 2 rescues (one per bodypart) to screen")
+
+    df, meta = rp.read_pose_h5(tgt_h5)
+    n = len(df)
+    _sidecar_per_bodypart(
+        tgt_h5, list(range(n)),
+        # Deliberately reversed vs. the pose h5's own bodypart order
+        # (["Snout", "Pellet"]) — see the helper's docstring for why.
+        sidecar_bodyparts=["Pellet", "Snout"],
+        xy_by_bodypart={
+            "Snout":  _true_xy(tgt_h5, "Snout"),   # on its own line -> kept
+            "Pellet": [(9e4, 9e4)] * n,             # nowhere near its line -> refused
+        })
+
+    screened = rp.run_reprojection(ref_h5, tgt_h5, calib, "cam_0", "cam_1",
+                                   out_dir=tmp_path / "b", require_peaks=True)
+    snout = screened["peak_screen"]["bodyparts"]["Snout"]
+    pellet = screened["peak_screen"]["bodyparts"]["Pellet"]
+    assert snout["kept"] > 0
+    assert snout["refused"] == 0
+    assert pellet["refused"] > 0
+    assert pellet["kept"] == 0
 
 
 def test_verdict_names_cover_the_two_new_codes():
