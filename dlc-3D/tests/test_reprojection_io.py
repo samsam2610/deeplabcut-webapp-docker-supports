@@ -231,3 +231,52 @@ def test_run_reprojection_never_writes_beside_the_source_when_out_dir_given(tmp_
     )
     assert not list(src.glob("*_reprojected.*"))
     assert (out / "s_cam1_x_reprojected.h5").is_file()
+
+
+from dlc_3d_bp.reprojection import normalize_per_cam
+
+CAMS = ("cam_0", "cam_1")
+
+
+def test_normalize_per_cam_scalar_applies_to_every_camera():
+    assert normalize_per_cam(0.6, 0.9, CAMS) == {"cam_0": 0.6, "cam_1": 0.6}
+
+
+def test_normalize_per_cam_none_uses_the_default():
+    assert normalize_per_cam(None, 0.9, CAMS) == {"cam_0": 0.9, "cam_1": 0.9}
+
+
+def test_normalize_per_cam_dict_maps_each_camera():
+    got = normalize_per_cam({"cam_0": 0.45, "cam_1": 0.8}, 0.9, CAMS)
+    assert got == {"cam_0": 0.45, "cam_1": 0.8}
+
+
+def test_normalize_per_cam_missing_key_falls_back_to_default():
+    got = normalize_per_cam({"cam_0": 0.45}, 0.9, CAMS)
+    assert got == {"cam_0": 0.45, "cam_1": 0.9}
+
+
+def test_normalize_per_cam_rejects_unknown_camera():
+    with pytest.raises(ValueError) as e:
+        normalize_per_cam({"cam_9": 0.5}, 0.9, CAMS)
+    assert "cam_9" in str(e.value)
+
+
+def test_normalize_per_cam_rejects_out_of_range():
+    for bad in (-0.1, 1.5):
+        with pytest.raises(ValueError):
+            normalize_per_cam(bad, 0.9, CAMS)
+        with pytest.raises(ValueError):
+            normalize_per_cam({"cam_0": bad}, 0.9, CAMS)
+
+
+def test_normalize_per_cam_rejects_non_numeric():
+    with pytest.raises(ValueError):
+        normalize_per_cam("high", 0.9, CAMS)
+    with pytest.raises(ValueError):
+        normalize_per_cam({"cam_0": "high"}, 0.9, CAMS)
+
+
+def test_normalize_per_cam_accepts_the_range_endpoints():
+    assert normalize_per_cam(0.0, 0.9, CAMS)["cam_0"] == 0.0
+    assert normalize_per_cam(1.0, 0.9, CAMS)["cam_1"] == 1.0

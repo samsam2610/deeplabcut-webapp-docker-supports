@@ -110,6 +110,40 @@ def _out_path(src, out_dir, suffix) -> Path:
     return base / (src.stem + "_reprojected" + suffix)
 
 
+def normalize_per_cam(value, default, cam_keys) -> "dict":
+    """Resolve a likelihood parameter to one value per camera.
+
+    `value` may be None (use `default` everywhere), a scalar (the same value for
+    every camera), or a {camera_key: value} mapping. A mapping that omits a
+    camera falls back to `default` for it.
+
+    Raises ValueError — which the routes turn into a 400 — on an unknown camera
+    key, a non-numeric value, or a value outside [0, 1].
+    """
+    def _check(v, where):
+        if isinstance(v, bool) or not isinstance(v, (int, float)):
+            raise ValueError("{} must be a number, got {!r}".format(where, v))
+        v = float(v)
+        if not (0.0 <= v <= 1.0):
+            raise ValueError("{} must be within [0, 1], got {}".format(where, v))
+        return v
+
+    if value is None:
+        return {k: float(default) for k in cam_keys}
+    if isinstance(value, dict):
+        unknown = [k for k in value if k not in cam_keys]
+        if unknown:
+            raise ValueError(
+                "unknown camera {}; calibration has {}".format(
+                    sorted(unknown), sorted(cam_keys))
+            )
+        return {
+            k: (_check(value[k], k) if k in value else float(default))
+            for k in cam_keys
+        }
+    return {k: _check(value, "value") for k in cam_keys}
+
+
 def run_reprojection(
     ref_h5,
     tgt_h5,
