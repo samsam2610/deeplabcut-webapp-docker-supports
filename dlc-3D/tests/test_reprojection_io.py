@@ -280,3 +280,80 @@ def test_normalize_per_cam_rejects_non_numeric():
 def test_normalize_per_cam_accepts_the_range_endpoints():
     assert normalize_per_cam(0.0, 0.9, CAMS)["cam_0"] == 0.0
     assert normalize_per_cam(1.0, 0.9, CAMS)["cam_1"] == 1.0
+
+
+def test_per_camera_rescue_floor_applies_to_the_judged_camera(tmp_path):
+    """cam_0 is judged here, so its own rescue_floor must be written — not
+    cam_1's."""
+    calib = _write_calib(tmp_path)
+    cams = load_calibration(calib)
+    n = 300
+    t = np.linspace(0.0, 1.0, n)
+    xyz = np.c_[10.0 + 2.0 * t, -5.0 + 2.0 * t, 250.0 + 5.0 * t]
+    ref_xy = np.stack([project_point(cams["cam_1"], xyz)] * 2, axis=1)
+    tgt_xy = np.stack([project_point(cams["cam_0"], xyz)] * 2, axis=1)
+    ref_lik = np.full((n, 2), 0.99, dtype=np.float32)
+    tgt_lik = np.full((n, 2), 0.99, dtype=np.float32)
+    tgt_lik[100:150, 0] = 0.10          # correct place, low confidence -> rescue
+
+    ref_h5 = tmp_path / "s_cam1_x.h5"
+    tgt_h5 = tmp_path / "s_cam0_x.h5"
+    _write_h5(ref_h5, _make_df(ref_xy, ref_lik))
+    _write_h5(tgt_h5, _make_df(tgt_xy, tgt_lik))
+
+    out = run_reprojection(
+        ref_h5=ref_h5, tgt_h5=tgt_h5, calib_path=calib,
+        ref_cam_key="cam_1", tgt_cam_key="cam_0", out_dir=tmp_path,
+        rescue_floor={"cam_0": 0.77, "cam_1": 0.95},
+    )
+    assert out["counts"]["RESCUE"] > 0
+    got, _ = read_pose_h5(out["outputs"]["tgt_h5"])
+    lik = got[SCORER]["Snout"]["likelihood"].to_numpy()
+    rescued = lik[100:150]
+    assert np.allclose(rescued, 0.77, atol=1e-6), (
+        "judged camera cam_0's floor (0.77) must be used, not cam_1's 0.95"
+    )
+
+
+def test_per_camera_values_are_recorded_in_the_audit(tmp_path):
+    calib = _write_calib(tmp_path)
+    cams = load_calibration(calib)
+    n = 80
+    xyz = np.c_[np.full(n, 10.0), np.full(n, -5.0), np.linspace(250, 260, n)]
+    xy1 = np.stack([project_point(cams["cam_1"], xyz)] * 2, axis=1)
+    xy0 = np.stack([project_point(cams["cam_0"], xyz)] * 2, axis=1)
+    lik = np.full((n, 2), 0.99, dtype=np.float32)
+    _write_h5(tmp_path / "s_cam1_x.h5", _make_df(xy1, lik))
+    _write_h5(tmp_path / "s_cam0_x.h5", _make_df(xy0, lik))
+
+    out = run_reprojection(
+        ref_h5=tmp_path / "s_cam1_x.h5", tgt_h5=tmp_path / "s_cam0_x.h5",
+        calib_path=calib, ref_cam_key="cam_1", tgt_cam_key="cam_0",
+        out_dir=tmp_path, gate_ref={"cam_0": 0.4, "cam_1": 0.7},
+    )
+    assert out["config"]["gate_ref"] == {"cam_0": 0.4, "cam_1": 0.7}
+    # A scalar is normalized too, so the audit always shows per-camera values.
+    assert out["config"]["low_tgt"] == {"cam_0": 0.6, "cam_1": 0.6}
+
+
+def test_scalar_parameters_still_work(tmp_path):
+    """Back-compat: scripts/verify_reprojection.py and the existing route tests
+    pass scalars."""
+    calib = _write_calib(tmp_path)
+    cams = load_calibration(calib)
+    n = 80
+    xyz = np.c_[np.full(n, 10.0), np.full(n, -5.0), np.linspace(250, 260, n)]
+    xy1 = np.stack([project_point(cams["cam_1"], xyz)] * 2, axis=1)
+    xy0 = np.stack([project_point(cams["cam_0"], xyz)] * 2, axis=1)
+    lik = np.full((n, 2), 0.99, dtype=np.float32)
+    _write_h5(tmp_path / "s_cam1_x.h5", _make_df(xy1, lik))
+    _write_h5(tmp_path / "s_cam0_x.h5", _make_df(xy0, lik))
+
+    out = run_reprojection(
+        ref_h5=tmp_path / "s_cam1_x.h5", tgt_h5=tmp_path / "s_cam0_x.h5",
+        calib_path=calib, ref_cam_key="cam_1", tgt_cam_key="cam_0",
+        out_dir=tmp_path, gate_ref=0.5, low_tgt=0.5,
+        high_conf=0.8, rescue_floor=0.85,
+    )
+    assert out["config"]["gate_ref"] == {"cam_0": 0.5, "cam_1": 0.5}
+    assert out["config"]["rescue_floor"] == {"cam_0": 0.85, "cam_1": 0.85}

@@ -153,10 +153,10 @@ def run_reprojection(
     out_dir=None,
     k1: float = 3.0,
     k2: float = 8.0,
-    gate_ref: float = 0.6,
-    low_tgt: float = 0.6,
-    high_conf: float = 0.9,
-    rescue_floor: float = 0.9,
+    gate_ref = 0.6,
+    low_tgt = 0.6,
+    high_conf = 0.9,
+    rescue_floor = 0.9,
     overrides: "dict | None" = None,
 ) -> dict:
     """Judge the target view against the reference view and write artifacts.
@@ -173,6 +173,13 @@ def run_reprojection(
 
     bodyparts = [b for b in meta_tgt["bodyparts"] if b in meta_ref["bodyparts"]]
     overrides = overrides or {}
+
+    # Normalize all four parameters to per-camera dicts
+    cam_keys = tuple(cams.keys())
+    gate_ref_by_cam = normalize_per_cam(gate_ref, 0.6, cam_keys)
+    low_tgt_by_cam = normalize_per_cam(low_tgt, 0.6, cam_keys)
+    high_conf_by_cam = normalize_per_cam(high_conf, 0.9, cam_keys)
+    rescue_floor_by_cam = normalize_per_cam(rescue_floor, 0.9, cam_keys)
 
     F = {
         "tgt": ec.fundamental_matrix(cam_ref, cam_tgt),
@@ -204,16 +211,24 @@ def run_reprojection(
 
         flipped = overrides.get(bp) == "ref"
         d = d_ref if flipped else d_tgt
+        # A flip swaps which camera induces the line and which one is judged, so
+        # it swaps which camera's thresholds apply. Resolving by role here is
+        # what lets classify() and apply_verdicts() stay unchanged.
+        role_ref = tgt_cam_key if flipped else ref_cam_key
+        role_tgt = ref_cam_key if flipped else tgt_cam_key
         st = ec.auto_threshold(
             d, lik_tgt if flipped else lik_ref, lik_ref if flipped else lik_tgt,
-            high_conf=high_conf, k1=k1, k2=k2,
+            high_conf_ref=high_conf_by_cam[role_ref],
+            high_conf_tgt=high_conf_by_cam[role_tgt],
+            k1=k1, k2=k2,
         )
         codes = ec.classify(
             d,
             lik_tgt if flipped else lik_ref,
             lik_ref if flipped else lik_tgt,
             t_ok=st["t_ok"], t_bad=st["t_bad"],
-            gate_ref=gate_ref, low_tgt=low_tgt,
+            gate_ref=gate_ref_by_cam[role_ref],
+            low_tgt=low_tgt_by_cam[role_tgt],
         )
 
         pts3d = ec.triangulate_dlt(cam_ref, cam_tgt, xy_ref, xy_tgt)
@@ -227,7 +242,7 @@ def run_reprojection(
             frame_out, meta_j, xy_j, lik_j = df_tgt_out, meta_tgt, xy_tgt, lik_tgt
 
         xy_new, lik_new = ec.apply_verdicts(
-            xy_j, lik_j, codes, rescue_floor=rescue_floor
+            xy_j, lik_j, codes, rescue_floor=rescue_floor_by_cam[role_tgt]
         )
         sc = meta_j["scorer"]
         dtype = frame_out[(sc, bp, "x")].dtype
@@ -258,8 +273,9 @@ def run_reprojection(
             "ref_h5": str(ref_h5), "tgt_h5": str(tgt_h5),
             "calibration": str(calib_path),
             "ref_cam": ref_cam_key, "tgt_cam": tgt_cam_key,
-            "k1": k1, "k2": k2, "gate_ref": gate_ref, "low_tgt": low_tgt,
-            "high_conf": high_conf, "rescue_floor": rescue_floor,
+            "k1": k1, "k2": k2,
+            "gate_ref": gate_ref_by_cam, "low_tgt": low_tgt_by_cam,
+            "high_conf": high_conf_by_cam, "rescue_floor": rescue_floor_by_cam,
             "overrides": overrides,
         },
         "bodyparts": stats_out,
