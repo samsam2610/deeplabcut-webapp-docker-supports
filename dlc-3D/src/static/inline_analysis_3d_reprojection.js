@@ -23,6 +23,8 @@ import { clipExtractor } from "./components/viewer/features/clip_extractor.js";
 import { coverageRects, coverageFrameRects, nearestCoveredFrame, xToFrame, nextCoveredBucket, bucketToFrame, frameToBucket } from "./components/viewer/internal/coverage_timeline.mjs";
 import { pickLatestVariant } from "./components/viewer/internal/pick_latest_variant.mjs";
 import { scaleFor, videoToCanvas } from "./components/viewer/internal/marker_overlay.mjs";
+import { nameLabelBox } from "./components/viewer/internal/name_label.mjs";
+import { labelAnchor } from "./internal/epiline_label.mjs";
 import { makeKeyframeWindow } from "./keyframe_window_ui.js";
 import { makePose3dViewer } from "./pose3d_viewer.js";
 import { clampToBounds } from "./internal/clamp_bounds.mjs";
@@ -3937,6 +3939,54 @@ async function _reprojFetchSegment(frame, bodypart) {
   return seg;
 }
 
+// ── Colour and visibility, sourced from the bp-chips ────────────────────────
+// markerEditor renders one chip per bodypart carrying --bp-color (the exact
+// labelerColor the marker uses) and toggles .vis-hidden on it. Reading the chip
+// keeps the line in lockstep with its marker without duplicating palette logic
+// or editing the shared viewer library.
+//
+// SCOPING IS LOAD-BEARING: `.vv-bp-chip` comes from the shared markerEditor, so
+// the ORIGINAL card's chips are in this same document. Always root the lookup at
+// this card's own container.
+const REPROJ_LABEL_STEP = 14;   // matches the 14px marker name-label box height
+
+function _reprojChip(bp) {
+  const host = document.getElementById("ia3dr-bp-chips");
+  if (!host) return null;
+  return host.querySelector(`.vv-bp-chip[data-bp="${CSS.escape(bp)}"]`);
+}
+
+function _reprojBodypartColor(bp) {
+  const c = _reprojChip(bp)?.style.getPropertyValue("--bp-color")?.trim();
+  return c || "rgba(120,200,255,.85)";   // pre-colour default, e.g. before poses load
+}
+
+function _reprojIsBodypartHidden(bp) {
+  return !!_reprojChip(bp)?.classList.contains("vis-hidden");
+}
+
+// Draw the bodypart name at the frame edge, stepped along its own line so that
+// converging lines do not stack their labels.
+function _reprojDrawLabel(tile, seg, bp, order, color) {
+  const canvas = tile.canvasEl, img = tile.imgEl;
+  if (!canvas || !img) return;
+  const anchor = labelAnchor(seg, order, REPROJ_LABEL_STEP);
+  if (!anchor) return;
+  const scale = scaleFor(
+    img.naturalWidth, img.naturalHeight, canvas.width, canvas.height,
+  );
+  const p = videoToCanvas(anchor.x, anchor.y, scale);
+  const ctx = canvas.getContext("2d");
+  ctx.save();
+  ctx.font = nameLabelBox(0, 0, 0, 0).font;
+  const box = nameLabelBox(p.cx, p.cy, 0, ctx.measureText(bp).width);
+  ctx.fillStyle = "rgba(12,13,16,.65)";
+  ctx.fillRect(box.boxX, box.boxY, box.boxW, box.boxH);
+  ctx.fillStyle = color;
+  ctx.fillText(bp, box.textX, box.textY);
+  ctx.restore();
+}
+
 function _reprojDrawSegment(tile, seg, color) {
   const canvas = tile.canvasEl, img = tile.imgEl;
   if (!canvas || !img || !seg) return;
@@ -3998,10 +4048,17 @@ function _reprojWireEpipolarOverlay() {
     // Each seek supersedes the last. A fetch that resumes after a newer seek
     // must not paint onto a canvas already repainted for a different frame.
     const gen = ++_reprojDrawGen;
-    for (const bp of parts) {
+    // Only visible bodyparts get a line, and `order` counts within that visible
+    // set so the label staircase compacts instead of leaving gaps.
+    const visible = parts.filter((bp) => !_reprojIsBodypartHidden(bp));
+    for (let order = 0; order < visible.length; order++) {
+      const bp = visible[order];
       const seg = await _reprojFetchSegment(frame, bp);
       if (gen !== _reprojDrawGen) return;   // superseded — abandon this pass
-      if (seg) _reprojDrawSegment(tile, seg, "rgba(120,200,255,.85)");
+      if (!seg) continue;
+      const color = _reprojBodypartColor(bp);
+      _reprojDrawSegment(tile, seg, color);
+      _reprojDrawLabel(tile, seg, bp, order, color);
     }
   });
 

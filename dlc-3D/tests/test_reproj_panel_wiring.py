@@ -255,3 +255,51 @@ def test_persistence_loads_from_ensure_viewer(js):
     DOMContentLoaded before any project exists."""
     fn = js.split("function _ensureViewer()")[1].split("\n  return _viewer;")[0]
     assert "_reprojLoadParams()" in fn
+
+
+def test_line_colour_comes_from_the_bodypart_chip(js):
+    """The chip already carries labelerColor(idx) as --bp-color, so reading it
+    keeps lines and markers in lockstep without duplicating palette logic or
+    editing the shared viewer library."""
+    block = js.split("EPIPOLAR OVERLAY")[1]
+    assert "_reprojBodypartColor" in block
+    assert "--bp-color" in block
+
+
+def test_chip_queries_are_scoped_to_this_card(js):
+    """CROSS-CARD GUARD. `.vv-bp-chip` is built by the shared markerEditor, so
+    both cards' chips are in the same document. A document-wide query would
+    silently read the OTHER card's colours and visibility, and would only
+    misbehave when both cards are open."""
+    block = js.split("EPIPOLAR OVERLAY")[1]
+    code = "\n".join(
+        line for line in block.splitlines() if not line.lstrip().startswith("//")
+    )
+    assert "ia3dr-bp-chips" in code, "chip lookups must be rooted at #ia3dr-bp-chips"
+    assert 'document.querySelector(".vv-bp-chip' not in code, (
+        "document-wide chip query would match the original card's chips"
+    )
+
+
+def test_hidden_bodyparts_get_no_line(js):
+    """markerEditor marks hidden chips with .vis-hidden, which also covers
+    per-frame hiding. Hiding a marker but keeping its line would be
+    contradictory."""
+    block = js.split("EPIPOLAR OVERLAY")[1]
+    assert "vis-hidden" in block
+    assert "_reprojIsBodypartHidden" in block
+
+
+def test_labels_use_the_shared_geometry_and_label_box(js):
+    """Reimplementing either would let the epipolar labels drift from the marker
+    name labels."""
+    assert "internal/epiline_label.mjs" in js
+    assert "labelAnchor" in js
+    assert "nameLabelBox" in js
+
+
+def test_label_order_counts_only_visible_bodyparts(js):
+    """order is the index among VISIBLE bodyparts so the staircase compacts when
+    parts are hidden, instead of leaving gaps where hidden ones would have sat."""
+    block = js.split("EPIPOLAR OVERLAY")[1]
+    assert "visible" in block.lower()
