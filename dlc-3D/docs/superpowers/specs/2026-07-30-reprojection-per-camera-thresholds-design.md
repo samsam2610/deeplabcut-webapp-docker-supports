@@ -153,7 +153,9 @@ Element ids follow `ia3dr-reproj-{cam}-{param}`, e.g.
 `ia3dr-reproj-cam0-gate-ref`, `ia3dr-reproj-cam1-rescue-floor`. Inputs are
 `type="number"`, `min="0"`, `max="1"`, `step="0.05"`.
 
-Both `Estimate thresholds` and `Run` send all four as per-camera dicts.
+`Run` sends all four as per-camera dicts. `Estimate thresholds` sends only
+`high_conf` (plus `k₁`/`k₂`) — the others do not affect a threshold estimate,
+so sending them would imply an effect they do not have.
 
 Labels keep the engine's parameter names rather than plain-language wording, so
 what you set in the panel matches what appears in the audit JSON.
@@ -219,7 +221,8 @@ Stored value (JSON string):
 **Panel** (`tests/test_reproj_panel_markup.py`, `tests/test_reproj_panel_wiring.py`):
 
 - the eight inputs exist with the correct defaults and `min`/`max`
-- both `Estimate` and `Run` payloads carry all four as per-camera dicts
+- the `Run` payload carries all four as per-camera dicts, and the `Estimate`
+  payload carries per-camera `high_conf` but NOT the other three
 - the persistence key `reproj_params` is written on change and read on wire-up
 - overrides are filtered against the current bodypart list on load
 
