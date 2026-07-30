@@ -52,3 +52,25 @@ def extract_peaks(heatmap, k: int = 5, min_distance: int = 3):
         if len(kept_rc) == k:
             break
     return xy, scores
+
+
+def heatmap_to_image(xy_cells, stride, pad_xy=(0, 0), scale_xy=(1.0, 1.0)):
+    """Map heatmap-cell coordinates to original video pixels.
+
+    A cell's centre is at (cell + 0.5) * stride in network-input space. The
+    network input was produced by resizing the original frame by scale_xy and
+    then padding by pad_xy, so both are undone in that order.
+
+    NaN padding is preserved: a missing peak stays missing.
+    """
+    xy = np.asarray(xy_cells, dtype=np.float64).reshape(-1, 2)
+    out = np.full_like(xy, np.nan)
+    ok = np.isfinite(xy).all(axis=1)
+    if ok.any():
+        net = (xy[ok] + 0.5) * float(stride)
+        net[:, 0] -= float(pad_xy[0])
+        net[:, 1] -= float(pad_xy[1])
+        net[:, 0] /= float(scale_xy[0])
+        net[:, 1] /= float(scale_xy[1])
+        out[ok] = net
+    return out.astype(np.float32)

@@ -67,3 +67,29 @@ def test_scores_are_always_descending_and_padding_is_zero():
     real = sc[sc > 0]
     assert np.all(np.diff(real) <= 0)
     assert np.isnan(xy[len(real):]).all()
+
+
+from dlc_3d_bp.peaks import heatmap_to_image
+
+
+def test_heatmap_to_image_applies_stride_then_undoes_pad_and_scale():
+    """A peak at heatmap cell (10, 5) with stride 8, 20px x-pad and a 0.5
+    resize maps to ((10*8 + 8/2) - 20) / 0.5 in x."""
+    xy = np.array([[10.0, 5.0]], dtype=np.float32)
+    got = heatmap_to_image(xy, stride=8, pad_xy=(20, 0), scale_xy=(0.5, 0.5))
+    assert got.shape == (1, 2)
+    assert got[0, 0] == pytest.approx(((10 * 8 + 4) - 20) / 0.5)
+    assert got[0, 1] == pytest.approx(((5 * 8 + 4) - 0) / 0.5)
+
+
+def test_heatmap_to_image_is_identity_for_stride_1_no_pad_no_scale():
+    xy = np.array([[3.0, 7.0]], dtype=np.float32)
+    got = heatmap_to_image(xy, stride=1, pad_xy=(0, 0), scale_xy=(1.0, 1.0))
+    assert got[0] == pytest.approx([3.5, 7.5])
+
+
+def test_heatmap_to_image_propagates_nan_padding():
+    xy = np.array([[1.0, 2.0], [np.nan, np.nan]], dtype=np.float32)
+    got = heatmap_to_image(xy, stride=8, pad_xy=(0, 0), scale_xy=(1.0, 1.0))
+    assert np.isfinite(got[0]).all()
+    assert np.isnan(got[1]).all()
