@@ -123,6 +123,33 @@ otherwise a rescue will not survive that filter and the rescue achieved nothing.
 Setting different floors per camera lets you tell rescued markers apart by which
 camera they came from.
 
+## require_peaks — candidate-peak screen
+
+Refuses a `RESCUE` unless exactly one of DeepLabCut's top-K candidate heatmap
+peaks for that bodypart sits on the epipolar line. It can only **REFUSE** — no
+marker is ever moved, and it cannot turn a `REJECT` or `CONFIRM` into anything
+else. Needs a peaks sidecar (`<pose_h5_stem>_peaks.npz`), which "emit peaks"
+writes during Analyze-for-tag. A frame with no sidecar coverage is not treated
+as failing evidence — it **keeps its geometry verdict** rather than being
+refused, because absence of a sidecar is absence of evidence, not evidence of
+absence.
+
+On the validation run, 4,031 of 15,191 judged cells had SEVERAL peaks on the
+line and 1,028 had the wrong one — 33% of refusals that geometry alone cannot
+make at any threshold.
+
+## peak_floor — applies to the JUDGED camera
+
+A candidate peak below this heatmap score does not count as evidence for
+`require_peaks`. Same 0–1 scale as likelihood. Set it too high and the screen
+degenerates into another `rescue_floor`; set it too low and a hallucinated peak
+passes.
+
+**The 0.05 default is unvalidated** — there is no labelled measurement behind
+it, unlike every other default on this page. Under occlusion DeepLabCut
+typically scores below 0.10, so raising `peak_floor` toward 0.10 refuses more
+and rescues less.
+
 ## The verdicts
 
 Evaluated per frame, per bodypart, on the judged camera. `REJECT` is applied last

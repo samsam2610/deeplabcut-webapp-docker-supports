@@ -118,3 +118,24 @@ traps; new code in this area should be checked against them.
   these are not in CI (they need the Docker stack + fixtures) but were run for each fix.
 
 Run all: `cd dlc-3D && python -m pytest tests/test_inline_analysis_3d_ui_isolation.py tests/test_marker_editor_feature.py tests/test_video_viewer_policy.py -q && node --test tests/unit/*.mjs` and `cd deeplabcut-webapp-docker && python -m pytest tests/test_dlc_viewer_routes.py tests/test_ui_setting_tag_keys.py -q`.
+
+## Candidate-peak screen
+
+- **Sidecar path must match on both sides.** `dlc/peaks_emit.py` (main webapp)
+  writes it and `dlc_3d_bp/peaks_io.py` reads it. The rule is
+  `<pose_h5_stem>_peaks.npz`. A mismatch is silent: the screen simply finds
+  nothing and every rescue stands. Guarded by `test_peaks_emit_parity.py`.
+- **Absence of peaks is not absence of evidence.** An uncovered frame keeps its
+  geometry verdict. Treating absence as `NO_EVIDENCE` would void every rescue in
+  every analysis predating the feature.
+- **The screen only downgrades `RESCUE`.** Widening it to `CONFIRM` would let
+  heatmap noise delete confident markers.
+- **Refused rescues make output sparser.** That is the feature working. The audit
+  coverage line is what distinguishes it from a fault — this project has twice
+  diagnosed a working change as broken because output got sparser.
+- **`_run_range` must never gain peak emission.** It is the production inline-3D
+  card's inference path. Verify with
+  `git diff -U0 src/dlc/tasks.py | grep '^-' | grep -v '^---'` returning nothing.
+- **The inference pipeline's five constants are measured, not chosen.** Native
+  resolution (never resized), ImageNet normalisation, nested output keys,
+  `STRIDE = 2.0`, and locref refinement. Getting any one wrong gave 186–427 px.
