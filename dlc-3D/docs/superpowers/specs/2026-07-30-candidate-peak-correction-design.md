@@ -141,6 +141,37 @@ the chosen detection — instead of a flat number that hides provenance.
 
 The 3D plausibility gate still applies to `RESCUE` and `CORRECTED`.
 
+## The labelled data is READ-ONLY. This is not negotiable.
+
+`labeled-data/` in the DeepLabCut project holds the human annotations the model
+was trained on. It is the most valuable and least reproducible asset in the
+project: corrupt it and you lose both this validation and the provenance of every
+future retrain.
+
+Phase 2 reads it as a **test set only**. Nothing in this work writes to, moves,
+renames or reorganises anything under the DLC project:
+
+- `labeled-data/**` — including every `CollectedData_*.h5`, `CollectedData_*.csv`
+  and extracted frame image
+- `training-datasets/**`
+- `dlc-models-pytorch/**` — snapshots are loaded, never written
+- `config.yaml`
+
+Validation output — metrics, tables, any per-frame comparison — goes to a scratch
+directory passed explicitly on the command line, never beside the labels.
+
+Two habits enforce this, because intent alone has already failed once on this
+project: the validation script takes an explicit `--out-dir` with no default that
+points anywhere near the project, and every plan derived from this spec ends with
+a step that counts files under `labeled-data/` before and after and reports the
+observed numbers.
+
+The same applies to the session data under
+`/user-data/Parra-Data/Cloud/Reaching-Task-Data/`. Note in particular that
+`/reproject/run` writes `<stem>_reprojected.*` beside the source and overwrites
+any previous set — it is not a safe probe, and that mistake has already been made
+once here.
+
 ## Testing
 
 **Phase 1 correctness has an exact check.** Because the same snapshot is used,
