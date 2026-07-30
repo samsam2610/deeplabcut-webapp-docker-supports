@@ -261,3 +261,56 @@ port must be checked by re-running that comparison on the deployed container.
 - **A third change to the main webapp**, discussed above.
 - **The ~50 s pass is per tag run, not per frame**, so it is cheap for large runs
   and proportionally expensive for a two-frame one. The checkbox is the escape.
+
+---
+
+## Known debt at merge (2026-07-30)
+
+Recorded from the final whole-branch review so it is not rediscovered. None of
+these blocked the merge; all were triaged deliberately.
+
+**Test coverage the shipped code does not have.** The engine and the wiring were
+both verified correct by mutation testing, but two layers are unguarded against
+future edits:
+
+- The **worker task layer** (`_emit_peaks_inner`, `dlc_emit_peaks`) has no tests.
+  Five mutations survive, including never publishing `status="done"` — which
+  leaves the browser polling for the full 15-minute cap.
+- Four **silent no-op mutations in the card wiring** survive the 61-test suite:
+  sending an empty `snapshot_path`, emitting peaks for only the first range, for
+  only cam0, or truncating `h5_paths`. The suite is grep-based, so it constrains
+  the text of the code rather than its behaviour.
+
+**Semantics worth tightening.**
+
+- `AMBIGUOUS` (code 5) is overloaded. `epipolar_core` writes it for geometry's
+  grey band between `t_ok` and `t_bad`; `peak_screen` writes it for "several
+  peaks on the line". The counts table and audit npz cannot separate them — only
+  `summary["peak_screen"]["ambiguous"]` can.
+- The docs and help text state the rule as "refuses unless **exactly one** peak
+  sits on the line". The code also refuses when exactly one qualifies but it is
+  not peak 0 (`CORRECTED` — 1,028 of 15,191 cells on the cited run). The stated
+  rule is incomplete.
+- `peaks_io.write_peaks_npz` and `merge_peaks` have **no production caller** in
+  dlc-3D; they are test-only near-duplicates of the producer's `_write_atomic`
+  and `_merge`, and the parity guard does not cover them, so they can drift from
+  the live producer unnoticed.
+- The parity guard's constants test is a substring check: `_STRIDE = 2.0000001`
+  still contains `"_STRIDE = 2.0"` and passes. The source comparison of
+  `extract_peaks` / `heatmap_to_image` is sound; this one test is weak.
+- `k` and `min_distance` on the peaks route are unguarded — `{"k": "abc"}` raises
+  an uncaught `ValueError` and returns 500, inconsistent with the same route's
+  careful 400-not-500 handling of `peak_score_floor`.
+
+**Behaviour to re-examine now that peaks actually run.** `_reprojEmitPeaks` is
+awaited inside `_onAnalyzeTagClick`, so the Analyze button and tag-lock
+enablement stay deferred for the duration of the pass — up to the 15-minute poll
+cap. Before the path-resolution fix the pass failed in milliseconds, so this cost
+was invisible. At roughly 50 s per 2000 frames it is reasonable; a stuck task is
+15 minutes of a dead button.
+
+**Cosmetic.** Default (geometry-only) runs now emit two extra always-zero
+`counts` keys, so the **production** card's counts table gains two `0 / 0.00%`
+rows. Zero rows already appear routinely there (`UNJUDGED`, `RESCUE_REJECTED`),
+percentages are unaffected, and the rows become meaningful the moment the screen
+is enabled.
