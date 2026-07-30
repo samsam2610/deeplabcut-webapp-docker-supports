@@ -3771,6 +3771,7 @@ function _reprojWirePanel() {
 
 const _reprojLineCache = new Map();     // `${frame}|${bodypart}` -> segment|null
 let _reprojOverlayBound = false;
+let _reprojDrawGen = 0;                 // guards against stale async draws
 
 function _reprojCacheKey(frame, bodypart) {
   return `${frame}|${bodypart}`;
@@ -3844,8 +3845,12 @@ function _reprojWireEpipolarOverlay() {
     if (tile.cam !== _reprojJudgedCam()) return;
     const parts = _reprojActiveBodyparts();
     if (!parts.length) return;
+    // Each seek supersedes the last. A fetch that resumes after a newer seek
+    // must not paint onto a canvas already repainted for a different frame.
+    const gen = ++_reprojDrawGen;
     for (const bp of parts) {
       const seg = await _reprojFetchSegment(frame, bp);
+      if (gen !== _reprojDrawGen) return;   // superseded — abandon this pass
       if (seg) _reprojDrawSegment(tile, seg, "rgba(120,200,255,.85)");
     }
   });

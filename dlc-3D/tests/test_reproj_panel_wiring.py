@@ -97,3 +97,16 @@ def test_overlay_caches_per_frame_requests(js):
     """One request per (frame, bodypart) — the hook fires on every seek."""
     block = js.split("EPIPOLAR OVERLAY")[1]
     assert "cache" in block.lower()
+
+
+def test_overlay_guards_against_stale_frame_draws(js):
+    """drawTile is async and awaits a fetch per bodypart. A seek that lands
+    while a fetch is in flight must not let the resumed continuation paint an
+    epipolar line onto a canvas already repainted for a newer frame."""
+    block = js.split("EPIPOLAR OVERLAY")[1]
+    assert "_reprojDrawGen" in block, "no generation counter guarding the draw"
+    # The counter must be bumped per invocation and re-checked after the await.
+    assert "++_reprojDrawGen" in block, "generation counter never incremented"
+    assert block.count("_reprojDrawGen") >= 3, (
+        "expected declare/bump/compare — the guard must be re-checked after await"
+    )
