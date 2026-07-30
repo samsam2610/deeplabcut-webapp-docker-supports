@@ -1026,6 +1026,7 @@ async function _applyOverlayPrimary(h5) {
     _overlayPrimaryH5 = null;
     _siblingPrimaryH5 = null;
     _markerEditor.setSibling(null);
+    _reprojRefreshPeaksAvailability();
     return;
   }
   _overlayPrimaryH5 = h5;
@@ -1055,6 +1056,7 @@ async function _applyOverlayPrimary(h5) {
     _markerEditor.setEditable(true);
   }
   _refreshCoverage();
+  _reprojRefreshPeaksAvailability();
 }
 
 // Fetch likelihood-filtered marker-coverage for the active primary h5 + current
@@ -2972,6 +2974,78 @@ function _noteTagLabel(activeNotes) {
   return activeNotes.map((t) => `"${t}"`).join(" + ");
 }
 
+// Fire the candidate-peak pass over the same ranges the analysis just covered.
+// Additive and best-effort: the pose h5 is already written by the time this
+// runs, so a failure here costs the screen, not the analysis — it must never
+// throw out of the caller. h5_paths is REQUIRED by the endpoint, parallel to
+// video_paths: build it from the scorer this run just produced
+// (`<stem><scorer>.h5`, same convention as _reloadPrimaryAfterAnalysis). A
+// missing scorer means we cannot know which h5 was written, and a guessed path
+// would write the sidecar somewhere nothing will ever look — skip instead.
+async function _reprojEmitPeaks(videoPaths, ranges, scorer) {
+  const lastRun = _ia3drEl.lastRun();
+  if (!scorer) {
+    if (lastRun) lastRun.textContent += "  (peaks skipped: no scorer from this run)";
+    return;
+  }
+  const stem = (p) => String(p).replace(/\.[^./]+$/, "");
+  const h5Paths = videoPaths.map((v) => stem(v) + scorer + ".h5");
+  try {
+    const r = await fetch("/dlc/project/inline-analysis/peaks", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        video_paths: videoPaths,
+        h5_paths: h5Paths,
+        ranges: ranges.map((x) => ({ start: x.start, n: x.n })),
+        snapshot_path: _ia3drEl.snapSel()?.value || "",
+      }),
+    });
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok || !d.req_id) {
+      if (lastRun) lastRun.textContent += `  (peaks failed: ${d.error || r.status})`;
+      return;
+    }
+    if (lastRun) lastRun.textContent += "  emitting peaks…";
+    const res = await _pollPeaksReq(d.req_id);
+    if (lastRun) {
+      lastRun.textContent += res.status === "done"
+        ? `  peaks: ${res.n_frames} frames.`
+        : `  peaks failed: ${res.error || res.status}`;
+    }
+    await _reprojRefreshPeaksAvailability();
+  } catch (e) {
+    if (lastRun) lastRun.textContent += `  (peaks failed: ${e})`;
+  }
+}
+
+// Mirrors _pollReq's setInterval + _activePolls pattern (same bookkeeping so
+// _stopAllPolls also cancels an in-flight peaks poll) against the peaks status
+// endpoint. 15 min cap: a large tag run is minutes of GPU work.
+function _pollPeaksReq(reqId) {
+  return new Promise((resolve) => {
+    let elapsedMs = 0;
+    const MAX_MS = 15 * 60 * 1000;
+    const t = setInterval(async () => {
+      elapsedMs += 1000;
+      if (elapsedMs >= MAX_MS) {
+        clearInterval(t); _activePolls.delete(t);
+        resolve({ status: "error", error: "timed out waiting for peaks" });
+        return;
+      }
+      try {
+        const r = await fetch(
+          `/dlc/project/inline-analysis/peaks/status?req_id=${reqId}`);
+        if (!r.ok) return;
+        const d = await r.json();
+        if (d.status === "done" || d.status === "error") {
+          clearInterval(t); _activePolls.delete(t); resolve(d);
+        }
+      } catch (_) { /* transient; keep polling until the cap */ }
+    }, 1000);
+    _activePolls.add(t);
+  });
+}
+
 // Analyze BOTH cameras over every frame carrying ANY of the (up to 2) locked note
 // tags. Each tagged frame expands to the finalize before/after window; overlapping
 // windows are merged (deduped) into minimal ranges. Gated by the UI (finalize on &&
@@ -3047,6 +3121,11 @@ async function _onAnalyzeTagClick() {
     _applyCamLabels();
   }
   if (lastDone) await _reloadPrimaryAfterAnalysis(lastDone.scorer);
+  // Best-effort candidate-peak pass over the same ranges, gated on the
+  // checkbox. Never allowed to affect the analysis result above it.
+  if ($("ia3dr-emit-peaks")?.checked) {
+    await _reprojEmitPeaks([cam0, _siblingPath], ranges, lastDone?.scorer);
+  }
   _refreshTagLockEnablement();
 }
 
@@ -3609,6 +3688,9 @@ const _reprojEl = {
   overrides:  () => document.getElementById("ia3dr-reproj-overrides"),
   perCam:     (cam, param) =>
                 document.getElementById(`ia3dr-reproj-${cam}-${param}`),
+  requirePeaks: () => document.getElementById("ia3dr-reproj-require-peaks"),
+  peakFloor:    () => document.getElementById("ia3dr-reproj-peak-floor"),
+  emitPeaks:    () => document.getElementById("ia3dr-emit-peaks"),
 };
 
 function _reprojStatus(msg, isError) {
@@ -3646,6 +3728,38 @@ function _reprojPair() {
   };
 }
 
+// Enable "Require peak evidence" only when a candidate-peak sidecar actually
+// exists for the current pair. A screen with nothing to screen with would be
+// silently inert, which reads as a bug — so this disables (and force-unchecks)
+// the box rather than let it be ticked with no effect. Uses _reprojPair(), the
+// same h5-pair source /reproject/run itself uses — there is no separate
+// refH5()/tgtH5() accessor.
+async function _reprojRefreshPeaksAvailability() {
+  const box = _reprojEl.requirePeaks();
+  if (!box) return;
+  const pair = _reprojPair();
+  if (!pair) {
+    box.disabled = true;
+    box.checked = false;
+    box.title = "load a camera pair first";
+    return;
+  }
+  try {
+    const q = `ref_h5=${encodeURIComponent(pair.ref_h5)}&tgt_h5=${encodeURIComponent(pair.tgt_h5)}`;
+    const d = await (await fetch(`/dlc-3d/reproject/peaks-status?${q}`)).json();
+    const any = !!(d?.ref?.present || d?.tgt?.present);
+    box.disabled = !any;
+    box.title = any
+      ? `peaks available (ref ${d.ref.frames || 0}, tgt ${d.tgt.frames || 0} frames)`
+      : "no peaks sidecar for this pair — tick 'emit peaks' and run Analyze for tag";
+    if (!any) box.checked = false;
+  } catch (_) {
+    box.disabled = true;
+    box.checked = false;
+    box.title = "could not check for a peaks sidecar";
+  }
+}
+
 // Read one likelihood parameter for both cameras. Returns the per-camera dict
 // the endpoints accept; an unreadable input falls back to the engine default so
 // a blanked field never sends NaN.
@@ -3668,6 +3782,8 @@ function _reprojPayload() {
     high_conf:    _reprojPerCam("high-conf", 0.9),
     rescue_floor: _reprojPerCam("rescue-floor", 0.9),
     overrides: _reprojOverrides,
+    require_peaks: !!_reprojEl.requirePeaks()?.checked,
+    peak_score_floor: parseFloat(_reprojEl.peakFloor()?.value) || 0.05,
   });
 }
 
@@ -3690,6 +3806,9 @@ function _reprojSaveParams() {
     rescue_floor: _reprojPerCam("rescue-floor", 0.9),
     line_lik: parseFloat(_reprojEl.lineLik()?.value),
     overrides: _reprojOverrides,
+    emit_peaks: !!_reprojEl.emitPeaks()?.checked,
+    require_peaks: !!_reprojEl.requirePeaks()?.checked,
+    peak_floor: parseFloat(_reprojEl.peakFloor()?.value),
   };
   if (_reprojParamsSaveTimer) clearTimeout(_reprojParamsSaveTimer);
   _reprojParamsSaveTimer = setTimeout(() => {
@@ -3720,6 +3839,15 @@ async function _reprojLoadParams() {
     setNum(_reprojEl.k1(), prefs.k1);
     setNum(_reprojEl.k2(), prefs.k2);
     setNum(_reprojEl.lineLik(), prefs.line_lik);
+    setNum(_reprojEl.peakFloor(), prefs.peak_floor);
+    // Checkboxes: only apply a stored value when one was actually stored, so a
+    // params blob written before this feature keeps the markup defaults.
+    if (typeof prefs.emit_peaks === "boolean" && _reprojEl.emitPeaks()) {
+      _reprojEl.emitPeaks().checked = prefs.emit_peaks;
+    }
+    if (typeof prefs.require_peaks === "boolean" && _reprojEl.requirePeaks()) {
+      _reprojEl.requirePeaks().checked = prefs.require_peaks;
+    }
     for (const param of ["gate-ref", "low-tgt", "high-conf", "rescue-floor"]) {
       const key = param.replace("-", "_");
       const vals = prefs[key];
@@ -3860,6 +3988,20 @@ async function _reprojRun() {
       `Wrote ${data.outputs.ref_h5.split("/").pop()} and ` +
       `${data.outputs.tgt_h5.split("/").pop()}.`,
     );
+    // Refusing rescues makes the marker count go DOWN versus a geometry-only
+    // run. That is the feature working; this line is what distinguishes it
+    // from a fault, which this project has twice misdiagnosed when output got
+    // sparser. null when the screen did not run (no require_peaks / no peaks).
+    const scr = data.peak_screen;
+    if (scr) {
+      const statusEl = _reprojEl.status();
+      if (statusEl) {
+        statusEl.textContent +=
+          `  peak screen: ${scr.covered}/${scr.rescues} rescues covered, ` +
+          `${scr.refused} refused (${scr.ambiguous} ambiguous, ` +
+          `${scr.no_evidence} no evidence, ${scr.corrected} wrong peak).`;
+      }
+    }
   } catch (e) {
     _reprojStatus(`Run failed: ${e.message}`, true);
   } finally {
@@ -3924,12 +4066,16 @@ function _reprojWirePanel() {
       _reprojEl.perCam("cam0", p), _reprojEl.perCam("cam1", p),
     ]),
     _reprojEl.lineLik(),
+    _reprojEl.requirePeaks(), _reprojEl.peakFloor(), _reprojEl.emitPeaks(),
   ]) {
     el?.addEventListener("change", _reprojSaveParams);
   }
   _reprojEl.lineLik()?.addEventListener("change", _reprojRepaint);
   _reprojWireHelp();
   _reprojWireEpipolarOverlay();
+  // Set the initial disabled/title state (no pair loaded yet at first wire) —
+  // _applyOverlayPrimary refreshes this again once a pair actually resolves.
+  _reprojRefreshPeaksAvailability();
 }
 
 // ── EPIPOLAR OVERLAY ────────────────────────────────────────────────────────

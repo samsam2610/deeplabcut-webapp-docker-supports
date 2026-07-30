@@ -409,3 +409,129 @@ def test_display_threshold_is_client_side_only(js):
     assert "line_lik" not in block.split("_reprojPayload")[1][:900], (
         "the display threshold must not be sent in a request payload"
     )
+
+
+# ── Peak-screen wiring (Task 8) ──────────────────────────────────────────────
+# The main webapp's inline-analysis routes carry no /dlc-3d prefix; dlc-3D's own
+# /reproject routes do. See dlc/inline_analysis.py and dlc_3d_bp/routes.py.
+
+def test_analyze_for_tag_posts_to_the_peaks_endpoint(js):
+    assert "/dlc/project/inline-analysis/peaks" in js
+    assert "/dlc/project/inline-analysis/peaks/status" in js
+
+
+def test_peaks_payload_carries_h5_paths_parallel_to_video_paths(js):
+    """The endpoint 400s without h5_paths — same length/order as video_paths.
+    See dlc/inline_analysis.py:peaks_submit()."""
+    fn = js.split("async function _reprojEmitPeaks")[1].split("\nasync function")[0]
+    assert fn, "could not locate _reprojEmitPeaks"
+    assert "h5_paths" in fn and "video_paths" in fn
+
+
+def test_the_peaks_pass_skips_rather_than_guesses_when_scorer_is_unknown(js):
+    """A wrong h5 path writes the sidecar where nothing will ever find it — skip
+    with a status message instead of guessing."""
+    fn = js.split("async function _reprojEmitPeaks")[1].split("\nasync function")[0]
+    assert "scorer" in fn
+    assert "if (!scorer)" in fn or "!scorer" in fn
+
+
+def test_peaks_poller_reuses_the_active_polls_set(js):
+    """Must mirror _pollReq's setInterval + _activePolls bookkeeping, not a
+    parallel ad hoc timer that _stopAllPolls can't see."""
+    assert "function _pollPeaksReq" in js
+    fn = js.split("function _pollPeaksReq")[1].split("\nfunction ")[0]
+    assert fn, "could not locate _pollPeaksReq"
+    assert "_activePolls.add" in fn and "_activePolls.delete" in fn
+
+
+def test_the_peaks_pass_is_gated_on_the_checkbox(js):
+    fn = js.split("async function _onAnalyzeTagClick")[1].split(
+        "\nasync function _onTriangulateTagClick"
+    )[0]
+    assert fn, "could not locate _onAnalyzeTagClick"
+    assert "ia3dr-emit-peaks" in fn, (
+        "the peaks pass must be guarded by the emit-peaks checkbox"
+    )
+
+
+def test_the_peaks_pass_runs_after_the_analysis_polls_resolve(js):
+    fn = js.split("async function _onAnalyzeTagClick")[1].split(
+        "\nasync function _onTriangulateTagClick"
+    )[0]
+    assert fn.index("_pollReq") < fn.index("_reprojEmitPeaks"), (
+        "peaks must be emitted only after both cameras finish"
+    )
+
+
+def test_the_run_payload_carries_the_screen_parameters(js):
+    fn = js.split("function _reprojPayload")[1].split("\nfunction ")[0]
+    assert fn, "could not locate _reprojPayload"
+    assert "require_peaks" in fn and "peak_score_floor" in fn
+
+
+def test_estimate_does_not_send_the_screen_parameters(js):
+    """Neither parameter affects auto_threshold — sending them to
+    /reproject/thresholds would imply an effect they do not have there."""
+    fn = js.split("async function _reprojEstimate")[1].split("\nasync function")[0]
+    for field in ("require_peaks", "peak_score_floor"):
+        assert field not in fn, "{} must not be sent to /reproject/thresholds".format(field)
+
+
+def test_the_screen_params_round_trip_through_reproj_params(js):
+    save = js[
+        js.index("function _reprojSaveParams"):
+        js.index("async function _reprojLoadParams")
+    ]
+    assert save, "could not locate _reprojSaveParams"
+    assert "emit_peaks" in save and "require_peaks" in save and "peak_floor" in save
+
+    load = js[
+        js.index("async function _reprojLoadParams"):
+        js.index("function _reprojRenderThresholds")
+    ]
+    assert load, "could not locate _reprojLoadParams"
+    assert "emit_peaks" in load and "require_peaks" in load and "peak_floor" in load
+    assert 'typeof prefs.emit_peaks === "boolean"' in load, (
+        "a params blob written before this feature must not force the checkbox"
+    )
+    assert 'typeof prefs.require_peaks === "boolean"' in load, (
+        "a params blob written before this feature must not force the checkbox"
+    )
+
+
+def test_new_controls_are_registered_for_persistence(js):
+    """Edits to the three new controls must persist like every other param."""
+    fn = js.split("function _reprojWirePanel")[1].split("EPIPOLAR OVERLAY")[0]
+    assert fn, "could not locate _reprojWirePanel"
+    for accessor in ("_reprojEl.requirePeaks()", "_reprojEl.peakFloor()", "_reprojEl.emitPeaks()"):
+        assert accessor in fn, "{} not wired into the change-listener loop".format(accessor)
+
+
+def test_the_require_peaks_checkbox_is_gated_on_sidecar_presence(js):
+    assert "/dlc-3d/reproject/peaks-status" in js
+    i = js.index("/dlc-3d/reproject/peaks-status")
+    window = js[i:i + 1500]
+    assert "disabled" in window, (
+        "require-peaks must be disabled when no sidecar is present"
+    )
+    assert "ia3dr-reproj-require-peaks" in window or "requirePeaks" in window
+
+
+def test_availability_refresh_uses_reprojpair_not_missing_accessors(js):
+    """_reprojEl.refH5()/.tgtH5() do not exist; the h5 pair must come from the
+    same _reprojPair() source /reproject/run uses."""
+    assert "_reprojEl.refH5" not in js
+    assert "_reprojEl.tgtH5" not in js
+    fn = js.split("async function _reprojRefreshPeaksAvailability")[1].split(
+        "\nasync function"
+    )[0]
+    assert fn, "could not locate _reprojRefreshPeaksAvailability"
+    assert "_reprojPair(" in fn
+
+
+def test_the_audit_surfaces_the_screen_coverage(js):
+    fn = js.split("async function _reprojRun")[1].split("\nfunction _reprojRenderHelp")[0]
+    assert fn, "could not locate _reprojRun"
+    assert "peak_screen" in fn
+    assert "_reprojEl.status()" in fn
