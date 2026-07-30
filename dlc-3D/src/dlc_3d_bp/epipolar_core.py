@@ -226,6 +226,8 @@ def auto_threshold(
     lik_ref: np.ndarray,
     lik_tgt: np.ndarray,
     high_conf: float = 0.9,
+    high_conf_ref: "float | None" = None,
+    high_conf_tgt: "float | None" = None,
     k1: float = 3.0,
     k2: float = 8.0,
     min_n: int = 200,
@@ -233,15 +235,20 @@ def auto_threshold(
 ) -> dict:
     """Estimate (t_ok, t_bad) for one bodypart from high-confidence agreement.
 
-    Frames where BOTH views exceed `high_conf` are presumed correct
-    correspondences, so their residual spread measures this session's real
-    geometric noise for this bodypart.
+    Frames where BOTH views exceed their respective confidence bars are presumed
+    correct correspondences, so their residual spread measures this session's real
+    geometric noise for this bodypart. Per-side thresholds can override the shared
+    `high_conf` value to calibrate each camera independently.
     """
     d = np.asarray(d, dtype=float)
+    # Each camera clears its OWN bar. high_conf remains the shared default so
+    # existing single-value callers behave identically.
+    hr = high_conf if high_conf_ref is None else high_conf_ref
+    ht = high_conf if high_conf_tgt is None else high_conf_tgt
     hi = (
         np.isfinite(d)
-        & (np.asarray(lik_ref, dtype=float) > high_conf)
-        & (np.asarray(lik_tgt, dtype=float) > high_conf)
+        & (np.asarray(lik_ref, dtype=float) > hr)
+        & (np.asarray(lik_tgt, dtype=float) > ht)
     )
     n = int(hi.sum())
 

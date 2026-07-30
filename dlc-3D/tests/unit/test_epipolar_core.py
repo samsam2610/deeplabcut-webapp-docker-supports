@@ -394,3 +394,39 @@ def test_classify_reject_wins_even_when_thresholds_are_inverted():
     got = classify(np.array([1.0, 12.0]), np.ones(2), np.array([0.1, 0.1]),
                    t_ok=5.0, t_bad=8.0)
     assert list(got) == [RESCUE, REJECT]
+
+
+def test_auto_threshold_accepts_per_side_high_conf():
+    """The two cameras can require different confidence bars. Lowering one
+    camera's bar admits strictly more frames into the calibration sample."""
+    d = np.full(1000, 2.0)
+    lik_ref = np.full(1000, 0.95)      # reference is confident
+    lik_tgt = np.linspace(0.5, 1.0, 1000)  # target spans the range
+
+    both_09 = auto_threshold(d, lik_ref, lik_tgt, high_conf=0.9, min_n=1)
+    tgt_07 = auto_threshold(d, lik_ref, lik_tgt, high_conf=0.9,
+                            high_conf_tgt=0.7, min_n=1)
+    assert tgt_07["n_highconf"] > both_09["n_highconf"]
+
+
+def test_auto_threshold_per_side_defaults_to_the_shared_value():
+    """Omitting a per-side value must reproduce the single-high_conf behaviour
+    exactly — the existing callers and verification script rely on it."""
+    rng = np.random.default_rng(3)
+    d = np.abs(rng.normal(0.0, 2.0, 2000)) + 1.0
+    lik = rng.uniform(0.5, 1.0, 2000)
+    a = auto_threshold(d, lik, lik, high_conf=0.85)
+    b = auto_threshold(d, lik, lik, high_conf=0.85,
+                       high_conf_ref=None, high_conf_tgt=None)
+    assert a == b
+
+
+def test_auto_threshold_per_side_gates_each_camera_independently():
+    """A frame counts only if EACH camera clears its OWN bar."""
+    d = np.array([1.0, 1.0, 1.0, 1.0])
+    lik_ref = np.array([0.95, 0.95, 0.60, 0.60])
+    lik_tgt = np.array([0.95, 0.60, 0.95, 0.60])
+    # ref must clear 0.9, tgt only 0.5 -> rows 0 and 1 qualify.
+    st = auto_threshold(d, lik_ref, lik_tgt,
+                        high_conf_ref=0.9, high_conf_tgt=0.5, min_n=1)
+    assert st["n_highconf"] == 2
