@@ -357,3 +357,46 @@ def test_scalar_parameters_still_work(tmp_path):
     )
     assert out["config"]["gate_ref"] == {"cam_0": 0.5, "cam_1": 0.5}
     assert out["config"]["rescue_floor"] == {"cam_0": 0.85, "cam_1": 0.85}
+
+
+def test_flipped_bodypart_uses_the_flipped_judged_camera_floor(tmp_path):
+    """The riskiest path: a per-bodypart override AND per-camera parameters.
+
+    With ref_cam=cam_1, a bodypart flipped to "ref" makes cam_1 the JUDGED
+    camera, so its rescues must carry cam_1's rescue_floor (0.95), not cam_0's
+    (0.77). Getting role_ref/role_tgt backwards in the flipped branch would
+    silently apply the wrong camera's thresholds and be near-invisible in the
+    output — no other test exercises this combination.
+    """
+    calib = _write_calib(tmp_path)
+    cams = load_calibration(calib)
+    n = 300
+    t = np.linspace(0.0, 1.0, n)
+    xyz = np.c_[10.0 + 2.0 * t, -5.0 + 2.0 * t, 250.0 + 5.0 * t]
+    ref_xy = np.stack([project_point(cams["cam_1"], xyz)] * 2, axis=1)
+    tgt_xy = np.stack([project_point(cams["cam_0"], xyz)] * 2, axis=1)
+    ref_lik = np.full((n, 2), 0.99, dtype=np.float32)
+    tgt_lik = np.full((n, 2), 0.99, dtype=np.float32)
+    # Snout is correctly placed in cam_1 but under-confident -> rescue candidate
+    # in the file that the flip makes the judged one.
+    ref_lik[100:150, 0] = 0.10
+
+    ref_h5 = tmp_path / "s_cam1_x.h5"
+    tgt_h5 = tmp_path / "s_cam0_x.h5"
+    _write_h5(ref_h5, _make_df(ref_xy, ref_lik))
+    _write_h5(tgt_h5, _make_df(tgt_xy, tgt_lik))
+
+    out = run_reprojection(
+        ref_h5=ref_h5, tgt_h5=tgt_h5, calib_path=calib,
+        ref_cam_key="cam_1", tgt_cam_key="cam_0", out_dir=tmp_path,
+        overrides={"Snout": "ref"},
+        rescue_floor={"cam_0": 0.77, "cam_1": 0.95},
+    )
+    assert out["counts"]["RESCUE"] > 0
+
+    got_ref, _ = read_pose_h5(out["outputs"]["ref_h5"])
+    rescued = got_ref[SCORER]["Snout"]["likelihood"].to_numpy()[100:150]
+    assert np.allclose(rescued, 0.95, atol=1e-6), (
+        "flipped bodypart must use cam_1's floor (0.95, the judged camera under "
+        "the flip), not cam_0's 0.77 — role_ref/role_tgt are reversed"
+    )
