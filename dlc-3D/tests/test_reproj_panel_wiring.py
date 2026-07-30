@@ -110,3 +110,78 @@ def test_overlay_guards_against_stale_frame_draws(js):
     assert block.count("_reprojDrawGen") >= 3, (
         "expected declare/bump/compare — the guard must be re-checked after await"
     )
+
+
+def test_overlay_is_wired_where_the_viewer_actually_exists(js):
+    """The drawTile subscription must be made inside _ensureViewer, after the
+    viewer and its feature modules exist.
+
+    Regression (2026-07-30): the overlay was wired only from the bootstrap path,
+    which runs at DOMContentLoaded while _viewer is still null — it is created
+    lazily by _ensureViewer when a video is opened. The
+    `if (_reprojOverlayBound || !_viewer) return;` guard therefore fired on every
+    call and nothing ever re-invoked it, so no drawTile subscriber was ever
+    registered and "Show epipolar lines" did nothing at all.
+    """
+    body = js.split("function _ensureViewer()")[1].split("\n  return _viewer;")[0]
+    assert "_reprojWireEpipolarOverlay()" in body, (
+        "overlay must be wired inside _ensureViewer, where _viewer exists"
+    )
+
+
+def test_overlay_wiring_runs_after_the_feature_modules(js):
+    """Our subscriber must be registered AFTER markerEditor's, because
+    markerEditor clears the canvas in its own drawTile handler. Subscribing
+    first means our line is erased before it is ever seen."""
+    body = js.split("function _ensureViewer()")[1].split("\n  return _viewer;")[0]
+    assert body.index("_viewer.use(_markerEditor)") < body.index(
+        "_reprojWireEpipolarOverlay()"
+    ), "overlay subscribed before markerEditor — its clearRect would erase the line"
+
+
+def test_overlay_toggle_forces_a_real_repaint(js):
+    """VideoViewer exposes no redraw()/refresh()/repaint(). The toggle handler
+    must not depend on one: `_viewer?.redraw?.()` silently no-ops, so ticking the
+    box would draw nothing until the user happened to seek.
+
+    Comment lines are stripped first — the invariant is about executable code,
+    and the surrounding comments legitimately mention redraw() to explain why it
+    is not used.
+    """
+    block = js.split("EPIPOLAR OVERLAY")[1]
+    code = "\n".join(
+        line for line in block.splitlines() if not line.lstrip().startswith("//")
+    )
+    assert not re.search(r"\.\s*redraw", code), (
+        "toggle calls a VideoViewer redraw method that does not exist"
+    )
+    assert "seek(" in code, "toggle must force a repaint via the viewer's seek path"
+
+
+def test_overlay_rebinds_after_viewer_teardown_and_reopen(js):
+    """The Back button (_iaBack) nulls _viewer; reopening builds a NEW one via
+    _ensureViewer. A bare boolean "already bound" flag would block rebinding, so
+    the epipolar overlay would silently stop working after the first
+    open -> Back -> reopen cycle.
+
+    This is the "state cleared, not re-established" trap already recorded in
+    docs/regression-catalog.md. The guard must therefore track WHICH viewer
+    instance it bound to, not merely that it bound once.
+    """
+    block = js.split("EPIPOLAR OVERLAY")[1]
+    code = "\n".join(
+        line for line in block.splitlines() if not line.lstrip().startswith("//")
+    )
+    assert re.search(r"_reprojOverlayBoundTo\s*===\s*_viewer", code), (
+        "overlay guard must compare against the current viewer instance so a "
+        "recreated viewer is rebound"
+    )
+    assert not re.search(r"\b_reprojOverlayBound\b\s*(\|\||\)|=\s*true)", code), (
+        "bare boolean bound-flag survives; it blocks rebinding after teardown"
+    )
+    # Cache keys are `frame|bodypart` with no session identity, so binding to a
+    # new viewer must drop entries from the previously-open session.
+    bind = code.split("_reprojOverlayBoundTo = _viewer;")[1][:400]
+    assert "_reprojLineCache.clear()" in bind, (
+        "stale epipolar lines from the previous session would be served"
+    )

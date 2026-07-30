@@ -317,6 +317,15 @@ function _ensureViewer() {
   _wirePose3dChrome();
 
   _wireViewerChrome(_viewer);
+
+  // Bind the epipolar overlay HERE, not in the bootstrap. The bootstrap runs at
+  // DOMContentLoaded, when _viewer is still null (it is created lazily, right
+  // above), so wiring there hit the `!_viewer` guard every time and no drawTile
+  // subscriber was ever registered — "Show epipolar lines" did nothing at all.
+  // Binding last also matters: markerEditor (composed above) clears the canvas
+  // in its own drawTile handler, so a subscriber registered before it would be
+  // erased rather than drawn on top of.
+  _reprojWireEpipolarOverlay();
   return _viewer;
 }
 
@@ -3770,7 +3779,7 @@ function _reprojWirePanel() {
 // feature modules are composed — paints on top of the markers.
 
 const _reprojLineCache = new Map();     // `${frame}|${bodypart}` -> segment|null
-let _reprojOverlayBound = false;
+let _reprojOverlayBoundTo = null;      // which viewer instance the overlay is bound to
 let _reprojDrawGen = 0;                 // guards against stale async draws
 
 function _reprojCacheKey(frame, bodypart) {
@@ -3836,9 +3845,33 @@ function _reprojJudgedCam() {
   return (_reprojEl.refCam()?.value || "cam_1") === "cam_0" ? 1 : 0;
 }
 
+// Force a repaint of every tile at the current frame.
+//
+// VideoViewer deliberately exposes no redraw()/refresh()/repaint(); its only
+// draw path is seek(), which reloads the frames and then emits drawTile per
+// tile. Re-seeking the CURRENT frame is therefore the supported way to force a
+// repaint, and it is the only one that also lets markerEditor clear the canvas
+// and repaint its markers — which is what makes UNticking the box actually
+// erase the line rather than leave it stranded until the next seek.
+function _reprojRepaint() {
+  if (!_viewer) return;
+  try {
+    _viewer.seek(_viewer.currentFrame());
+  } catch (e) {
+    console.warn("[reproj] repaint failed", e);
+  }
+}
+
 function _reprojWireEpipolarOverlay() {
-  if (_reprojOverlayBound || !_viewer) return;
-  _reprojOverlayBound = true;
+  // Track WHICH viewer we bound to, not merely that we bound once. The Back
+  // button (_iaBack) nulls _viewer and reopening builds a fresh one, so a
+  // one-shot boolean would block rebinding and the overlay would silently die
+  // after the first open → Back → reopen cycle.
+  if (!_viewer || _reprojOverlayBoundTo === _viewer) return;
+  _reprojOverlayBoundTo = _viewer;
+  // Cache keys are `frame|bodypart` with no session identity, so entries from a
+  // previously-open session would otherwise be served for the new one.
+  _reprojLineCache.clear();
 
   _viewer.on("drawTile", async (tile, frame) => {
     if (!_reprojEl.showLines()?.checked) return;
@@ -3857,9 +3890,7 @@ function _reprojWireEpipolarOverlay() {
 
   // A trusted-camera change invalidates every cached line.
   _reprojEl.refCam()?.addEventListener("change", () => _reprojLineCache.clear());
-  _reprojEl.showLines()?.addEventListener("change", () => {
-    try { _viewer?.redraw?.(); } catch (e) { /* redraw is best-effort */ }
-  });
+  _reprojEl.showLines()?.addEventListener("change", _reprojRepaint);
 }
 
 // ── Init ──────────────────────────────────────────────────────────────────────
