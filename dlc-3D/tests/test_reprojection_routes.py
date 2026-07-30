@@ -154,6 +154,7 @@ def test_non_numeric_k1_is_400_not_500(client, monkeypatch):
         "k1": {"cam_0": 3.0},
     })
     assert r.status_code == 400
+    assert "k1" in r.get_json()["error"]
 
 
 def test_run_forwards_the_screen_parameters(client, monkeypatch):
