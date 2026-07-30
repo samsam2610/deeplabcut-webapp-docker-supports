@@ -2371,6 +2371,7 @@ function _iaBack() {
   _clipKW = null;
   _viewer?.destroy();
   _viewer = null;
+  _reprojKnownBodyparts = [];
   _markerEditor = null; // torn down with the viewer; _ensureViewer composes a fresh one
   _resetForOpen();
   $("ia3dr-player-section")?.classList.add("hidden");
@@ -3703,7 +3704,12 @@ async function _reprojLoadParams() {
     const setNum = (el, v) => {
       if (el && Number.isFinite(v)) el.value = String(v);
     };
-    if (prefs.ref_cam && _reprojEl.refCam()) _reprojEl.refCam().value = prefs.ref_cam;
+    if (prefs.ref_cam && _reprojEl.refCam()) {
+      const sel = _reprojEl.refCam();
+      if ([...sel.options].some((o) => o.value === prefs.ref_cam)) {
+        sel.value = prefs.ref_cam;
+      }
+    }
     setNum(_reprojEl.k1(), prefs.k1);
     setNum(_reprojEl.k2(), prefs.k2);
     for (const param of ["gate-ref", "low-tgt", "high-conf", "rescue-floor"]) {
@@ -3713,16 +3719,16 @@ async function _reprojLoadParams() {
       setNum(_reprojEl.perCam("cam0", param), vals.cam_0);
       setNum(_reprojEl.perCam("cam1", param), vals.cam_1);
     }
-    // Overrides are keyed by bodypart, which is model-specific: drop entries
-    // naming a bodypart this session does not have, so switching projects or
-    // retraining cannot resurrect a stale flip.
+    // Do NOT filter against _reprojKnownBodyparts here: at card-open the real
+    // bodypart list is not known yet, and after Back → open-another-project it
+    // still holds the PREVIOUS project's list, which would silently drop this
+    // project's legitimate overrides. Keeping an unknown key is harmless — the
+    // engine only ever reads overrides for bodyparts present in the h5 — so we
+    // prune later, in _reprojRenderOverrides, once the real list is known.
     _reprojOverrides = {};
     if (prefs.overrides && typeof prefs.overrides === "object") {
-      const known = new Set(_reprojKnownBodyparts);
       for (const [bp, mode] of Object.entries(prefs.overrides)) {
-        if (mode === "ref" && (known.size === 0 || known.has(bp))) {
-          _reprojOverrides[bp] = "ref";
-        }
+        if (mode === "ref") _reprojOverrides[bp] = "ref";
       }
     }
   } catch (_) { /* keep the defaults */ }
@@ -3761,6 +3767,15 @@ function _reprojRenderCounts(counts) {
 
 function _reprojRenderOverrides(bodyparts) {
   _reprojKnownBodyparts = Object.keys(bodyparts);
+  // The real bodypart list is known now, so drop persisted overrides naming
+  // bodyparts this session does not have (a stale flip from another project or
+  // an older model). Harmless to the engine either way, but it keeps the panel
+  // and the persisted value honest.
+  let pruned = false;
+  for (const bp of Object.keys(_reprojOverrides)) {
+    if (!(bp in bodyparts)) { delete _reprojOverrides[bp]; pruned = true; }
+  }
+  if (pruned) _reprojSaveParams();
   const host = _reprojEl.overrides();
   if (!host) return;
   host.innerHTML = Object.keys(bodyparts).map((bp) => {

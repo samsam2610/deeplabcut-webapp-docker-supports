@@ -218,19 +218,40 @@ def test_persistence_save_is_debounced(js):
     assert "setTimeout" in fn and "clearTimeout" in fn
 
 
-def test_persistence_load_happens_on_card_open_not_at_bootstrap(js):
-    """ui-setting is project-scoped and the panel wires at DOMContentLoaded,
-    before any project is selected. Loading there would query the wrong project
-    or none at all."""
-    assert "_reprojLoadParams" in js
-    boot = js.split("REPROJECTION BOOTSTRAP")[1].split("REPROJECTION PANEL")[0]
-    assert "_reprojLoadParams" not in boot, (
-        "params must not load from the bootstrap path"
+def test_overrides_are_not_filtered_at_load_time(js):
+    """At card-open the real bodypart list is unknown, and after Back → open
+    another project it holds the PREVIOUS project's list. Filtering there
+    silently drops the new project's legitimate overrides, changing which camera
+    is trusted with no visible error. Keeping an unknown key is harmless — the
+    engine only reads overrides for bodyparts present in the h5.
+    """
+    fn = js.split("async function _reprojLoadParams")[1].split("\nasync function")[0]
+    # Strip comments to avoid false positives (comments legitimately mention why
+    # the list is NOT used).
+    code = "\n".join(line for line in fn.splitlines() if not line.lstrip().startswith("//"))
+    assert "known.size === 0 || known.has(bp)" not in code and "known.has(bp)" not in code, (
+        "load must not filter against a list it cannot yet trust"
     )
 
 
-def test_persisted_overrides_are_filtered_against_current_bodyparts(js):
-    """Overrides are keyed by bodypart name, which is model-specific. A stale
-    entry from another project must not resurrect a flip."""
-    fn = js.split("async function _reprojLoadParams")[1].split("\nasync function")[0]
-    assert "bodyparts" in fn or "_reprojKnownBodyparts" in fn
+def test_overrides_are_pruned_once_the_bodypart_list_is_known(js):
+    """The prune belongs where the authoritative list arrives."""
+    fn = js.split("function _reprojRenderOverrides")[1].split("\nfunction ")[0]
+    assert "delete _reprojOverrides" in fn, "no prune where the list is known"
+    assert "_reprojKnownBodyparts" in fn
+
+
+def test_known_bodyparts_reset_on_teardown(js):
+    """_iaBack tears the card down; a stale list surviving it would be filtered
+    against on the next project."""
+    fn = js.split("function _iaBack")[1].split("\nfunction ")[0]
+    assert "_reprojKnownBodyparts = []" in fn
+
+
+def test_persistence_loads_from_ensure_viewer(js):
+    """Asserting the function merely EXISTS would pass even if it were never
+    called. Pin the actual call site: _ensureViewer runs once per card open,
+    after a project is selected — unlike the bootstrap, which runs at
+    DOMContentLoaded before any project exists."""
+    fn = js.split("function _ensureViewer()")[1].split("\n  return _viewer;")[0]
+    assert "_reprojLoadParams()" in fn
