@@ -650,8 +650,23 @@ git commit -m "feat(peaks): validation harness scoring verdicts against human la
 
 - [ ] **Step 1: Summarise the two scores**
 
-From the JSON, compute across all sessions and separately for a held-out split
-(tune on `khoai-lang-1*`, measure on `khoai-lang-2*`, `eggtart-1*`, `OM-2*`):
+**The split is determined by the training data, not by convenience.**
+`iteration-22` was trained on 4,102 images across 41 sessions. Cross-referencing
+the 13 labelled paired sessions against that index:
+
+| Set | Sessions | Pairs | Use |
+| --- | --- | --- | --- |
+| **UNSEEN** | `eggtart-1_20260701`, `khoai-lang-1_20260507` | **51** | measurement |
+| In training | the other 11 | 1,053 | tuning only |
+
+The model memorised the 1,053, so any accuracy number from them is inflated and
+must NOT be reported as the result. They are still useful for tuning the score
+floor and NMS distance and for exercising 10 different stereo geometries.
+
+**Report the two sets separately and never pool them.** The gate is decided on
+the 51 unseen pairs alone.
+
+From the JSON, compute for each set:
 
 - median original error vs median error after correction, on the low-confidence
   population
@@ -662,7 +677,15 @@ From the JSON, compute across all sessions and separately for a held-out split
 - [ ] **Step 2: Apply the gate honestly**
 
 The approach passes if corrections **reduce** the median distance to the human
-label on the held-out sessions. If they do not, say so and stop — that is a
+label on the 51 UNSEEN pairs (`eggtart-1_20260701`, `khoai-lang-1_20260507`).
+An improvement on the training sessions alone does not count and must not be
+presented as the headline.
+
+51 pairs is small. It is enough to falsify the approach — a 22.6 px baseline
+leaves plenty of room for a real effect to show — but too small to resolve a
+modest improvement confidently. Report the number of low-confidence cases the
+unseen set actually yields alongside the medians, so the reader can judge how
+much weight it carries. If they do not, say so and stop — that is a
 successful outcome of this plan. **Do not tune `--score-floor` or `--t-ok` until
 the number turns green**; if you want to explore sensitivity, report the full
 sweep rather than the best point.
