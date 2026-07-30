@@ -317,3 +317,19 @@
 #ia3dr-reproj-panel tr.src-default td,
 #ia3dr-reproj-panel tr.src-pooled td { opacity: .65; font-style: italic; }
 #ia3dr-reproj-status { min-height: 1.2em; margin: .35rem 0; }
+
+#ia3dr-reproj-panel .ia3dr-percam-wrap {
+  display: flex; gap: 1rem; flex-wrap: wrap; margin: .4rem 0;
+}
+#ia3dr-reproj-panel .ia3dr-percam {
+  border: 1px solid rgba(255, 255, 255, .18);
+  border-radius: 6px; padding: .35rem .6rem .5rem; min-width: 12rem;
+}
+#ia3dr-reproj-panel .ia3dr-percam legend {
+  padding: 0 .35rem; font-size: .85em; opacity: .8;
+}
+#ia3dr-reproj-panel .ia3dr-percam label {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: .5rem; font-size: .85em; margin: .15rem 0;
+}
+#ia3dr-reproj-panel .ia3dr-percam input { width: 5rem; }

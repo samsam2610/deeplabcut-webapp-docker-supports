@@ -185,3 +185,21 @@ def test_overlay_rebinds_after_viewer_teardown_and_reopen(js):
     assert "_reprojLineCache.clear()" in bind, (
         "stale epipolar lines from the previous session would be served"
     )
+
+
+def test_run_payload_sends_all_four_per_camera(js):
+    block = js.split("REPROJECTION PANEL")[1]
+    assert "_reprojPerCam" in block
+    for field in ("gate_ref", "low_tgt", "high_conf", "rescue_floor"):
+        assert field in block
+
+
+def test_estimate_sends_high_conf_but_not_the_other_three(js):
+    """Only high_conf feeds auto_threshold. Sending gate_ref / low_tgt /
+    rescue_floor to the thresholds endpoint would imply an effect they do not
+    have — they are consumed by classify and apply_verdicts, neither of which
+    runs during an estimate."""
+    fn = js.split("async function _reprojEstimate")[1].split("\nasync function")[0]
+    assert "high_conf" in fn
+    for field in ("gate_ref", "low_tgt", "rescue_floor"):
+        assert field not in fn, "{} must not be sent to /reproject/thresholds".format(field)

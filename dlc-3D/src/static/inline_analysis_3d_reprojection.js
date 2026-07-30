@@ -3597,6 +3597,8 @@ const _reprojEl = {
   counts:     () => document.getElementById("ia3dr-reproj-counts"),
   showLines:  () => document.getElementById("ia3dr-reproj-show-lines"),
   overrides:  () => document.getElementById("ia3dr-reproj-overrides"),
+  perCam:     (cam, param) =>
+                document.getElementById(`ia3dr-reproj-${cam}-${param}`),
 };
 
 function _reprojStatus(msg, isError) {
@@ -3634,12 +3636,27 @@ function _reprojPair() {
   };
 }
 
+// Read one likelihood parameter for both cameras. Returns the per-camera dict
+// the endpoints accept; an unreadable input falls back to the engine default so
+// a blanked field never sends NaN.
+function _reprojPerCam(param, fallback) {
+  const read = (cam) => {
+    const v = parseFloat(_reprojEl.perCam(cam, param)?.value);
+    return Number.isFinite(v) ? v : fallback;
+  };
+  return { cam_0: read("cam0"), cam_1: read("cam1") };
+}
+
 function _reprojPayload() {
   const pair = _reprojPair();
   if (!pair) return null;
   return Object.assign({}, pair, {
     k1: parseFloat(_reprojEl.k1()?.value) || 3.0,
     k2: parseFloat(_reprojEl.k2()?.value) || 8.0,
+    gate_ref:     _reprojPerCam("gate-ref", 0.6),
+    low_tgt:      _reprojPerCam("low-tgt", 0.6),
+    high_conf:    _reprojPerCam("high-conf", 0.9),
+    rescue_floor: _reprojPerCam("rescue-floor", 0.9),
     overrides: _reprojOverrides,
   });
 }
@@ -3696,8 +3713,15 @@ function _reprojRenderOverrides(bodyparts) {
 }
 
 async function _reprojEstimate() {
-  const payload = _reprojPayload();
-  if (!payload) { _reprojStatus("Open a paired session with an overlay h5 first.", true); return; }
+  const full = _reprojPayload();
+  if (!full) { _reprojStatus("Open a paired session with an overlay h5 first.", true); return; }
+  // Only high_conf feeds auto_threshold; other likelihood parameters are
+  // consumed by classify and apply_verdicts, neither of which runs here.
+  const payload = {
+    ref_h5: full.ref_h5, tgt_h5: full.tgt_h5, calibration: full.calibration,
+    ref_cam: full.ref_cam, tgt_cam: full.tgt_cam,
+    k1: full.k1, k2: full.k2, high_conf: full.high_conf,
+  };
   const btn = _reprojEl.estimate();
   if (btn) btn.disabled = true;
   _reprojStatus("Estimating thresholds…");

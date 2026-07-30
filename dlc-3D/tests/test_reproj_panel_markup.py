@@ -51,3 +51,31 @@ def test_panel_is_inside_the_cloned_card(card):
     assert card.index('id="inline-analysis-3d-reprojection-card"') < card.index(
         'id="ia3dr-reproj-panel"'
     )
+
+
+PER_CAM_IDS = [
+    "ia3dr-reproj-cam0-gate-ref", "ia3dr-reproj-cam0-low-tgt",
+    "ia3dr-reproj-cam0-high-conf", "ia3dr-reproj-cam0-rescue-floor",
+    "ia3dr-reproj-cam1-gate-ref", "ia3dr-reproj-cam1-low-tgt",
+    "ia3dr-reproj-cam1-high-conf", "ia3dr-reproj-cam1-rescue-floor",
+]
+
+
+@pytest.mark.parametrize("element_id", PER_CAM_IDS)
+def test_per_camera_input_present(card, element_id):
+    assert 'id="{}"'.format(element_id) in card
+
+
+def test_per_camera_inputs_are_bounded_to_a_likelihood(card):
+    """These are likelihoods; the browser should refuse values outside [0, 1]
+    before the request is ever made."""
+    for element_id in PER_CAM_IDS:
+        frag = card.split('id="{}"'.format(element_id))[1][:200]
+        assert 'min="0"' in frag and 'max="1"' in frag
+
+
+def test_per_camera_defaults_match_the_engine(card):
+    for element_id in PER_CAM_IDS:
+        frag = card.split('id="{}"'.format(element_id))[1][:200]
+        want = '0.9' if ("high-conf" in element_id or "rescue-floor" in element_id) else '0.6'
+        assert 'value="{}"'.format(want) in frag
