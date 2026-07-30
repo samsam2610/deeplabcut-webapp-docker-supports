@@ -187,19 +187,76 @@ against 251,640 frames of existing output.
 Also: scores must be descending in `k`; peaks must be at least the NMS distance
 apart; `NaN` padding must carry score `0`.
 
-**Phase 2 validates against human labels**, which exist for 44 directories:
+**Phase 2 validates against human labels, on the labelled frames themselves.**
 
+The DLC project's `labeled-data/` holds 13 paired sessions — one `eggtart-1`, one
+`OM-2`, and eleven `khoai-lang` — each containing the extracted frames as PNGs,
+a `CollectedData_*.h5` of human annotations, **and its own `calibration.toml`**.
+
+| | |
+| --- | --- |
+| Paired sessions | 13 |
+| Frame-pairs labelled in both cameras | 1,104 |
+| Pairs with ≥5 labels in both cameras | 1,072 |
+| Distinct calibrations | 10 (three same-day pairs share a rig) |
+| Image size | 800×600 throughout |
+| Calibration RMS | 0.064–0.104 px |
+
+This makes validation **self-contained and cheap**. Everything needed sits in the
+labelled folder: run the model on the two PNGs, extract peaks, build the epipolar
+line from that session's own calibration, apply the verdict logic, score against
+the labels. No video seeking and no full-session inference — roughly 2,200 images
+at ~42 fps, about a minute of GPU.
+
+The ten distinct calibrations matter more than the frame count: baselines range
+from `[149, 23, 105]` to `[201, 27, 143]`, so the method is exercised across
+genuinely different stereo geometries rather than one lucky rig.
+
+### The labels are a trustworthy yardstick
+
+Measured on `eggtart-1`: where DeepLabCut is confident (>0.6) it agrees with the
+annotator to **0.4 px median**. So the two are measuring the same thing, and
+disagreement elsewhere is real error rather than annotation noise.
+
+Where DeepLabCut is *not* confident (≤0.6), its marker sits a median **22.6 px**
+from the human label, with **53% beyond 20 px**. That population — 226 labelled
+cases on `eggtart-1` alone — is exactly what the engine currently *rescues*,
+promoting it to 0.9 on epipolar agreement alone.
+
+### The two scores
+
+- **Correction accuracy.** For every labelled bodypart DeepLabCut scored below
+  `low_tgt`, does a `CORRECTED` marker land closer to the human label than the
+  original did? The baseline to beat is that 22.6 px median.
 - **Occlusion recall.** Where the annotator left a part unlabelled — their
-  judgement that it was not visible — the engine should return `NO_EVIDENCE`
-  rather than `RESCUE`. Today it can only return `RESCUE` or nothing.
-- **Correction accuracy.** Where the annotator *did* label a part and DLC's
-  argmax is far from that label, a `CORRECTED` marker should land closer to the
-  human position than the original did. If corrections do not reduce that
-  distance, the approach does not work and should not ship.
+  judgement that it was not visible — does the engine return `NO_EVIDENCE`
+  rather than `RESCUE`?
 
-That second measurement is the one that decides whether this is worth having.
-It is stated as a threshold, not a hope: corrections must reduce median distance
-to the human label, on held-out labelled frames, or the feature is abandoned.
+**Sessions are held out.** The score floor and NMS distance are tuned on a subset
+of sessions and measured on the rest. With 1,072 pairs across 13 sessions that is
+meaningful; tuning and measuring on the same frames would fit noise.
+
+### Kill threshold
+
+If corrections do not reduce the median distance to the human label on held-out
+sessions, the approach does not work and is abandoned. This is a threshold, not
+a hope, and it is deliberately not a judgement call about how the overlay looks.
+
+### Known bias, accepted
+
+These labelled frames were almost certainly in the model's training set, so
+DeepLabCut performs better on them than on unseen data. That biases the absolute
+numbers optimistically. It does not invalidate the comparison — corrected versus
+original is measured on the same frames — so the improvement is a **lower bound**
+on real-world benefit. The score floor tuned here may sit slightly off for unseen
+data, which is a reason to revisit it after the first production runs, not a
+reason to distrust the gate.
+
+### Phase 1 verification, for the record
+
+`k=0` reproduced the existing pose h5 to **0.47 px worst median** over 15,328
+marker comparisons across both cameras, confirming the coordinate transform.
+Throughput measured at 42 fps on the RTX 5090.
 
 ## Phasing
 
