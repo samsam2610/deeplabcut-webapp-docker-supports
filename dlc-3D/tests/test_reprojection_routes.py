@@ -86,3 +86,57 @@ def test_unknown_camera_key_is_400_not_500(client, monkeypatch, tmp_path):
     })
     assert r.status_code == 400
     assert "cam_9" in r.get_json()["error"]
+
+
+def test_run_accepts_per_camera_dicts(client, monkeypatch, tmp_path):
+    import dlc_3d_bp.reprojection as rp
+    seen = {}
+
+    def fake_run(**kwargs):
+        seen.update(kwargs)
+        return {"counts": {}, "outputs": {}, "bodyparts": {}, "config": {}}
+
+    monkeypatch.setattr(routes, "_reproject_run_impl", fake_run)
+    monkeypatch.setattr(rp, "load_calibration", lambda p: {"cam_0": object(),
+                                                           "cam_1": object()})
+    r = client.post("/dlc-3d/reproject/run", json={
+        "ref_h5": "/user-data/a_cam1_x.h5", "tgt_h5": "/user-data/a_cam0_x.h5",
+        "calibration": "/user-data/calibration.toml",
+        "ref_cam": "cam_1", "tgt_cam": "cam_0",
+        "gate_ref": {"cam_0": 0.4, "cam_1": 0.7},
+        "rescue_floor": {"cam_0": 0.77, "cam_1": 0.95},
+    })
+    assert r.status_code == 200
+    assert seen["gate_ref"] == {"cam_0": 0.4, "cam_1": 0.7}
+    assert seen["rescue_floor"] == {"cam_0": 0.77, "cam_1": 0.95}
+    # Unsupplied parameters must not be coerced to something the engine can't
+    # tell apart from "use the default".
+    assert seen["low_tgt"] in (None, 0.6)
+
+
+def test_run_rejects_out_of_range_value(client, monkeypatch, tmp_path):
+    import dlc_3d_bp.reprojection as rp
+    monkeypatch.setattr(rp, "load_calibration",
+                        lambda p: {"cam_0": object(), "cam_1": object()})
+    r = client.post("/dlc-3d/reproject/run", json={
+        "ref_h5": "/user-data/a.h5", "tgt_h5": "/user-data/b.h5",
+        "calibration": "/user-data/calibration.toml",
+        "ref_cam": "cam_0", "tgt_cam": "cam_1",
+        "gate_ref": {"cam_0": 1.7},
+    })
+    assert r.status_code == 400
+    assert "gate_ref" in r.get_json()["error"]
+
+
+def test_run_rejects_unknown_camera_in_a_parameter(client, monkeypatch):
+    import dlc_3d_bp.reprojection as rp
+    monkeypatch.setattr(rp, "load_calibration",
+                        lambda p: {"cam_0": object(), "cam_1": object()})
+    r = client.post("/dlc-3d/reproject/run", json={
+        "ref_h5": "/user-data/a.h5", "tgt_h5": "/user-data/b.h5",
+        "calibration": "/user-data/calibration.toml",
+        "ref_cam": "cam_0", "tgt_cam": "cam_1",
+        "high_conf": {"cam_9": 0.8},
+    })
+    assert r.status_code == 400
+    assert "cam_9" in r.get_json()["error"]

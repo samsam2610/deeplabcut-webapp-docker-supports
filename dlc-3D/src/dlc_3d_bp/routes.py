@@ -832,6 +832,13 @@ def reproject_thresholds():
             }), 400
     cam_ref = cams[body["ref_cam"]]
     cam_tgt = cams[body["tgt_cam"]]
+
+    try:
+        high_conf_by_cam = rp.normalize_per_cam(
+            body.get("high_conf", 0.9), 0.9, tuple(cams.keys()))
+    except ValueError as exc:
+        return jsonify({"error": "high_conf: {}".format(exc)}), 400
+
     df_ref, meta_ref = rp.read_pose_h5(paths["ref_h5"])
     df_tgt, meta_tgt = rp.read_pose_h5(paths["tgt_h5"])
     F = ec.fundamental_matrix(cam_ref, cam_tgt)
@@ -851,7 +858,8 @@ def reproject_thresholds():
             d,
             a["likelihood"].to_numpy(dtype=float),
             b["likelihood"].to_numpy(dtype=float),
-            high_conf=float(body.get("high_conf", 0.9)),
+            high_conf_ref=high_conf_by_cam[body["ref_cam"]],
+            high_conf_tgt=high_conf_by_cam[body["tgt_cam"]],
             k1=float(body.get("k1", 3.0)),
             k2=float(body.get("k2", 8.0)),
         )
@@ -883,18 +891,32 @@ def reproject_run():
         if out_dir is None:
             return jsonify({"error": "path outside /user-data: out_dir"}), 403
 
-    summary = _reproject_run_impl(
-        ref_h5=paths["ref_h5"], tgt_h5=paths["tgt_h5"],
-        calib_path=paths["calibration"],
-        ref_cam_key=body["ref_cam"], tgt_cam_key=body["tgt_cam"],
-        out_dir=out_dir,
-        k1=float(body.get("k1", 3.0)), k2=float(body.get("k2", 8.0)),
-        gate_ref=float(body.get("gate_ref", 0.6)),
-        low_tgt=float(body.get("low_tgt", 0.6)),
-        high_conf=float(body.get("high_conf", 0.9)),
-        rescue_floor=float(body.get("rescue_floor", 0.9)),
-        overrides=body.get("overrides") or {},
-    )
+    # Validate per-camera parameters before calling the engine.
+    cam_keys = tuple(cams.keys())
+    for field, default in (("gate_ref", 0.6), ("low_tgt", 0.6),
+                           ("high_conf", 0.9), ("rescue_floor", 0.9)):
+        if field in body:
+            try:
+                rp.normalize_per_cam(body[field], default, cam_keys)
+            except ValueError as exc:
+                return jsonify({"error": "{}: {}".format(field, exc)}), 400
+
+    try:
+        summary = _reproject_run_impl(
+            ref_h5=paths["ref_h5"], tgt_h5=paths["tgt_h5"],
+            calib_path=paths["calibration"],
+            ref_cam_key=body["ref_cam"], tgt_cam_key=body["tgt_cam"],
+            out_dir=out_dir,
+            k1=float(body.get("k1", 3.0)), k2=float(body.get("k2", 8.0)),
+            gate_ref=body.get("gate_ref", 0.6),
+            low_tgt=body.get("low_tgt", 0.6),
+            high_conf=body.get("high_conf", 0.9),
+            rescue_floor=body.get("rescue_floor", 0.9),
+            overrides=body.get("overrides") or {},
+        )
+    except ValueError as exc:
+        # normalize_per_cam rejects unknown camera keys and out-of-range values.
+        return jsonify({"error": str(exc)}), 400
     return jsonify(summary)
 
 
