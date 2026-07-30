@@ -443,6 +443,10 @@
                 <input type="checkbox" id="ia3dr-ignore-analyzed" checked style="accent-color:var(--accent);width:14px;height:14px"/>
                 ignore frames in _analyzed
               </label>
+              <label class="ia3dr-tag-lock-label" title="After analysis, run a second GPU pass that saves DeepLabCut's candidate heatmap peaks beside each pose h5 (~50 s per 2000 frames). Required by 'Require peak evidence'.">
+                <input type="checkbox" id="ia3dr-emit-peaks" checked style="accent-color:var(--accent);width:14px;height:14px"/>
+                emit peaks
+              </label>
               <button id="ia3dr-btn-analyze-tag" class="btn-sm btn-create" disabled
                 title="Run analysis on every frame carrying the locked note tag (both cameras)">
                 ▶ Analyze for tag
@@ -1011,6 +1015,17 @@
             <input type="number" id="ia3dr-reproj-line-lik"
                    min="0" max="1" step="0.05" value="0.4"
                    data-help="line_lik">
+          </label>
+          <label class="ia3dr-inline-check">
+            <input type="checkbox" id="ia3dr-reproj-require-peaks"
+                   data-help="require_peaks">
+            Require peak evidence
+          </label>
+          <label class="ia3dr-inline-check">
+            peak score floor
+            <input type="number" id="ia3dr-reproj-peak-floor"
+                   min="0" max="1" step="0.01" value="0.05"
+                   data-help="peak_floor">
           </label>
         </div>
 

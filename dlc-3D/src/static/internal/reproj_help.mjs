@@ -92,4 +92,28 @@ export const HELP = {
       "engine ignored are still visible — often the reason a bodypart came " +
       "back UNJUDGED.",
   },
+  require_peaks: {
+    title: "Require peak evidence",
+    body:
+      "Refuses a rescue unless exactly one of DeepLabCut's candidate heatmap " +
+      "peaks sits on the epipolar line. It can only REFUSE — no marker is ever " +
+      "moved. Needs a peaks sidecar, which 'emit peaks' writes during " +
+      "Analyze-for-tag; frames without one keep their geometry verdict rather " +
+      "than being refused.",
+    example:
+      "On the validation run, 4,031 of 15,191 judged cells had SEVERAL peaks " +
+      "on the line and 1,028 had the wrong one — 33% of refusals that geometry " +
+      "alone cannot make at any threshold.",
+  },
+  peak_floor: {
+    title: "Peak score floor",
+    body:
+      "A peak below this heatmap score does not count as evidence. Too high " +
+      "and this degenerates into rescue_floor; too low and a hallucinated peak " +
+      "passes. Same 0–1 scale as likelihood.",
+    example:
+      "The 0.05 default is UNVALIDATED — there is no labelled measurement " +
+      "behind it. Under occlusion DeepLabCut typically scores below 0.10, so " +
+      "raising it toward 0.10 refuses more and rescues less.",
+  },
 };

@@ -21,6 +21,9 @@ REQUIRED_IDS = [
     "ia3dr-reproj-counts",
     "ia3dr-reproj-show-lines",
     "ia3dr-reproj-overrides",
+    "ia3dr-emit-peaks",
+    "ia3dr-reproj-require-peaks",
+    "ia3dr-reproj-peak-floor",
 ]
 
 
@@ -98,7 +101,8 @@ def test_every_control_carries_a_help_key(card):
     """A control with no data-help silently shows the default summary, which
     reads as 'this one has no explanation'."""
     for element_id in ("ia3dr-reproj-ref-cam", "ia3dr-reproj-k1", "ia3dr-reproj-k2",
-                       "ia3dr-reproj-cam0-gate-ref", "ia3dr-reproj-cam1-rescue-floor"):
+                       "ia3dr-reproj-cam0-gate-ref", "ia3dr-reproj-cam1-rescue-floor",
+                       "ia3dr-reproj-require-peaks", "ia3dr-reproj-peak-floor"):
         frag = card.split('id="{}"'.format(element_id))[1][:200]
         assert "data-help" in frag, "{} has no data-help".format(element_id)
 
@@ -116,3 +120,62 @@ def test_line_likelihood_field_bounds_and_default(card):
     assert 'min="0"' in frag and 'max="1"' in frag
     assert 'value="0.4"' in frag, "default must be 0.4, below gate_ref's 0.6"
     assert "data-help" in frag
+
+
+def test_emit_peaks_checkbox_sits_in_the_tag_row_and_defaults_on(card):
+    i = card.index('id="ia3dr-emit-peaks"')
+    j = card.index('id="ia3dr-btn-analyze-tag"')
+    assert abs(i - j) < 1200, "emit-peaks must sit beside Analyze for tag"
+    assert 'type="checkbox"' in card[max(0, i - 60):i]
+    frag = card.split('id="ia3dr-emit-peaks"')[1][:220]
+    assert "checked" in frag
+
+
+def test_require_peaks_checkbox_defaults_off_and_carries_help(card):
+    i = card.index('id="ia3dr-reproj-require-peaks"')
+    assert 'type="checkbox"' in card[max(0, i - 60):i]
+    frag = card.split('id="ia3dr-reproj-require-peaks"')[1][:220]
+    assert "checked" not in frag, "the screen must be opt-in"
+    assert 'data-help="require_peaks"' in frag
+
+
+def test_peak_floor_field_has_the_specified_bounds_and_default(card):
+    i = card.index('id="ia3dr-reproj-peak-floor"')
+    assert 'type="number"' in card[max(0, i - 60):i]
+    frag = card.split('id="ia3dr-reproj-peak-floor"')[1][:220]
+    for want in ('min="0"', 'max="1"', 'step="0.01"', 'value="0.05"',
+                 'data-help="peak_floor"'):
+        assert want in frag, "{} missing from {}".format(want, frag)
+
+
+def test_extraction_parameters_are_not_exposed(card):
+    """k and min_distance are internal-only; only the screen's own knobs
+    (require-peaks, peak-floor) are exposed as controls."""
+    for absent in ("ia3dr-reproj-peak-k", "ia3dr-reproj-peak-min-distance"):
+        assert absent not in card
+
+
+def test_the_new_help_keys_exist():
+    src = (
+        Path(__file__).parent.parent / "src" / "static" / "internal"
+        / "reproj_help.mjs"
+    ).read_text()
+    for key in ("require_peaks:", "peak_floor:"):
+        assert key in src
+
+
+def test_every_data_help_key_used_in_markup_has_a_help_entry(card):
+    """Stricter cross-file guard: walks every data-help="..." value actually
+    used in the card (not just the two new ones) and asserts each has a
+    matching entry in reproj_help.mjs. Verified against current HEAD before
+    this change: no pre-existing gap (used == defined for all 8 prior keys),
+    so this passes unconditionally rather than being scoped to the new keys."""
+    import re
+    mod = (
+        Path(__file__).parent.parent / "src" / "static" / "internal"
+        / "reproj_help.mjs"
+    ).read_text()
+    used = set(re.findall(r'data-help="([^"]+)"', card))
+    defined = set(re.findall(r"^\s{2}(\w+):\s*\{", mod, re.M))
+    missing = used - defined
+    assert not missing, "markup uses help keys with no entry: {}".format(sorted(missing))
