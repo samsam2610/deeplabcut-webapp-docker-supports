@@ -54,7 +54,7 @@ _onAnalyzeTagClick()                     [reprojection card]
              { video_paths: [cam0, cam1], ranges: [{start, n}, …],
                snapshot_path, k, min_distance }
              └→ tasks.dlc_emit_peaks — one model load, both cams, all ranges
-                → <stem><scorer>_peaks.h5 beside each pose h5
+                → <stem><scorer>_peaks.npz beside each pose h5
 ```
 
 ### Why a second pass rather than a flag on the first
@@ -102,16 +102,22 @@ The task moves this code into the worker package. **It must not be re-derived.**
 
 ## Sidecar format
 
-`<stem><scorer>_peaks.h5`, written beside the pose h5.
+`<stem><scorer>_peaks.npz`, written beside the pose h5, via
+`np.savez_compressed`.
 
-| dataset | dtype | shape | meaning |
+| array | dtype | shape | meaning |
 |---|---|---|---|
 | `frames` | int32 | (N,) | absolute video frame numbers, sorted ascending, unique |
 | `xy` | float32 | (N, B, K, 2) | peak position in original video pixels, NaN-padded |
 | `score` | float32 | (N, B, K) | heatmap score at the peak, 0-padded |
+| `bodyparts` | str | (B,) | bodypart names, ordered to match axis 1 |
+| `meta` | str | () | JSON: `k`, `min_distance`, `snapshot`, `stride`, `locref_std` |
 
-Root attrs: `bodyparts` (list of str, length B), `k`, `min_distance`,
-`snapshot`, `stride`, `locref_std`.
+`.npz` rather than HDF5: it is numpy-only, so neither container gains a
+dependency and the pure host tests need nothing new; it stores 4-D arrays
+directly where HDF5 would need a schema; it matches the `_reprojected.npz`
+artifact the engine already writes; and `scripts/emit_peaks.py` already emits
+this format, so the port keeps its output shape.
 
 Along K, **index 0 is DeepLabCut's own argmax** — the marker already present in
 the pose h5. Peaks are ordered by descending score, so this holds by construction.
@@ -124,7 +130,7 @@ over 251,640 frames would be 241 MB of mostly-NaN, while sparse over a
 2000-frame run is about 2 MB.
 
 Re-running merges: frames are unioned, and frames present in both are taken from
-the new run. A sidecar whose `bodyparts` attr disagrees with the incoming run is
+the new run. A sidecar whose `bodyparts` array disagrees with the incoming run is
 an error, not a merge — silently mixing two models' peaks would be worse than
 failing.
 
