@@ -81,4 +81,15 @@ export const HELP = {
       "Different floors per camera let you tell rescued markers apart by " +
       "which view they came from.",
   },
+  line_lik: {
+    title: "min likelihood — display only",
+    body:
+      "A line is drawn only when the trusted camera's marker for that bodypart " +
+      "reaches this confidence. It changes nothing about the verdicts: gate_ref " +
+      "still decides what the engine judges.",
+    example:
+      "The default 0.4 sits below gate_ref's 0.6 on purpose, so lines the " +
+      "engine ignored are still visible — often the reason a bodypart came " +
+      "back UNJUDGED.",
+  },
 };

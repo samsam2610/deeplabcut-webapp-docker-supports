@@ -101,3 +101,18 @@ def test_every_control_carries_a_help_key(card):
                        "ia3dr-reproj-cam0-gate-ref", "ia3dr-reproj-cam1-rescue-floor"):
         frag = card.split('id="{}"'.format(element_id))[1][:200]
         assert "data-help" in frag, "{} has no data-help".format(element_id)
+
+
+def test_line_likelihood_field_sits_beside_the_checkbox(card):
+    assert 'id="ia3dr-reproj-line-lik"' in card
+    # Same control row as the show-lines checkbox, so it reads as belonging to it.
+    show = card.index('id="ia3dr-reproj-show-lines"')
+    field = card.index('id="ia3dr-reproj-line-lik"')
+    assert abs(show - field) < 600, "field is not adjacent to the checkbox"
+
+
+def test_line_likelihood_field_bounds_and_default(card):
+    frag = card.split('id="ia3dr-reproj-line-lik"')[1][:220]
+    assert 'min="0"' in frag and 'max="1"' in frag
+    assert 'value="0.4"' in frag, "default must be 0.4, below gate_ref's 0.6"
+    assert "data-help" in frag

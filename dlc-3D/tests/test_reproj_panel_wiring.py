@@ -378,3 +378,34 @@ def test_bodypart_source_is_the_chips_not_a_run(js):
     assert "activeBodyparts(" in code, "must delegate to the tested pure resolver"
     assert "ia3dr-bp-chips" in code, "chips are the source that needs no Run"
     assert "posedBodyparts" not in code, "that method does not exist"
+
+
+def test_draw_loop_consults_the_pure_filter(js):
+    block = js.split("EPIPOLAR OVERLAY")[1]
+    assert "shouldDrawLine" in block
+
+
+def test_fetch_keeps_the_likelihood_the_endpoint_already_sends(js):
+    """The endpoint has always returned it; the frontend used to throw it away."""
+    fn = js.split("async function _reprojFetchSegment")[1].split("\nasync function")[0]
+    assert "likelihood" in fn
+
+
+def test_label_order_counts_only_lines_actually_drawn(js):
+    """REGRESSION: with lines now filtered by likelihood too, using the loop
+    index as `order` would leave gaps in the label staircase wherever a line was
+    filtered out."""
+    block = js.split("EPIPOLAR OVERLAY")[1]
+    code = "\n".join(l for l in block.splitlines() if not l.lstrip().startswith("//"))
+    assert "order++" in code, "order must increment on a successful draw"
+    assert "order < visible.length" not in code, (
+        "order is still the loop index, so filtered lines leave gaps"
+    )
+
+
+def test_display_threshold_is_client_side_only(js):
+    """It gates drawing, not judgement, so it must never reach the engine."""
+    block = js.split("REPROJECTION PANEL")[1]
+    assert "line_lik" not in block.split("_reprojPayload")[1][:900], (
+        "the display threshold must not be sent in a request payload"
+    )

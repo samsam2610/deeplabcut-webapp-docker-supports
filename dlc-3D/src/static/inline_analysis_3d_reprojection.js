@@ -27,6 +27,7 @@ import { nameLabelBox } from "./components/viewer/internal/name_label.mjs";
 import { labelAnchor } from "./internal/epiline_label.mjs";
 import { HELP, HELP_DEFAULT } from "./internal/reproj_help.mjs";
 import { activeBodyparts } from "./internal/reproj_bodyparts.mjs";
+import { shouldDrawLine } from "./internal/epiline_filter.mjs";
 import { makeKeyframeWindow } from "./keyframe_window_ui.js";
 import { makePose3dViewer } from "./pose3d_viewer.js";
 import { clampToBounds } from "./internal/clamp_bounds.mjs";
@@ -3604,6 +3605,7 @@ const _reprojEl = {
   thresholds: () => document.getElementById("ia3dr-reproj-thresholds"),
   counts:     () => document.getElementById("ia3dr-reproj-counts"),
   showLines:  () => document.getElementById("ia3dr-reproj-show-lines"),
+  lineLik:    () => document.getElementById("ia3dr-reproj-line-lik"),
   overrides:  () => document.getElementById("ia3dr-reproj-overrides"),
   perCam:     (cam, param) =>
                 document.getElementById(`ia3dr-reproj-${cam}-${param}`),
@@ -3686,6 +3688,7 @@ function _reprojSaveParams() {
     low_tgt:      _reprojPerCam("low-tgt", 0.6),
     high_conf:    _reprojPerCam("high-conf", 0.9),
     rescue_floor: _reprojPerCam("rescue-floor", 0.9),
+    line_lik: parseFloat(_reprojEl.lineLik()?.value),
     overrides: _reprojOverrides,
   };
   if (_reprojParamsSaveTimer) clearTimeout(_reprojParamsSaveTimer);
@@ -3716,6 +3719,7 @@ async function _reprojLoadParams() {
     }
     setNum(_reprojEl.k1(), prefs.k1);
     setNum(_reprojEl.k2(), prefs.k2);
+    setNum(_reprojEl.lineLik(), prefs.line_lik);
     for (const param of ["gate-ref", "low-tgt", "high-conf", "rescue-floor"]) {
       const key = param.replace("-", "_");
       const vals = prefs[key];
@@ -3919,9 +3923,11 @@ function _reprojWirePanel() {
     ...["gate-ref", "low-tgt", "high-conf", "rescue-floor"].flatMap((p) => [
       _reprojEl.perCam("cam0", p), _reprojEl.perCam("cam1", p),
     ]),
+    _reprojEl.lineLik(),
   ]) {
     el?.addEventListener("change", _reprojSaveParams);
   }
+  _reprojEl.lineLik()?.addEventListener("change", _reprojRepaint);
   _reprojWireHelp();
   _reprojWireEpipolarOverlay();
 }
@@ -3972,16 +3978,23 @@ async function _reprojFetchSegment(frame, bodypart) {
     frame: String(frame),
     bodypart,
   });
-  let seg = null;
+  let entry = null;
   try {
     const res = await fetch(`/dlc-3d/reproject/epiline?${qs}`);
-    if (res.ok) seg = (await res.json()).segment || null;
-  } catch (e) { /* leave seg null; the overlay simply draws nothing */ }
+    if (res.ok) {
+      const data = await res.json();
+      // The endpoint has always returned the reference marker's likelihood; it
+      // used to be thrown away. The display filter needs it.
+      entry = data.segment
+        ? { segment: data.segment, likelihood: data.likelihood }
+        : null;
+    }
+  } catch (e) { /* leave entry null; the overlay simply draws nothing */ }
 
   // Bound the cache so long scrubbing sessions cannot grow it without limit.
   if (_reprojLineCache.size > 4000) _reprojLineCache.clear();
-  _reprojLineCache.set(key, seg);
-  return seg;
+  _reprojLineCache.set(key, entry);
+  return entry;
 }
 
 // ── Colour and visibility, sourced from the bp-chips ────────────────────────
@@ -4093,17 +4106,18 @@ function _reprojWireEpipolarOverlay() {
     // Each seek supersedes the last. A fetch that resumes after a newer seek
     // must not paint onto a canvas already repainted for a different frame.
     const gen = ++_reprojDrawGen;
-    // Only visible bodyparts get a line, and `order` counts within that visible
-    // set so the label staircase compacts instead of leaving gaps.
+    const minLik = parseFloat(_reprojEl.lineLik()?.value);
     const visible = parts.filter((bp) => !_reprojIsBodypartHidden(bp));
-    for (let order = 0; order < visible.length; order++) {
-      const bp = visible[order];
-      const seg = await _reprojFetchSegment(frame, bp);
+    let order = 0;
+    for (const bp of visible) {
+      const entry = await _reprojFetchSegment(frame, bp);
       if (gen !== _reprojDrawGen) return;   // superseded — abandon this pass
-      if (!seg) continue;
+      if (!entry || !entry.segment) continue;
+      if (!shouldDrawLine(entry.likelihood, minLik)) continue;
       const color = _reprojBodypartColor(bp);
-      _reprojDrawSegment(tile, seg, color);
-      _reprojDrawLabel(tile, seg, bp, order, color);
+      _reprojDrawSegment(tile, entry.segment, color);
+      _reprojDrawLabel(tile, entry.segment, bp, order, color);
+      order++;   // only a drawn line advances the label staircase
     }
   });
 

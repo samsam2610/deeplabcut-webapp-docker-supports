@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { HELP, HELP_DEFAULT } from "../../src/static/internal/reproj_help.mjs";
 
 const KEYS = ["trusted_cam", "k1", "k2", "gate_ref", "low_tgt", "high_conf",
-              "rescue_floor"];
+              "rescue_floor", "line_lik"];
 
 test("HELP covers exactly the panel's parameters", () => {
   assert.deepEqual(Object.keys(HELP).sort(), [...KEYS].sort());
@@ -28,4 +28,12 @@ test("the two counter-intuitive parameters say so explicitly", () => {
   // If these ever stop being called out, the panel has lost its main value.
   assert.match(HELP.high_conf.body + HELP.high_conf.example, /loosen|wider|inflat/i);
   assert.match(HELP.low_tgt.body, /reject/i);
+});
+
+test("the display threshold explains it is display-only", () => {
+  const e = HELP.line_lik;
+  assert.ok(e, "line_lik needs a help entry");
+  assert.match(e.body, /display|drawn|shown/i);
+  // It must not be confused with gate_ref, which decides what is JUDGED.
+  assert.match(e.body + e.example, /judge|verdict|gate_ref/i);
 });

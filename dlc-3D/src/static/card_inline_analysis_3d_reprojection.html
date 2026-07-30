@@ -1006,6 +1006,12 @@
             <input type="checkbox" id="ia3dr-reproj-show-lines">
             Show epipolar lines
           </label>
+          <label class="ia3dr-inline-check">
+            min likelihood
+            <input type="number" id="ia3dr-reproj-line-lik"
+                   min="0" max="1" step="0.05" value="0.4"
+                   data-help="line_lik">
+          </label>
         </div>
 
         <div id="ia3dr-reproj-status" class="ia3dr-status"></div>
