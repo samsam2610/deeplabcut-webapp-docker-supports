@@ -13,6 +13,7 @@ import ast
 import importlib.util
 import json
 import os
+import sys
 import time
 
 import numpy as np
@@ -28,6 +29,9 @@ STRIDE, LOCREF_STD = 2.0, 7.2801
 def _load(name, path):
     spec = importlib.util.spec_from_file_location(name, path)
     mod = importlib.util.module_from_spec(spec)
+    # Register BEFORE exec: @dataclass resolves its own module via sys.modules
+    # and raises AttributeError on None if the module is not there yet.
+    sys.modules[name] = mod
     spec.loader.exec_module(mod)
     return mod
 
@@ -75,6 +79,9 @@ def main() -> int:
     pk = _load("m_peaks", "/tmp/m_peaks.py")
     pv = _load("m_verdict", "/tmp/m_verdict.py")
     ls = _load("m_session", "/tmp/m_session.py")
+    # The worker container has no /app/dlc_3d_bp — that package exists only in
+    # the dlc-3d container — so epipolar_core is copied to /tmp like the rest.
+    ec = _load("m_epi", "/tmp/m_epi.py")
 
     cfg = yaml.safe_load(open(MODEL + "/train/pytorch_config.yaml"))
     model = dlcpt.models.PoseModel.build(cfg["model"])
@@ -124,9 +131,6 @@ def main() -> int:
         if "cam_0" not in cal or "cam_1" not in cal:
             continue
 
-        import sys
-        sys.path.insert(0, "/tmp")
-        from dlc_3d_bp import epipolar_core as ec
 
         def mkcam(key):
             s = cal[key]
