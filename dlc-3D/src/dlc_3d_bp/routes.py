@@ -798,6 +798,17 @@ def _safe_user_data_path(raw: str) -> "Path | None":
     return p
 
 
+def _float_arg(body: dict, name: str, default):
+    """Parse a scalar float argument, raising ValueError (-> 400) rather than
+    letting a dict/list/None reach float() and surface as a 500."""
+    if name not in body or body[name] is None:
+        return float(default)
+    v = body[name]
+    if isinstance(v, bool) or not isinstance(v, (int, float)):
+        raise ValueError("{} must be a number, got {!r}".format(name, v))
+    return float(v)
+
+
 def _reproject_args(body: dict, keys):
     """Resolve required path args. Returns (paths, error_response)."""
     missing = [k for k in keys if not (body.get(k) or "").strip()]
@@ -836,8 +847,10 @@ def reproject_thresholds():
     try:
         high_conf_by_cam = rp.normalize_per_cam(
             body.get("high_conf", 0.9), 0.9, tuple(cams.keys()))
+        k1 = _float_arg(body, "k1", 3.0)
+        k2 = _float_arg(body, "k2", 8.0)
     except ValueError as exc:
-        return jsonify({"error": "high_conf: {}".format(exc)}), 400
+        return jsonify({"error": str(exc)}), 400
 
     df_ref, meta_ref = rp.read_pose_h5(paths["ref_h5"])
     df_tgt, meta_tgt = rp.read_pose_h5(paths["tgt_h5"])
@@ -860,8 +873,8 @@ def reproject_thresholds():
             b["likelihood"].to_numpy(dtype=float),
             high_conf_ref=high_conf_by_cam[body["ref_cam"]],
             high_conf_tgt=high_conf_by_cam[body["tgt_cam"]],
-            k1=float(body.get("k1", 3.0)),
-            k2=float(body.get("k2", 8.0)),
+            k1=k1,
+            k2=k2,
         )
     return jsonify({"bodyparts": out})
 
@@ -902,12 +915,14 @@ def reproject_run():
                 return jsonify({"error": "{}: {}".format(field, exc)}), 400
 
     try:
+        k1 = _float_arg(body, "k1", 3.0)
+        k2 = _float_arg(body, "k2", 8.0)
         summary = _reproject_run_impl(
             ref_h5=paths["ref_h5"], tgt_h5=paths["tgt_h5"],
             calib_path=paths["calibration"],
             ref_cam_key=body["ref_cam"], tgt_cam_key=body["tgt_cam"],
             out_dir=out_dir,
-            k1=float(body.get("k1", 3.0)), k2=float(body.get("k2", 8.0)),
+            k1=k1, k2=k2,
             gate_ref=body.get("gate_ref", 0.6),
             low_tgt=body.get("low_tgt", 0.6),
             high_conf=body.get("high_conf", 0.9),
@@ -916,6 +931,7 @@ def reproject_run():
         )
     except ValueError as exc:
         # normalize_per_cam rejects unknown camera keys and out-of-range values.
+        # _float_arg also raises ValueError for non-numeric k1/k2.
         return jsonify({"error": str(exc)}), 400
     return jsonify(summary)
 

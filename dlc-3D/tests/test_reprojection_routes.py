@@ -140,3 +140,17 @@ def test_run_rejects_unknown_camera_in_a_parameter(client, monkeypatch):
     })
     assert r.status_code == 400
     assert "cam_9" in r.get_json()["error"]
+
+
+def test_non_numeric_k1_is_400_not_500(client, monkeypatch):
+    import dlc_3d_bp.reprojection as rp
+    monkeypatch.setattr(rp, "load_calibration",
+                        lambda p: {"cam_0": object(), "cam_1": object()})
+    r = client.post("/dlc-3d/reproject/run", json={
+        "ref_h5": "/user-data/a.h5", "tgt_h5": "/user-data/b.h5",
+        "calibration": "/user-data/calibration.toml",
+        "ref_cam": "cam_0", "tgt_cam": "cam_1",
+        "k1": {"cam_0": 3.0},
+    })
+    assert r.status_code == 400
+    assert "k1" in r.get_json()["error"]
