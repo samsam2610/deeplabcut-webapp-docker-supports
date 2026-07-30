@@ -216,11 +216,18 @@ def run_reprojection(
     if require_peaks:
         screen_totals = {"rescues": 0, "covered": 0, "kept": 0, "refused": 0,
                          "ambiguous": 0, "no_evidence": 0, "corrected": 0,
+                         # Which model produced the evidence, so a stale
+                         # sidecar left over from an earlier snapshot is at
+                         # least visible in the audit JSON, even though we
+                         # don't attempt to validate it against the pose h5.
+                         "snapshot": {"ref": None, "tgt": None},
                          "bodyparts": {}}
         for side, h5 in (("ref", ref_h5), ("tgt", tgt_h5)):
             sc_path = pio.peaks_sidecar_path(h5)
             if Path(sc_path).is_file():
-                peaks_by_side[side] = pio.read_peaks_npz(sc_path)
+                peaks = pio.read_peaks_npz(sc_path)
+                peaks_by_side[side] = peaks
+                screen_totals["snapshot"][side] = peaks["meta"].get("snapshot")
 
     # Normalize all four parameters to per-camera dicts
     cam_keys = tuple(cams.keys())
