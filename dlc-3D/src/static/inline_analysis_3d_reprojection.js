@@ -26,6 +26,7 @@ import { scaleFor, videoToCanvas } from "./components/viewer/internal/marker_ove
 import { nameLabelBox } from "./components/viewer/internal/name_label.mjs";
 import { labelAnchor } from "./internal/epiline_label.mjs";
 import { HELP, HELP_DEFAULT } from "./internal/reproj_help.mjs";
+import { activeBodyparts } from "./internal/reproj_bodyparts.mjs";
 import { makeKeyframeWindow } from "./keyframe_window_ui.js";
 import { makePose3dViewer } from "./pose3d_viewer.js";
 import { clampToBounds } from "./internal/clamp_bounds.mjs";
@@ -3942,11 +3943,19 @@ function _reprojCacheKey(frame, bodypart) {
 }
 
 function _reprojActiveBodyparts() {
-  // Mirror whatever the marker overlay is currently showing; fall back to the
-  // bodyparts the last threshold estimate reported.
-  const posed = _markerEditor?.posedBodyparts?.();
-  if (posed && posed.length) return posed;
-  return _reprojAudit ? Object.keys(_reprojAudit.bodyparts) : [];
+  // Read the bodyparts from this card's own bp-chips, which markerEditor renders
+  // as soon as the overlay is on. See internal/reproj_bodyparts.mjs for why the
+  // previous sources (markerEditor.posedBodyparts, which does not exist, then
+  // the Run-only audit) left this empty and drew nothing.
+  const host = document.getElementById("ia3dr-bp-chips");
+  const chipNames = host
+    ? [...host.querySelectorAll(".vv-bp-chip[data-bp]")].map((c) => c.dataset.bp)
+    : [];
+  return activeBodyparts({
+    chipNames,
+    knownBodyparts: _reprojKnownBodyparts,
+    auditBodyparts: _reprojAudit ? Object.keys(_reprojAudit.bodyparts) : [],
+  });
 }
 
 async function _reprojFetchSegment(frame, bodypart) {

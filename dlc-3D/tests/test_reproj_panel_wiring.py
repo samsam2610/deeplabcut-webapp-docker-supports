@@ -333,3 +333,48 @@ def test_help_restores_the_default_on_leave(js):
     block = js.split("REPROJECTION PANEL")[1]
     assert "HELP_DEFAULT" in block
     assert "focusout" in block or "mouseout" in block
+
+
+def test_every_internal_helper_used_is_actually_imported(js):
+    """Guard against the exact failure this test was born from: a helper was
+    USED in the overlay while its import line was never added. `node --check`
+    parses that happily — an undefined identifier is valid syntax — and it only
+    explodes at runtime as a ReferenceError, silently killing the epipolar
+    lines.
+
+    For every name exported by a ./internal/*.mjs module, if this file calls it
+    as a bare identifier, an import for that name must exist.
+    """
+    import re
+    from pathlib import Path
+
+    internal = Path(__file__).parent.parent / "src" / "static" / "internal"
+    imported = set()
+    for names in re.findall(
+        r'^import\s*\{([^}]+)\}\s*from\s*"\./internal/[\w.]+";', js, re.M
+    ):
+        imported.update(n.strip() for n in names.split(","))
+
+    # Strip comments so a name mentioned only in prose is not counted as a use.
+    code = "\n".join(l for l in js.splitlines() if not l.lstrip().startswith("//"))
+
+    missing = []
+    for mod in sorted(internal.glob("*.mjs")):
+        for name in re.findall(r"export\s+(?:const|function|let)\s+(\w+)", mod.read_text()):
+            used = re.search(r"(?<![\w.])" + re.escape(name) + r"\s*\(", code)
+            if used and name not in imported:
+                missing.append("{} (from {})".format(name, mod.name))
+    assert not missing, "used without an import: {}".format(missing)
+
+
+def test_bodypart_source_is_the_chips_not_a_run(js):
+    """REGRESSION. The overlay previously read markerEditor.posedBodyparts (not
+    in that module's public API, so always undefined) and then the audit summary
+    (populated only by a Run, in memory only). With markers on screen but no Run
+    in the current page session the list was empty and no line was ever drawn —
+    and a page reload put it back into that state."""
+    fn = js.split("function _reprojActiveBodyparts")[1].split("\nfunction ")[0]
+    code = "\n".join(l for l in fn.splitlines() if not l.lstrip().startswith("//"))
+    assert "activeBodyparts(" in code, "must delegate to the tested pure resolver"
+    assert "ia3dr-bp-chips" in code, "chips are the source that needs no Run"
+    assert "posedBodyparts" not in code, "that method does not exist"
