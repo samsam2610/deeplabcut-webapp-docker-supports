@@ -13,6 +13,8 @@ import numpy as np
 import pandas as pd
 
 from dlc_3d_bp import epipolar_core as ec
+from dlc_3d_bp import peak_screen as ps
+from dlc_3d_bp import peaks_io as pio
 
 
 def _parse_toml(text: str) -> dict:
@@ -144,6 +146,36 @@ def normalize_per_cam(value, default, cam_keys) -> "dict":
     return {k: _check(value, "value") for k in cam_keys}
 
 
+def align_peaks_to_frames(n_frames: int, peaks: "dict | None", bodypart: str):
+    """Project a sparse sidecar onto dense frame positions for one bodypart.
+
+    Returns (xy, score, covered) with shapes (n, K, 2), (n, K) and (n,).
+    Frames the sidecar does not carry — and every frame when the sidecar lacks
+    this bodypart — come back uncovered, which the screen passes through
+    untouched.
+    """
+    if not peaks or bodypart not in peaks["bodyparts"]:
+        return (np.full((n_frames, 1, 2), np.nan, np.float32),
+                np.zeros((n_frames, 1), np.float32),
+                np.zeros(n_frames, bool))
+
+    j = list(peaks["bodyparts"]).index(bodypart)
+    k = int(peaks["xy"].shape[2])
+    xy = np.full((n_frames, k, 2), np.nan, np.float32)
+    score = np.zeros((n_frames, k), np.float32)
+    covered = np.zeros(n_frames, bool)
+
+    frames = np.asarray(peaks["frames"], dtype=np.int64)
+    keep = (frames >= 0) & (frames < n_frames)
+    rows = np.flatnonzero(keep)
+    if rows.size:
+        dest = frames[keep]
+        xy[dest] = peaks["xy"][rows, j]
+        score[dest] = peaks["score"][rows, j]
+        covered[dest] = True
+    return xy, score, covered
+
+
 def run_reprojection(
     ref_h5,
     tgt_h5,
@@ -158,6 +190,8 @@ def run_reprojection(
     high_conf = 0.9,
     rescue_floor = 0.9,
     overrides: "dict | None" = None,
+    require_peaks: bool = False,
+    peak_score_floor: float = 0.05,
 ) -> dict:
     """Judge the target view against the reference view and write artifacts.
 
@@ -173,6 +207,20 @@ def run_reprojection(
 
     bodyparts = [b for b in meta_tgt["bodyparts"] if b in meta_ref["bodyparts"]]
     overrides = overrides or {}
+
+    # Load whichever sidecars exist. A missing one is not an error: analyses
+    # predating this feature have none, and treating absence as "no evidence"
+    # would void every rescue in them.
+    peaks_by_side = {"ref": None, "tgt": None}
+    screen_totals = None
+    if require_peaks:
+        screen_totals = {"rescues": 0, "covered": 0, "kept": 0, "refused": 0,
+                         "ambiguous": 0, "no_evidence": 0, "corrected": 0,
+                         "bodyparts": {}}
+        for side, h5 in (("ref", ref_h5), ("tgt", tgt_h5)):
+            sc_path = pio.peaks_sidecar_path(h5)
+            if Path(sc_path).is_file():
+                peaks_by_side[side] = pio.read_peaks_npz(sc_path)
 
     # Normalize all four parameters to per-camera dicts
     cam_keys = tuple(cams.keys())
@@ -234,6 +282,31 @@ def run_reprojection(
         pts3d = ec.triangulate_dlt(cam_ref, cam_tgt, xy_ref, xy_tgt)
         codes = ec.apply_gate(codes, ec.plausibility_gate(pts3d, codes))
 
+        if require_peaks:
+            # The judged side is the one being corrected, so its sidecar is the
+            # one that carries evidence about the marker under test.
+            judged_peaks = peaks_by_side["ref" if flipped else "tgt"]
+            cam_judged = cam_ref if flipped else cam_tgt
+            u_inducing = u_tgt if flipped else u_ref
+            F_judged = F["ref"] if flipped else F["tgt"]
+
+            p_xy, p_sc, covered = align_peaks_to_frames(len(codes), judged_peaks, bp)
+            d_pk = np.full(p_sc.shape, np.nan)
+            for kk in range(p_xy.shape[1]):
+                # Peaks live in the same raw distorted pixel space as the pose
+                # h5, so the existing undistort applies unchanged.
+                d_pk[:, kk] = ec.epipolar_distance(
+                    F_judged, u_inducing,
+                    ec.undistort_to_pixels(cam_judged, p_xy[:, kk, :].astype(float)),
+                )
+            codes, sstats = ps.screen_rescues(
+                codes, d_pk, p_sc, covered,
+                t_ok=st["t_ok"], score_floor=peak_score_floor)
+            screen_totals["bodyparts"][bp] = sstats
+            for key in ("rescues", "covered", "kept", "refused",
+                        "ambiguous", "no_evidence", "corrected"):
+                screen_totals[key] += sstats[key]
+
         # The judged side is the one whose markers are being corrected: normally
         # the target, or the reference for a bodypart the caller flipped.
         if flipped:
@@ -277,6 +350,8 @@ def run_reprojection(
             "gate_ref": gate_ref_by_cam, "low_tgt": low_tgt_by_cam,
             "high_conf": high_conf_by_cam, "rescue_floor": rescue_floor_by_cam,
             "overrides": overrides,
+            "require_peaks": bool(require_peaks),
+            "peak_score_floor": float(peak_score_floor),
         },
         "bodyparts": stats_out,
         "counts": counts,
@@ -285,6 +360,7 @@ def run_reprojection(
             "npz": str(npz_path), "json": str(_out_path(tgt_h5, out_dir, ".json")),
         },
         "verdict_codes": {v: k for k, v in ec.VERDICT_NAMES.items()},
+        "peak_screen": screen_totals,
     }
     Path(summary["outputs"]["json"]).write_text(json.dumps(summary, indent=2))
     return summary

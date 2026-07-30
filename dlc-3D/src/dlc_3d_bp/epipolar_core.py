@@ -19,6 +19,8 @@ RESCUE = 2
 RESCUE_REJECTED = 3
 CONFIRM = 4
 AMBIGUOUS = 5
+NO_EVIDENCE = 6
+CORRECTED = 7
 
 VERDICT_NAMES = {
     UNJUDGED: "UNJUDGED",
@@ -27,6 +29,10 @@ VERDICT_NAMES = {
     RESCUE_REJECTED: "RESCUE_REJECTED",
     CONFIRM: "CONFIRM",
     AMBIGUOUS: "AMBIGUOUS",
+    # Produced only by the candidate-peak screen (peak_screen.screen_rescues).
+    # A geometry-only run never emits these, so their counts stay 0.
+    NO_EVIDENCE: "NO_EVIDENCE",
+    CORRECTED: "CORRECTED",
 }
 
 
