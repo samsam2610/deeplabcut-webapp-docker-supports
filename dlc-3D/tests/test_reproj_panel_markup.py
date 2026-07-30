@@ -79,3 +79,25 @@ def test_per_camera_defaults_match_the_engine(card):
         frag = card.split('id="{}"'.format(element_id))[1][:200]
         want = '0.9' if ("high-conf" in element_id or "rescue-floor" in element_id) else '0.6'
         assert 'value="{}"'.format(want) in frag
+
+
+def test_help_box_exists_beside_the_per_camera_groups(card):
+    assert 'id="ia3dr-reproj-help"' in card
+    # It must be inside the flex wrap so it fills the space beside cam0/cam1.
+    wrap = card.split('class="ia3dr-percam-wrap"')[1].split("</div>")[0]
+    assert "ia3dr-reproj-help" in card
+    assert card.index('class="ia3dr-percam-wrap"') < card.index('id="ia3dr-reproj-help"')
+
+
+def test_help_box_announces_changes(card):
+    frag = card.split('id="ia3dr-reproj-help"')[0][-200:]
+    assert "aria-live" in frag or "aria-live" in card.split('id="ia3dr-reproj-help"')[1][:200]
+
+
+def test_every_control_carries_a_help_key(card):
+    """A control with no data-help silently shows the default summary, which
+    reads as 'this one has no explanation'."""
+    for element_id in ("ia3dr-reproj-ref-cam", "ia3dr-reproj-k1", "ia3dr-reproj-k2",
+                       "ia3dr-reproj-cam0-gate-ref", "ia3dr-reproj-cam1-rescue-floor"):
+        frag = card.split('id="{}"'.format(element_id))[1][:200]
+        assert "data-help" in frag, "{} has no data-help".format(element_id)

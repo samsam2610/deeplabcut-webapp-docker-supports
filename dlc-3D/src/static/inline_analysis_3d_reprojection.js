@@ -25,6 +25,7 @@ import { pickLatestVariant } from "./components/viewer/internal/pick_latest_vari
 import { scaleFor, videoToCanvas } from "./components/viewer/internal/marker_overlay.mjs";
 import { nameLabelBox } from "./components/viewer/internal/name_label.mjs";
 import { labelAnchor } from "./internal/epiline_label.mjs";
+import { HELP, HELP_DEFAULT } from "./internal/reproj_help.mjs";
 import { makeKeyframeWindow } from "./keyframe_window_ui.js";
 import { makePose3dViewer } from "./pose3d_viewer.js";
 import { clampToBounds } from "./internal/clamp_bounds.mjs";
@@ -3861,6 +3862,40 @@ async function _reprojRun() {
   }
 }
 
+// ── Contextual help ─────────────────────────────────────────────────────────
+// One delegated listener, so adding a parameter later needs a data-help
+// attribute on the markup and nothing else. Focus is handled as well as hover:
+// it is the only route for keyboard users.
+
+function _reprojRenderHelp(key) {
+  const box = document.getElementById("ia3dr-reproj-help");
+  if (!box) return;
+  const e = (key && HELP[key]) || HELP_DEFAULT;
+  const parts = [
+    `<div class="ia3dr-help-title"></div>`,
+    `<div class="ia3dr-help-body"></div>`,
+  ];
+  if (e.example) parts.push(`<div class="ia3dr-help-example"></div>`);
+  box.innerHTML = parts.join("");
+  // textContent, not innerHTML, so the copy can never inject markup.
+  box.querySelector(".ia3dr-help-title").textContent = e.title;
+  box.querySelector(".ia3dr-help-body").textContent = e.body;
+  if (e.example) box.querySelector(".ia3dr-help-example").textContent = e.example;
+}
+
+function _reprojWireHelp() {
+  const panel = _reprojEl.panel();
+  if (!panel) return;
+  const keyOf = (ev) => ev.target?.closest?.("[data-help]")?.dataset?.help || null;
+  const show = (ev) => { const k = keyOf(ev); if (k) _reprojRenderHelp(k); };
+  const reset = () => _reprojRenderHelp(null);
+  panel.addEventListener("mouseover", show);
+  panel.addEventListener("focusin", show);
+  panel.addEventListener("mouseout", reset);
+  panel.addEventListener("focusout", reset);
+  _reprojRenderHelp(null);
+}
+
 function _reprojWirePanel() {
   if (!_reprojEl.panel()) return;
   _reprojEl.estimate()?.addEventListener("click", _reprojEstimate);
@@ -3886,6 +3921,7 @@ function _reprojWirePanel() {
   ]) {
     el?.addEventListener("change", _reprojSaveParams);
   }
+  _reprojWireHelp();
   _reprojWireEpipolarOverlay();
 }
 

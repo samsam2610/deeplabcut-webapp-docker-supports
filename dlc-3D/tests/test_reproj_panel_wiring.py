@@ -303,3 +303,33 @@ def test_label_order_counts_only_visible_bodyparts(js):
     parts are hidden, instead of leaving gaps where hidden ones would have sat."""
     block = js.split("EPIPOLAR OVERLAY")[1]
     assert "visible" in block.lower()
+
+
+def test_help_keys_in_markup_all_exist_in_the_help_module():
+    """CROSS-FILE GUARD. When someone adds a parameter and forgets its help
+    text, this fails — instead of a user meeting a blank box."""
+    import re
+    from pathlib import Path
+    static = Path(__file__).parent.parent / "src" / "static"
+    card = (static / "card_inline_analysis_3d_reprojection.html").read_text()
+    mod = (static / "internal" / "reproj_help.mjs").read_text()
+
+    used = set(re.findall(r'data-help="([^"]+)"', card))
+    assert used, "no data-help attributes found at all"
+    defined = set(re.findall(r"^\s{2}(\w+):\s*\{", mod, re.M))
+    missing = used - defined
+    assert not missing, "markup uses help keys with no entry: {}".format(sorted(missing))
+
+
+def test_help_listener_covers_focus_not_just_hover(js):
+    """Focus is the only route for keyboard users, and tabbing through the
+    inputs should teach the same things as mousing over them."""
+    block = js.split("REPROJECTION PANEL")[1]
+    assert "focusin" in block and "mouseover" in block
+    assert "_reprojWireHelp" in block
+
+
+def test_help_restores_the_default_on_leave(js):
+    block = js.split("REPROJECTION PANEL")[1]
+    assert "HELP_DEFAULT" in block
+    assert "focusout" in block or "mouseout" in block

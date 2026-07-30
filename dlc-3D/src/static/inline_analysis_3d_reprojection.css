@@ -333,3 +333,19 @@
   gap: .5rem; font-size: .85em; margin: .15rem 0;
 }
 #ia3dr-reproj-panel .ia3dr-percam input { width: 5rem; }
+
+#ia3dr-reproj-panel .ia3dr-help {
+  flex: 1 1 16rem; min-width: 14rem;
+  border: 1px solid rgba(255, 255, 255, .14);
+  border-radius: 6px; padding: .5rem .7rem;
+  font-size: .85em; line-height: 1.4;
+  background: rgba(255, 255, 255, .03);
+}
+#ia3dr-reproj-panel .ia3dr-help-title {
+  font-weight: 600; margin-bottom: .25rem;
+}
+#ia3dr-reproj-panel .ia3dr-help-example {
+  margin-top: .4rem; padding-top: .35rem;
+  border-top: 1px solid rgba(255, 255, 255, .12);
+  opacity: .8; font-style: italic;
+}
