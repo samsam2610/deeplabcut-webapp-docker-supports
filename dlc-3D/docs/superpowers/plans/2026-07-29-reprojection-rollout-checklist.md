@@ -59,6 +59,19 @@ The cloned card deliberately never calls `/dlc/project/inline-analysis/session/s
 
 Verdict counts in the audit JSON are computed over ALL frames x bodyparts. The design spec's Evidence table quoted percentages over a smaller denominator (only frames where BOTH cameras had a detection), so the same result reads as a smaller percentage here. On the reference 070126 session the engine reports RESCUE 125,524 and REJECT 106,965 out of 4,026,240 total verdicts. Absolute counts are the number to compare, not percentages.
 
+## Probing the live endpoints safely
+
+`/reproject/run` WRITES `<stem>_reprojected.{h5,json,npz}` beside the source data
+and overwrites any previous set. It is not a safe probe.
+
+For a health check or a validation experiment use `/reproject/thresholds`, which
+is read-only, or pass an explicit `out_dir` under `/user-data/` to `run`.
+
+This was learned the hard way on 2026-07-30: a `k1` validation probe used `run`
+without `out_dir` and regenerated the reference session's outputs. No original
+was touched and the verdicts came out identical, but the previous outputs were
+replaced.
+
 ## Rollback
 
 Remove the one `<script>` line from `dlc_3d.html` and restart. The cloned static
