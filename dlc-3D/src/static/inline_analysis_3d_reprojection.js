@@ -326,6 +326,7 @@ function _ensureViewer() {
   // in its own drawTile handler, so a subscriber registered before it would be
   // erased rather than drawn on top of.
   _reprojWireEpipolarOverlay();
+  _reprojLoadParams();
   return _viewer;
 }
 
@@ -3582,6 +3583,8 @@ function _ia3drPlaceNavButton() {
 
 let _reprojAudit = null;              // last run summary (or estimate result)
 let _reprojOverrides = {};            // bodypart -> "ref" | "tgt"
+let _reprojKnownBodyparts = [];        // bodypart list from current session
+let _reprojParamsSaveTimer = null;     // debounce timer for persistence
 
 const _reprojEl = {
   panel:      () => document.getElementById("ia3dr-reproj-panel"),
@@ -3661,6 +3664,70 @@ function _reprojPayload() {
   });
 }
 
+// ── Per-project persistence ─────────────────────────────────────────────────
+// The whole run configuration lives under one ui-setting key so reopening the
+// card restores the last setup for THIS project. Best-effort in both
+// directions: a failed POST or a corrupt value leaves the defaults standing,
+// mirroring the pose3d view-prefs flow.
+
+const REPROJ_PARAMS_KEY = "reproj_params";
+
+function _reprojSaveParams() {
+  const prefs = {
+    ref_cam: _reprojEl.refCam()?.value || "cam_1",
+    k1: parseFloat(_reprojEl.k1()?.value) || 3.0,
+    k2: parseFloat(_reprojEl.k2()?.value) || 8.0,
+    gate_ref:     _reprojPerCam("gate-ref", 0.6),
+    low_tgt:      _reprojPerCam("low-tgt", 0.6),
+    high_conf:    _reprojPerCam("high-conf", 0.9),
+    rescue_floor: _reprojPerCam("rescue-floor", 0.9),
+    overrides: _reprojOverrides,
+  };
+  if (_reprojParamsSaveTimer) clearTimeout(_reprojParamsSaveTimer);
+  _reprojParamsSaveTimer = setTimeout(() => {
+    fetch("/dlc/project/ui-setting", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ key: REPROJ_PARAMS_KEY, value: JSON.stringify(prefs) }),
+    }).catch(() => {});
+  }, 400);
+}
+
+async function _reprojLoadParams() {
+  try {
+    const data = await (await fetch(
+      `/dlc/project/ui-setting?key=${REPROJ_PARAMS_KEY}`)).json();
+    if (!data || !data.value) return;
+    const prefs = JSON.parse(data.value);
+    if (!prefs || typeof prefs !== "object") return;
+
+    const setNum = (el, v) => {
+      if (el && Number.isFinite(v)) el.value = String(v);
+    };
+    if (prefs.ref_cam && _reprojEl.refCam()) _reprojEl.refCam().value = prefs.ref_cam;
+    setNum(_reprojEl.k1(), prefs.k1);
+    setNum(_reprojEl.k2(), prefs.k2);
+    for (const param of ["gate-ref", "low-tgt", "high-conf", "rescue-floor"]) {
+      const key = param.replace("-", "_");
+      const vals = prefs[key];
+      if (!vals || typeof vals !== "object") continue;
+      setNum(_reprojEl.perCam("cam0", param), vals.cam_0);
+      setNum(_reprojEl.perCam("cam1", param), vals.cam_1);
+    }
+    // Overrides are keyed by bodypart, which is model-specific: drop entries
+    // naming a bodypart this session does not have, so switching projects or
+    // retraining cannot resurrect a stale flip.
+    _reprojOverrides = {};
+    if (prefs.overrides && typeof prefs.overrides === "object") {
+      const known = new Set(_reprojKnownBodyparts);
+      for (const [bp, mode] of Object.entries(prefs.overrides)) {
+        if (mode === "ref" && (known.size === 0 || known.has(bp))) {
+          _reprojOverrides[bp] = "ref";
+        }
+      }
+    }
+  } catch (_) { /* keep the defaults */ }
+}
+
 function _reprojRenderThresholds(bodyparts) {
   const host = _reprojEl.thresholds();
   if (!host) return;
@@ -3693,6 +3760,7 @@ function _reprojRenderCounts(counts) {
 }
 
 function _reprojRenderOverrides(bodyparts) {
+  _reprojKnownBodyparts = Object.keys(bodyparts);
   const host = _reprojEl.overrides();
   if (!host) return;
   host.innerHTML = Object.keys(bodyparts).map((bp) => {
@@ -3708,6 +3776,7 @@ function _reprojRenderOverrides(bodyparts) {
       const bp = sel.getAttribute("data-reproj-bp");
       if (sel.value === "ref") _reprojOverrides[bp] = "ref";
       else delete _reprojOverrides[bp];
+      _reprojSaveParams();
     });
   });
 }
@@ -3790,7 +3859,16 @@ function _reprojWirePanel() {
   mirror(_reprojEl.k2, _reprojEl.k2Val);
   _reprojEl.refCam()?.addEventListener("change", () => {
     _reprojStatus("Trusted camera changed — re-estimate thresholds.");
+    _reprojSaveParams();
   });
+  for (const el of [
+    _reprojEl.refCam(), _reprojEl.k1(), _reprojEl.k2(),
+    ...["gate-ref", "low-tgt", "high-conf", "rescue-floor"].flatMap((p) => [
+      _reprojEl.perCam("cam0", p), _reprojEl.perCam("cam1", p),
+    ]),
+  ]) {
+    el?.addEventListener("change", _reprojSaveParams);
+  }
   _reprojWireEpipolarOverlay();
 }
 

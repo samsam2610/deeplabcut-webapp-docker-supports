@@ -203,3 +203,34 @@ def test_estimate_sends_high_conf_but_not_the_other_three(js):
     assert "high_conf" in fn
     for field in ("gate_ref", "low_tgt", "rescue_floor"):
         assert field not in fn, "{} must not be sent to /reproject/thresholds".format(field)
+
+
+def test_params_are_persisted_per_project(js):
+    block = js.split("REPROJECTION PANEL")[1]
+    assert "reproj_params" in block
+    assert "/dlc/project/ui-setting" in block
+
+
+def test_persistence_save_is_debounced(js):
+    """Matches the existing pose3d_view_prefs_reproj flow — a change on every
+    keystroke must not become a POST on every keystroke."""
+    fn = js.split("function _reprojSaveParams")[1].split("\nfunction ")[0]
+    assert "setTimeout" in fn and "clearTimeout" in fn
+
+
+def test_persistence_load_happens_on_card_open_not_at_bootstrap(js):
+    """ui-setting is project-scoped and the panel wires at DOMContentLoaded,
+    before any project is selected. Loading there would query the wrong project
+    or none at all."""
+    assert "_reprojLoadParams" in js
+    boot = js.split("REPROJECTION BOOTSTRAP")[1].split("REPROJECTION PANEL")[0]
+    assert "_reprojLoadParams" not in boot, (
+        "params must not load from the bootstrap path"
+    )
+
+
+def test_persisted_overrides_are_filtered_against_current_bodyparts(js):
+    """Overrides are keyed by bodypart name, which is model-specific. A stale
+    entry from another project must not resurrect a flip."""
+    fn = js.split("async function _reprojLoadParams")[1].split("\nasync function")[0]
+    assert "bodyparts" in fn or "_reprojKnownBodyparts" in fn
