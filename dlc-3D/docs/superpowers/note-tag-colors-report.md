@@ -10,8 +10,8 @@ functions in a new library module plus an opt-in `tagColors` config on
 
 ## Commit SHAs
 
-- `deeplabcut-webapp-docker-supports` (branch `fix/marker-save-race`): `<fill in after commit>`
-- `deeplabcut-webapp-docker` (branch `fix/marker-save-race`): `<fill in after commit>`
+- `deeplabcut-webapp-docker-supports` (branch `fix/marker-save-race`): `0e7e3c2107f8e16129e53dedd620bc313b00fdf3`
+- `deeplabcut-webapp-docker` (branch `fix/marker-save-race`): `fec55ad0fb4ebea4d701624e496319610d5e8eec`
 
 ## What changed
 
