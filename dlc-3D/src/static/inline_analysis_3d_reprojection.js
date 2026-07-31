@@ -2624,6 +2624,7 @@ let _statusPoll = null;  // session warm-status poll interval
 
 const _ia3drEl = {
   snapSel:    () => $("ia3dr-snapshot"),
+  snapPinList:() => $("ia3dr-snapshot-pin-list"),
   shuffle:    () => $("ia3dr-shuffle"),
   tsi:        () => $("ia3dr-trainingsetindex"),
   batch:      () => $("ia3dr-batch-size"),
@@ -2637,6 +2638,8 @@ const _ia3drEl = {
   siblingEl:  () => $("ia3dr-sibling-status"),
 };
 
+const IA3DR_PINNED_SNAPSHOT_KEY = "pinned_snapshot";
+
 // ── Snapshot loader (main webapp API; needs same active project) ──
 async function _loadSnapshots() {
   const snapSel = _ia3drEl.snapSel();
@@ -2648,12 +2651,18 @@ async function _loadSnapshots() {
     if (data.error) {
       const o = document.createElement("option");
       o.value = ""; o.textContent = "(activate the DLC project in the main webapp)";
-      snapSel.appendChild(o); return;
+      snapSel.appendChild(o);
+      _ia3drRenderPinList([]);
+      return;
     }
+    const items = [];
+    const latestValue = data.latest_rel_path || "-1";
+    const latestLabel = data.latest_label ? `Latest — ${data.latest_label}` : "Latest (from config)";
     const latest = document.createElement("option");
-    latest.value = data.latest_rel_path || "-1";
-    latest.textContent = data.latest_label ? `Latest — ${data.latest_label}` : "Latest (from config)";
+    latest.value = latestValue;
+    latest.textContent = latestLabel;
     snapSel.appendChild(latest);
+    items.push({ value: latestValue, label: latestLabel });
     (data.snapshots || []).forEach((s) => {
       const o = document.createElement("option");
       o.value = s.rel_path;
@@ -2661,8 +2670,93 @@ async function _loadSnapshots() {
       const sh = s.shuffle   != null ? `  ·  sh${s.shuffle}` : "";
       o.textContent = `${s.label}${it}${sh}`;
       snapSel.appendChild(o);
+      items.push({ value: s.rel_path, label: o.textContent });
     });
+    _ia3drRenderPinList(items);
+    await _ia3drApplyPinnedSnapshot(items);
   } catch (e) { /* silent */ }
+}
+
+// ── Pinnable snapshot list ──────────────────────────────────────────────────
+// A scrollable checkbox list under the dropdown. Checking a row pins that
+// snapshot (persisted per-project) AND sets the dropdown's value, since the
+// dropdown's value is what every analysis request actually sends. Only one
+// row may be checked at a time — checking one unchecks the others.
+function _ia3drRenderPinList(items) {
+  const pinList = _ia3drEl.snapPinList();
+  if (!pinList) return;
+  pinList.innerHTML = "";
+  items.forEach((item) => {
+    const row = document.createElement("label");
+    row.style.cssText = "display:flex;align-items:center;gap:.4rem;padding:.15rem 0;cursor:pointer";
+    const cb = document.createElement("input");
+    cb.type = "checkbox";
+    cb.name = "ia3dr-snap-pin";
+    cb.value = item.value;
+    cb.style.cssText = "accent-color:var(--accent);width:13px;height:13px;flex-shrink:0";
+    cb.addEventListener("change", () => _ia3drOnPinToggle(cb));
+    const span = document.createElement("span");
+    span.textContent = item.label;
+    span.style.cssText = "overflow:hidden;text-overflow:ellipsis;white-space:nowrap";
+    row.appendChild(cb);
+    row.appendChild(span);
+    pinList.appendChild(row);
+  });
+}
+
+function _ia3drOnPinToggle(changedCb) {
+  const pinList = _ia3drEl.snapPinList();
+  if (!pinList) return;
+  const boxes = [...pinList.querySelectorAll('input[name="ia3dr-snap-pin"]')];
+  if (changedCb.checked) {
+    // Radio behaviour: uncheck every other row.
+    boxes.forEach((b) => { if (b !== changedCb) b.checked = false; });
+    const snapSel = _ia3drEl.snapSel();
+    if (snapSel) snapSel.value = changedCb.value;
+    _ia3drSavePinnedSnapshot(changedCb.value);
+  } else {
+    _ia3drSavePinnedSnapshot("");
+  }
+}
+
+function _ia3drSavePinnedSnapshot(value) {
+  fetch("/dlc/project/ui-setting", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ key: IA3DR_PINNED_SNAPSHOT_KEY, value: value || "" }),
+  }).catch(() => {});
+}
+
+// Reads the persisted pin and, if it still matches a snapshot in `items`,
+// checks that row and sets the dropdown to it. If the pinned snapshot no
+// longer exists (model deleted, new iteration trained), this deliberately
+// does NOT fall back silently to a different model — it leaves the dropdown
+// at its normal default, leaves nothing checked, and surfaces a note so the
+// user isn't unknowingly analysing with a different snapshot than intended.
+async function _ia3drApplyPinnedSnapshot(items) {
+  let pinned = "";
+  try {
+    const data = await (await fetch(
+      `/dlc/project/ui-setting?key=${IA3DR_PINNED_SNAPSHOT_KEY}`)).json();
+    pinned = (data && data.value) || "";
+  } catch (e) { return; }
+  if (!pinned) return;
+  const match = items.find((it) => it.value === pinned);
+  if (!match) {
+    const lastRun = _ia3drEl.lastRun();
+    if (lastRun) {
+      lastRun.textContent = "Pinned snapshot is no longer available — showing the default instead.";
+      lastRun.className = "fe-extract-status err";
+    }
+    return;
+  }
+  const snapSel = _ia3drEl.snapSel();
+  if (snapSel) snapSel.value = match.value;
+  const pinList = _ia3drEl.snapPinList();
+  if (pinList) {
+    const cb = [...pinList.querySelectorAll('input[name="ia3dr-snap-pin"]')]
+      .find((b) => b.value === match.value);
+    if (cb) cb.checked = true;
+  }
 }
 
 // ── Sibling resolution + Analyze-button gating ───────────────────

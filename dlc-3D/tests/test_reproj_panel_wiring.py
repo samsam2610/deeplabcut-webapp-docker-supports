@@ -662,6 +662,86 @@ def test_peak_screen_coverage_line_is_null_guarded(js):
     assert "if (scr)" in fn, "the coverage line must be guarded on peak_screen truthiness"
 
 
+# ── Pinnable snapshot picker ─────────────────────────────────────────────────
+
+def test_pin_toggle_enforces_single_selection(js):
+    """Checking one row must uncheck every other row — radio behaviour with
+    checkbox styling."""
+    fn = js.split("function _ia3drOnPinToggle")[1].split("\nfunction ")[0]
+    assert fn, "could not locate _ia3drOnPinToggle"
+    assert "b.checked = false" in fn, (
+        "no code path unchecks the other rows — single-selection is not enforced"
+    )
+
+
+def test_checking_a_row_writes_the_dropdown_value(js):
+    """The dropdown's value is what every analysis request actually sends, so
+    checking a pin row must set it — not just persist the pin."""
+    fn = js.split("function _ia3drOnPinToggle")[1].split("\nfunction ")[0]
+    assert fn, "could not locate _ia3drOnPinToggle"
+    assert "snapSel.value = changedCb.value" in fn, (
+        "checking a row does not sync the dropdown's value"
+    )
+
+
+def test_pin_round_trips_through_the_ui_setting_key(js):
+    assert 'const IA3DR_PINNED_SNAPSHOT_KEY = "pinned_snapshot";' in js
+    save_fn = js.split("function _ia3drSavePinnedSnapshot")[1].split("\nfunction ")[0]
+    assert save_fn, "could not locate _ia3drSavePinnedSnapshot"
+    assert "/dlc/project/ui-setting" in save_fn
+    assert "IA3DR_PINNED_SNAPSHOT_KEY" in save_fn
+
+    apply_fn = js.split("async function _ia3drApplyPinnedSnapshot")[1].split(
+        "\nasync function"
+    )[0]
+    assert apply_fn, "could not locate _ia3drApplyPinnedSnapshot"
+    assert "/dlc/project/ui-setting?key=" in apply_fn
+    assert "IA3DR_PINNED_SNAPSHOT_KEY" in apply_fn
+
+
+def test_unchecking_the_pinned_row_clears_the_pin_without_touching_the_dropdown(js):
+    fn = js.split("function _ia3drOnPinToggle")[1].split("\nfunction ")[0]
+    assert fn, "could not locate _ia3drOnPinToggle"
+    else_branch = fn.split("} else {")[1] if "} else {" in fn else ""
+    assert else_branch, "no unchecked branch in _ia3drOnPinToggle"
+    assert '_ia3drSavePinnedSnapshot("")' in else_branch, (
+        "unchecking the pinned row must clear the persisted pin"
+    )
+    assert "snapSel" not in else_branch, (
+        "unchecking must leave the dropdown alone"
+    )
+
+
+def test_missing_pinned_snapshot_does_not_silently_change_the_dropdown(js):
+    """If the persisted pin no longer matches any snapshot in the current
+    list, the dropdown must be left at its normal default and a note shown —
+    never a silent fallback to a different model."""
+    fn = js.split("async function _ia3drApplyPinnedSnapshot")[1].split(
+        "\nasync function"
+    )[0]
+    assert fn, "could not locate _ia3drApplyPinnedSnapshot"
+    no_match_branch = fn.split("if (!match) {")[1].split("\n  }")[0]
+    assert "snapSel" not in no_match_branch, (
+        "the dropdown must not be touched when the pinned snapshot is missing"
+    )
+    assert "lastRun" in no_match_branch, (
+        "a note must be surfaced in the existing status area"
+    )
+    assert fn.index("if (!match) {") < fn.index("snapSel.value = match.value"), (
+        "the dropdown must only be set in the found-a-match path"
+    )
+
+
+def test_snapshot_refresh_applies_the_pin(js):
+    """Pin re-application must happen on every snapshot-list (re)build — card
+    open, the refresh button, and a shuffle change all funnel through
+    _loadSnapshots."""
+    fn = js.split("async function _loadSnapshots")[1].split("\nasync function")[0]
+    assert fn, "could not locate _loadSnapshots"
+    assert "_ia3drRenderPinList(items)" in fn
+    assert "_ia3drApplyPinnedSnapshot(items)" in fn
+
+
 def test_peak_score_floor_preserves_an_explicit_zero(js):
     """0 is a legitimate 'no score requirement' setting (the backend
     range-checks 0..1 and accepts it) — same reasoning the spec gives for

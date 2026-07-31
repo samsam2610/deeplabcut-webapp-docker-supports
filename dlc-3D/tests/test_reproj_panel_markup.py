@@ -188,6 +188,29 @@ def test_the_new_help_keys_exist():
         assert key in src
 
 
+def test_snapshot_dropdown_still_present_and_unchanged(card):
+    """The pin list is ADDITIVE — the existing dropdown must keep its exact
+    markup and position as the primary control (analysis requests still read
+    its value)."""
+    assert (
+        '<select id="ia3dr-snapshot" style="flex:1;min-width:0"></select>'
+        in card
+    )
+
+
+def test_snapshot_pin_list_exists_scrollable_and_bounded(card):
+    assert 'id="ia3dr-snapshot-pin-list"' in card
+    frag = card.split('id="ia3dr-snapshot-pin-list"')[1][:220]
+    assert "overflow-y:auto" in frag, "list must scroll rather than grow the card"
+    assert "max-height:7.5rem" in frag, "must be bounded to ~4-5 rows"
+
+
+def test_snapshot_pin_list_sits_after_the_dropdown(card):
+    assert card.index('id="ia3dr-snapshot"') < card.index('id="ia3dr-snapshot-pin-list"'), (
+        "pin list must appear directly beneath the existing dropdown"
+    )
+
+
 def test_every_data_help_key_used_in_markup_has_a_help_entry(card):
     """Stricter cross-file guard: walks every data-help="..." value actually
     used in the card (not just the two new ones) and asserts each has a
