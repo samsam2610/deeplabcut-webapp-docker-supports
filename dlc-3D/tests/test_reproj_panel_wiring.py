@@ -478,6 +478,54 @@ def test_the_peaks_pass_runs_after_the_analysis_polls_resolve(js):
     )
 
 
+# ── Peak-screen wiring for the other two analyze entry points ───────────────
+# The checkbox moved out of the tag-only row into the always-visible
+# .ia3dr-analyze-block precisely because "Start analysis from current frame"
+# and "Start analysis for range" also need to consult it — previously only
+# _onAnalyzeTagClick did.
+
+def _fn_body(js, name, next_name):
+    fn = js.split("async function {}".format(name))[1].split(
+        "\n{}".format(next_name)
+    )[0]
+    assert fn, "could not locate {}".format(name)
+    return fn
+
+
+def test_start_from_current_frame_is_gated_on_the_checkbox_and_calls_emit_peaks(js):
+    fn = _fn_body(js, "_onAnalyzeClick", "async function _onAnalyzeRangeConfinedClick")
+    assert "ia3dr-emit-peaks" in fn, (
+        "_onAnalyzeClick must consult the emit-peaks checkbox"
+    )
+    assert "_reprojEmitPeaks(" in fn, (
+        "_onAnalyzeClick must call _reprojEmitPeaks"
+    )
+    assert fn.index("_pollReq") < fn.index("_reprojEmitPeaks"), (
+        "peaks must be emitted only after both cameras finish"
+    )
+    assert "[{ start: startFrame, n: nFrames }]" in fn, (
+        "the single-range list must actually carry the run's start/n, not "
+        "an empty or hardcoded range"
+    )
+
+
+def test_start_for_range_is_gated_on_the_checkbox_and_calls_emit_peaks(js):
+    fn = _fn_body(js, "_onAnalyzeRangeConfinedClick", "function _framesForActiveNoteTags")
+    assert "ia3dr-emit-peaks" in fn, (
+        "_onAnalyzeRangeConfinedClick must consult the emit-peaks checkbox"
+    )
+    assert "_reprojEmitPeaks(" in fn, (
+        "_onAnalyzeRangeConfinedClick must call _reprojEmitPeaks"
+    )
+    assert fn.index("_pollReq") < fn.index("_reprojEmitPeaks"), (
+        "peaks must be emitted only after both cameras finish"
+    )
+    assert "[{ start: startFrame, n: nFrames }]" in fn, (
+        "the single-range list must actually carry the locked range's "
+        "start/n, not an empty or hardcoded range"
+    )
+
+
 def test_the_run_payload_carries_the_screen_parameters(js):
     fn = js.split("function _reprojPayload")[1].split("\nfunction ")[0]
     assert fn, "could not locate _reprojPayload"

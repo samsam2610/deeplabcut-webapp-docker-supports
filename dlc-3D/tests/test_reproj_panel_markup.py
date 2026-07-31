@@ -122,11 +122,35 @@ def test_line_likelihood_field_bounds_and_default(card):
     assert "data-help" in frag
 
 
-def test_emit_peaks_checkbox_sits_in_the_tag_row_and_defaults_on(card):
-    i = card.index('id="ia3dr-emit-peaks"')
-    j = card.index('id="ia3dr-btn-analyze-tag"')
-    assert abs(i - j) < 1200, "emit-peaks must sit beside Analyze for tag"
-    assert 'type="checkbox"' in card[max(0, i - 60):i]
+def test_emit_peaks_checkbox_sits_in_the_always_visible_analyze_block_and_defaults_on(card):
+    """The checkbox must be a top-level control of the always-visible
+    .ia3dr-analyze-block (consulted by all three analyze entry points), not
+    scoped to the tag-only sub-row, and it must NOT be inside
+    #ia3dr-finalize-controls — that container is gated (class="hidden") by the
+    finalize-mode toggle, but 'Start analysis from current frame' works
+    OUTSIDE finalize mode. A checkbox hidden while a live path still consults
+    it would be a silent trap."""
+    block_open = card.index('class="ia3dr-analyze-block"')
+    start_count = card.index('id="ia3dr-start-count"')
+    checkbox = card.index('id="ia3dr-emit-peaks"')
+
+    # Sits inside .ia3dr-analyze-block, before the first sibling control.
+    assert block_open < checkbox < start_count, (
+        "emit-peaks must appear right after .ia3dr-analyze-block opens and "
+        "before ia3dr-start-count"
+    )
+
+    # Regression guard for the hidden-container trap: it must appear AFTER
+    # ia3dr-finalize-range, which is the last content emitted by
+    # #ia3dr-finalize-controls before that container closes. Equivalent to
+    # asserting the checkbox is not nested inside the gated container.
+    finalize_range = card.index('id="ia3dr-finalize-range"')
+    assert checkbox > finalize_range, (
+        "emit-peaks must not sit inside #ia3dr-finalize-controls, which is "
+        "hidden outside finalize mode while other analyze paths stay live"
+    )
+
+    assert 'type="checkbox"' in card[max(0, checkbox - 60):checkbox]
     frag = card.split('id="ia3dr-emit-peaks"')[1][:220]
     assert "checked" in frag
 

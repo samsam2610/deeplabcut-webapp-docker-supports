@@ -422,6 +422,10 @@
                Not gated: 'Start from current' + the extract button work outside finalize
                mode; 'Start for range' stays disabled until the keyframe is locked. -->
           <div class="ia3dr-analyze-block">
+            <label class="ia3dr-tag-lock-label" title="After analysis, run a second GPU pass that saves DeepLabCut's candidate heatmap peaks beside each pose h5 (~50 s per 2000 frames). Applies to all three analyze paths below. Required by 'Require peak evidence'.">
+              <input type="checkbox" id="ia3dr-emit-peaks" checked style="accent-color:var(--accent);width:14px;height:14px"/>
+              emit peaks
+            </label>
             <span id="ia3dr-start-count" class="ia3dr-start-count">≈ <b id="ia3dr-start-count-n">0</b> frames from current frame</span>
             <button id="ia3dr-btn-analyze-current" class="btn-sm btn-create" disabled>▶ Start analysis from current frame</button>
             <button id="ia3dr-btn-analyze-range-confined" class="btn-sm btn-create" disabled>▶ Start analysis for range</button>
@@ -442,10 +446,6 @@
               <label class="ia3dr-tag-lock-label" title="When ON (default), skip frames already finalized in the _analyzed timeline — even if 'override existing labels' is on. Protects human-curated frames.">
                 <input type="checkbox" id="ia3dr-ignore-analyzed" checked style="accent-color:var(--accent);width:14px;height:14px"/>
                 ignore frames in _analyzed
-              </label>
-              <label class="ia3dr-tag-lock-label" title="After analysis, run a second GPU pass that saves DeepLabCut's candidate heatmap peaks beside each pose h5 (~50 s per 2000 frames). Required by 'Require peak evidence'.">
-                <input type="checkbox" id="ia3dr-emit-peaks" checked style="accent-color:var(--accent);width:14px;height:14px"/>
-                emit peaks
               </label>
               <button id="ia3dr-btn-analyze-tag" class="btn-sm btn-create" disabled
                 title="Run analysis on every frame carrying the locked note tag (both cameras)">

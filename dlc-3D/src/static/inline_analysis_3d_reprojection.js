@@ -2907,6 +2907,11 @@ async function _onAnalyzeClick() {
   // postproc run. Also cache-busts + repaints the markers + coverage timeline (the
   // in-place h5 overwrite otherwise serves stale).
   await _reloadPrimaryAfterAnalysis(d0.scorer);
+  // Best-effort candidate-peak pass over the same range, gated on the
+  // checkbox. Never allowed to affect the analysis result above it.
+  if ($("ia3dr-emit-peaks")?.checked) {
+    await _reprojEmitPeaks([cam0, _siblingPath], [{ start: startFrame, n: nFrames }], d0.scorer);
+  }
 }
 
 // ── Left-region start buttons ────────────────────────────────────────────────
@@ -2958,6 +2963,11 @@ async function _onAnalyzeRangeConfinedClick() {
   // Re-establish the primary to the model just used (by scorer) + cache-bust + repaint
   // markers + coverage (see _onAnalyzeClick / _reloadPrimaryAfterAnalysis).
   await _reloadPrimaryAfterAnalysis(d0.scorer);
+  // Best-effort candidate-peak pass over the same range, gated on the
+  // checkbox. Never allowed to affect the analysis result above it.
+  if ($("ia3dr-emit-peaks")?.checked) {
+    await _reprojEmitPeaks([cam0, _siblingPath], [{ start: startFrame, n: nFrames }], d0.scorer);
+  }
   _refreshAnalyzeEnablement();
 }
 
