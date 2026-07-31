@@ -3682,6 +3682,13 @@ function _wireStereoDispatch() {
   $("ia3d-init-analysis-file")?.addEventListener("click", _onInitFileClick);
 
   // Session cleanup on card close.
+  //
+  // only_if_idle: true — this snap_key is deterministic (sha1 of
+  // config|shuffle|snapshot) and shared across cards/tabs. Closing this
+  // card must NOT kill a batch that's still draining its queue (possibly
+  // fed by another tab/card); the server-side route only honors the stop
+  // when inline:queue:<user>:<snap_key> is empty. See
+  // docs/superpowers/session-stop-guard-report.md.
   $("btn-close-inline-analysis-3d")?.addEventListener("click", () => {
     _stopAllPolls();
     _stopStatusPoll();
@@ -3689,19 +3696,32 @@ function _wireStereoDispatch() {
       try {
         fetch("/dlc/project/inline-analysis/session/stop", {
           method: "POST", headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ snap_key: _snapKey }),
+          body: JSON.stringify({ snap_key: _snapKey, only_if_idle: true }),
+          keepalive: true,
         });
       } catch (e) { /* ignore */ }
       _snapKey = null;
     }
   });
 
-  // beforeunload: stop polls + release the warm session via sendBeacon.
+  // beforeunload: stop polls + ask the server to release the warm session,
+  // but only if it's idle (only_if_idle: true — see comment above). Prefer
+  // sendBeacon (fire-and-forget on unload); its JSON-typed Blob is verified
+  // to parse server-side via request.get_json(silent=True) (the browser
+  // sets the request Content-Type from the Blob's `type`). Fall back to a
+  // keepalive fetch if sendBeacon isn't available.
   window.addEventListener("beforeunload", () => {
-    if (_snapKey) navigator.sendBeacon?.(
-      "/dlc/project/inline-analysis/session/stop",
-      new Blob([JSON.stringify({ snap_key: _snapKey })], { type: "application/json" }),
-    );
+    if (!_snapKey) return;
+    const payload = JSON.stringify({ snap_key: _snapKey, only_if_idle: true });
+    const url = "/dlc/project/inline-analysis/session/stop";
+    if (navigator.sendBeacon) {
+      navigator.sendBeacon(url, new Blob([payload], { type: "application/json" }));
+    } else {
+      fetch(url, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: payload, keepalive: true,
+      });
+    }
   });
 }
 
