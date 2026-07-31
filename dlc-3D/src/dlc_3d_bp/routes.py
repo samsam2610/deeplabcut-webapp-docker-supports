@@ -939,6 +939,11 @@ def reproject_run():
         # normalize_per_cam rejects unknown camera keys and out-of-range values.
         # _float_arg also raises ValueError for non-numeric k1/k2/peak_score_floor.
         return jsonify({"error": str(exc)}), 400
+    except FileNotFoundError as exc:
+        # _normalize_reproject_input: a selected layer was itself a
+        # reprojection output whose un-reprojected source no longer exists —
+        # refused rather than silently chaining onto the reprojected file.
+        return jsonify({"error": str(exc)}), 400
     return jsonify(summary)
 
 

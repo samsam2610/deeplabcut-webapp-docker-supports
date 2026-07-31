@@ -4100,6 +4100,25 @@ async function _reprojRun() {
       `Wrote ${data.outputs.ref_h5.split("/").pop()} and ` +
       `${data.outputs.tgt_h5.split("/").pop()}.`,
     );
+    // A selected layer that was itself a reprojection output gets redirected
+    // by the backend to its un-reprojected source (_normalize_reproject_input)
+    // and the existing _reprojected output is replaced in place — it does NOT
+    // reproject the layer the user actually selected. Without this note the
+    // user could easily believe their selected (already-reprojected) layer is
+    // what just got reprojected again.
+    const cfg = data.config;
+    const reprojectedInputResolved = !!cfg && (
+      cfg.ref_h5_requested !== cfg.ref_h5 || cfg.tgt_h5_requested !== cfg.tgt_h5
+    );
+    if (reprojectedInputResolved) {
+      const statusEl = _reprojEl.status();
+      if (statusEl) {
+        statusEl.textContent +=
+          "  The selected layer was already a reprojection — re-ran from its " +
+          "source and replaced the output (it did not reproject what you had " +
+          "selected).";
+      }
+    }
     // Refusing rescues makes the marker count go DOWN versus a geometry-only
     // run. That is the feature working; this line is what distinguishes it
     // from a fault, which this project has twice misdiagnosed when output got

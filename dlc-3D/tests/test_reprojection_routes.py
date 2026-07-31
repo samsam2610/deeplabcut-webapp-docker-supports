@@ -115,6 +115,32 @@ def test_run_accepts_per_camera_dicts(client, monkeypatch, tmp_path):
     assert seen["low_tgt"] in (None, 0.6)
 
 
+def test_run_maps_missing_source_layer_to_400_not_500(client, monkeypatch):
+    """_normalize_reproject_input raises FileNotFoundError when a selected
+    layer is a reprojection output whose un-reprojected source is gone — that
+    must surface as a clean 400, not an uncaught 500."""
+    import dlc_3d_bp.reprojection as rp
+
+    def fake_run(**kwargs):
+        raise FileNotFoundError(
+            "/user-data/s_cam0_x_reprojected.h5 is a reprojection output; "
+            "its source /user-data/s_cam0_x.h5 does not exist"
+        )
+
+    monkeypatch.setattr(routes, "_reproject_run_impl", fake_run)
+    monkeypatch.setattr(rp, "load_calibration", lambda p: {"cam_0": object(),
+                                                           "cam_1": object()})
+    r = client.post("/dlc-3d/reproject/run", json={
+        "ref_h5": "/user-data/s_cam0_x_reprojected.h5",
+        "tgt_h5": "/user-data/s_cam1_x_reprojected.h5",
+        "calibration": "/user-data/calibration.toml",
+        "ref_cam": "cam_0", "tgt_cam": "cam_1",
+    })
+    assert r.status_code == 400
+    assert "s_cam0_x_reprojected.h5" in r.get_json()["error"]
+    assert "s_cam0_x.h5" in r.get_json()["error"]
+
+
 def test_run_rejects_out_of_range_value(client, monkeypatch, tmp_path):
     import dlc_3d_bp.reprojection as rp
     monkeypatch.setattr(rp, "load_calibration",

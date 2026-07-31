@@ -1,3 +1,5 @@
+from pathlib import Path
+
 import numpy as np
 import pandas as pd
 import pytest
@@ -400,3 +402,155 @@ def test_flipped_bodypart_uses_the_flipped_judged_camera_floor(tmp_path):
         "flipped bodypart must use cam_1's floor (0.95, the judged camera under "
         "the flip), not cam_0's 0.77 — role_ref/role_tgt are reversed"
     )
+
+
+# ── Idempotent reprojection: no _reprojected_reprojected ────────────────────
+# See docs — reprojecting an already-reprojected layer used to (a) treat a
+# rescued marker's raised likelihood as fresh confident evidence, silently
+# compounding corrections, and (b) chain the suffix into
+# X_reprojected_reprojected.h5. _normalize_reproject_input redirects an
+# already-reprojected input to its source layer so _out_path regenerates the
+# SAME _reprojected name, replacing it rather than chaining.
+
+from dlc_3d_bp.reprojection import _normalize_reproject_input, _source_layer_for
+
+
+def test_source_layer_for_plain_path_is_untouched():
+    assert _source_layer_for(Path("/x/s_cam0_x.h5")) is None
+
+
+def test_source_layer_for_already_reprojected_strips_the_suffix():
+    got = _source_layer_for(Path("/x/s_cam0_x_reprojected.h5"))
+    assert got == Path("/x/s_cam0_x.h5")
+
+
+def test_source_layer_for_is_pure_and_does_not_check_existence():
+    """Path arithmetic only — must not touch the filesystem. Verified by
+    pointing at a source that does not exist and getting the computed path
+    back anyway (existence is the caller's concern)."""
+    got = _source_layer_for(Path("/does/not/exist/s_cam0_x_reprojected.h5"))
+    assert got == Path("/does/not/exist/s_cam0_x.h5")
+
+
+def test_source_layer_for_only_strips_a_trailing_suffix():
+    """A stem that merely contains "_reprojected" in the middle (not as a
+    trailing suffix) must be left alone."""
+    assert _source_layer_for(Path("/x/s_cam0_reprojected_extra.h5")) is None
+
+
+def test_normalize_reproject_input_plain_path_passes_through(tmp_path):
+    p = tmp_path / "s_cam0_x.h5"
+    p.write_text("stub")
+    assert _normalize_reproject_input(p) == p
+
+
+def test_normalize_reproject_input_redirects_to_an_existing_source(tmp_path):
+    source = tmp_path / "s_cam0_x.h5"
+    source.write_text("stub")
+    reprojected = tmp_path / "s_cam0_x_reprojected.h5"
+    reprojected.write_text("stub-out")
+    assert _normalize_reproject_input(reprojected) == source
+
+
+def test_normalize_reproject_input_raises_a_clear_error_on_a_missing_source(tmp_path):
+    """Must NOT fall back to chaining onto the reprojected file itself."""
+    reprojected = tmp_path / "s_cam0_x_reprojected.h5"
+    reprojected.write_text("stub-out")
+    with pytest.raises(FileNotFoundError) as exc:
+        _normalize_reproject_input(reprojected)
+    msg = str(exc.value)
+    assert str(reprojected) in msg, "error must name the reprojected path that was selected"
+    assert str(tmp_path / "s_cam0_x.h5") in msg, "error must name the missing source path"
+
+
+def test_reprojecting_an_already_reprojected_layer_yields_exactly_one_output(tmp_path):
+    """Feeding *_reprojected.h5 back in must NOT produce
+    *_reprojected_reprojected.h5 — it must re-read the source and replace the
+    existing _reprojected output, so there is exactly one output file for
+    each camera afterward."""
+    calib = _write_calib(tmp_path)
+    cams = load_calibration(calib)
+    n = 120
+    xyz = np.c_[np.full(n, 10.0), np.full(n, -5.0), np.linspace(250, 260, n)]
+    xy0 = np.stack([project_point(cams["cam_0"], xyz)] * 2, axis=1)
+    xy1 = np.stack([project_point(cams["cam_1"], xyz)] * 2, axis=1)
+    lik = np.full((n, 2), 0.99, dtype=np.float32)
+    lik[10:20, 0] = 0.10  # a rescue candidate, so the first pass actually raises a likelihood
+
+    ref_h5 = tmp_path / "s_cam0_x.h5"
+    tgt_h5 = tmp_path / "s_cam1_x.h5"
+    _write_h5(ref_h5, _make_df(xy0, lik))
+    _write_h5(tgt_h5, _make_df(xy1, lik))
+
+    first = run_reprojection(
+        ref_h5=ref_h5, tgt_h5=tgt_h5, calib_path=calib,
+        ref_cam_key="cam_0", tgt_cam_key="cam_1", out_dir=tmp_path,
+        rescue_floor=0.9,
+    )
+    ref_out = Path(first["outputs"]["ref_h5"])
+    tgt_out = Path(first["outputs"]["tgt_h5"])
+    assert ref_out.name == "s_cam0_x_reprojected.h5"
+    assert tgt_out.name == "s_cam1_x_reprojected.h5"
+    first_tgt, _ = read_pose_h5(tgt_out)
+    first_rescued_lik = first_tgt[SCORER]["Pellet"]["likelihood"].to_numpy()[10:20].copy()
+
+    # Re-run FEEDING THE REPROJECTED OUTPUT BACK IN, exactly what the card
+    # does when the displayed kinematic layer is already a reprojection.
+    second = run_reprojection(
+        ref_h5=ref_out, tgt_h5=tgt_out, calib_path=calib,
+        ref_cam_key="cam_0", tgt_cam_key="cam_1", out_dir=tmp_path,
+        rescue_floor=0.9,
+    )
+
+    # Exactly one output file per camera — no _reprojected_reprojected chain.
+    outs = sorted(p.name for p in tmp_path.glob("*_reprojected*.h5"))
+    assert outs == ["s_cam0_x_reprojected.h5", "s_cam1_x_reprojected.h5"], (
+        f"expected exactly one output per camera, got {outs}"
+    )
+    assert not list(tmp_path.glob("*_reprojected_reprojected*"))
+
+    # The second pass re-read the SOURCE (pre-reprojection) file, not the
+    # reprojected one it was handed — recorded explicitly in the audit.
+    assert second["config"]["ref_h5"] == str(ref_h5)
+    assert second["config"]["tgt_h5"] == str(tgt_h5)
+    assert second["config"]["ref_h5_requested"] == str(ref_out)
+    assert second["config"]["tgt_h5_requested"] == str(tgt_out)
+
+    # Compounding check: the already-rescued likelihood (raised to 0.9 by the
+    # first pass) must NOT be treated as fresh confident evidence and pushed
+    # again — the second pass's rescued values must match the first pass's,
+    # not some further-altered value.
+    second_tgt, _ = read_pose_h5(Path(second["outputs"]["tgt_h5"]))
+    second_rescued_lik = second_tgt[SCORER]["Pellet"]["likelihood"].to_numpy()[10:20]
+    assert np.allclose(second_rescued_lik, first_rescued_lik, atol=1e-6), (
+        "re-reprojecting must re-derive from the untouched source, not compound "
+        "corrections already baked into the previous _reprojected output"
+    )
+
+
+def test_reprojecting_an_already_reprojected_layer_with_missing_source_raises(tmp_path):
+    calib = _write_calib(tmp_path)
+    cams = load_calibration(calib)
+    n = 40
+    xyz = np.c_[np.full(n, 10.0), np.full(n, -5.0), np.linspace(250, 260, n)]
+    xy0 = np.stack([project_point(cams["cam_0"], xyz)] * 2, axis=1)
+    xy1 = np.stack([project_point(cams["cam_1"], xyz)] * 2, axis=1)
+    lik = np.full((n, 2), 0.99, dtype=np.float32)
+
+    ref_h5 = tmp_path / "s_cam0_x.h5"
+    tgt_h5 = tmp_path / "s_cam1_x.h5"
+    _write_h5(ref_h5, _make_df(xy0, lik))
+    _write_h5(tgt_h5, _make_df(xy1, lik))
+
+    out = run_reprojection(
+        ref_h5=ref_h5, tgt_h5=tgt_h5, calib_path=calib,
+        ref_cam_key="cam_0", tgt_cam_key="cam_1", out_dir=tmp_path,
+    )
+    ref_out = Path(out["outputs"]["ref_h5"])
+    ref_h5.unlink()  # the source is gone; only the reprojected output remains
+
+    with pytest.raises(FileNotFoundError):
+        run_reprojection(
+            ref_h5=ref_out, tgt_h5=Path(out["outputs"]["tgt_h5"]), calib_path=calib,
+            ref_cam_key="cam_0", tgt_cam_key="cam_1", out_dir=tmp_path,
+        )

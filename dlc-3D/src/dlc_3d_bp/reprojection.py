@@ -112,6 +112,58 @@ def _out_path(src, out_dir, suffix) -> Path:
     return base / (src.stem + "_reprojected" + suffix)
 
 
+_REPROJECTED_SUFFIX = "_reprojected"
+
+
+def _source_layer_for(h5_path) -> "Path | None":
+    """Path arithmetic only — no filesystem access.
+
+    If `h5_path` is itself a reprojection output (its stem ends in
+    "_reprojected"), returns the path to the un-reprojected source layer that
+    would have produced it. Returns None when `h5_path` does not name a
+    reprojection output — the caller should use the path unchanged.
+
+    Whether that source path actually exists on disk is the caller's concern
+    (this stays pure and testable without touching a filesystem).
+    """
+    h5_path = Path(h5_path)
+    if not h5_path.stem.endswith(_REPROJECTED_SUFFIX):
+        return None
+    source_stem = h5_path.stem[: -len(_REPROJECTED_SUFFIX)]
+    return h5_path.with_name(source_stem + h5_path.suffix)
+
+
+def _normalize_reproject_input(h5_path) -> Path:
+    """Resolve the path `run_reprojection` should actually read for `h5_path`.
+
+    Reprojecting an already-reprojected layer is wrong twice over: (1) a
+    rescued marker's likelihood was raised to `rescue_floor`, so a second pass
+    would treat that correction as fresh confident evidence and silently
+    compound it, and (2) naively feeding the `_reprojected` file back in would
+    chain the suffix into `X_reprojected_reprojected.h5`.
+
+    If `h5_path`'s stem ends in "_reprojected", this strips that suffix and
+    uses the un-reprojected source layer as the actual input — `_out_path`
+    then naturally regenerates the SAME `_reprojected` name from that source,
+    replacing the existing output rather than chaining onto it. The source
+    must exist; a missing source raises rather than silently falling back to
+    chaining.
+    """
+    h5_path = Path(h5_path)
+    source = _source_layer_for(h5_path)
+    if source is None:
+        return h5_path
+    if not source.is_file():
+        raise FileNotFoundError(
+            "{} is a reprojection output (already-corrected likelihoods) — "
+            "reprojecting it again would compound corrections. Its source "
+            "layer {} does not exist, so it cannot be re-reprojected. Select "
+            "the underlying (pre-reprojection) layer instead.".format(
+                h5_path, source)
+        )
+    return source
+
+
 def normalize_per_cam(value, default, cam_keys) -> "dict":
     """Resolve a likelihood parameter to one value per camera.
 
@@ -199,7 +251,19 @@ def run_reprojection(
     trust for that bodypart, overriding the session-level choice. Writes
     <stem>_reprojected.h5 for BOTH cameras: the reference copy is required so
     the _cam{N}_ sibling pairing in routes.py still discovers the pair.
+
+    `ref_h5`/`tgt_h5` are normalized before anything is read: a path whose
+    stem already ends in "_reprojected" is redirected to its un-reprojected
+    source layer (see `_normalize_reproject_input`), so re-running on a
+    reprojected layer re-reads the source and REPLACES the existing
+    `_reprojected` output instead of compounding corrections and chaining the
+    suffix. `summary["config"]` records both the originally requested path
+    and the path actually read.
     """
+    ref_h5_requested, tgt_h5_requested = Path(ref_h5), Path(tgt_h5)
+    ref_h5 = _normalize_reproject_input(ref_h5_requested)
+    tgt_h5 = _normalize_reproject_input(tgt_h5_requested)
+
     cams = load_calibration(calib_path)
     cam_ref, cam_tgt = cams[ref_cam_key], cams[tgt_cam_key]
     df_ref, meta_ref = read_pose_h5(ref_h5)
@@ -350,7 +414,15 @@ def run_reprojection(
 
     summary = {
         "config": {
+            # The file actually read (post-normalization — see
+            # _normalize_reproject_input). Equal to *_h5_requested unless the
+            # requested path was itself a reprojection output.
             "ref_h5": str(ref_h5), "tgt_h5": str(tgt_h5),
+            # What the caller originally asked for. Differs from ref_h5/tgt_h5
+            # above exactly when that selection was a reprojection output and
+            # got redirected to its source layer.
+            "ref_h5_requested": str(ref_h5_requested),
+            "tgt_h5_requested": str(tgt_h5_requested),
             "calibration": str(calib_path),
             "ref_cam": ref_cam_key, "tgt_cam": tgt_cam_key,
             "k1": k1, "k2": k2,

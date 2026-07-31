@@ -662,6 +662,19 @@ def test_peak_screen_coverage_line_is_null_guarded(js):
     assert "if (scr)" in fn, "the coverage line must be guarded on peak_screen truthiness"
 
 
+def test_reprojecting_a_reprojected_layer_surfaces_a_note(js):
+    """The backend redirects an already-reprojected selection to its source
+    layer (see reprojection.py's _normalize_reproject_input) and replaces the
+    existing output — it does not reproject the layer the user actually
+    selected. The card must say so, comparing the requested vs. actually-read
+    paths from the response's config."""
+    fn = js.split("async function _reprojRun")[1].split("\nfunction _reprojRenderHelp")[0]
+    assert fn, "could not locate _reprojRun"
+    assert "cfg.ref_h5_requested !== cfg.ref_h5" in fn
+    assert "cfg.tgt_h5_requested !== cfg.tgt_h5" in fn
+    assert "_reprojEl.status()" in fn
+
+
 # ── Pinnable snapshot picker ─────────────────────────────────────────────────
 
 def test_pin_toggle_enforces_single_selection(js):
