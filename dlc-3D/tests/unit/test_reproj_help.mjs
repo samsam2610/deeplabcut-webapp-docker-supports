@@ -3,7 +3,11 @@ import assert from "node:assert/strict";
 import { HELP, HELP_DEFAULT } from "../../src/static/internal/reproj_help.mjs";
 
 const KEYS = ["trusted_cam", "k1", "k2", "gate_ref", "low_tgt", "high_conf",
-              "rescue_floor", "line_lik"];
+              "rescue_floor", "line_lik",
+              // Candidate-peak screen. This list is an EXACT match against the
+              // panel's data-help attributes, so a new control with help text
+              // must be added here too -- that strictness is the point.
+              "require_peaks", "peak_floor"];
 
 test("HELP covers exactly the panel's parameters", () => {
   assert.deepEqual(Object.keys(HELP).sort(), [...KEYS].sort());
