@@ -950,3 +950,117 @@ def test_videoload_refreshes_finalize_coverage():
     body = js[i:js.find("});", i)]  # the videoLoad handler body
     assert "_refreshFinalizeCoverage" in body, \
         "videoLoad must call _refreshFinalizeCoverage so a finalized video's timeline shows on open"
+
+
+# ─── Pinnable snapshot picker (ported from the reprojection card, 676dc3c) ───
+# Mirrors tests/test_reproj_panel_markup.py + test_reproj_panel_wiring.py's
+# "Pinnable snapshot picker" section, with the ia3dr- id prefix and _ia3dr*
+# function names swapped for ia3d- / _ia3d*. Persistence key ("pinned_snapshot")
+# is deliberately SHARED with the reprojection card, so pinning a snapshot in
+# one card is honoured by the other.
+
+def test_snapshot_dropdown_still_present_and_unchanged():
+    """The pin list is ADDITIVE — the existing dropdown must keep its exact
+    markup and position as the primary control (analysis requests still read
+    its value)."""
+    html = CARD.read_text()
+    assert '<select id="ia3d-snapshot" style="flex:1;min-width:0"></select>' in html
+
+
+def test_snapshot_pin_list_exists_scrollable_and_bounded():
+    html = CARD.read_text()
+    assert 'id="ia3d-snapshot-pin-list"' in html
+    frag = html.split('id="ia3d-snapshot-pin-list"')[1][:220]
+    assert "overflow-y:auto" in frag, "list must scroll rather than grow the card"
+    assert "max-height:7.5rem" in frag, "must be bounded to ~4-5 rows"
+
+
+def test_snapshot_pin_list_sits_after_the_dropdown():
+    html = CARD.read_text()
+    assert html.index('id="ia3d-snapshot"') < html.index('id="ia3d-snapshot-pin-list"'), (
+        "pin list must appear directly beneath the existing dropdown"
+    )
+
+
+def test_pin_toggle_enforces_single_selection():
+    """Checking one row must uncheck every other row — radio behaviour with
+    checkbox styling."""
+    js = JS.read_text()
+    fn = js.split("function _ia3dOnPinToggle")[1].split("\nfunction ")[0]
+    assert fn, "could not locate _ia3dOnPinToggle"
+    assert "b.checked = false" in fn, (
+        "no code path unchecks the other rows — single-selection is not enforced"
+    )
+
+
+def test_checking_a_row_writes_the_dropdown_value():
+    """The dropdown's value is what every analysis request actually sends, so
+    checking a pin row must set it — not just persist the pin."""
+    js = JS.read_text()
+    fn = js.split("function _ia3dOnPinToggle")[1].split("\nfunction ")[0]
+    assert fn, "could not locate _ia3dOnPinToggle"
+    assert "snapSel.value = changedCb.value" in fn, (
+        "checking a row does not sync the dropdown's value"
+    )
+
+
+def test_pin_round_trips_through_the_ui_setting_key():
+    js = JS.read_text()
+    assert 'const IA3D_PINNED_SNAPSHOT_KEY = "pinned_snapshot";' in js
+    save_fn = js.split("function _ia3dSavePinnedSnapshot")[1].split("\nfunction ")[0]
+    assert save_fn, "could not locate _ia3dSavePinnedSnapshot"
+    assert "/dlc/project/ui-setting" in save_fn
+    assert "IA3D_PINNED_SNAPSHOT_KEY" in save_fn
+
+    apply_fn = js.split("async function _ia3dApplyPinnedSnapshot")[1].split(
+        "\nasync function"
+    )[0]
+    assert apply_fn, "could not locate _ia3dApplyPinnedSnapshot"
+    assert "/dlc/project/ui-setting?key=" in apply_fn
+    assert "IA3D_PINNED_SNAPSHOT_KEY" in apply_fn
+
+
+def test_unchecking_the_pinned_row_clears_the_pin_without_touching_the_dropdown():
+    js = JS.read_text()
+    fn = js.split("function _ia3dOnPinToggle")[1].split("\nfunction ")[0]
+    assert fn, "could not locate _ia3dOnPinToggle"
+    else_branch = fn.split("} else {")[1] if "} else {" in fn else ""
+    assert else_branch, "no unchecked branch in _ia3dOnPinToggle"
+    assert '_ia3dSavePinnedSnapshot("")' in else_branch, (
+        "unchecking the pinned row must clear the persisted pin"
+    )
+    assert "snapSel" not in else_branch, (
+        "unchecking must leave the dropdown alone"
+    )
+
+
+def test_missing_pinned_snapshot_does_not_silently_change_the_dropdown():
+    """If the persisted pin no longer matches any snapshot in the current
+    list, the dropdown must be left at its normal default and a note shown —
+    never a silent fallback to a different model."""
+    js = JS.read_text()
+    fn = js.split("async function _ia3dApplyPinnedSnapshot")[1].split(
+        "\nasync function"
+    )[0]
+    assert fn, "could not locate _ia3dApplyPinnedSnapshot"
+    no_match_branch = fn.split("if (!match) {")[1].split("\n  }")[0]
+    assert "snapSel" not in no_match_branch, (
+        "the dropdown must not be touched when the pinned snapshot is missing"
+    )
+    assert "lastRun" in no_match_branch, (
+        "a note must be surfaced in the existing status area"
+    )
+    assert fn.index("if (!match) {") < fn.index("snapSel.value = match.value"), (
+        "the dropdown must only be set in the found-a-match path"
+    )
+
+
+def test_snapshot_refresh_applies_the_pin():
+    """Pin re-application must happen on every snapshot-list (re)build — card
+    open, the refresh button, and a shuffle change all funnel through
+    _loadSnapshots."""
+    js = JS.read_text()
+    fn = js.split("async function _loadSnapshots")[1].split("\nasync function")[0]
+    assert fn, "could not locate _loadSnapshots"
+    assert "_ia3dRenderPinList(items)" in fn
+    assert "_ia3dApplyPinnedSnapshot(items)" in fn
