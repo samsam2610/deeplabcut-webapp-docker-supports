@@ -19,6 +19,7 @@ export function makeTrackedFiles({
 }) {
   let _rows = new Map();     // path -> {path, name, dir, tracked_at, last_opened_at}
   let _current = null;       // the path currently open in the player, or null
+  let _loaded = false;       // has a list fetch ever succeeded?
   const _ac = new AbortController();
   const _sig = { signal: _ac.signal };
 
@@ -137,6 +138,7 @@ export function makeTrackedFiles({
     try {
       const data = await _fetchJson(API);
       _rows = new Map((data.files || []).map((f) => [f.path, f]));
+      _loaded = true;
       _render();
     } catch (err) {
       _rows = new Map();
@@ -147,8 +149,12 @@ export function makeTrackedFiles({
 
   // Called with the open video's absolute path, or null when nothing is open /
   // the open thing is not a browse video (project content, frame folders).
-  function setCurrent(path) {
+  async function setCurrent(path) {
     _current = path || null;
+    // The header checkbox reflects _rows, so the list must have been fetched at
+    // least once — otherwise opening an ALREADY-tracked video before ever
+    // visiting the tab would show its checkbox unticked.
+    if (_current && !_loaded) await refresh();
     _syncHeader();
     if (_current && _rows.has(_current)) _noteOpened(_current);
   }

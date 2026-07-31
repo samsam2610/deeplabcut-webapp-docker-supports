@@ -57,6 +57,16 @@ def test_uses_the_shared_relative_time_helper():
     assert "formatRelative(" in s
 
 
+def test_setCurrent_loads_the_list_before_trusting_the_header_checkbox():
+    """The header checkbox state comes from the in-memory row set. Without a
+    first fetch, opening an ALREADY-tracked video before ever clicking the tab
+    would render its checkbox unticked."""
+    s = _src()
+    assert re.search(r"_loaded", s), "must track whether a list fetch has succeeded"
+    assert re.search(r"if\s*\(\s*_current\s*&&\s*!_loaded\s*\)\s*await\s+refresh\(\)", s), \
+        "setCurrent must await refresh() on first use"
+
+
 def test_listeners_are_abortable_for_destroy():
     """Header checkbox and tab button are persistent nodes — listeners must be
     removable or they accumulate across re-wiring."""
