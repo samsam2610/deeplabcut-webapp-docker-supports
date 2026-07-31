@@ -24,6 +24,7 @@ import { coverageRects, coverageFrameRects, nearestCoveredFrame, xToFrame, nextC
 import { pickLatestVariant } from "./components/viewer/internal/pick_latest_variant.mjs";
 import { makeKeyframeWindow } from "./keyframe_window_ui.js";
 import { makePose3dViewer } from "./pose3d_viewer.js";
+import { makeTrackedFiles } from "./tracked_files_tab.js";
 import { clampToBounds } from "./internal/clamp_bounds.mjs";
 import { addTag, removeTag } from "./internal/tag_list.mjs";
 import { tagKeyframes, mergeWindows } from "./components/viewer/internal/tag_batch.mjs";
@@ -33,6 +34,7 @@ import { state } from "/static/js/state.js";
 
 let _viewer = null;
 let _markerEditor = null; // overlay/marker-editing feature (composed in _ensureViewer)
+let _trackedFiles = null; // Tracked Files tab controller (composed in _wireLauncher)
 let _overlayPrimaryH5 = null; // the primary .h5 path currently driving the overlay (for Save/Finalize cam0)
 let _siblingPrimaryH5 = null; // the resolved cam1 sibling .h5 path (for Finalize cam1)
 
@@ -2297,25 +2299,45 @@ function _iaOpenFrameFolder(stem, frames) {
   return v.load({ videoPath: _primaryRel, frameCount: _frameCount, framesMode: true, siblingPath: null });
 }
 
+// Launcher-level error line. Used when an open ABORTS — the player section is
+// never revealed in that case, so #ia3d-status (which lives inside it) would
+// be invisible. Pass "" to clear.
+function _iaLauncherError(msg) {
+  const el = $("ia3d-launcher-error");
+  if (!el) return;
+  el.textContent = msg || "";
+  el.style.color = msg ? "var(--danger, #e66)" : "";
+}
+
 async function _iaOpenBrowseVideo(absPath, name) {
+  // Resolve video info BEFORE mutating any state: a missing or unreadable file
+  // must abort the open instead of silently loading an empty viewer. This is
+  // the path a tracked file takes after its video has moved.
+  let info;
+  try {
+    const res = await fetch(`/annotate/video-info?path=${encodeURIComponent(absPath)}`);
+    info = await res.json().catch(() => ({}));
+    if (!res.ok || info.error) throw new Error(info.error || `status ${res.status}`);
+  } catch (err) {
+    _iaLauncherError(`Cannot open ${absPath} — ${err.message}. Fix the path or untrack this entry.`);
+    return;
+  }
+  _iaLauncherError("");
   _resetForOpen();
   _iaMode = "browse-video";
   _browsePath = absPath;
   _primaryRel = absPath;
   const nameEl = $("ia3d-selected-name");
   if (nameEl) nameEl.textContent = name;
-  try {
-    const info = await (await fetch(`/annotate/video-info?path=${encodeURIComponent(absPath)}`)).json();
-    _fps = info.fps || 30;
-    _frameCount = info.frame_count || 0;
-  } catch (_) {
-    _fps = 30; _frameCount = 0;
-  }
+  _fps = info.fps || 30;
+  _frameCount = info.frame_count || 0;
   $("ia3d-player-section")?.classList.remove("hidden");
   const v = _ensureViewer();
   if (!v) return;
   _loadAllQuickTags();
   await v.load({ videoPath: _primaryRel, frameCount: _frameCount, framesMode: false, siblingPath: undefined });
+  // Reveal the track checkbox for this path and stamp last-opened if tracked.
+  _trackedFiles?.setCurrent(absPath);
 }
 
 // Reset module mode state before opening a new selection.
@@ -2329,6 +2351,7 @@ function _resetForOpen() {
   _fps = 30;
   _frameCount = 0;
   _siblingAvailable = false;
+  _trackedFiles?.setCurrent(null);   // hide the track checkbox until a browse video opens
   _setStatus("");
   // CSV meta-strip reset.
   const metaRow = $("ia3d-meta-frame-row");
@@ -2571,27 +2594,38 @@ async function _iaNavigateTo(raw) {
 // ── Launcher wiring (tabs, browse, refresh, back, card open/close) ────────────
 
 function _wireLauncher() {
-  // Tab switching.
-  const tabProject = $("ia3d-tab-project");
-  const tabBrowse = $("ia3d-tab-browse");
-  const tabProjectPanel = $("ia3d-tab-project-panel");
-  const tabBrowsePanel = $("ia3d-tab-browse-panel");
-
-  tabProject?.addEventListener("click", () => {
-    tabProject.classList.add("active");
-    tabBrowse?.classList.remove("active");
-    tabProjectPanel?.classList.remove("hidden");
-    tabBrowsePanel?.classList.add("hidden");
-  });
-  tabBrowse?.addEventListener("click", () => {
-    tabBrowse.classList.add("active");
-    tabProject?.classList.remove("active");
-    tabBrowsePanel?.classList.remove("hidden");
-    tabProjectPanel?.classList.add("hidden");
+  // Tab switching — one table, three tabs.
+  const TABS = [
+    { btn: "ia3d-tab-project", panel: "ia3d-tab-project-panel" },
+    { btn: "ia3d-tab-browse",  panel: "ia3d-tab-browse-panel"  },
+    { btn: "ia3d-tab-tracked", panel: "ia3d-tab-tracked-panel" },
+  ];
+  function _showTab(id) {
+    TABS.forEach((t) => {
+      const on = t.btn === id;
+      $(t.btn)?.classList.toggle("active", on);
+      $(t.panel)?.classList.toggle("hidden", !on);
+    });
+  }
+  TABS.forEach((t) => $(t.btn)?.addEventListener("click", () => _showTab(t.btn)));
+  $("ia3d-tab-browse")?.addEventListener("click", () => {
     if (!_iaBrowsePath) {
       const startPath = state.userDataDir || state.dataDir || "/";
       _iaRefreshBrowse(startPath);
     }
+  });
+
+  // Tracked Files tab controller. Owns its list, its checkboxes and the
+  // player-header track checkbox; this module only reports the current path.
+  _trackedFiles = makeTrackedFiles({
+    tabBtn: $("ia3d-tab-tracked"),
+    refreshBtn: $("ia3d-tracked-refresh"),
+    panelEl: $("ia3d-tab-tracked-panel"),
+    listEl: $("ia3d-tracked-list"),
+    headerCheckbox: $("ia3d-track-checkbox"),
+    headerLabel: $("ia3d-track-label"),
+    onOpen: (path, name) => _iaOpenBrowseVideo(path, name),
+    onError: (msg) => _iaLauncherError(msg),
   });
 
   // Browse "up".
