@@ -232,6 +232,10 @@ function _ensureViewer() {
     },
     fps: _fps,
     frameBase: 0,
+    // Deterministic per-tag NOTE colors + a colour control per chip, with
+    // user overrides persisted per-project (shared with the non-reprojection
+    // card) under note_tag_colors. See _loadNoteTagColors/_saveNoteTagColors.
+    tagColors: { overrides: _noteTagColorOverrides, onColorChange: () => _saveNoteTagColors() },
     // Recompute tag-lock enablement whenever the user toggles a note/status chip.
     onActiveTagsChange: () => _refreshTagLockEnablement(),
     // Fires at the END of loadCsv (after it clears + rebuilds the tag chips). The
@@ -2221,6 +2225,53 @@ function _loadAllQuickTags() {
   _postfixTags?.load();
   _statusTags?.load();
   _noteTags?.load();
+  _loadNoteTagColors();
+}
+
+// ── Per-project NOTE-tag color overrides ─────────────────────────────────────
+// Key deliberately shared with the (non-reprojection) inline card — see
+// inline_analysis_3d.js's IA3D_NOTE_TAG_COLORS_KEY — so a colour picked on one
+// card shows on the other. Same sharing pattern as pinned_snapshot. Value:
+// JSON object mapping note-tag name -> "#rrggbb".
+//
+// `_noteTagColorOverrides` is passed BY REFERENCE into statusNoteTimeline's
+// `tagColors.overrides` when the timeline is constructed (see _ensureViewer);
+// the feature reads it live and mutates it in place when the user recolors a
+// chip, so this same object always reflects the current state — loading just
+// replaces its contents (not the reference) and asks the timeline to repaint.
+const IA3DR_NOTE_TAG_COLORS_KEY = "note_tag_colors";
+let _noteTagColorOverrides = {};
+let _noteTagColorSaveTimer = null;
+
+async function _loadNoteTagColors() {
+  try {
+    const data = await (await fetch(`/dlc/project/ui-setting?key=${IA3DR_NOTE_TAG_COLORS_KEY}`)).json();
+    const raw = data && data.value;
+    const parsed = raw ? JSON.parse(raw) : null;
+    if (parsed && typeof parsed === "object") {
+      for (const k of Object.keys(_noteTagColorOverrides)) delete _noteTagColorOverrides[k];
+      Object.assign(_noteTagColorOverrides, parsed);
+    }
+  } catch (_) { /* best-effort; keep whatever overrides are already in memory */ }
+  // The timeline may already exist (reopening the card / switching videos) — force
+  // it to pick up whatever just loaded. Harmless no-op if it doesn't exist yet
+  // (first-ever open constructs it AFTER this, reading the now-populated object).
+  _snTimeline?.refreshTagColors();
+}
+
+// Debounced persist of the full override map. Passed as statusNoteTimeline's
+// tagColors.onColorChange — by the time this fires, the feature has already
+// mutated `_noteTagColorOverrides` in place, so there's nothing to do here but
+// serialize + save it (best-effort; a failed POST leaves the in-memory map,
+// and thus the live UI, unaffected).
+function _saveNoteTagColors() {
+  if (_noteTagColorSaveTimer) clearTimeout(_noteTagColorSaveTimer);
+  _noteTagColorSaveTimer = setTimeout(() => {
+    fetch("/dlc/project/ui-setting", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ key: IA3DR_NOTE_TAG_COLORS_KEY, value: JSON.stringify(_noteTagColorOverrides) }),
+    }).catch(() => {});
+  }, 300);
 }
 
 // ── Three open functions (mode + state + load) ──────────────────────────────

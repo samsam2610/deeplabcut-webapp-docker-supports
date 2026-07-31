@@ -12,6 +12,19 @@
 //            statusPrev?, statusNext?, notePrev?, noteNext?,
 //            saveStatusBtn?, saveNoteBtn?, saveFeedback? },
 //     palette?: { status: [...], note: [...] }, frameBase?: 0, fps?: 30,
+//     // Optional — per-tag NOTE color overrides + a color control on each note
+//     // chip. Absent (default): unchanged behaviour — note colors cycle the
+//     // palette by first-seen order in the CSV, chips render in that same
+//     // order, no color control. Present:
+//     //   overrides: { tagName: "#rrggbb" } — consumer-owned, mutable object;
+//     //     this feature reads it live (so the consumer can populate it
+//     //     asynchronously after construction) and mutates it in place when
+//     //     the user picks a color, so the consumer's own reference always
+//     //     reflects the current state.
+//     //   onColorChange(tag, color) — fired AFTER `overrides` has already
+//     //     been updated; the consumer's job is only to persist it
+//     //     (endpoints/project-settings knowledge stays out of this library).
+//     tagColors?: { overrides: {}, onColorChange?: (tag, color) => void },
 //   }));
 //
 // The reducer works in CSV frame_number space; frameBase maps it to viewer seek-frames
@@ -21,6 +34,7 @@ import {
   uniqueValues, assignColors, findMatchingFrame, rowForFrame,
   isInterestingAnnotation, applySavedRow, buildSaveRowPayload,
 } from "../internal/csv_annotations.mjs";
+import { tagColor, sortTags, isValidHexColor } from "../internal/tag_colors.mjs";
 
 const DEFAULT_STATUS_PALETTE = ["#34d399", "#f97316", "#e879f9", "#facc15", "#f87171", "#22d3ee", "#a78bfa", "#fb923c"];
 const DEFAULT_NOTE_PALETTE = ["#60a5fa", "#f472b6", "#4ade80", "#38bdf8", "#e879f9", "#a78bfa", "#facc15", "#fb7185"];
@@ -31,6 +45,11 @@ export function statusNoteTimeline(config = {}) {
   const statusPalette = (config.palette && config.palette.status) || DEFAULT_STATUS_PALETTE;
   const notePalette = (config.palette && config.palette.note) || DEFAULT_NOTE_PALETTE;
   const frameBase = config.frameBase ?? 0;
+  // Optional per-tag NOTE color overrides + color control. See the usage
+  // comment above. `null` (not `{}`) is the "absent" sentinel so `!tagColorsCfg`
+  // cleanly gates every new behaviour off when the consumer doesn't opt in.
+  const tagColorsCfg = config.tagColors || null;
+  const noteOverrides = () => (tagColorsCfg && tagColorsCfg.overrides) || {};
 
   let viewer = null;
   let rows = [];
@@ -82,25 +101,46 @@ export function statusNoteTimeline(config = {}) {
 
   function recolor() {
     statusColors = assignColors(uniqueValues(rows, "frame_line_status"), statusPalette);
-    noteColors = assignColors(uniqueValues(rows, "note"), notePalette);
+    if (tagColorsCfg) {
+      // Deterministic per-name default (stable across videos/sessions), with
+      // any user override applied on top — invalid overrides (malformed /
+      // tampered storage) fall back to the default rather than being applied.
+      // Order: overridden tags first, then the rest alphabetically.
+      const overrides = noteOverrides();
+      const ordered = sortTags(uniqueValues(rows, "note"), overrides);
+      noteColors = {};
+      for (const t of ordered) {
+        const ov = overrides[t];
+        noteColors[t] = isValidHexColor(ov) ? ov : tagColor(t, notePalette);
+      }
+    } else {
+      // Unchanged legacy behaviour: cycle the palette by first-seen order in
+      // this CSV — same tag can land on a different color in a different video.
+      noteColors = assignColors(uniqueValues(rows, "note"), notePalette);
+    }
     if (els.statusWrap) els.statusWrap.style.display = Object.keys(statusColors).length ? "" : "none";
     if (els.noteWrap) els.noteWrap.style.display = Object.keys(noteColors).length ? "" : "none";
   }
 
   function rebuildChips() {
-    renderChips(els.statusChips, statusColors, activeStatus, false);
-    renderChips(els.noteChips, noteColors, activeNote, noteChipsLocked);
+    renderChips(els.statusChips, statusColors, activeStatus, false, null);
+    renderChips(els.noteChips, noteColors, activeNote, noteChipsLocked, tagColorsCfg && notePalette);
     updateNavDisabled();
   }
 
-  function renderChips(container, colorMap, activeSet, locked) {
+  // `colorControlPalette` is the note palette when the caller wants a color
+  // control rendered on each chip (note chips with tagColors configured), or
+  // a falsy value to render plain chips (status chips, or notes without
+  // tagColors) — unchanged markup/behaviour in that case.
+  function renderChips(container, colorMap, activeSet, locked, colorControlPalette) {
     if (!container) return;
     container.innerHTML = "";
     for (const val of Object.keys(colorMap)) {
       const chip = container.ownerDocument.createElement("span");
       chip.className = "vv-tag-chip" + (activeSet.has(val) ? " active" : "") + (locked ? " locked" : "");
       chip.textContent = val;
-      chip.style.setProperty("--chip-color", colorMap[val]);
+      const displayColor = isValidHexColor(colorMap[val]) ? colorMap[val] : "#888";
+      chip.style.setProperty("--chip-color", displayColor);
       if (!locked) {
         chip.addEventListener("click", () => {
           if (activeSet.has(val)) activeSet.delete(val);
@@ -109,6 +149,26 @@ export function statusNoteTimeline(config = {}) {
           redraw(curFrame());
           if (config.onActiveTagsChange) config.onActiveTagsChange();
         });
+      }
+      if (colorControlPalette) {
+        const colorInput = container.ownerDocument.createElement("input");
+        colorInput.type = "color";
+        colorInput.className = "vv-tag-color-input";
+        colorInput.value = displayColor;
+        colorInput.title = `Set color for "${val}"`;
+        // Never let picking a color toggle the chip's active/inactive filter.
+        colorInput.addEventListener("click", (e) => e.stopPropagation());
+        colorInput.addEventListener("input", (e) => {
+          e.stopPropagation();
+          const next = e.target.value;
+          if (!isValidHexColor(next)) return; // defensive; native color inputs always emit #rrggbb
+          if (tagColorsCfg.overrides) tagColorsCfg.overrides[val] = next;
+          recolor();
+          rebuildChips();
+          redraw(curFrame());
+          if (tagColorsCfg.onColorChange) tagColorsCfg.onColorChange(val, next);
+        });
+        chip.appendChild(colorInput);
       }
       container.appendChild(chip);
     }
@@ -267,6 +327,16 @@ export function statusNoteTimeline(config = {}) {
     // Force a redraw at the current frame — consumers call this after resizing
     // the status/note canvases (e.g. when viewer zoom widens the timelines).
     redraw() { redraw(curFrame()); },
+    // Re-run recolor + repaint the chips/bars from the CURRENT tagColors.overrides
+    // contents. Consumers call this after an async load of per-project overrides
+    // resolves (the overrides object is read live, but nothing repaints on its
+    // own when it's mutated outside a chip click). No-op (but harmless) when
+    // tagColors wasn't configured.
+    refreshTagColors() {
+      recolor();
+      rebuildChips();
+      redraw(curFrame());
+    },
     // Read the current active tag-filter selection. Inert accessor — used by
     // consumers that want to preserve the filter across a same-video reload (e.g.
     // the inline-3D card's post-analysis _viewer.load, which would otherwise clear

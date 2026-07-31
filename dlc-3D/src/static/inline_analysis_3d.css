@@ -137,6 +137,17 @@
 #inline-analysis-3d-card .vv-bp-chip.labeled { font-weight: 600; color: var(--text); }
 #inline-analysis-3d-card .vv-bp-chip.vis-hidden { opacity: .45; }
 
+/* Per-tag colour override control (note chips only, when the card wires
+   statusNoteTimeline's tagColors config) — small swatch-style native color
+   input appended after the chip label. */
+#inline-analysis-3d-card .vv-tag-color-input {
+  width: 13px; height: 13px; padding: 0; margin: 0 0 0 .1rem;
+  border: 1px solid var(--border); border-radius: 3px;
+  background: none; cursor: pointer; flex-shrink: 0;
+}
+#inline-analysis-3d-card .vv-tag-color-input::-webkit-color-swatch-wrapper { padding: 0; }
+#inline-analysis-3d-card .vv-tag-color-input::-webkit-color-swatch { border: none; border-radius: 2px; }
+
 /* Lock-BP checkbox in the marker-edit controls — small inline pill matching the
    controls row typography (reuses existing tokens). */
 #inline-analysis-3d-card .ia3d-lock-bp-label {
