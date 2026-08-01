@@ -24,7 +24,7 @@ import { coverageRects, coverageFrameRects, nearestCoveredFrame, xToFrame, nextC
 import { pickLatestVariant } from "./components/viewer/internal/pick_latest_variant.mjs";
 import { makeKeyframeWindow } from "./keyframe_window_ui.js";
 import { makePose3dViewer } from "./pose3d_viewer.js";
-import { makeTrackedFiles } from "./tracked_files_tab.js";
+import { makeTrackedFiles } from "/static/js/components/tracked_files_tab.js";
 import { clampToBounds } from "./internal/clamp_bounds.mjs";
 import { addTag, removeTag } from "./internal/tag_list.mjs";
 import { tagKeyframes, mergeWindows } from "./components/viewer/internal/tag_batch.mjs";

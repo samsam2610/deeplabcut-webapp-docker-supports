@@ -28,7 +28,7 @@ def _fn(name):
 
 def test_imports_and_constructs_the_tracked_files_factory():
     s = _src()
-    assert 'from "./tracked_files_tab.js"' in s
+    assert 'from "/static/js/components/tracked_files_tab.js"' in s
     assert "makeTrackedFiles(" in s
 
 
