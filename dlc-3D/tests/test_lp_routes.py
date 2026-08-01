@@ -14,6 +14,7 @@ _OVERLAY_PARTIALS = (
     "card_train_network.html",
     "card_analyze.html",
     "card_annotator.html",
+    "card_tracked_files.html",
     "card_gpu_monitor.html",
     "card_dlc_config.html",
     "card_custom_script.html",
