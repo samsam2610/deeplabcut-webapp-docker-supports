@@ -2620,10 +2620,12 @@ function _wireLauncher() {
   _trackedFiles = makeTrackedFiles({
     tabBtn: $("ia3d-tab-tracked"),
     refreshBtn: $("ia3d-tracked-refresh"),
+    sortMount: $("ia3d-sort"),
     panelEl: $("ia3d-tab-tracked-panel"),
     listEl: $("ia3d-tracked-list"),
     headerCheckbox: $("ia3d-track-checkbox"),
     headerLabel: $("ia3d-track-label"),
+    headerBarMount: $("ia3d-track-bar"),
     onOpen: (path, name) => _iaOpenBrowseVideo(path, name),
     onError: (msg) => _iaLauncherError(msg),
   });
