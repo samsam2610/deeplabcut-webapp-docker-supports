@@ -671,7 +671,7 @@ def labeled_epilines():
 
     root = Path(proj) / "labeled-data"
     labeled_dir = (root / session_key).resolve()
-    if not str(labeled_dir).startswith(str(root.resolve())):
+    if not labeled_dir.is_relative_to(root.resolve()):
         return jsonify({"error": "session escapes the project"}), 403
 
     try:

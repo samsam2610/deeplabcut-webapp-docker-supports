@@ -59,6 +59,48 @@ def calibrated(project):
     return project
 
 
+# Same rig as CALIB_TOML, except cam_0 carries a genuinely nonzero radial
+# distortion coefficient. Kept as its own literal (not a mutation of
+# CALIB_TOML) so Task 2's tests and the other tests in this file, which all
+# depend on CALIB_TOML's zero-distortion cameras, are unaffected.
+CALIB_TOML_DISTORTED = """
+[cam_0]
+name = "0"
+size = [ 640, 480,]
+matrix = [ [ 600.0, 0.0, 320.0,], [ 0.0, 600.0, 240.0,], [ 0.0, 0.0, 1.0,],]
+distortions = [ -0.15, 0.0, 0.0, 0.0, 0.0,]
+rotation = [ 0.0, 0.0, 0.0,]
+translation = [ 0.0, 0.0, 0.0,]
+
+[cam_1]
+name = "1"
+size = [ 640, 480,]
+matrix = [ [ 600.0, 0.0, 320.0,], [ 0.0, 600.0, 240.0,], [ 0.0, 0.0, 1.0,],]
+distortions = [ 0.0, 0.0, 0.0, 0.0, 0.0,]
+rotation = [ 0.0, 0.1, 0.0,]
+translation = [ -100.0, 0.0, 0.0,]
+
+[metadata]
+adjusted = false
+"""
+
+
+@pytest.fixture
+def calibrated_distorted(project):
+    """A second session (sess2) using CALIB_TOML_DISTORTED.
+
+    A separate session folder — rather than overwriting sess1's
+    calibration.toml — lets this fixture be combined with `calibrated` in the
+    same test without one write clobbering the other.
+    """
+    session = project / "labeled-data" / "sess2"
+    session.mkdir(parents=True)
+    (session / "img_cam0_0000_00010.png").write_bytes(b"")
+    (session / "img_cam1_0000_00010.png").write_bytes(b"")
+    (session / "calibration.toml").write_text(CALIB_TOML_DISTORTED)
+    return project
+
+
 @pytest.fixture
 def client(project):
     from flask import Flask
@@ -196,3 +238,30 @@ def test_a_point_whose_line_misses_the_image_is_null_not_missing(client, calibra
                 ).get_json()["segments"]
     assert "wrist" in segs
     assert segs["wrist"] is None
+
+
+def test_session_key_cannot_escape_via_lexical_sibling(client, project):
+    """str(path).startswith(str(root)) is not a containment check: a sibling
+    directory whose name is lexically prefixed by 'labeled-data' (e.g.
+    'labeled-data-evil') would defeat it, because the resolved path's string
+    form starts with the root's string form even though the directory sits
+    outside labeled-data/. The guard must compare path segments
+    (Path.is_relative_to), not characters.
+    """
+    (project / "labeled-data-evil").mkdir()
+    r = _get(client, session="../labeled-data-evil",
+             points=[{"bodypart": "w", "x": 1, "y": 2}])
+    assert r.status_code == 403
+
+
+def test_undistort_is_applied_not_skipped(client, calibrated, calibrated_distorted):
+    """undistort_to_pixels is not optional (route docstring: fundamental_matrix
+    acts on undistorted pixel coordinates). CALIB_TOML's cameras carry zero
+    distortion, so a route that dropped the undistort_to_pixels call entirely
+    and fed raw pixels straight into epiline_endpoints would still pass every
+    other test in this file. Only a nonzero-distortion camera exposes that.
+    """
+    pts = [{"bodypart": "wrist", "x": 300, "y": 150}]
+    zero = _get(client, session="sess1", points=pts).get_json()["segments"]["wrist"]
+    distorted = _get(client, session="sess2", points=pts).get_json()["segments"]["wrist"]
+    assert zero != distorted
