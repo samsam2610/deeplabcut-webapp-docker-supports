@@ -10,7 +10,7 @@ from pathlib import Path
 
 import cv2
 import numpy as np
-from flask import Blueprint, Response, jsonify, render_template, request
+from flask import Blueprint, Response, g, jsonify, render_template, request
 
 import config
 import viewer
@@ -27,19 +27,33 @@ bp = Blueprint(
 
 # ── Per-user active project ───────────────────────────────────────────────────
 
+_redis_client = None  # module-level cache; see _redis_conn
+
+
 def _redis_conn():
-    """Redis client, or None when it is unreachable.
+    """Cached Redis client, or None when it is unreachable.
+
+    Built once per process and reused after that so redis-py's own connection
+    pooling does its job, instead of paying a fresh TCP connect on every call
+    on what is /dlc-3d/frame's hot path. Guarded so a failed build leaves the
+    cache unset (retryable on the next call) rather than caching a dead
+    client forever. No ping() after creation — a stale connection surfaces as
+    an exception from get(), which the caller already turns into None.
 
     Same pattern as lp_routes._redis_conn, which has been writing
     dlc3d:lp:job:* keys in production; kept local so routes.py does not import
     the LP module.
     """
+    global _redis_client
+    if _redis_client is not None:
+        return _redis_client
     try:
         import redis
         url = os.environ.get("CELERY_RESULT_BACKEND", "redis://redis:6379/0")
         c = redis.Redis.from_url(url, decode_responses=True, socket_timeout=1.0)
-        c.ping()
-        return c
+        c.ping()  # fail fast once, at creation, not on every subsequent call
+        _redis_client = c
+        return _redis_client
     except Exception:
         return None
 
@@ -53,6 +67,9 @@ def _user_id() -> str:
     return (request.headers.get("X-DLC-User") or "").strip()
 
 
+_UNRESOLVED = object()  # sentinel: distinguishes "not looked up" from "no project"
+
+
 def _active_project_for_user() -> "str | None":
     """This request's user's active project path, or None.
 
@@ -61,22 +78,31 @@ def _active_project_for_user() -> "str | None":
     meant two users silently overwrote each other's selection — and, since
     _save_single_frame writes into labeled-data/, corrupted each other's work.
 
+    Memoized on flask.g: several routes call this more than once per request,
+    and the answer cannot change mid-request. g is per-request and
+    thread-local, so this cache never leaks across requests or users.
+
     Every failure resolves to None ("no project selected"), which every caller
     already handles. Nothing here may raise.
     """
+    cached = getattr(g, "_dlc3d_active_project", _UNRESOLVED)
+    if cached is not _UNRESOLVED:
+        return cached
+
+    proj = None
     uid = _user_id()
-    if not uid:
-        return None
-    conn = _redis_conn()
-    if conn is None:
-        return None
-    try:
-        raw = conn.get(f"webapp:dlc_project:{uid}")
-        if not raw:
-            return None
-        return json.loads(raw).get("project_path") or None
-    except Exception:
-        return None
+    if uid:
+        conn = _redis_conn()
+        if conn is not None:
+            try:
+                raw = conn.get(f"webapp:dlc_project:{uid}")
+                if raw:
+                    proj = json.loads(raw).get("project_path") or None
+            except Exception:
+                proj = None
+
+    g._dlc3d_active_project = proj
+    return proj
 
 
 # ── Regex helpers ─────────────────────────────────────────────────────────────
@@ -412,7 +438,6 @@ def get_sessions():
 
 @bp.route("/frame")
 def get_frame():
-    proj = _active_project_for_user()
     video_path = request.args.get("video", "").strip()
     n_str      = request.args.get("n", "").strip()
     # No active project is required for an ABSOLUTE /user-data path (the sibling
@@ -429,6 +454,7 @@ def get_frame():
     if request.headers.get("If-None-Match") == etag:
         return Response(status=304)
 
+    proj = _active_project_for_user()
     full_path = _resolve_video_path(video_path, proj or _USER_DATA_ROOT)
     if full_path is None:
         return jsonify({"error": "video path not allowed"}), 400

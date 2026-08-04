@@ -59,7 +59,18 @@ def redis_with(monkeypatch, projects):
 
 
 @pytest.fixture
-def app():
+def flask_app():
+    """Deliberately NOT named `app`: pytest-flask's autouse `_push_request_context`
+    fixture keys off a fixture literally named `app` and, when present, pushes ONE
+    app context that stays alive for the whole test function. flask.g lives on the
+    app context (not the request context), so every nested
+    `with app.test_request_context(...)` in this file — and every real HTTP call
+    via `app.test_client()` — would then share a single g and silently leak
+    _active_project_for_user's per-request cache across calls make with different
+    uids inside one test. Naming this fixture `flask_app` sidesteps pytest-flask's
+    autouse hook so each context push below behaves like a real, isolated request,
+    matching production (where nothing holds a context open across requests).
+    """
     from flask import Flask
     a = Flask(__name__)
     a.register_blueprint(R.bp)
@@ -67,75 +78,75 @@ def app():
     return a
 
 
-def _resolve(app, uid):
+def _resolve(flask_app, uid):
     """Whatever _active_project_for_user returns for this uid, in request scope."""
     headers = {"X-DLC-User": uid} if uid is not None else {}
-    with app.test_request_context("/dlc-3d/", headers=headers):
+    with flask_app.test_request_context("/dlc-3d/", headers=headers):
         return R._active_project_for_user()
 
 
-def test_two_users_each_see_their_own_project(app, redis_with, projects):
+def test_two_users_each_see_their_own_project(flask_app, redis_with, projects):
     """The regression test for the original bug."""
-    assert _resolve(app, "user-a") == str(projects["alpha"])
-    assert _resolve(app, "user-b") == str(projects["beta"])
+    assert _resolve(flask_app, "user-a") == str(projects["alpha"])
+    assert _resolve(flask_app, "user-b") == str(projects["beta"])
     # And A is unchanged after B resolved — no shared state was written.
-    assert _resolve(app, "user-a") == str(projects["alpha"])
+    assert _resolve(flask_app, "user-a") == str(projects["alpha"])
 
 
-def test_the_global_is_gone(app):
+def test_the_global_is_gone(flask_app):
     """A later merge must not quietly reintroduce it."""
     assert not hasattr(R, "_active_project"), (
         "_active_project is back; two users will overwrite each other again"
     )
 
 
-def test_no_header_means_no_project(app, redis_with):
-    assert _resolve(app, None) is None
+def test_no_header_means_no_project(flask_app, redis_with):
+    assert _resolve(flask_app, None) is None
 
 
-def test_unknown_user_means_no_project(app, redis_with):
-    assert _resolve(app, "never-seen") is None
+def test_unknown_user_means_no_project(flask_app, redis_with):
+    assert _resolve(flask_app, "never-seen") is None
 
 
-def test_redis_down_means_no_project_not_a_crash(app, monkeypatch):
+def test_redis_down_means_no_project_not_a_crash(flask_app, monkeypatch):
     monkeypatch.setattr(R, "_redis_conn", lambda: None)
-    assert _resolve(app, "user-a") is None
+    assert _resolve(flask_app, "user-a") is None
 
 
-def test_redis_raising_means_no_project_not_a_crash(app, monkeypatch):
+def test_redis_raising_means_no_project_not_a_crash(flask_app, monkeypatch):
     monkeypatch.setattr(R, "_redis_conn", lambda: FakeRedis(fail=True))
-    assert _resolve(app, "user-a") is None
+    assert _resolve(flask_app, "user-a") is None
 
 
-def test_malformed_payload_means_no_project(app, monkeypatch):
+def test_malformed_payload_means_no_project(flask_app, monkeypatch):
     fake = FakeRedis()
     fake.store["webapp:dlc_project:user-a"] = "{not json"
     monkeypatch.setattr(R, "_redis_conn", lambda: fake)
-    assert _resolve(app, "user-a") is None
+    assert _resolve(flask_app, "user-a") is None
 
 
-def test_payload_without_project_path_means_no_project(app, monkeypatch):
+def test_payload_without_project_path_means_no_project(flask_app, monkeypatch):
     fake = FakeRedis()
     fake.store["webapp:dlc_project:user-a"] = json.dumps({"engine": "pytorch"})
     monkeypatch.setattr(R, "_redis_conn", lambda: fake)
-    assert _resolve(app, "user-a") is None
+    assert _resolve(flask_app, "user-a") is None
 
 
-def test_set_project_writes_no_server_state(app, redis_with, projects):
+def test_set_project_writes_no_server_state(flask_app, redis_with, projects):
     """It still validates and still returns sessions, but the selection itself
     now lives in the main webapp — this endpoint must not shadow it."""
-    client = app.test_client()
+    client = flask_app.test_client()
     r = client.post("/dlc-3d/project",
                     json={"path": str(projects["beta"])},
                     headers={"X-DLC-User": "user-a"})
     assert r.status_code == 200
     assert "sessions" in r.get_json()
     # user-a's project is unchanged: the POST did not write anything.
-    assert _resolve(app, "user-a") == str(projects["alpha"])
+    assert _resolve(flask_app, "user-a") == str(projects["alpha"])
 
 
-def test_set_project_still_404s_on_a_bad_path(app, redis_with, tmp_path):
-    client = app.test_client()
+def test_set_project_still_404s_on_a_bad_path(flask_app, redis_with, tmp_path):
+    client = flask_app.test_client()
     r = client.post("/dlc-3d/project",
                     json={"path": str(tmp_path / "nope")},
                     headers={"X-DLC-User": "user-a"})
