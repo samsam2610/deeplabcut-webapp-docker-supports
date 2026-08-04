@@ -56,8 +56,7 @@ def convert():
 
     # Default dlc_dir to the server's active DLC project.
     if not dlc:
-        with routes_mod._state_lock:
-            dlc = routes_mod._active_project or ""
+        dlc = routes_mod._active_project_for_user() or ""
         if not dlc:
             return jsonify({"error": "no active DLC project — load one in the DLC project card first, or pass dlc_dir"}), 400
 
@@ -272,8 +271,7 @@ def train_run():
 
     # Default lp_project to <active DLC project>-LP/ when omitted.
     if not project:
-        with routes_mod._state_lock:
-            active_dlc = routes_mod._active_project or ""
+        active_dlc = routes_mod._active_project_for_user() or ""
         if active_dlc:
             project = active_dlc.rstrip("/") + "-LP"
         else:
@@ -296,8 +294,7 @@ def train_run():
 def _active_lp_project_default() -> str:
     """Return '<active DLC project>-LP/' if a DLC project is loaded, else ''."""
     import dlc_3d_bp.routes as routes_mod
-    with routes_mod._state_lock:
-        active_dlc = routes_mod._active_project or ""
+    active_dlc = routes_mod._active_project_for_user() or ""
     return (active_dlc.rstrip("/") + "-LP") if active_dlc else ""
 
 

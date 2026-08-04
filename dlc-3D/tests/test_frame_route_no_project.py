@@ -15,7 +15,7 @@ from dlc_3d_bp import routes as r
 @pytest.fixture
 def client(monkeypatch, tmp_path):
     monkeypatch.setattr(r, "_USER_DATA_ROOT", str(tmp_path))
-    monkeypatch.setattr(r, "_active_project", None, raising=False)   # browse mode
+    monkeypatch.setattr(r, "_active_project_for_user", lambda: None)   # browse mode
     # Frame extraction is mocked — we're testing the gate, not cv2.
     monkeypatch.setattr(r.viewer, "get_frame_jpeg", lambda p, n: b"\xff\xd8jpeg")
     app = Flask(__name__)

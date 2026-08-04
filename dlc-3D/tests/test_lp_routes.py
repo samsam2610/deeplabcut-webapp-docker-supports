@@ -87,7 +87,7 @@ def test_index_renders_with_lp_cards(lp_app):
 def test_convert_endpoint_400_when_no_active_project_and_no_dlc_dir(lp_app, monkeypatch):
     # Ensure dlc-3D's active-project state is empty
     import dlc_3d_bp.routes as r_mod
-    monkeypatch.setattr(r_mod, "_active_project", None, raising=False)
+    monkeypatch.setattr(r_mod, "_active_project_for_user", lambda: None)
     c = lp_app.test_client()
     r = c.post("/dlc-3d/lp/convert", json={})
     assert r.status_code == 400
@@ -96,11 +96,11 @@ def test_convert_endpoint_400_when_no_active_project_and_no_dlc_dir(lp_app, monk
 
 
 def test_convert_endpoint_uses_active_project_when_dlc_dir_omitted(lp_app, monkeypatch, tmp_path):
-    """Server-side _active_project is the source of truth when client omits dlc_dir."""
+    """Server-side _active_project_for_user is the source of truth when client omits dlc_dir."""
     import dlc_3d_bp.routes as r_mod
 
     fake_active = "/user-data/fake/proj"
-    monkeypatch.setattr(r_mod, "_active_project", fake_active, raising=False)
+    monkeypatch.setattr(r_mod, "_active_project_for_user", lambda: fake_active)
     monkeypatch.setattr("dlc_3d_bp.lp_routes._under_user_data", lambda p: True)
 
     captured = {}
@@ -229,7 +229,7 @@ def test_train_endpoint_enqueues(lp_app, monkeypatch):
 
 def test_models_endpoint_400_without_active_project(lp_app, monkeypatch):
     import dlc_3d_bp.routes as r_mod
-    monkeypatch.setattr(r_mod, "_active_project", None, raising=False)
+    monkeypatch.setattr(r_mod, "_active_project_for_user", lambda: None)
     c = lp_app.test_client()
     r = c.get("/dlc-3d/lp/models")
     assert r.status_code == 400

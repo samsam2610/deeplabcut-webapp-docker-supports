@@ -2,9 +2,9 @@ from __future__ import annotations
 
 import csv
 import json
+import os
 import re
 import shutil
-import threading
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -25,10 +25,59 @@ bp = Blueprint(
     static_folder="../static", static_url_path="/static",
 )
 
-# ── Server state (single-user) ───────────────────────────────────────────────
+# ── Per-user active project ───────────────────────────────────────────────────
 
-_active_project: str | None = None
-_state_lock = threading.Lock()
+def _redis_conn():
+    """Redis client, or None when it is unreachable.
+
+    Same pattern as lp_routes._redis_conn, which has been writing
+    dlc3d:lp:job:* keys in production; kept local so routes.py does not import
+    the LP module.
+    """
+    try:
+        import redis
+        url = os.environ.get("CELERY_RESULT_BACKEND", "redis://redis:6379/0")
+        c = redis.Redis.from_url(url, decode_responses=True, socket_timeout=1.0)
+        c.ping()
+        return c
+    except Exception:
+        return None
+
+
+def _user_id() -> str:
+    """The uid the main webapp's proxy stamped on this request.
+
+    dlc-3D has no session of its own — the browser's cookie belongs to the main
+    webapp. Empty when absent, which resolves to "no project" downstream.
+    """
+    return (request.headers.get("X-DLC-User") or "").strip()
+
+
+def _active_project_for_user() -> "str | None":
+    """This request's user's active project path, or None.
+
+    Reads the main webapp's own webapp:dlc_project:{uid} key rather than a
+    mirror. dlc-3D used to keep a module global synced by POST /project, which
+    meant two users silently overwrote each other's selection — and, since
+    _save_single_frame writes into labeled-data/, corrupted each other's work.
+
+    Every failure resolves to None ("no project selected"), which every caller
+    already handles. Nothing here may raise.
+    """
+    uid = _user_id()
+    if not uid:
+        return None
+    conn = _redis_conn()
+    if conn is None:
+        return None
+    try:
+        raw = conn.get(f"webapp:dlc_project:{uid}")
+        if not raw:
+            return None
+        return json.loads(raw).get("project_path") or None
+    except Exception:
+        return None
+
 
 # ── Regex helpers ─────────────────────────────────────────────────────────────
 
@@ -326,7 +375,6 @@ def browse():
 @bp.route("/project", methods=["POST"])
 def set_project():
     """Set active project by config.yaml path or project directory path."""
-    global _active_project
     body = request.get_json(force=True) or {}
     path_str = (body.get("path") or "").strip()
     if not path_str:
@@ -338,17 +386,13 @@ def set_project():
     if not (p / "config.yaml").exists():
         return jsonify({"error": "config.yaml not found at that path"}), 404
 
-    with _state_lock:
-        _active_project = str(p)
-
     data = _load_or_scan_videos(p)
     return jsonify({"project_path": str(p), "sessions": data.get("sessions", {})})
 
 
 @bp.route("/project/rescan", methods=["POST"])
 def rescan_project():
-    with _state_lock:
-        proj = _active_project
+    proj = _active_project_for_user()
     if not proj:
         return jsonify({"error": "no active project"}), 400
     data = _rescan_and_save(Path(proj))
@@ -357,8 +401,7 @@ def rescan_project():
 
 @bp.route("/project/sessions")
 def get_sessions():
-    with _state_lock:
-        proj = _active_project
+    proj = _active_project_for_user()
     if not proj:
         return jsonify({"sessions": {}})
     data = _load_or_scan_videos(Path(proj))
@@ -369,8 +412,7 @@ def get_sessions():
 
 @bp.route("/frame")
 def get_frame():
-    with _state_lock:
-        proj = _active_project
+    proj = _active_project_for_user()
     video_path = request.args.get("video", "").strip()
     n_str      = request.args.get("n", "").strip()
     # No active project is required for an ABSOLUTE /user-data path (the sibling
@@ -405,8 +447,7 @@ def get_frame():
 
 @bp.route("/video-info")
 def get_video_info():
-    with _state_lock:
-        proj = _active_project
+    proj = _active_project_for_user()
     video_path = request.args.get("video", "").strip()
     if not video_path or not proj:
         return jsonify({"error": "video and active project required"}), 400
@@ -422,8 +463,7 @@ def get_video_info():
 
 @bp.route("/sibling-camera")
 def get_sibling_camera():
-    with _state_lock:
-        proj = _active_project
+    proj = _active_project_for_user()
     video_path = request.args.get("video", "").strip()
     if not video_path:
         return jsonify({"sibling_video_path": None, "calibration_exists": False})
@@ -481,8 +521,7 @@ def anipose_init():
     sibling camera or a missing calibration input; missing analyzed files are
     reported as per-cam warnings.
     """
-    with _state_lock:
-        proj = _active_project
+    proj = _active_project_for_user()
     body = request.get_json(force=True) or {}
     cam0_video = (body.get("cam0_video") or "").strip()
     if not cam0_video:
@@ -549,8 +588,7 @@ def anipose_init():
 
 @bp.route("/save-frame", methods=["POST"])
 def save_frame():
-    with _state_lock:
-        proj = _active_project
+    proj = _active_project_for_user()
     if not proj:
         return jsonify({"error": "no active project"}), 400
 
@@ -628,8 +666,7 @@ def _session_calibration_info(labeled_dir: Path) -> dict:
 
 @bp.route("/labeled-frames")
 def labeled_frames():
-    with _state_lock:
-        proj = _active_project
+    proj = _active_project_for_user()
     session_key = request.args.get("session", "").strip()
     if not session_key or not proj:
         return jsonify({"frames": [], "count": 0, "session_folder": None})
@@ -666,8 +703,7 @@ def labeled_epilines():
     cannot drift apart. undistort_to_pixels is not optional: fundamental_matrix
     is documented as acting on undistorted pixel coordinates.
     """
-    with _state_lock:
-        proj = _active_project
+    proj = _active_project_for_user()
     session_key = (request.args.get("session") or "").strip()
     if not session_key or not proj:
         return jsonify({"error": "session required and a project must be open"}), 400
@@ -738,8 +774,7 @@ def csv_route():
     if not video_path:
         return jsonify({"error": "video required"}), 400
 
-    with _state_lock:
-        proj = _active_project
+    proj = _active_project_for_user()
     resolved = _resolve_video_path(video_path, proj or _USER_DATA_ROOT)
     if resolved is None:
         return jsonify({"error": "invalid path"}), 400

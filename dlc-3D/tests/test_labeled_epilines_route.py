@@ -1,8 +1,9 @@
 """Route tests for the frame labeler's epipolar-line support.
 
 Style follows tests/test_reproj_panel_wiring.py's sibling route tests: a
-minimal Flask app registering only dlc_3d_bp.routes.bp, with the module-level
-_active_project set directly. No fixtures from the LP suite are used.
+minimal Flask app registering only dlc_3d_bp.routes.bp, with
+_active_project_for_user patched directly. No fixtures from the LP suite are
+used.
 """
 import json
 import sys
@@ -49,7 +50,7 @@ def project(tmp_path, monkeypatch):
     session.mkdir(parents=True)
     (session / "img_cam0_0000_00010.png").write_bytes(b"")
     (session / "img_cam1_0000_00010.png").write_bytes(b"")
-    monkeypatch.setattr(R, "_active_project", str(proj))
+    monkeypatch.setattr(R, "_active_project_for_user", lambda: str(proj))
     return proj
 
 
