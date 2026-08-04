@@ -81,9 +81,21 @@ def test_labeled_frames_reports_calibration_absent(client, project):
 
 
 def test_labeled_frames_survives_a_corrupt_calibration(client, project):
-    """A broken toml must gate the feature off, not 500 the folder listing —
-    the frame list is what the labeler needs to work at all."""
-    (project / "labeled-data" / "sess1" / "calibration.toml").write_text("not [ toml")
+    """A calibration.toml that raises inside the parser must gate the feature
+    off, not 500 the folder listing — the frame list is what the labeler
+    needs to work at all.
+
+    The fixture below has a section header (so the fallback line-parser in
+    reprojection._parse_toml actually enters a section) whose value is not a
+    valid Python literal: `ast.literal_eval("broken")` raises ValueError.
+    A plain unparseable string with no section header (e.g. "not [ toml")
+    would NOT exercise this: the fallback parser silently skips lines with no
+    "=" and no section, returning {} without ever raising — which is
+    indistinguishable from the try/except being deleted entirely.
+    """
+    (project / "labeled-data" / "sess1" / "calibration.toml").write_text(
+        "[cam_0]\nmatrix = broken\n"
+    )
     r = client.get("/dlc-3d/labeled-frames?session=sess1")
     assert r.status_code == 200
     assert r.get_json()["calibration"]["exists"] is False
