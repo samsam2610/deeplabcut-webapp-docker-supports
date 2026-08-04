@@ -83,17 +83,20 @@ def test_debounce_is_two_seconds(js):
 def test_enabling_does_not_wait_for_the_debounce(js):
     """A 2 s blank after ticking the box reads as the feature being broken.
     The debounce exists for label edits only."""
-    block = _epi_block(js)
-    assert "_fl3dEpiRecompute(" in block
     setter = js.split("function _fl3dSetEpiEnabled")[1].split("\n    }")[0]
-    assert "_fl3dEpiRecompute" in setter, (
+    assert "_fl3dEpiRecompute()" in setter, (
+        "enabling must call recompute directly"
+    )
+    assert "setTimeout" not in setter and "FL3D_EPI_DEBOUNCE_MS" not in setter, (
         "enabling must compute immediately, not schedule the debounce"
     )
 
 
 def test_toggling_off_clears_stored_segments(js):
     setter = js.split("function _fl3dSetEpiEnabled")[1].split("\n    }")[0]
-    assert "_fl3dEpiSegments = {}" in setter, (
+    assert "} else {" in setter, "expected an explicit disable branch"
+    disable_branch = setter.split("} else {")[1]
+    assert "_fl3dEpiSegments = {}" in disable_branch, (
         "a stale line must not outlive the toggle"
     )
 
@@ -103,17 +106,31 @@ def test_the_draw_path_never_fetches(js):
     request storm."""
     fn = js.split("function _fl3dDrawTileMarkers")[1].split("\n    function ")[0]
     assert "fetch(" not in fn
-    assert "_fl3dEpiSegments" in fn, "the draw path must paint stored segments"
+    assert "_fl3dDrawEpilines(tile)" in fn, (
+        "the draw path must paint stored segments"
+    )
 
 
 def test_a_generation_counter_guards_the_async_draw(js):
-    """Recorded regression on the sibling overlay — see docs/regression-catalog.md."""
+    """Recorded regression on the sibling overlay — see docs/regression-catalog.md.
+
+    Positional, not just a count: every `await` must be immediately followed
+    (before the next statement) by a `_fl3dEpiGen` recheck, so a response
+    that lands after the user moved on is discarded before its data is used.
+    """
     block = _epi_block(js)
     assert "_fl3dEpiGen" in block
     assert "++_fl3dEpiGen" in block
-    assert block.count("_fl3dEpiGen") >= 3, (
-        "expected declare / bump / re-check after await"
-    )
+    fn = js.split("function _fl3dEpiRecompute")[1].split("\n    }")[0]
+    awaits = fn.split("await")[1:]
+    assert len(awaits) >= 2, "expected two awaits: the fetch and the .json() parse"
+    for i, chunk in enumerate(awaits):
+        after_await_stmt = chunk[chunk.index(";") + 1:]
+        next_stmt = after_await_stmt.split(";")[0]
+        assert "_fl3dEpiGen" in next_stmt, (
+            f"await #{i + 1} in _fl3dEpiRecompute must be followed immediately "
+            "by a _fl3dEpiGen recheck, before the response is used"
+        )
 
 
 def test_reference_camera_is_the_last_edited_not_the_focused_one(js):
@@ -129,12 +146,15 @@ def test_reference_camera_is_the_last_edited_not_the_focused_one(js):
 
 def test_lines_are_drawn_on_the_non_reference_tile(js):
     fn = js.split("function _fl3dDrawTileMarkers")[1].split("\n    function ")[0]
-    assert "_fl3dEpiRefCam" in fn
+    assert "!== _fl3dEpiRefCam" in fn, (
+        "lines must be drawn on the tile that is NOT the reference"
+    )
 
 
 def test_style_matches_the_reprojection_card(js):
     block = _epi_block(js)
     assert "setLineDash([6, 4])" in block
+    assert "lineWidth = 1" in block
     assert "_flColor(" in block
     assert "labelAnchor(" in block and "nameLabelBox(" in block
 

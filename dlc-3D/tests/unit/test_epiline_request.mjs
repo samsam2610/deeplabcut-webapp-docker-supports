@@ -16,6 +16,13 @@ test("each blocked condition names itself", () => {
   assert.match(epiGateReason({ ...OK, camCount: 1 }), /one camera/i);
 });
 
+test("more than two cameras is rejected at the gate, not misdrawn", () => {
+  // The feature only knows how to project ref -> one target; on a 3+ camera
+  // rig every non-reference tile but one would get geometrically wrong
+  // lines, so this closes at the gate instead of generalising the drawing.
+  assert.match(epiGateReason({ ...OK, camCount: 3 }), /exactly two cameras/i);
+});
+
 test("sync is reported before calibration when both are missing", () => {
   // Sync is the one the user can fix instantly; lead with it.
   const r = epiGateReason({ syncOn: false, calibrationExists: false, camCount: 1 });

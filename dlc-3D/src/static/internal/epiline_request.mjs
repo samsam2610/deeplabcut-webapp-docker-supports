@@ -9,6 +9,7 @@
 export function epiGateReason({ syncOn, calibrationExists, camCount }) {
   if (!syncOn) return "turn on sync to see both cameras";
   if (camCount < 2) return "this frame has only one camera";
+  if (camCount > 2) return "epipolar lines support exactly two cameras";
   if (!calibrationExists) return "no calibration.toml in this session folder";
   return null;
 }

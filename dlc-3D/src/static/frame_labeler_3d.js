@@ -1439,8 +1439,7 @@ import { nameLabelBox } from './components/viewer/internal/name_label.mjs';
         }
       });
 
-      // Paint stored _fl3dEpiSegments (never fetched here) on the tile that
-      // is NOT the reference.
+      // Epipolar lines belong on the tile that is NOT the reference.
       if (_fl3dEpiOn && Number.isFinite(_fl3dEpiRefCam)
           && +tile.dataset.cam !== _fl3dEpiRefCam) {
         _fl3dDrawEpilines(tile);
