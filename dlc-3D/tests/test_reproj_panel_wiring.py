@@ -420,34 +420,30 @@ def test_analyze_for_tag_posts_to_the_peaks_endpoint(js):
     assert "/dlc/project/inline-analysis/peaks/status" in js
 
 
-def test_peaks_payload_carries_h5_paths_parallel_to_video_paths(js):
-    """The endpoint 400s without h5_paths of the same length/order as
-    video_paths (see dlc/inline_analysis.py:peaks_submit()). Assert the
-    actual construction — mapping over videoPaths, one h5 per video, built
-    from <stem> + scorer + '.h5' — not just that both key strings appear
-    somewhere in the function (a truncated or scorer-less list would still
-    satisfy that)."""
+def test_peaks_payload_carries_the_snap_key_and_no_h5_paths(js):
+    """Sending snap_key routes the pass into that warm session's own queue,
+    where the worker derives the h5 paths from the scorer it already holds
+    (see dlc/inline_analysis.py:peaks_submit()). That is what lets the card
+    queue the pass BEFORE any range finishes — the old h5_paths contract
+    forced it to wait for a scorer from /range/status, so closing the tab
+    mid-run skipped the pass entirely."""
     fn = js.split("async function _reprojEmitPeaks")[1].split("\nasync function")[0]
     assert fn, "could not locate _reprojEmitPeaks"
-    assert "videoPaths.map(" in fn, (
-        "h5_paths must be derived by mapping videoPaths 1:1, not built "
-        "separately or truncated"
+    assert "snap_key: snapKey" in fn, (
+        "without snap_key the endpoint falls back to the standalone task, "
+        "which needs h5_paths and therefore a finished range"
     )
-    assert "+ scorer +" in fn, (
-        "each h5 path must be built from <stem> + scorer + '.h5' — a path "
-        "missing the scorer writes the sidecar where nothing will find it"
-    )
-    assert "h5_paths: h5Paths" in fn, (
-        "the full mapped array must be sent, not a slice of it"
+    assert "h5_paths" not in fn, (
+        "h5_paths must NOT be sent on the in-session route — the caller "
+        "cannot know the scorer yet, which is the whole point"
     )
 
 
-def test_the_peaks_pass_skips_rather_than_guesses_when_scorer_is_unknown(js):
-    """A wrong h5 path writes the sidecar where nothing will ever find it — skip
-    with a status message instead of guessing."""
+def test_the_peaks_pass_skips_when_there_is_no_warm_session(js):
+    """No session means no queue to append to — say so rather than firing a
+    request that cannot carry the h5 paths the fallback route requires."""
     fn = js.split("async function _reprojEmitPeaks")[1].split("\nasync function")[0]
-    assert "scorer" in fn
-    assert "if (!scorer)" in fn or "!scorer" in fn
+    assert "if (!snapKey)" in fn
 
 
 def test_peaks_poller_reuses_the_active_polls_set(js):
@@ -469,12 +465,20 @@ def test_the_peaks_pass_is_gated_on_the_checkbox(js):
     )
 
 
-def test_the_peaks_pass_runs_after_the_analysis_polls_resolve(js):
+def test_the_peaks_pass_is_queued_before_the_analysis_polls(js):
+    """The ordering that makes a tag run survive the browser closing.
+
+    _reprojEmitPeaks appends the pass to the tail of the session queue, so the
+    worker runs it after these ranges regardless of who is watching. Emitting
+    it after `await Promise.all(reqIds.map(_pollReq))` — as this did until
+    2026-08-04 — meant a closed tab silently skipped the pass, because nothing
+    was left to fire the request.
+    """
     fn = js.split("async function _onAnalyzeTagClick")[1].split(
         "\nasync function _onTriangulateTagClick"
     )[0]
-    assert fn.index("_pollReq") < fn.index("_reprojEmitPeaks"), (
-        "peaks must be emitted only after both cameras finish"
+    assert fn.index("_reprojEmitPeaks") < fn.index("_pollReq"), (
+        "peaks must be QUEUED before the polls, not fired after them"
     )
 
 
@@ -500,8 +504,9 @@ def test_start_from_current_frame_is_gated_on_the_checkbox_and_calls_emit_peaks(
     assert "_reprojEmitPeaks(" in fn, (
         "_onAnalyzeClick must call _reprojEmitPeaks"
     )
-    assert fn.index("_pollReq") < fn.index("_reprojEmitPeaks"), (
-        "peaks must be emitted only after both cameras finish"
+    assert fn.index("_reprojEmitPeaks") < fn.index("_pollReq"), (
+        "peaks must be QUEUED before the polls so a closed tab cannot skip "
+        "the pass — see test_the_peaks_pass_is_queued_before_the_analysis_polls"
     )
     assert "[{ start: startFrame, n: nFrames }]" in fn, (
         "the single-range list must actually carry the run's start/n, not "
@@ -517,8 +522,9 @@ def test_start_for_range_is_gated_on_the_checkbox_and_calls_emit_peaks(js):
     assert "_reprojEmitPeaks(" in fn, (
         "_onAnalyzeRangeConfinedClick must call _reprojEmitPeaks"
     )
-    assert fn.index("_pollReq") < fn.index("_reprojEmitPeaks"), (
-        "peaks must be emitted only after both cameras finish"
+    assert fn.index("_reprojEmitPeaks") < fn.index("_pollReq"), (
+        "peaks must be QUEUED before the polls so a closed tab cannot skip "
+        "the pass — see test_the_peaks_pass_is_queued_before_the_analysis_polls"
     )
     assert "[{ start: startFrame, n: nFrames }]" in fn, (
         "the single-range list must actually carry the locked range's "

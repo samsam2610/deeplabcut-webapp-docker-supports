@@ -3005,6 +3005,11 @@ async function _onAnalyzeClick() {
     _submitRange(sk, _siblingPath, startFrame, nFrames),
   ]);
   if (!req0 || !req1) { if (analyzeBtn) analyzeBtn.disabled = false; return; }
+  // Queue the peak pass before polling — it runs after these ranges in the
+  // worker, so closing the tab mid-run no longer skips it. See _reprojEmitPeaks.
+  const peaksReq = $("ia3dr-emit-peaks")?.checked
+    ? await _reprojEmitPeaks([cam0, _siblingPath], [{ start: startFrame, n: nFrames }], sk)
+    : "";
   const [d0, d1] = await Promise.all([_pollReq(req0), _pollReq(req1)]);
   if (analyzeBtn) analyzeBtn.disabled = false;
   const errs = [d0, d1].filter(d => d.status === "error");
@@ -3052,11 +3057,7 @@ async function _onAnalyzeClick() {
   // postproc run. Also cache-busts + repaints the markers + coverage timeline (the
   // in-place h5 overwrite otherwise serves stale).
   await _reloadPrimaryAfterAnalysis(d0.scorer);
-  // Best-effort candidate-peak pass over the same range, gated on the
-  // checkbox. Never allowed to affect the analysis result above it.
-  if ($("ia3dr-emit-peaks")?.checked) {
-    await _reprojEmitPeaks([cam0, _siblingPath], [{ start: startFrame, n: nFrames }], d0.scorer);
-  }
+  await _reprojReportPeaks(peaksReq);
 }
 
 // ── Left-region start buttons ────────────────────────────────────────────────
@@ -3082,6 +3083,11 @@ async function _onAnalyzeRangeConfinedClick() {
     _submitRange(sk, _siblingPath, startFrame, nFrames),
   ]);
   if (!req0 || !req1) { _refreshAnalyzeEnablement(); return; }
+  // Queue the peak pass before polling — it runs after these ranges in the
+  // worker, so closing the tab mid-run no longer skips it. See _reprojEmitPeaks.
+  const peaksReq = $("ia3dr-emit-peaks")?.checked
+    ? await _reprojEmitPeaks([cam0, _siblingPath], [{ start: startFrame, n: nFrames }], sk)
+    : "";
   const [d0, d1] = await Promise.all([_pollReq(req0), _pollReq(req1)]);
   const errs = [d0, d1].filter((d) => d.status === "error");
   if (lastRun) {
@@ -3108,11 +3114,7 @@ async function _onAnalyzeRangeConfinedClick() {
   // Re-establish the primary to the model just used (by scorer) + cache-bust + repaint
   // markers + coverage (see _onAnalyzeClick / _reloadPrimaryAfterAnalysis).
   await _reloadPrimaryAfterAnalysis(d0.scorer);
-  // Best-effort candidate-peak pass over the same range, gated on the
-  // checkbox. Never allowed to affect the analysis result above it.
-  if ($("ia3dr-emit-peaks")?.checked) {
-    await _reprojEmitPeaks([cam0, _siblingPath], [{ start: startFrame, n: nFrames }], d0.scorer);
-  }
+  await _reprojReportPeaks(peaksReq);
   _refreshAnalyzeEnablement();
 }
 
@@ -3129,28 +3131,33 @@ function _noteTagLabel(activeNotes) {
   return activeNotes.map((t) => `"${t}"`).join(" + ");
 }
 
-// Fire the candidate-peak pass over the same ranges the analysis just covered.
-// Additive and best-effort: the pose h5 is already written by the time this
-// runs, so a failure here costs the screen, not the analysis — it must never
-// throw out of the caller. h5_paths is REQUIRED by the endpoint, parallel to
-// video_paths: build it from the scorer this run just produced
-// (`<stem><scorer>.h5`, same convention as _reloadPrimaryAfterAnalysis). A
-// missing scorer means we cannot know which h5 was written, and a guessed path
-// would write the sidecar somewhere nothing will ever look — skip instead.
-async function _reprojEmitPeaks(videoPaths, ranges, scorer) {
+// Queue the candidate-peak pass over the same ranges the analysis covers.
+//
+// Called BEFORE the ranges are polled, not after: passing `snap_key` appends
+// the pass to the tail of the warm session's own queue, so its worker runs it
+// once every range ahead of it is done. That is the whole point — the pass
+// used to be fired from here only after every range poll resolved, which meant
+// closing the tab mid-run silently skipped it. Nothing about this call now
+// depends on the browser still being open when the analysis finishes.
+//
+// h5_paths is not sent: the session worker knows the scorer and derives them
+// itself. Additive and best-effort throughout — a failure here costs the
+// screen, not the analysis, and must never throw out of the caller.
+//
+// Returns the req_id (or "") so a caller that IS still open can poll it for a
+// status line; nothing depends on that poll happening.
+async function _reprojEmitPeaks(videoPaths, ranges, snapKey) {
   const lastRun = _ia3drEl.lastRun();
-  if (!scorer) {
-    if (lastRun) lastRun.textContent += "  (peaks skipped: no scorer from this run)";
-    return;
+  if (!snapKey) {
+    if (lastRun) lastRun.textContent += "  (peaks skipped: no warm session)";
+    return "";
   }
-  const stem = (p) => String(p).replace(/\.[^./]+$/, "");
-  const h5Paths = videoPaths.map((v) => stem(v) + scorer + ".h5");
   try {
     const r = await fetch("/dlc/project/inline-analysis/peaks", {
       method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
+        snap_key: snapKey,
         video_paths: videoPaths,
-        h5_paths: h5Paths,
         ranges: ranges.map((x) => ({ start: x.start, n: x.n })),
         snapshot_path: _ia3drEl.snapSel()?.value || "",
       }),
@@ -3158,19 +3165,29 @@ async function _reprojEmitPeaks(videoPaths, ranges, scorer) {
     const d = await r.json().catch(() => ({}));
     if (!r.ok || !d.req_id) {
       if (lastRun) lastRun.textContent += `  (peaks failed: ${d.error || r.status})`;
-      return;
+      return "";
     }
-    if (lastRun) lastRun.textContent += "  emitting peaks…";
-    const res = await _pollPeaksReq(d.req_id);
-    if (lastRun) {
-      lastRun.textContent += res.status === "done"
-        ? `  peaks: ${res.n_frames} frames.`
-        : `  peaks failed: ${res.error || res.status}`;
-    }
-    await _reprojRefreshPeaksAvailability();
+    return d.req_id;
   } catch (e) {
     if (lastRun) lastRun.textContent += `  (peaks failed: ${e})`;
+    return "";
   }
+}
+
+// Report on a peak pass queued by _reprojEmitPeaks, for a card that is still
+// open. Purely cosmetic: the pass runs to completion in the worker whether or
+// not anyone is watching, so every exit here is a no-op on the actual work.
+async function _reprojReportPeaks(reqId) {
+  if (!reqId) return;
+  const lastRun = _ia3drEl.lastRun();
+  if (lastRun) lastRun.textContent += "  emitting peaks…";
+  const res = await _pollPeaksReq(reqId);
+  if (lastRun) {
+    lastRun.textContent += res.status === "done"
+      ? `  peaks: ${res.n_frames} frames.`
+      : `  peaks failed: ${res.error || res.status}`;
+  }
+  await _reprojRefreshPeaksAvailability();
 }
 
 // Mirrors _pollReq's setInterval + _activePolls pattern (same bookkeeping so
@@ -3251,6 +3268,12 @@ async function _onAnalyzeTagClick() {
     reqIds.push(q0, q1);
   }
   if (submitFailed) { _refreshAnalyzeEnablement(); return; }
+  // Queue the peak pass NOW, at the tail of the same session queue, so it runs
+  // after these ranges whether or not this tab is still open. Everything below
+  // this line is reporting and view refreshing — none of it drives the run.
+  const peaksReq = $("ia3dr-emit-peaks")?.checked
+    ? await _reprojEmitPeaks([cam0, _siblingPath], ranges, sk)
+    : "";
   const results = await Promise.all(reqIds.map((id) => _pollReq(id)));
   const errs = results.filter((d) => d.status === "error");
   const lastDone = results.find((d) => d.status === "done");
@@ -3276,11 +3299,7 @@ async function _onAnalyzeTagClick() {
     _applyCamLabels();
   }
   if (lastDone) await _reloadPrimaryAfterAnalysis(lastDone.scorer);
-  // Best-effort candidate-peak pass over the same ranges, gated on the
-  // checkbox. Never allowed to affect the analysis result above it.
-  if ($("ia3dr-emit-peaks")?.checked) {
-    await _reprojEmitPeaks([cam0, _siblingPath], ranges, lastDone?.scorer);
-  }
+  await _reprojReportPeaks(peaksReq);
   _refreshTagLockEnablement();
 }
 
