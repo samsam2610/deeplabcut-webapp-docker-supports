@@ -5,7 +5,9 @@ from collections import OrderedDict
 
 import cv2
 
-_VCAP_MAX = 4
+# Per PROCESS, and gunicorn runs 4 workers, so the real ceiling on open video
+# handles is 4 x this. Kept at 2 so the total stays where it was at -w 1.
+_VCAP_MAX = 2
 _vcap_cache: OrderedDict = OrderedDict()
 _vcap_lock = threading.Lock()
 _POS_UNKNOWN = object()
