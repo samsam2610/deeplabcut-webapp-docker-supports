@@ -608,6 +608,24 @@ def save_frame():
 
 # ── Labeled frames ────────────────────────────────────────────────────────────
 
+def _session_calibration_info(labeled_dir: Path) -> dict:
+    """Whether this session folder can support epipolar lines, and for which cams.
+
+    calibration.toml is copied in by _save_single_frame, so folders populated
+    through the 3D labeler have it and older ones do not. A corrupt file is
+    reported as absent rather than raised: the caller is the frame listing, and
+    the labeler must keep working without the overlay.
+    """
+    calib = labeled_dir / "calibration.toml"
+    if not calib.is_file():
+        return {"exists": False, "cams": []}
+    try:
+        cams = sorted(rp.load_calibration(calib))
+    except Exception:
+        return {"exists": False, "cams": []}
+    return {"exists": bool(cams), "cams": cams}
+
+
 @bp.route("/labeled-frames")
 def labeled_frames():
     with _state_lock:
@@ -618,13 +636,18 @@ def labeled_frames():
 
     labeled_dir = Path(proj) / "labeled-data" / session_key
     if not labeled_dir.is_dir():
-        return jsonify({"frames": [], "count": 0, "session_folder": f"labeled-data/{session_key}"})
+        return jsonify({
+            "frames": [], "count": 0,
+            "session_folder": f"labeled-data/{session_key}",
+            "calibration": {"exists": False, "cams": []},
+        })
 
     frames = sorted(f.name for f in labeled_dir.glob("img_cam*.png"))
     return jsonify({
         "frames":         frames,
         "count":          len(frames),
         "session_folder": f"labeled-data/{session_key}",
+        "calibration":    _session_calibration_info(labeled_dir),
     })
 
 
