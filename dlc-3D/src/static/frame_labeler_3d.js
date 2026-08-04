@@ -4,6 +4,8 @@ import { buildPairMap, FL3D_FRAME_RE } from './pair_map.mjs';
 export { FL3D_FRAME_RE, buildPairMap } from './pair_map.mjs';
 import { epiGateReason, collectRefPoints, payloadSignature }
   from './internal/epiline_request.mjs';
+import { labelAnchor } from './internal/epiline_label.mjs';
+import { nameLabelBox } from './components/viewer/internal/name_label.mjs';
 
 (function initFl3d() {
     // Guard: bail out early if fl3d-* IDs are absent. Check the canvas
@@ -766,6 +768,16 @@ import { epiGateReason, collectRefPoints, payloadSignature }
     function _fl3dSetEpiEnabled(on) {
       _fl3dEpiOn = !!on;
       if (flEpiCheckbox) flEpiCheckbox.checked = _fl3dEpiOn;
+      if (_fl3dEpiTimer) { clearTimeout(_fl3dEpiTimer); _fl3dEpiTimer = null; }
+      _fl3dEpiSig = "";
+      if (_fl3dEpiOn) {
+        if (!Number.isFinite(_fl3dEpiRefCam)) _fl3dEpiRefCam = _fl3dFocusedCam;
+        // Immediate — the labels are already settled and the user is waiting.
+        _fl3dEpiRecompute();
+      } else {
+        _fl3dEpiSegments = {};
+        _fl3dEpiRepaintTarget();
+      }
     }
 
     flEpiCheckbox?.addEventListener("change", () => {
@@ -1033,6 +1045,9 @@ import { epiGateReason, collectRefPoints, payloadSignature }
         flFrameInfo.textContent = `Frame ${idx + 1} / ${_fl3dFrameNumbers.length}`;
         // Update primary fname display from the focused tile after render
         _fl3dSyncRenderRow(frameNum);
+        _fl3dEpiRefCam = _fl3dFocusedCam;   // new frame — reference resets
+        _fl3dEpiSig = "";                   // force a recompute for this frame
+        _fl3dEpiRecompute();                // immediate; the labels are settled
         const focusedFname = _fl3dActiveFname();
         flFrameName.textContent = focusedFname || `(no cam${_fl3dFocusedCam} @ ${String(frameNum).padStart(5, "0")})`;
         _flUpdateBpChipStatus();
@@ -1257,6 +1272,133 @@ import { epiGateReason, collectRefPoints, payloadSignature }
       }
     }
 
+    // ── EPIPOLAR OVERLAY ─────────────────────────────────────────────────
+    // Projects every point labelled on the reference camera onto the other
+    // tile. The reference is the camera whose labels last CHANGED, not the
+    // focused one: projecting from the focused camera would make the lines
+    // vanish at the moment the user clicks across to use them.
+
+    const FL3D_EPI_DEBOUNCE_MS = 2000;
+    const FL3D_EPI_LABEL_STEP  = 14;   // matches the marker name-label height
+
+    let _fl3dEpiSegments = {};    // bodypart -> [[x1,y1],[x2,y2]] | null
+    let _fl3dEpiRefCam   = null;  // cam index whose labels were last edited
+    let _fl3dEpiTimer    = null;
+    let _fl3dEpiGen      = 0;     // stale-response guard
+    let _fl3dEpiSig      = "";    // signature of the last issued request
+
+    /** A label changed on `cam` — that camera becomes the reference. */
+    function _fl3dEpiNoteEdit(cam) {
+      if (Number.isFinite(cam)) _fl3dEpiRefCam = cam;
+      _fl3dEpiSchedule();
+    }
+
+    /** Debounced: only label edits come through here. */
+    function _fl3dEpiSchedule() {
+      if (!_fl3dEpiOn) return;
+      if (_fl3dEpiTimer) clearTimeout(_fl3dEpiTimer);
+      _fl3dEpiTimer = setTimeout(() => {
+        _fl3dEpiTimer = null;
+        _fl3dEpiRecompute();
+      }, FL3D_EPI_DEBOUNCE_MS);
+    }
+
+    function _fl3dEpiTileFor(cam) {
+      return document.querySelector(
+        `#fl3d-canvas-row .fl3d-tile[data-cam="${cam}"]`);
+    }
+
+    /** Repaint whichever tile carries the lines. */
+    function _fl3dEpiRepaintTarget() {
+      const tiles = document.querySelectorAll("#fl3d-canvas-row .fl3d-tile");
+      tiles.forEach((t) => {
+        if (+t.dataset.cam !== _fl3dEpiRefCam && t.dataset.fname) {
+          _fl3dDrawTileMarkers(t, t.dataset.fname);
+        }
+      });
+    }
+
+    /** Immediate: enabling, frame change, sync change. Never debounced. */
+    async function _fl3dEpiRecompute() {
+      if (!_fl3dEpiOn || !Number.isFinite(_fl3dEpiRefCam)) return;
+      const refTile = _fl3dEpiTileFor(_fl3dEpiRefCam);
+      const tgtTile = Array.from(
+        document.querySelectorAll("#fl3d-canvas-row .fl3d-tile")
+      ).find((t) => +t.dataset.cam !== _fl3dEpiRefCam);
+      if (!refTile || !tgtTile) return;
+
+      const refFname = refTile.dataset.fname;
+      const points = collectRefPoints(
+        _flLabels[refFname], _flHidden[refFname], _flBodyparts);
+      const sig = payloadSignature(
+        _flVideoStem, _fl3dEpiRefCam, +tgtTile.dataset.cam, points);
+      if (sig === _fl3dEpiSig) return;   // nothing moved; keep what is drawn
+      _fl3dEpiSig = sig;
+
+      if (!points.length) {
+        _fl3dEpiSegments = {};
+        _fl3dEpiRepaintTarget();
+        return;
+      }
+
+      const gen = ++_fl3dEpiGen;
+      try {
+        const url = "/dlc-3d/labeled-epilines"
+          + `?session=${encodeURIComponent(_flVideoStem)}`
+          + `&ref_cam=${_fl3dEpiRefCam}&tgt_cam=${+tgtTile.dataset.cam}`
+          + `&points=${encodeURIComponent(JSON.stringify(points))}`;
+        const r = await fetch(url);
+        if (gen !== _fl3dEpiGen) return;          // superseded mid-flight
+        const d = await r.json().catch(() => ({}));
+        if (gen !== _fl3dEpiGen) return;          // and again after the parse
+        _fl3dEpiSegments = r.ok ? (d.segments || {}) : {};
+        if (!r.ok && flEpiHint) flEpiHint.textContent = d.error || "epilines failed";
+        else if (flEpiHint) flEpiHint.textContent = "(P)";
+      } catch (e) {
+        if (gen !== _fl3dEpiGen) return;
+        _fl3dEpiSegments = {};
+        if (flEpiHint) flEpiHint.textContent = "epilines unavailable";
+      }
+      _fl3dEpiRepaintTarget();
+    }
+
+    /** Paint stored segments. Never fetches — see the draw-path test. */
+    function _fl3dDrawEpilines(tile) {
+      const canvas = tile.querySelector(".fl3d-tile-canvas");
+      if (!canvas) return;
+      const ctx = canvas.getContext("2d");
+      let order = 0;
+      for (let i = 0; i < _flBodyparts.length; i++) {
+        const bp = _flBodyparts[i];
+        const seg = _fl3dEpiSegments[bp];
+        if (!seg) continue;                   // null or absent — draw nothing
+        const color = _flColor(i);
+        ctx.save();
+        ctx.beginPath();
+        ctx.moveTo(seg[0][0], seg[0][1]);
+        ctx.lineTo(seg[1][0], seg[1][1]);
+        ctx.strokeStyle = color;
+        ctx.lineWidth = 1;
+        ctx.setLineDash([6, 4]);
+        ctx.stroke();
+        ctx.restore();
+
+        const anchor = labelAnchor(seg, order, FL3D_EPI_LABEL_STEP);
+        if (anchor) {
+          ctx.save();
+          ctx.font = nameLabelBox(0, 0, 0, 0).font;
+          const box = nameLabelBox(anchor.x, anchor.y, 0,
+                                   ctx.measureText(bp).width);
+          ctx.fillStyle = "rgba(12,13,16,.65)";
+          ctx.fillRect(box.boxX, box.boxY, box.boxW, box.boxH);
+          ctx.fillStyle = color;
+          ctx.fillText(bp, box.textX, box.textY);
+          ctx.restore();
+        }
+        order++;   // only a drawn line advances the staircase
+      }
+    }
+
     function _fl3dDrawTileMarkers(tile, fname) {
       const canvas = tile.querySelector(".fl3d-tile-canvas");
       const ctx    = canvas.getContext("2d");
@@ -1296,6 +1438,13 @@ import { epiGateReason, collectRefPoints, payloadSignature }
           ctx.fillText(bp, cx + r + 5, cy + 4);
         }
       });
+
+      // Paint stored _fl3dEpiSegments (never fetched here) on the tile that
+      // is NOT the reference.
+      if (_fl3dEpiOn && Number.isFinite(_fl3dEpiRefCam)
+          && +tile.dataset.cam !== _fl3dEpiRefCam) {
+        _fl3dDrawEpilines(tile);
+      }
     }
 
     function _fl3dApplyFocusClass() {
@@ -1530,6 +1679,7 @@ import { epiGateReason, collectRefPoints, payloadSignature }
       if (!_flSelectedBp) return;
       if (!_flLabels[fname]) _flLabels[fname] = {};
       _flLabels[fname][_flSelectedBp] = [cx, cy];
+      _fl3dEpiNoteEdit(_fl3dFocusedCam);
       _fl3dDirtyFrames.add(fname);
       _flDirty = true;
       _flDraw();
@@ -1587,6 +1737,7 @@ import { epiGateReason, collectRefPoints, payloadSignature }
       const fname = _fl3dActiveFname();
       if (!fname || !_flLabels[fname]) return;
       _flLabels[fname][bp] = null;
+      _fl3dEpiNoteEdit(_fl3dFocusedCam);
       // Also clear hidden state when marker is deleted
       if (_flHidden[fname]) delete _flHidden[fname][bp];
       _fl3dDirtyFrames.add(fname);
@@ -1601,6 +1752,7 @@ import { epiGateReason, collectRefPoints, payloadSignature }
       if (!fname) return;
       if (!_flHidden[fname]) _flHidden[fname] = {};
       _flHidden[fname][bp] = !_flHidden[fname][bp];
+      _fl3dEpiNoteEdit(_fl3dFocusedCam);
       _flDraw();
       _flUpdateBpChipStatus();
     }
@@ -1748,6 +1900,7 @@ import { epiGateReason, collectRefPoints, payloadSignature }
           x = Math.max(0, Math.min(x, _clampImg.naturalWidth  - 1));
           y = Math.max(0, Math.min(y, _clampImg.naturalHeight - 1));
           _flLabels[fname][_flSelectedBp] = [x, y];
+          _fl3dEpiNoteEdit(_fl3dFocusedCam);
           _fl3dDirtyFrames.add(fname);
           _flDirty = true;
           _flDraw();
@@ -1803,6 +1956,7 @@ import { epiGateReason, collectRefPoints, payloadSignature }
       if (e.key === "Delete" && _flCursorInCanvas && _flSelectedBp && _flVideoStem) {
         e.preventDefault();
         _flRemoveBpLabel(_flSelectedBp);
+        _fl3dEpiNoteEdit(_fl3dFocusedCam);
       }
     });
 
