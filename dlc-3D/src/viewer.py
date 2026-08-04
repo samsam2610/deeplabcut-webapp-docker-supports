@@ -5,8 +5,12 @@ from collections import OrderedDict
 
 import cv2
 
-# Per PROCESS, and gunicorn runs 4 workers, so the real ceiling on open video
-# handles is 4 x this. Kept at 2 so the total stays where it was at -w 1.
+# Per PROCESS. Kept at 2 (not 1) so sync mode's cam0 + cam1 both stay open in
+# a single worker instead of evicting each other on every alternate frame
+# request. Gunicorn runs 4 workers, so the real ceiling on open video handles
+# is 4 x this = 8 — DOUBLE the 4 open handles a single -w 1 worker held. That
+# doubling is the accepted cost of serving four users concurrently, not
+# something this value cancels out.
 _VCAP_MAX = 2
 _vcap_cache: OrderedDict = OrderedDict()
 _vcap_lock = threading.Lock()

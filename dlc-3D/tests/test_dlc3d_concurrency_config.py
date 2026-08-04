@@ -9,6 +9,8 @@ the worker count, so the two numbers are coupled and must move together.
 import re
 from pathlib import Path
 
+import yaml
+
 SRC = Path(__file__).parent.parent
 DOCKERFILE = SRC / "Dockerfile"
 VIEWER = SRC / "src" / "viewer.py"
@@ -38,6 +40,10 @@ def test_the_frame_cache_is_divided_across_workers():
     """_VCAP_MAX is per PROCESS. N workers hold N caches, so the open-handle
     count against NAS-mounted video is workers x _VCAP_MAX."""
     total = _worker_count() * _vcap_max()
+    # 8 is not a validated NAS/OS handle limit — it's just "workers x
+    # _VCAP_MAX" reverse-engineered from the two values we actually chose
+    # (4 x 2). This assertion guards those two numbers against drifting apart
+    # in future edits; it is not evidence that 8 itself is a safe ceiling.
     assert total <= 8, (
         f"{_worker_count()} workers x {_vcap_max()} cached captures = {total} "
         "open video handles; divide _VCAP_MAX when raising the worker count"
@@ -47,16 +53,19 @@ def test_the_frame_cache_is_divided_across_workers():
 def test_the_module_is_not_directly_reachable():
     """dlc-3D trusts the X-DLC-User header, which is only sound because the
     proxy is the sole route in. A ports: mapping would make user identity
-    spoofable from the LAN."""
+    spoofable from the LAN.
+
+    Parsed with a real YAML loader rather than string/regex slicing: a
+    regex that cuts the dlc-3d block at the next 2-space-indented line
+    misses `ports:` placed after an injected 2-space-indented comment
+    mid-block, even though the key still belongs to services.dlc-3d
+    under any real YAML parse. This guards a trust-boundary invariant, so
+    it needs to be correct for arbitrary valid YAML, not just the file's
+    current formatting style.
+    """
     compose = (SRC.parent.parent / "deeplabcut-webapp-docker"
                / "docker-compose.yml").read_text()
-    rest = compose.split("\n  dlc-3d:")[1]
-    # Cut at the next top-level (2-space-indented) service key, not the next
-    # "\n  " substring — every key nested under dlc-3d is indented 4 spaces,
-    # which itself starts with "\n  ", so a naive split("\n  ")[0] on the
-    # remainder is always "" and the guard never fires.
-    end_match = re.search(r"\n  \S", rest)
-    block = rest[: end_match.start() if end_match else len(rest)]
-    assert "ports:" not in block, (
+    services = yaml.safe_load(compose)["services"]
+    assert "ports" not in services["dlc-3d"], (
         "dlc-3d must stay internal — see the trust boundary in the design doc"
     )
