@@ -634,7 +634,10 @@ def labeled_frames():
     if not session_key or not proj:
         return jsonify({"frames": [], "count": 0, "session_folder": None})
 
-    labeled_dir = Path(proj) / "labeled-data" / session_key
+    root = Path(proj) / "labeled-data"
+    labeled_dir = (root / session_key).resolve()
+    if not labeled_dir.is_relative_to(root.resolve()):
+        return jsonify({"error": "session escapes the project"}), 403
     if not labeled_dir.is_dir():
         return jsonify({
             "frames": [], "count": 0,

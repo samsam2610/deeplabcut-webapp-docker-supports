@@ -784,6 +784,11 @@ import { nameLabelBox } from './components/viewer/internal/name_label.mjs';
       _fl3dSetEpiEnabled(flEpiCheckbox.checked);
     });
 
+    // Establish the gate's initial state at setup — otherwise the checkbox
+    // reads enabled with hint "(P)" and does nothing until the first
+    // stem/sync interaction calls _fl3dRefreshEpiGate() itself.
+    _fl3dRefreshEpiGate();
+
     // ── Load bodyparts + stems ───────────────────────────────────
     async function _flLoad() {
       try {
@@ -1047,6 +1052,7 @@ import { nameLabelBox } from './components/viewer/internal/name_label.mjs';
         _fl3dSyncRenderRow(frameNum);
         _fl3dEpiRefCam = _fl3dFocusedCam;   // new frame — reference resets
         _fl3dEpiSig = "";                   // force a recompute for this frame
+        _fl3dEpiSegments = {};              // don't paint the previous frame's lines
         _fl3dEpiRecompute();                // immediate; the labels are settled
         const focusedFname = _fl3dActiveFname();
         flFrameName.textContent = focusedFname || `(no cam${_fl3dFocusedCam} @ ${String(frameNum).padStart(5, "0")})`;
@@ -1223,6 +1229,7 @@ import { nameLabelBox } from './components/viewer/internal/name_label.mjs';
           if (!_flSelectedBp) return;
           if (!_flLabels[fname]) _flLabels[fname] = {};
           _flLabels[fname][_flSelectedBp] = [cx, cy];
+          _fl3dEpiNoteEdit(+tile.dataset.cam);
           _fl3dDirtyFrames.add(fname);
           _flDirty = true;
           _fl3dDrawTileMarkers(tile, fname);
@@ -1263,6 +1270,7 @@ import { nameLabelBox } from './components/viewer/internal/name_label.mjs';
           const fname = tile.dataset.fname;
           if (!_flLabels[fname]) return;
           _flLabels[fname][_flSelectedBp] = null;
+          _fl3dEpiNoteEdit(+tile.dataset.cam);
           _fl3dDirtyFrames.add(fname);
           _flDirty = true;
           _fl3dDrawTileMarkers(tile, fname);
@@ -1310,6 +1318,7 @@ import { nameLabelBox } from './components/viewer/internal/name_label.mjs';
 
     /** Repaint whichever tile carries the lines. */
     function _fl3dEpiRepaintTarget() {
+      if (!_fl3dSyncOn) return;   // no sibling tile to paint outside sync mode
       const tiles = document.querySelectorAll("#fl3d-canvas-row .fl3d-tile");
       tiles.forEach((t) => {
         if (+t.dataset.cam !== _fl3dEpiRefCam && t.dataset.fname) {
@@ -1357,6 +1366,7 @@ import { nameLabelBox } from './components/viewer/internal/name_label.mjs';
       } catch (e) {
         if (gen !== _fl3dEpiGen) return;
         _fl3dEpiSegments = {};
+        _fl3dEpiSig = "";
         if (flEpiHint) flEpiHint.textContent = "epilines unavailable";
       }
       _fl3dEpiRepaintTarget();
@@ -1762,6 +1772,7 @@ import { nameLabelBox } from './components/viewer/internal/name_label.mjs';
       if (!fname) return;
       delete _flLabels[fname];
       delete _flHidden[fname];
+      _fl3dEpiNoteEdit(_fl3dFocusedCam);
       _fl3dDirtyFrames.add(fname);
       _flDirty = true;
       if (_fl3dSyncOn) {
@@ -1955,7 +1966,6 @@ import { nameLabelBox } from './components/viewer/internal/name_label.mjs';
       if (e.key === "Delete" && _flCursorInCanvas && _flSelectedBp && _flVideoStem) {
         e.preventDefault();
         _flRemoveBpLabel(_flSelectedBp);
-        _fl3dEpiNoteEdit(_fl3dFocusedCam);
       }
     });
 

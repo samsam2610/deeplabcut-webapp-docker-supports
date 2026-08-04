@@ -152,6 +152,22 @@ def test_labeled_frames_still_lists_frames(client, calibrated):
     assert body["session_folder"] == "labeled-data/sess1"
 
 
+def test_labeled_frames_session_key_cannot_escape_the_project(client, calibrated):
+    """M8: /labeled-frames lacked the path-escape guard /labeled-epilines has.
+    Same guard, same 403, for symmetry between the two session-keyed routes."""
+    r = client.get("/dlc-3d/labeled-frames?session=../../etc")
+    assert r.status_code == 403
+
+
+def test_labeled_frames_session_key_cannot_escape_via_lexical_sibling(client, project):
+    """Mirrors test_session_key_cannot_escape_via_lexical_sibling for
+    /labeled-epilines: str.startswith would be defeated by a lexically
+    prefixed sibling directory; the guard must use Path.is_relative_to."""
+    (project / "labeled-data-evil").mkdir()
+    r = client.get("/dlc-3d/labeled-frames?session=../labeled-data-evil")
+    assert r.status_code == 403
+
+
 def _get(client, **kw):
     kw.setdefault("session", "sess1")
     kw.setdefault("ref_cam", 0)

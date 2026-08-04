@@ -102,11 +102,19 @@ def test_toggling_off_clears_stored_segments(js):
 
 
 def test_the_draw_path_never_fetches(js):
-    """_fl3dDrawTileMarkers runs on zoom, pan and hover. A fetch in there is a
-    request storm."""
-    fn = js.split("function _fl3dDrawTileMarkers")[1].split("\n    function ")[0]
-    assert "fetch(" not in fn
-    assert "_fl3dDrawEpilines(tile)" in fn, (
+    """_fl3dDrawTileMarkers runs on zoom, pan and hover. A fetch anywhere in
+    that path is a request storm.
+
+    _fl3dDrawTileMarkers calls _fl3dDrawEpilines(tile) on every repaint, so
+    the draw path is the UNION of both function bodies, not just the caller's.
+    A fetch injected inside _fl3dDrawEpilines alone must fail this test too —
+    checking only _fl3dDrawTileMarkers's own body would miss it.
+    """
+    tile_markers_fn = js.split("function _fl3dDrawTileMarkers")[1].split("\n    function ")[0]
+    epilines_fn      = js.split("function _fl3dDrawEpilines")[1].split("\n    function ")[0]
+    assert "fetch(" not in tile_markers_fn
+    assert "fetch(" not in epilines_fn
+    assert "_fl3dDrawEpilines(tile)" in tile_markers_fn, (
         "the draw path must paint stored segments"
     )
 
@@ -154,9 +162,17 @@ def test_lines_are_drawn_on_the_non_reference_tile(js):
 def test_style_matches_the_reprojection_card(js):
     block = _epi_block(js)
     assert "setLineDash([6, 4])" in block
-    assert "lineWidth = 1" in block
     assert "_flColor(" in block
     assert "labelAnchor(" in block and "nameLabelBox(" in block
+    # Scoped to _fl3dDrawEpilines itself: `ctx.lineWidth = 1.2` appears
+    # elsewhere in the file (the marker outline), so an unscoped substring
+    # check is satisfied even if the epiline width were changed to e.g. 7.
+    fn = js.split("function _fl3dDrawEpilines")[1].split("\n    }")[0]
+    assert "lineWidth = 1" in fn
+    assert "lineWidth = 1.2" not in fn, (
+        "must pin the epiline's own lineWidth, not a value inherited from "
+        "the marker-drawing style"
+    )
 
 
 def test_label_step_advances_only_for_drawn_lines(js):
@@ -165,4 +181,127 @@ def test_label_step_advances_only_for_drawn_lines(js):
     assert "order++" in fn
     assert fn.index("continue") < fn.index("order++"), (
         "order must advance after the null check, not before it"
+    )
+
+
+# ── C2: every label-mutation site must note an epipolar edit ──────────────
+#
+# Proven during final review: deleting every _fl3dEpiNoteEdit(...) call from
+# frame_labeler_3d.js left every test above green. The feature's headline
+# behaviour — "recomputed 2s after the labels stop changing" — had zero
+# coverage, which is exactly what let the sibling tile's click/right-click
+# handlers ship without ever calling it (C1).
+#
+# These tests are positional: each slices out the exact handler or function
+# body (the same technique test_a_generation_counter_guards_the_async_draw
+# uses) and asserts, within THAT block, both the state write and the
+# _fl3dEpiNoteEdit(...) call are present, in that order. A substring count
+# across the whole file would not catch a call sitting in the wrong handler
+# — which is exactly the shape C1 was.
+
+def _block(js, start_marker, end_marker):
+    """Text between start_marker (exclusive) and the next end_marker."""
+    return js.split(start_marker, 1)[1].split(end_marker, 1)[0]
+
+
+def test_primary_canvas_click_notes_the_edit(js):
+    block = _block(js, 'flCanvas.addEventListener("click", e => {', "\n    });")
+    assert "_flLabels[fname][_flSelectedBp] = [cx, cy]" in block
+    assert "_fl3dEpiNoteEdit(" in block
+    assert (block.index("_flLabels[fname][_flSelectedBp] = [cx, cy]")
+            < block.index("_fl3dEpiNoteEdit(")), (
+        "the edit must be noted after the label is written"
+    )
+
+
+def test_sibling_tile_click_notes_the_edit(js):
+    """C1: in sync mode the sibling tile's canvas gets its OWN click handler,
+    built inside _fl3dRenderTile — the only place a point is placed on the
+    second camera. It must note the edit against the tile's OWN cam
+    (+tile.dataset.cam) so the reference flips to whichever tile was
+    actually clicked, not whatever _fl3dFocusedCam happened to hold."""
+    block = _block(js, 'canvas.addEventListener("click", (e) => {', "\n        });")
+    assert "_flLabels[fname][_flSelectedBp] = [cx, cy]" in block
+    assert "_fl3dEpiNoteEdit(+tile.dataset.cam)" in block
+    assert (block.index("_flLabels[fname][_flSelectedBp] = [cx, cy]")
+            < block.index("_fl3dEpiNoteEdit(+tile.dataset.cam)")), (
+        "the edit must be noted after the label is written"
+    )
+
+
+def test_sibling_tile_rightclick_notes_the_edit(js):
+    """C1: same gap as the sibling click handler, on the delete side — right-
+    click on the sibling tile is the only way to remove a point on the
+    second camera in sync mode."""
+    block = _block(js, 'canvas.addEventListener("contextmenu", (e) => {', "\n        });")
+    assert "_flLabels[fname][_flSelectedBp] = null" in block
+    assert "_fl3dEpiNoteEdit(+tile.dataset.cam)" in block
+    assert (block.index("_flLabels[fname][_flSelectedBp] = null")
+            < block.index("_fl3dEpiNoteEdit(+tile.dataset.cam)")), (
+        "the edit must be noted after the label is cleared"
+    )
+
+
+def test_remove_bp_label_notes_the_edit(js):
+    block = _block(js, "function _flRemoveBpLabel(bp) {", "\n    }")
+    assert "_flLabels[fname][bp] = null" in block
+    assert "_fl3dEpiNoteEdit(" in block
+    assert (block.index("_flLabels[fname][bp] = null")
+            < block.index("_fl3dEpiNoteEdit(")), (
+        "the edit must be noted after the label is cleared"
+    )
+
+
+def test_toggle_visibility_notes_the_edit(js):
+    """Hiding/showing a bodypart changes what collectRefPoints sends as the
+    reference camera's points (hidden bodyparts are excluded), so it counts
+    as a label mutation even though it writes _flHidden, not _flLabels."""
+    block = _block(js, "function _flToggleVisibility(bp) {", "\n    }")
+    assert "_flHidden[fname][bp] = !_flHidden[fname][bp]" in block
+    assert "_fl3dEpiNoteEdit(" in block
+    assert (block.index("_flHidden[fname][bp] = !_flHidden[fname][bp]")
+            < block.index("_fl3dEpiNoteEdit(")), (
+        "the edit must be noted after visibility is toggled"
+    )
+
+
+def test_wasd_nudge_notes_the_edit(js):
+    block = _block(
+        js,
+        "if (_wasdKeys.includes(e.key) && _wasdGate && _flSelectedBp && _flVideoStem) {",
+        "\n      }",
+    )
+    assert "_flLabels[fname][_flSelectedBp] = [x, y]" in block
+    assert "_fl3dEpiNoteEdit(" in block
+    assert (block.index("_flLabels[fname][_flSelectedBp] = [x, y]")
+            < block.index("_fl3dEpiNoteEdit(")), (
+        "the edit must be noted after the nudged position is written"
+    )
+
+
+def test_delete_key_notes_the_edit_via_remove_bp_label(js):
+    """The Delete-key branch delegates to _flRemoveBpLabel (separately
+    verified above to note the edit) rather than noting it a second time —
+    see M9. A second direct call here would be the redundant-call regression
+    M9 fixed, so this pins the delegation instead of duplicating the note."""
+    block = _block(
+        js,
+        'if (e.key === "Delete" && _flCursorInCanvas && _flSelectedBp && _flVideoStem) {',
+        "\n      }",
+    )
+    assert "_flRemoveBpLabel(_flSelectedBp)" in block
+    assert "_fl3dEpiNoteEdit(" not in block, (
+        "must not note the edit a second time — _flRemoveBpLabel already does"
+    )
+
+
+def test_clear_frame_notes_the_edit(js):
+    """C1: _flClearFrame deletes every label on the frame. Without noting the
+    edit, the reference camera's lines outlive a 'clear frame'."""
+    block = _block(js, "function _flClearFrame() {", "\n    }")
+    assert "delete _flLabels[fname]" in block
+    assert "_fl3dEpiNoteEdit(" in block
+    assert (block.index("delete _flLabels[fname]")
+            < block.index("_fl3dEpiNoteEdit(")), (
+        "the edit must be noted after the frame's labels are cleared"
     )
