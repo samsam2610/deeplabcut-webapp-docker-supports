@@ -5,12 +5,13 @@ import json
 import os
 import re
 import shutil
+import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 
 import cv2
 import numpy as np
-from flask import Blueprint, Response, g, jsonify, render_template, request
+from flask import Blueprint, Response, current_app, g, jsonify, render_template, request
 
 import config
 import viewer
@@ -49,7 +50,14 @@ def _redis_conn():
         return _redis_client
     try:
         import redis
-        url = os.environ.get("CELERY_RESULT_BACKEND", "redis://redis:6379/0")
+        # Must match where the main webapp actually WRITES webapp:dlc_project:{uid}:
+        # it builds its redis client from CELERY_BROKER_URL (see app.py's
+        # _REDIS_URL), not CELERY_RESULT_BACKEND. Both env vars fall back to the
+        # same default today so broker and backend never differ in practice, but
+        # if they ever do, reading from the wrong one silently resolves "no
+        # project" for every user. Prefer CELERY_BROKER_URL for that reason, with
+        # CELERY_RESULT_BACKEND only as a secondary fallback.
+        url = os.environ.get("CELERY_BROKER_URL") or os.environ.get("CELERY_RESULT_BACKEND", "redis://redis:6379/0")
         c = redis.Redis.from_url(url, decode_responses=True, socket_timeout=1.0)
         c.ping()  # fail fast once, at creation, not on every subsequent call
         _redis_client = c
@@ -98,8 +106,16 @@ def _active_project_for_user() -> "str | None":
                 raw = conn.get(f"webapp:dlc_project:{uid}")
                 if raw:
                     proj = json.loads(raw).get("project_path") or None
-            except Exception:
+            except Exception as exc:
+                current_app.logger.warning(
+                    "dlc-3d: failed to resolve active project for uid=%r: %s", uid, exc
+                )
                 proj = None
+    else:
+        current_app.logger.warning(
+            "dlc-3d: no X-DLC-User header on this request -- the main webapp's "
+            "proxy may not be forwarding it; resolving to no active project"
+        )
 
     g._dlc3d_active_project = proj
     return proj
@@ -206,7 +222,21 @@ def _rescan_and_save(project_path: Path) -> dict:
         "scanned_at":   datetime.now(timezone.utc).isoformat(),
         "sessions":     sessions,
     }
-    (project_path / "videos.json").write_text(json.dumps(data, indent=2))
+    # Atomic write: with -w 4, a concurrent reader in _load_or_scan_videos or
+    # get_sibling_camera can otherwise open videos.json between this write's
+    # truncate and its final byte and hit a JSONDecodeError (500). Write to a
+    # temp file in the SAME directory (so the rename stays on one filesystem)
+    # and os.replace() onto the target -- os.replace is atomic on POSIX, so
+    # readers always see either the old file or the fully-written new one.
+    target = project_path / "videos.json"
+    fd, tmp_name = tempfile.mkstemp(prefix=".videos.json.", suffix=".tmp", dir=project_path)
+    try:
+        with os.fdopen(fd, "w") as f:
+            f.write(json.dumps(data, indent=2))
+        os.replace(tmp_name, target)
+    except Exception:
+        os.unlink(tmp_name)
+        raise
     return data
 
 
