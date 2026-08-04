@@ -651,6 +651,78 @@ def labeled_frames():
     })
 
 
+@bp.route("/labeled-epilines")
+def labeled_epilines():
+    """Epipolar lines in the target camera for points labelled in the reference.
+
+    Serves the frame labeler's overlay. Unlike /reproject/epiline the points
+    come from the request, not a pose h5 — they are the human's own labels,
+    which no file on disk holds yet.
+
+    Uses exactly the primitives /reproject/epiline uses, so the two overlays
+    cannot drift apart. undistort_to_pixels is not optional: fundamental_matrix
+    is documented as acting on undistorted pixel coordinates.
+    """
+    with _state_lock:
+        proj = _active_project
+    session_key = (request.args.get("session") or "").strip()
+    if not session_key or not proj:
+        return jsonify({"error": "session required and a project must be open"}), 400
+
+    root = Path(proj) / "labeled-data"
+    labeled_dir = (root / session_key).resolve()
+    if not str(labeled_dir).startswith(str(root.resolve())):
+        return jsonify({"error": "session escapes the project"}), 403
+
+    try:
+        ref_cam = int(request.args.get("ref_cam", ""))
+        tgt_cam = int(request.args.get("tgt_cam", ""))
+    except (TypeError, ValueError):
+        return jsonify({"error": "ref_cam and tgt_cam must be ints"}), 400
+    if ref_cam == tgt_cam:
+        return jsonify({"error": "ref_cam and tgt_cam must differ"}), 400
+
+    try:
+        points = json.loads(request.args.get("points") or "[]")
+        if not isinstance(points, list):
+            raise ValueError("points must be a list")
+        parsed = [
+            (str(p["bodypart"]), float(p["x"]), float(p["y"])) for p in points
+        ]
+    except (TypeError, ValueError, KeyError) as exc:
+        return jsonify({"error": f"bad points: {exc}"}), 400
+
+    if not parsed:
+        return jsonify({"segments": {}})
+
+    calib = labeled_dir / "calibration.toml"
+    if not calib.is_file():
+        return jsonify({
+            "error": f"no calibration.toml in labeled-data/{session_key}"
+        }), 400
+    try:
+        cams = rp.load_calibration(calib)
+    except Exception as exc:
+        return jsonify({"error": f"unreadable calibration.toml: {exc}"}), 400
+
+    ref_key, tgt_key = f"cam_{ref_cam}", f"cam_{tgt_cam}"
+    for key in (ref_key, tgt_key):
+        if key not in cams:
+            return jsonify({
+                "error": "unknown camera {!r}; calibration has {}".format(
+                    key, sorted(cams))
+            }), 400
+
+    cam_ref, cam_tgt = cams[ref_key], cams[tgt_key]
+    F = ec.fundamental_matrix(cam_ref, cam_tgt)   # once for every point
+    segments = {}
+    for bodypart, x, y in parsed:
+        pt = ec.undistort_to_pixels(cam_ref, np.array([[x, y]]))[0]
+        seg = ec.epiline_endpoints(F, pt, *cam_tgt.size)
+        segments[bodypart] = None if seg is None else [list(seg[0]), list(seg[1])]
+    return jsonify({"segments": segments})
+
+
 @bp.route("/csv")
 def csv_route():
     """Return CSV annotation rows for the same-stem .csv next to the given video.

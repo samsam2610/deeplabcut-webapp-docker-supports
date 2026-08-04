@@ -7,6 +7,7 @@ _active_project set directly. No fixtures from the LP suite are used.
 import json
 import sys
 from pathlib import Path
+from urllib.parse import urlencode
 
 import pytest
 
@@ -107,3 +108,91 @@ def test_labeled_frames_still_lists_frames(client, calibrated):
     body = client.get("/dlc-3d/labeled-frames?session=sess1").get_json()
     assert body["count"] == 2
     assert body["session_folder"] == "labeled-data/sess1"
+
+
+def _get(client, **kw):
+    kw.setdefault("session", "sess1")
+    kw.setdefault("ref_cam", 0)
+    kw.setdefault("tgt_cam", 1)
+    if isinstance(kw.get("points"), list):
+        kw["points"] = json.dumps(kw["points"])
+    q = urlencode(kw)
+    return client.get(f"/dlc-3d/labeled-epilines?{q}")
+
+
+def test_returns_one_segment_per_point(client, calibrated):
+    r = _get(client, points=[{"bodypart": "wrist", "x": 320, "y": 240},
+                             {"bodypart": "paw",   "x": 200, "y": 300}])
+    assert r.status_code == 200
+    segs = r.get_json()["segments"]
+    assert set(segs) == {"wrist", "paw"}
+    for seg in segs.values():
+        assert seg is None or (len(seg) == 2 and len(seg[0]) == 2)
+
+
+def test_a_centred_point_yields_a_real_segment(client, calibrated):
+    """Not just well-formed — an actual line across the target image. A route
+    that returned all-null would satisfy the shape test above."""
+    seg = _get(client, points=[{"bodypart": "wrist", "x": 320, "y": 240}]
+               ).get_json()["segments"]["wrist"]
+    assert seg is not None, "a centred point must project to a visible line"
+    (x1, y1), (x2, y2) = seg
+    assert (x1 - x2) ** 2 + (y1 - y2) ** 2 > 1.0, "degenerate segment"
+    for x, y in seg:
+        assert -1e-6 <= x <= 640 + 1e-6
+        assert -1e-6 <= y <= 480 + 1e-6
+
+
+def test_direction_matters(client, calibrated):
+    """0->1 and 1->0 are different geometry; a route ignoring the direction
+    would return the same line for both."""
+    pts = [{"bodypart": "wrist", "x": 300, "y": 200}]
+    a = _get(client, ref_cam=0, tgt_cam=1, points=pts).get_json()["segments"]["wrist"]
+    b = _get(client, ref_cam=1, tgt_cam=0, points=pts).get_json()["segments"]["wrist"]
+    assert a != b
+
+
+def test_empty_points_is_not_an_error(client, calibrated):
+    r = _get(client, points=[])
+    assert r.status_code == 200
+    assert r.get_json()["segments"] == {}
+
+
+def test_missing_calibration_is_400(client, project):
+    r = _get(client, points=[{"bodypart": "wrist", "x": 1, "y": 2}])
+    assert r.status_code == 400
+    assert "calibration" in r.get_json()["error"].lower()
+
+
+def test_unknown_camera_index_is_400(client, calibrated):
+    r = _get(client, tgt_cam=7, points=[{"bodypart": "wrist", "x": 1, "y": 2}])
+    assert r.status_code == 400
+    assert "cam_7" in r.get_json()["error"]
+
+
+def test_same_camera_for_ref_and_target_is_400(client, calibrated):
+    """A point's epipolar line in its own image is undefined."""
+    r = _get(client, ref_cam=0, tgt_cam=0, points=[{"bodypart": "w", "x": 1, "y": 2}])
+    assert r.status_code == 400
+
+
+def test_malformed_points_is_400_not_500(client, calibrated):
+    assert client.get(
+        "/dlc-3d/labeled-epilines?session=sess1&ref_cam=0&tgt_cam=1&points=notjson"
+    ).status_code == 400
+    r = _get(client, points=[{"bodypart": "w", "x": "abc", "y": 2}])
+    assert r.status_code == 400
+
+
+def test_session_key_cannot_escape_the_project(client, calibrated):
+    r = _get(client, session="../../etc", points=[{"bodypart": "w", "x": 1, "y": 2}])
+    assert r.status_code == 403
+
+
+def test_a_point_whose_line_misses_the_image_is_null_not_missing(client, calibrated):
+    """The client keys its draw loop on the bodypart, so an omitted key and a
+    null mean different things — a dropped key would be read as 'not computed'."""
+    segs = _get(client, points=[{"bodypart": "wrist", "x": 1e9, "y": 1e9}]
+                ).get_json()["segments"]
+    assert "wrist" in segs
+    assert segs["wrist"] is None
