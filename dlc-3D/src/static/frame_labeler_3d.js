@@ -2,6 +2,8 @@
 import { _populateGpuSelect } from '/static/js/training.js';
 import { buildPairMap, FL3D_FRAME_RE } from './pair_map.mjs';
 export { FL3D_FRAME_RE, buildPairMap } from './pair_map.mjs';
+import { epiGateReason, collectRefPoints, payloadSignature }
+  from './internal/epiline_request.mjs';
 
 (function initFl3d() {
     // Guard: bail out early if fl3d-* IDs are absent. Check the canvas
@@ -36,6 +38,8 @@ export { FL3D_FRAME_RE, buildPairMap } from './pair_map.mjs';
     const flMarkerSizeVal   = document.getElementById("fl3d-marker-size-val");
     const flShowNamesInput  = document.getElementById("fl3d-show-names");
     const fl3dLockBp        = document.getElementById("fl3d-lock-bp");
+    const flEpiCheckbox     = document.getElementById("fl3d-epiline");
+    const flEpiHint         = document.getElementById("fl3d-epiline-hint");
 
     // ── TAPNet propagation elements ──────────────────────────────
     const flTapCheckbox      = document.getElementById("fl3d-tap-checkbox");
@@ -108,6 +112,8 @@ export { FL3D_FRAME_RE, buildPairMap } from './pair_map.mjs';
     let _fl3dFrameNumbers = [];
     let _fl3dPrimaryCam   = 0;
     let _fl3dSyncOn        = false;
+    let _fl3dEpiOn         = false;
+    let _fl3dEpiCalib      = { exists: false, cams: [] };
     let _fl3dFocusedCam    = 0;
     let _fl3dHoveredCam    = null;
     let _fl3dFrameNumIdx   = 0;
@@ -736,6 +742,34 @@ export { FL3D_FRAME_RE, buildPairMap } from './pair_map.mjs';
         if (idx >= 0) _flFrameIdx = idx;
         _flShowFrame(_flFrameIdx);
       }
+      _fl3dRefreshEpiGate();
+    });
+
+    // ── Epipolar-line overlay: gate + toggle ─────────────────────
+    // Enable the overlay only when it can actually draw, and say why when it
+    // cannot — a checkbox that is simply dead teaches the user nothing.
+    function _fl3dRefreshEpiGate() {
+      if (!flEpiCheckbox) return;
+      const camCount = _fl3dSyncOn
+        ? document.querySelectorAll("#fl3d-canvas-row .fl3d-tile").length
+        : 1;
+      const reason = epiGateReason({
+        syncOn:            _fl3dSyncOn,
+        calibrationExists: !!_fl3dEpiCalib.exists,
+        camCount,
+      });
+      flEpiCheckbox.disabled = !!reason;
+      if (flEpiHint) flEpiHint.textContent = reason || "(P)";
+      if (reason && _fl3dEpiOn) _fl3dSetEpiEnabled(false);
+    }
+
+    function _fl3dSetEpiEnabled(on) {
+      _fl3dEpiOn = !!on;
+      if (flEpiCheckbox) flEpiCheckbox.checked = _fl3dEpiOn;
+    }
+
+    flEpiCheckbox?.addEventListener("change", () => {
+      _fl3dSetEpiEnabled(flEpiCheckbox.checked);
     });
 
     // ── Load bodyparts + stems ───────────────────────────────────
@@ -847,6 +881,20 @@ export { FL3D_FRAME_RE, buildPairMap } from './pair_map.mjs';
           _flUpdateScorerFilename();
         }
       } catch (_) { _flLabels = {}; }
+
+      // Fetch calibration for the epipolar-line gate. dlc-3D's own
+      // /labeled-frames route (not the main webapp's) carries this field.
+      // Best-effort: a failure here must gate the overlay off, never break
+      // stem selection.
+      try {
+        const r = await fetch(
+          `/dlc-3d/labeled-frames?session=${encodeURIComponent(stem)}`);
+        const d = await r.json();
+        _fl3dEpiCalib = d.calibration || { exists: false, cams: [] };
+      } catch (e) {
+        _fl3dEpiCalib = { exists: false, cams: [] };
+      }
+      _fl3dRefreshEpiGate();
 
       // Show "Update Threshold" button only when raw predictions exist
       flMlUpdateWrap.classList.add("hidden");
@@ -1711,6 +1759,14 @@ export { FL3D_FRAME_RE, buildPairMap } from './pair_map.mjs';
       if (e.key.toLowerCase() === "l" && fl3dLockBp) {
         e.preventDefault();
         fl3dLockBp.checked = !fl3dLockBp.checked;
+        return;
+      }
+
+      // P — toggle the epipolar overlay. Guarded on the same gate as the
+      // checkbox, so the key cannot bypass it.
+      if ((e.key === "p" || e.key === "P") && !flEpiCheckbox?.disabled) {
+        e.preventDefault();
+        _fl3dSetEpiEnabled(!_fl3dEpiOn);
         return;
       }
 
