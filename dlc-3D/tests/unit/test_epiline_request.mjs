@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { epiGateReason, collectRefPoints, payloadSignature }
+import { epiGateReason, collectRefPoints, payloadSignature,
+         classifyPPress, EPI_DOUBLE_TAP_MS }
   from "../../src/static/internal/epiline_request.mjs";
 
 const OK = { syncOn: true, calibrationExists: true, camCount: 2 };
@@ -64,4 +65,33 @@ test("signature is stable for identical input", () => {
   const pts = [{ bodypart: "w", x: 1, y: 2 }];
   assert.equal(payloadSignature("s1", 0, 1, pts),
                payloadSignature("s1", 0, 1, pts));
+});
+
+test("a lone P press is a single toggle", () => {
+  assert.deepEqual(classifyPPress(1000, null), { kind: "single", revert: false });
+});
+
+test("a second press inside the window is a double-tap that reverts the first", () => {
+  // revert matters: the single action already fired, so the double must undo
+  // it or pressing PP would leave the overlay in the wrong state.
+  assert.deepEqual(classifyPPress(1200, 1000),
+                   { kind: "double", revert: true });
+});
+
+test("a second press past the window is another single", () => {
+  assert.deepEqual(classifyPPress(1400, 1000), { kind: "single", revert: false });
+});
+
+test("the boundary is inclusive", () => {
+  assert.equal(classifyPPress(1350, 1000).kind, "double");
+  assert.equal(classifyPPress(1351, 1000).kind, "single");
+});
+
+test("a clock that went backwards is not a double-tap", () => {
+  // Guards against a negative delta sneaking through the <= comparison.
+  assert.equal(classifyPPress(900, 1000).kind, "single");
+});
+
+test("the double-tap window is 350ms", () => {
+  assert.equal(EPI_DOUBLE_TAP_MS, 350);
 });

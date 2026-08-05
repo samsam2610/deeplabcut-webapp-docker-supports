@@ -2,7 +2,8 @@
 import { _populateGpuSelect } from '/static/js/training.js';
 import { buildPairMap, FL3D_FRAME_RE } from './pair_map.mjs';
 export { FL3D_FRAME_RE, buildPairMap } from './pair_map.mjs';
-import { epiGateReason, collectRefPoints, payloadSignature }
+import { epiGateReason, collectRefPoints, payloadSignature,
+         classifyPPress }
   from './internal/epiline_request.mjs';
 import { labelAnchor } from './internal/epiline_label.mjs';
 import { nameLabelBox } from './components/viewer/internal/name_label.mjs';
@@ -42,6 +43,8 @@ import { nameLabelBox } from './components/viewer/internal/name_label.mjs';
     const fl3dLockBp        = document.getElementById("fl3d-lock-bp");
     const flEpiCheckbox     = document.getElementById("fl3d-epiline");
     const flEpiHint         = document.getElementById("fl3d-epiline-hint");
+    const flEpiFreeze       = document.getElementById("fl3d-epiline-freeze");
+    const flEpiFreezeHint   = document.getElementById("fl3d-epiline-freeze-hint");
 
     // ── TAPNet propagation elements ──────────────────────────────
     const flTapCheckbox      = document.getElementById("fl3d-tap-checkbox");
@@ -763,6 +766,28 @@ import { nameLabelBox } from './components/viewer/internal/name_label.mjs';
       flEpiCheckbox.disabled = !!reason;
       if (flEpiHint) flEpiHint.textContent = reason || "(P)";
       if (reason && _fl3dEpiOn) _fl3dSetEpiEnabled(false);
+      _fl3dRefreshFreezeGate();
+    }
+
+    /** Freezing is meaningless with no lines on screen, so it rides on the
+     *  overlay: enabled only while the overlay is on, and released with it. */
+    function _fl3dRefreshFreezeGate() {
+      if (!flEpiFreeze) return;
+      flEpiFreeze.disabled = !_fl3dEpiOn;
+      if (!_fl3dEpiOn && _fl3dEpiFrozen) _fl3dSetEpiFrozen(false);
+      if (flEpiFreezeHint) {
+        flEpiFreezeHint.textContent = _fl3dEpiOn
+          ? "(PP)"
+          : "turn on epipolar lines first";
+      }
+    }
+
+    function _fl3dSetEpiFrozen(on) {
+      _fl3dEpiFrozen = !!on;
+      if (flEpiFreeze) flEpiFreeze.checked = _fl3dEpiFrozen;
+      if (_fl3dEpiFrozen && !Number.isFinite(_fl3dEpiRefCam)) {
+        _fl3dEpiRefCam = _fl3dFocusedCam;
+      }
     }
 
     function _fl3dSetEpiEnabled(on) {
@@ -778,7 +803,12 @@ import { nameLabelBox } from './components/viewer/internal/name_label.mjs';
         _fl3dEpiSegments = {};
         _fl3dEpiRepaintTarget();
       }
+      _fl3dRefreshFreezeGate();
     }
+
+    flEpiFreeze?.addEventListener("change", () => {
+      _fl3dSetEpiFrozen(flEpiFreeze.checked);
+    });
 
     flEpiCheckbox?.addEventListener("change", () => {
       _fl3dSetEpiEnabled(flEpiCheckbox.checked);
@@ -1050,7 +1080,9 @@ import { nameLabelBox } from './components/viewer/internal/name_label.mjs';
         flFrameInfo.textContent = `Frame ${idx + 1} / ${_fl3dFrameNumbers.length}`;
         // Update primary fname display from the focused tile after render
         _fl3dSyncRenderRow(frameNum);
-        _fl3dEpiRefCam = _fl3dFocusedCam;   // new frame — reference resets
+        // Frozen pins the reference camera ACROSS frames — that is the whole
+        // point. The lines below still recompute, so they describe this frame.
+        if (!_fl3dEpiFrozen) _fl3dEpiRefCam = _fl3dFocusedCam;
         _fl3dEpiSig = "";                   // force a recompute for this frame
         _fl3dEpiSegments = {};              // don't paint the previous frame's lines
         _fl3dEpiRecompute();                // immediate; the labels are settled
@@ -1294,10 +1326,24 @@ import { nameLabelBox } from './components/viewer/internal/name_label.mjs';
     let _fl3dEpiTimer    = null;
     let _fl3dEpiGen      = 0;     // stale-response guard
     let _fl3dEpiSig      = "";    // signature of the last issued request
+    // Freeze pins the REFERENCE CAMERA, not the geometry. The lines still
+    // recompute on every label edit and every frame change, so they always
+    // describe the frame on screen — freezing only stops them hopping to the
+    // other tile. Without it, placing your first matching point flips the
+    // reference to that camera and the guidance you were using disappears
+    // exactly when you start acting on it.
+    let _fl3dEpiFrozen   = false;
+    let _fl3dLastPPress  = null;  // timestamp of the previous P, for PP
 
-    /** A label changed on `cam` — that camera becomes the reference. */
+    /** A label changed on `cam` — that camera becomes the reference.
+     *
+     * While frozen the reference stays put, but the recompute is still
+     * scheduled: edits on the reference camera must move its own lines. Edits
+     * on the target camera cost nothing, since an unchanged payload signature
+     * short-circuits before any request goes out.
+     */
     function _fl3dEpiNoteEdit(cam) {
-      if (Number.isFinite(cam)) _fl3dEpiRefCam = cam;
+      if (!_fl3dEpiFrozen && Number.isFinite(cam)) _fl3dEpiRefCam = cam;
       _fl3dEpiSchedule();
     }
 
@@ -1925,11 +1971,25 @@ import { nameLabelBox } from './components/viewer/internal/name_label.mjs';
         return;
       }
 
-      // P — toggle the epipolar overlay. Guarded on the same gate as the
-      // checkbox, so the key cannot bypass it.
+      // P — toggle the epipolar overlay. PP (double-tap) — toggle the freeze.
+      // Guarded on the same gate as the checkbox, so the key cannot bypass it.
+      //
+      // The single toggle fires immediately rather than waiting out the
+      // double-tap window; a 350 ms lag on every single press would be worse
+      // than the momentary flicker when someone does tap twice. That means the
+      // second press must first undo the first one — see classifyPPress.
       if ((e.key === "p" || e.key === "P") && !flEpiCheckbox?.disabled) {
         e.preventDefault();
-        _fl3dSetEpiEnabled(!_fl3dEpiOn);
+        const now = Date.now();
+        const { kind, revert } = classifyPPress(now, _fl3dLastPPress);
+        if (kind === "double") {
+          _fl3dLastPPress = null;          // a third press starts a new pair
+          if (revert) _fl3dSetEpiEnabled(!_fl3dEpiOn);   // undo press one
+          if (_fl3dEpiOn) _fl3dSetEpiFrozen(!_fl3dEpiFrozen);
+        } else {
+          _fl3dLastPPress = now;
+          _fl3dSetEpiEnabled(!_fl3dEpiOn);
+        }
         return;
       }
 

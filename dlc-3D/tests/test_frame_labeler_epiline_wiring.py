@@ -305,3 +305,74 @@ def test_clear_frame_notes_the_edit(js):
             < block.index("_fl3dEpiNoteEdit(")), (
         "the edit must be noted after the frame's labels are cleared"
     )
+
+
+# ── Freeze-to-this-camera (PP) ──────────────────────────────────────────────
+# Freezing pins the REFERENCE CAMERA, not the geometry: the lines still
+# recompute on every label edit and every frame change, so they always describe
+# the frame on screen. Without it, placing the first matching point flips the
+# reference to that camera and the guidance vanishes exactly when it is being
+# used.
+
+def test_freeze_checkbox_exists_and_starts_disabled_and_unchecked(html):
+    assert 'id="fl3d-epiline-freeze"' in html
+    box = html.split('id="fl3d-epiline-freeze"')[1].split(">")[0]
+    assert "disabled" in box, "must start disabled — nothing to freeze yet"
+    assert "checked" not in box, "must start unchecked"
+
+
+def test_freeze_advertises_its_shortcut(html):
+    assert "(PP)" in html
+
+
+def test_freeze_is_gated_on_the_overlay_being_on(js):
+    """Freezing with no lines on screen is meaningless, and a freeze that
+    outlived the overlay would silently pin the reference for the next run."""
+    fn = js.split("function _fl3dRefreshFreezeGate")[1].split("\n    }")[0]
+    assert "flEpiFreeze.disabled = !_fl3dEpiOn" in fn
+    assert "_fl3dSetEpiFrozen(false)" in fn, (
+        "turning the overlay off must release the freeze"
+    )
+
+
+def test_note_edit_does_not_move_the_reference_while_frozen(js):
+    """The whole feature: an edit on the target camera must not steal the
+    reference and send the lines to the other tile."""
+    fn = js.split("function _fl3dEpiNoteEdit")[1].split("\n    }")[0]
+    assert "!_fl3dEpiFrozen" in fn, "frozen edits must not reassign the reference"
+    assert "_fl3dEpiSchedule()" in fn, (
+        "a frozen edit must STILL recompute — edits on the reference camera "
+        "move its own lines"
+    )
+
+
+def test_frame_change_keeps_the_reference_while_frozen_but_still_recomputes(js):
+    """Freeze pins the camera across frames; it must not pin the geometry, or
+    the lines would describe a frame that is no longer on screen."""
+    body = js.split("function _flShowFrame")[1]
+    seg = body.split("_fl3dEpiRecompute()")[0]
+    assert "if (!_fl3dEpiFrozen) _fl3dEpiRefCam = _fl3dFocusedCam" in seg, (
+        "a frame change must not reset the reference while frozen"
+    )
+    assert "_fl3dEpiSegments = {}" in seg, (
+        "the previous frame's lines must still be cleared — freezing the "
+        "camera must never freeze stale geometry onto a new frame"
+    )
+
+
+def test_double_p_toggles_freeze_and_undoes_the_first_press(js):
+    """The single toggle fires immediately, so the second press has to revert
+    it or PP would leave the overlay in the wrong state."""
+    block = js.split("document.addEventListener(\"keydown\"")[1]
+    idx = block.lower().index('"p"')
+    guard = block[max(0, idx - 400): idx + 900]
+    assert "classifyPPress" in guard, "PP must use the unit-tested classifier"
+    assert "_fl3dSetEpiFrozen" in guard, "double-tap must toggle the freeze"
+    assert "revert" in guard, "the double must undo the single that already fired"
+
+
+def test_freeze_uses_the_shared_classifier_not_a_hand_rolled_timer(js):
+    """The timing rules are unit-tested in epiline_request.mjs; a second copy
+    here would put them beyond that test's reach."""
+    assert "classifyPPress" in js
+    assert "internal/epiline_request.mjs" in js
