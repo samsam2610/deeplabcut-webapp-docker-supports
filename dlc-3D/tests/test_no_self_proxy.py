@@ -29,20 +29,54 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
-pytest.importorskip(
-    "base_app",
-    reason="base_app is baked into the dlc-3d image; run these in the container",
-)
+APP_PY = Path(__file__).parent.parent / "src" / "app.py"
 
-import app as dlc_app  # noqa: E402
+
+def test_the_override_is_present_in_source():
+    """Runs everywhere, including on the host.
+
+    The behavioural tests below need `base_app`, which exists only inside the
+    built image — and that image has no pytest, so in practice they always
+    skip. Without this one, deleting the override would sail through a green
+    suite. Source assertion, but it is the only guard that actually executes.
+    """
+    # Comment lines are stripped first. A plain substring check passes against
+    # `#app.view_functions[...] = ...`, which is exactly the mutation this test
+    # exists to catch — verified by commenting the line out and watching the
+    # naive version stay green.
+    code = "\n".join(
+        line for line in APP_PY.read_text().splitlines()
+        if not line.lstrip().startswith("#")
+    )
+    assert 'app.view_functions["proxy_dlc_3d"]' in code, (
+        "the inherited proxy_dlc_3d view is no longer overridden; "
+        "GET /dlc-3d/ will proxy to this container itself and hang for 60 s"
+    )
+    assert "def _serve_index_never_self_proxy" in code
 
 
 @pytest.fixture(scope="module")
-def url_map():
+def dlc_app():
+    """dlc-3D's app.py — importable only inside the built image.
+
+    The skip lives here, not at module scope: a module-level importorskip
+    aborts collection for the WHOLE file, which silently took
+    test_the_override_is_present_in_source with it.
+    """
+    pytest.importorskip(
+        "base_app",
+        reason="base_app is baked into the dlc-3d image; run these in the container",
+    )
+    import app as _app
+    return _app
+
+
+@pytest.fixture(scope="module")
+def url_map(dlc_app):
     return dlc_app.app.url_map.bind("localhost")
 
 
-def test_index_does_not_route_to_the_proxy(url_map):
+def test_index_does_not_route_to_the_proxy(dlc_app, url_map):
     """The exact bug: '/dlc-3d/' resolving to a view that forwards to us.
 
     Asserts on the VIEW that would actually run, not the endpoint name —
@@ -79,7 +113,7 @@ def test_api_routes_still_beat_the_proxy(url_map):
         )
 
 
-def test_unmatched_paths_404_rather_than_hang():
+def test_unmatched_paths_404_rather_than_hang(dlc_app):
     """Previously an unmatched /dlc-3d/* self-proxied and hung; 404 is correct."""
     client = dlc_app.app.test_client()
     assert client.get("/dlc-3d/definitely-not-a-real-route").status_code == 404
