@@ -1407,6 +1407,26 @@ import { nameLabelBox } from './components/viewer/internal/name_label.mjs';
       cb.addEventListener("change", () => _fl3dSetEpiShown(cam, cb.checked));
     }
 
+    /** P: toggle the FOCUSED tile's overlay.
+     *
+     * Deliberately scoped to the focused tile rather than acting globally —
+     * the toggle is per tile now, so a keyboard shortcut that flipped both
+     * would not correspond to any control on screen. Honours the same gate as
+     * the checkbox, and drives it through _fl3dSetEpiShown so the state and
+     * the box cannot drift; assigning cb.checked alone fires no change event.
+     */
+    function _fl3dToggleEpiForFocusedCam() {
+      const cam = _fl3dFocusedCam;
+      if (!Number.isFinite(cam)) return;
+      const tile = _fl3dEpiTileFor(cam);
+      if (!tile) return;
+      const cb = tile.querySelector(".fl3d-tile-epi-cb");
+      if (!cb || cb.disabled) return;          // gate closed: P is a no-op
+      const next = !_fl3dEpiShow.get(cam);
+      _fl3dSetEpiShown(cam, next);
+      cb.checked = next;
+    }
+
     /** Re-apply the gate to every tile on screen. */
     function _fl3dRefreshEpiGate() {
       for (const tile of _fl3dEpiTiles()) {
@@ -2007,6 +2027,14 @@ import { nameLabelBox } from './components/viewer/internal/name_label.mjs';
           _flDraw();
           return;
         }
+      }
+
+      // P — toggle the epipolar overlay on the FOCUSED tile. The whole-handler
+      // guard above already stops this firing while the user is typing.
+      if (e.key.toLowerCase() === "p") {
+        e.preventDefault();
+        _fl3dToggleEpiForFocusedCam();
+        return;
       }
 
       // L — toggle "Lock body-part selection" (case-insensitive, so Shift+L works too)

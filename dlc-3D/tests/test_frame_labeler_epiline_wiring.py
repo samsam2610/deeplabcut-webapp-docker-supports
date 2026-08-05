@@ -419,3 +419,34 @@ def test_no_init_time_read_hits_a_temporal_dead_zone(js):
             "on that call path. That is a temporal dead zone: init throws "
             "ReferenceError and the frame labeler stops rendering frames."
         )
+
+
+# ── P shortcut, scoped to the focused tile ──────────────────────────────────
+
+def test_p_toggles_only_the_focused_tile(js):
+    """The toggle is per tile, so a shortcut that flipped both would match no
+    control on screen."""
+    fn = js.split("function _fl3dToggleEpiForFocusedCam")[1].split("\n    }")[0]
+    assert "_fl3dFocusedCam" in fn, "P must act on the focused camera"
+    assert "_fl3dSetEpiShown(cam, next)" in fn, (
+        "must go through the setter so state and checkbox cannot drift — "
+        "assigning cb.checked alone fires no change event"
+    )
+    assert "cb.checked = next" in fn, "the box must follow the state"
+
+
+def test_p_respects_the_gate(js):
+    fn = js.split("function _fl3dToggleEpiForFocusedCam")[1].split("\n    }")[0]
+    assert "cb.disabled" in fn, (
+        "P must be inert when the checkbox is disabled, or the key bypasses "
+        "the sync/calibration gate the box enforces"
+    )
+
+
+def test_p_is_bound_and_cannot_fire_while_typing(js):
+    block = js.split("document.addEventListener(\"keydown\"")[1]
+    assert 'e.key.toLowerCase() === "p"' in block, "P must be bound"
+    # The handler-wide guard must come first, or P fires inside text fields.
+    assert block.index("TEXTAREA") < block.index('e.key.toLowerCase() === "p"'), (
+        "the typing guard must precede the P branch"
+    )
