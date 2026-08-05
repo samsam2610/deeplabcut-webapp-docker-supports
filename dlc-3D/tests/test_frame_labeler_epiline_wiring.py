@@ -25,44 +25,11 @@ def html():
     return HTML.read_text()
 
 
-def test_checkbox_and_hint_exist(html):
-    assert 'id="fl3d-epiline"' in html
-    assert 'id="fl3d-epiline-hint"' in html
-
-
-def test_checkbox_advertises_its_shortcut(html):
-    """Every other labeler toggle shows its key; this one must too."""
-    assert "(P)" in html
-
-
 def test_gate_uses_the_shared_helper(js):
     """The three gating rules are unit-tested in epiline_request.mjs. Wiring a
     second, hand-rolled copy here would put them beyond that test's reach."""
     assert "epiGateReason" in js
     assert "internal/epiline_request.mjs" in js
-
-
-def test_p_is_bound_and_does_not_fire_while_typing(js):
-    assert '"p"' in js.lower()
-    block = js.split("document.addEventListener(\"keydown\"")[1]
-    assert "INPUT" in block or "tagName" in block, (
-        "P must not toggle while the user is typing in a field"
-    )
-
-
-def test_p_respects_the_disabled_gate(js):
-    """Otherwise the key bypasses the very gate the checkbox enforces.
-
-    Scoped to the keydown handler on purpose: _fl3dRefreshEpiGate assigns
-    `flEpiCheckbox.disabled`, so an unscoped substring check would pass even
-    with the P handler wide open.
-    """
-    block = js.split("document.addEventListener(\"keydown\"")[1]
-    idx = block.lower().index('"p"')
-    guard = block[max(0, idx - 200): idx + 400]
-    assert "disabled" in guard, (
-        "the P branch must consult the checkbox's disabled state"
-    )
 
 
 def test_calibration_field_is_read_from_labeled_frames(js):
@@ -78,27 +45,6 @@ def _epi_block(js):
 
 def test_debounce_is_two_seconds(js):
     assert "FL3D_EPI_DEBOUNCE_MS = 2000" in js
-
-
-def test_enabling_does_not_wait_for_the_debounce(js):
-    """A 2 s blank after ticking the box reads as the feature being broken.
-    The debounce exists for label edits only."""
-    setter = js.split("function _fl3dSetEpiEnabled")[1].split("\n    }")[0]
-    assert "_fl3dEpiRecompute()" in setter, (
-        "enabling must call recompute directly"
-    )
-    assert "setTimeout" not in setter and "FL3D_EPI_DEBOUNCE_MS" not in setter, (
-        "enabling must compute immediately, not schedule the debounce"
-    )
-
-
-def test_toggling_off_clears_stored_segments(js):
-    setter = js.split("function _fl3dSetEpiEnabled")[1].split("\n    }")[0]
-    assert "} else {" in setter, "expected an explicit disable branch"
-    disable_branch = setter.split("} else {")[1]
-    assert "_fl3dEpiSegments = {}" in disable_branch, (
-        "a stale line must not outlive the toggle"
-    )
 
 
 def test_the_draw_path_never_fetches(js):
@@ -129,7 +75,7 @@ def test_a_generation_counter_guards_the_async_draw(js):
     block = _epi_block(js)
     assert "_fl3dEpiGen" in block
     assert "++_fl3dEpiGen" in block
-    fn = js.split("function _fl3dEpiRecompute")[1].split("\n    }")[0]
+    fn = js.split("function _fl3dEpiRecomputeOne")[1].split("\n    }")[0]
     awaits = fn.split("await")[1:]
     assert len(awaits) >= 2, "expected two awaits: the fetch and the .json() parse"
     for i, chunk in enumerate(awaits):
@@ -139,24 +85,6 @@ def test_a_generation_counter_guards_the_async_draw(js):
             f"await #{i + 1} in _fl3dEpiRecompute must be followed immediately "
             "by a _fl3dEpiGen recheck, before the response is used"
         )
-
-
-def test_reference_camera_is_the_last_edited_not_the_focused_one(js):
-    """Projecting from the focused camera makes the lines vanish the moment the
-    user clicks over to use them."""
-    block = _epi_block(js)
-    assert "_fl3dEpiRefCam" in block
-    fn = js.split("function _fl3dEpiRecompute")[1].split("\n    }")[0]
-    assert "_fl3dFocusedCam" not in fn, (
-        "recompute must use _fl3dEpiRefCam, not the focused cam"
-    )
-
-
-def test_lines_are_drawn_on_the_non_reference_tile(js):
-    fn = js.split("function _fl3dDrawTileMarkers")[1].split("\n    function ")[0]
-    assert "!== _fl3dEpiRefCam" in fn, (
-        "lines must be drawn on the tile that is NOT the reference"
-    )
 
 
 def test_style_matches_the_reprojection_card(js):
@@ -224,9 +152,9 @@ def test_sibling_tile_click_notes_the_edit(js):
     actually clicked, not whatever _fl3dFocusedCam happened to hold."""
     block = _block(js, 'canvas.addEventListener("click", (e) => {', "\n        });")
     assert "_flLabels[fname][_flSelectedBp] = [cx, cy]" in block
-    assert "_fl3dEpiNoteEdit(+tile.dataset.cam)" in block
+    assert "_fl3dEpiNoteEdit()" in block
     assert (block.index("_flLabels[fname][_flSelectedBp] = [cx, cy]")
-            < block.index("_fl3dEpiNoteEdit(+tile.dataset.cam)")), (
+            < block.index("_fl3dEpiNoteEdit()")), (
         "the edit must be noted after the label is written"
     )
 
@@ -237,9 +165,9 @@ def test_sibling_tile_rightclick_notes_the_edit(js):
     second camera in sync mode."""
     block = _block(js, 'canvas.addEventListener("contextmenu", (e) => {', "\n        });")
     assert "_flLabels[fname][_flSelectedBp] = null" in block
-    assert "_fl3dEpiNoteEdit(+tile.dataset.cam)" in block
+    assert "_fl3dEpiNoteEdit()" in block
     assert (block.index("_flLabels[fname][_flSelectedBp] = null")
-            < block.index("_fl3dEpiNoteEdit(+tile.dataset.cam)")), (
+            < block.index("_fl3dEpiNoteEdit()")), (
         "the edit must be noted after the label is cleared"
     )
 
@@ -309,111 +237,6 @@ def test_clear_frame_notes_the_edit(js):
     )
 
 
-# ── Freeze-to-this-camera (PP) ──────────────────────────────────────────────
-# Freezing pins the REFERENCE CAMERA, not the geometry: the lines still
-# recompute on every label edit and every frame change, so they always describe
-# the frame on screen. Without it, placing the first matching point flips the
-# reference to that camera and the guidance vanishes exactly when it is being
-# used.
-
-def test_freeze_checkbox_exists_and_starts_disabled_and_unchecked(html):
-    assert 'id="fl3d-epiline-freeze"' in html
-    box = html.split('id="fl3d-epiline-freeze"')[1].split(">")[0]
-    assert "disabled" in box, "must start disabled — nothing to freeze yet"
-    assert "checked" not in box, "must start unchecked"
-
-
-def test_freeze_advertises_its_shortcut(html):
-    assert "(PP)" in html
-
-
-def test_freeze_is_gated_on_the_overlay_being_on(js):
-    """Freezing with no lines on screen is meaningless, and a freeze that
-    outlived the overlay would silently pin the reference for the next run."""
-    fn = js.split("function _fl3dRefreshFreezeGate")[1].split("\n    }")[0]
-    assert "flEpiFreeze.disabled = !_fl3dEpiOn" in fn
-    assert "_fl3dSetEpiFrozen(false)" in fn, (
-        "turning the overlay off must release the freeze"
-    )
-
-
-def test_note_edit_does_not_move_the_reference_while_frozen(js):
-    """The whole feature: an edit on the target camera must not steal the
-    reference and send the lines to the other tile."""
-    fn = js.split("function _fl3dEpiNoteEdit")[1].split("\n    }")[0]
-    assert "!_fl3dEpiFrozen" in fn, "frozen edits must not reassign the reference"
-    assert "_fl3dEpiSchedule()" in fn, (
-        "a frozen edit must STILL recompute — edits on the reference camera "
-        "move its own lines"
-    )
-
-
-def test_frame_change_keeps_the_reference_while_frozen_but_still_recomputes(js):
-    """Freeze pins the camera across frames; it must not pin the geometry, or
-    the lines would describe a frame that is no longer on screen."""
-    body = js.split("function _flShowFrame")[1]
-    seg = body.split("_fl3dEpiRecompute()")[0]
-    assert "if (!_fl3dEpiFrozen) _fl3dEpiRefCam = _fl3dFocusedCam" in seg, (
-        "a frame change must not reset the reference while frozen"
-    )
-    assert "_fl3dEpiSegments = {}" in seg, (
-        "the previous frame's lines must still be cleared — freezing the "
-        "camera must never freeze stale geometry onto a new frame"
-    )
-
-
-def test_double_p_toggles_freeze_and_undoes_the_first_press(js):
-    """The single toggle fires immediately, so the second press has to revert
-    it or PP would leave the overlay in the wrong state."""
-    block = js.split("document.addEventListener(\"keydown\"")[1]
-    idx = block.lower().index('"p"')
-    guard = block[max(0, idx - 400): idx + 900]
-    assert "classifyPPress" in guard, "PP must use the unit-tested classifier"
-    assert "_fl3dSetEpiFrozen" in guard, "double-tap must toggle the freeze"
-    assert "revert" in guard, "the double must undo the single that already fired"
-
-
-def test_freeze_uses_the_shared_classifier_not_a_hand_rolled_timer(js):
-    """The timing rules are unit-tested in epiline_request.mjs; a second copy
-    here would put them beyond that test's reach."""
-    assert "classifyPPress" in js
-    assert "internal/epiline_request.mjs" in js
-
-
-def test_init_time_gate_state_is_declared_before_the_init_call(js):
-    """Temporal-dead-zone guard. This shipped broken once (2026-08-05).
-
-    `_fl3dRefreshEpiGate()` is invoked once during module init. It reaches
-    `_fl3dRefreshFreezeGate`, which reads `_fl3dEpiFrozen`. `let` bindings are
-    NOT hoisted — reading one before its declaration executes throws
-    ReferenceError, which aborts the whole `initFl3d` IIFE and leaves the
-    labeler dead: the folder dropdown populates, then selecting one shows no
-    frame at all.
-
-    Declaring the freeze state down in the EPIPOLAR OVERLAY section put it ~500
-    lines AFTER the init call. `node --check` cannot see this (it is a runtime
-    error, not a syntax one) and no existing test executed the module, so it
-    reached production. Assert the ordering directly.
-    """
-    lines = js.splitlines()
-
-    def line_of(needle):
-        for i, line in enumerate(lines):
-            if needle in line:
-                return i
-        raise AssertionError(f"not found: {needle}")
-
-    init_call = line_of("    _fl3dRefreshEpiGate();")
-    for decl in ("let _fl3dEpiFrozen", "let _fl3dLastPPress",
-                 "let _fl3dEpiOn", "let _fl3dEpiCalib"):
-        assert line_of(decl) < init_call, (
-            f"`{decl}` is declared at line {line_of(decl) + 1}, after the "
-            f"init-time _fl3dRefreshEpiGate() call at line {init_call + 1}. "
-            "That is a temporal dead zone: init throws ReferenceError and the "
-            "frame labeler stops rendering frames entirely."
-        )
-
-
 # ── Selected-marker emphasis ────────────────────────────────────────────────
 
 def test_the_selected_bodypart_line_is_emphasised(js):
@@ -476,3 +299,80 @@ def test_auto_advance_is_judged_on_the_frame_just_labelled(js):
             f"{c!r} passes no frame, so it falls back to the focused tile "
             "and stalls in sync mode"
         )
+
+
+# ── Per-tile toggles ────────────────────────────────────────────────────────
+# Each camera tile owns a checkbox. Ticking it shows, on THAT tile, the lines
+# projected from the OTHER camera. That makes the reference explicit, which is
+# what let the old global toggle, the "freeze" flag and the P/PP shortcuts all
+# be deleted.
+
+def test_both_tile_headers_carry_a_disabled_checkbox(html, js):
+    """Primary comes from the template, siblings are built in JS. Both, or the
+    control silently exists on only one camera."""
+    assert 'class="fl3d-tile-epi-cb" disabled' in html, "primary tile header"
+    assert 'class="fl3d-tile-epi-cb" disabled' in js, "sibling tile header"
+
+
+def test_the_removed_controls_are_gone(html, js):
+    """The global toggle, the freeze box and the shortcuts were replaced, not
+    supplemented — leaving either would give two ways to mean the same thing."""
+    for gone in ('id="fl3d-epiline"', 'id="fl3d-epiline-freeze"'):
+        assert gone not in html, f"{gone} should have been removed"
+    for gone in ("_fl3dEpiOn", "_fl3dEpiFrozen", "_fl3dSetEpiFrozen",
+                 "classifyPPress", "_fl3dLastPPress", "_fl3dEpiRefCam"):
+        assert gone not in js, f"{gone} survives the per-tile redesign"
+
+
+def test_no_p_shortcut_remains(js):
+    block = js.split("document.addEventListener(\"keydown\"")[1]
+    assert 'e.key === "p"' not in block and 'e.key === "P"' not in block, (
+        "the P/PP shortcuts were removed by request"
+    )
+
+
+def test_a_tile_projects_from_the_other_camera(js):
+    """The defining behaviour: cam1's box shows lines computed FROM cam0."""
+    fn = js.split("function _fl3dEpiSourceFor")[1].split("\n    }")[0]
+    assert "!== cam" in fn, "the source must be the tile that is NOT this one"
+    one = js.split("function _fl3dEpiRecomputeOne")[1].split("\n    }")[0]
+    assert "_fl3dEpiSourceFor(cam)" in one
+    assert "ref_cam=${src}&tgt_cam=${cam}" in one, (
+        "the request must project FROM the other camera ONTO this tile"
+    )
+
+
+def test_state_is_keyed_by_camera_not_by_tile_element(js):
+    """_fl3dSyncRenderRow rebuilds the tiles every frame change; a choice
+    stored on the element would be lost on the next frame."""
+    block = _epi_block(js)
+    assert "_fl3dEpiShow     = new Map()" in block
+    assert "_fl3dEpiSegments = new Map()" in block
+
+
+def test_tiles_are_rewired_after_every_row_render(js):
+    """Rebuilt tiles come back with fresh, unbound, unchecked boxes."""
+    fn = js.split("function _fl3dSyncRenderRow")[1].split("\n    function ")[0]
+    assert "_fl3dRefreshEpiGate()" in fn, (
+        "without this the checkboxes go dead and lose their state on the "
+        "next frame — the 'state cleared, not re-established' trap"
+    )
+
+
+def test_wiring_restores_stored_state_and_binds_once(js):
+    fn = js.split("function _fl3dWireTileEpi")[1].split("\n    }")[0]
+    assert "cb.checked = !!_fl3dEpiShow.get(cam)" in fn, "must restore the choice"
+    assert "_fl3dEpiBound" in fn, (
+        "the change listener must be bound once, not stacked on every re-wire"
+    )
+    assert fn.index("_fl3dEpiBound") < fn.index("addEventListener"), (
+        "the guard must come before the bind, or it never prevents anything"
+    )
+
+
+def test_each_tile_draws_only_its_own_segments(js):
+    fn = js.split("function _fl3dDrawEpilines")[1].split("\n    /**")[0]
+    assert "_fl3dEpiShow.get(cam)" in fn, "a tile with its box off must draw nothing"
+    assert "_fl3dEpiSegments.get(cam)" in fn, (
+        "each tile draws the lines computed for IT, not a shared set"
+    )

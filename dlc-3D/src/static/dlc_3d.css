@@ -191,6 +191,27 @@
   color: var(--text-dim);
   font-family: var(--mono);
 }
+/* Per-tile epipolar toggle. Sits between the cam label and the size slider;
+   `auto` left-margin pushes it and the slider to the right of the label. */
+.fl3d-tile-epi {
+  display: flex;
+  align-items: center;
+  gap: .25rem;
+  margin-left: auto;
+  font-size: .7rem;
+  color: var(--text-dim);
+  font-family: var(--mono);
+  cursor: pointer;
+  user-select: none;
+}
+.fl3d-tile-epi input {
+  accent-color: var(--accent);
+  margin: 0;
+  cursor: pointer;
+}
+.fl3d-tile-epi input:disabled { cursor: not-allowed; }
+.fl3d-tile-epi:has(input:disabled) { opacity: .45; cursor: not-allowed; }
+
 .fl3d-tile-size {
   width: 70px;
   accent-color: var(--accent);

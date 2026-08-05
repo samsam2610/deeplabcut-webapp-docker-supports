@@ -2,8 +2,7 @@
 import { _populateGpuSelect } from '/static/js/training.js';
 import { buildPairMap, FL3D_FRAME_RE } from './pair_map.mjs';
 export { FL3D_FRAME_RE, buildPairMap } from './pair_map.mjs';
-import { epiGateReason, collectRefPoints, payloadSignature,
-         classifyPPress }
+import { epiGateReason, collectRefPoints, payloadSignature }
   from './internal/epiline_request.mjs';
 import { labelAnchor } from './internal/epiline_label.mjs';
 import { nameLabelBox } from './components/viewer/internal/name_label.mjs';
@@ -41,10 +40,6 @@ import { nameLabelBox } from './components/viewer/internal/name_label.mjs';
     const flMarkerSizeVal   = document.getElementById("fl3d-marker-size-val");
     const flShowNamesInput  = document.getElementById("fl3d-show-names");
     const fl3dLockBp        = document.getElementById("fl3d-lock-bp");
-    const flEpiCheckbox     = document.getElementById("fl3d-epiline");
-    const flEpiHint         = document.getElementById("fl3d-epiline-hint");
-    const flEpiFreeze       = document.getElementById("fl3d-epiline-freeze");
-    const flEpiFreezeHint   = document.getElementById("fl3d-epiline-freeze-hint");
 
     // ── TAPNet propagation elements ──────────────────────────────
     const flTapCheckbox      = document.getElementById("fl3d-tap-checkbox");
@@ -117,17 +112,7 @@ import { nameLabelBox } from './components/viewer/internal/name_label.mjs';
     let _fl3dFrameNumbers = [];
     let _fl3dPrimaryCam   = 0;
     let _fl3dSyncOn        = false;
-    let _fl3dEpiOn         = false;
     let _fl3dEpiCalib      = { exists: false, cams: [] };
-    // MUST be declared here, beside the other epi state, NOT down in the
-    // overlay section further below: _fl3dRefreshEpiGate() runs during init
-    // and reads these through _fl3dRefreshFreezeGate. `let` has a temporal
-    // dead zone, so declaring them after that call throws ReferenceError and
-    // takes the whole labeler module down with it. (Keep the words of this
-    // comment clear of that section's banner text — the wiring tests slice
-    // the file on it.)
-    let _fl3dEpiFrozen     = false;
-    let _fl3dLastPPress    = null;  // timestamp of the previous P, for PP
     let _fl3dFocusedCam    = 0;
     let _fl3dHoveredCam    = null;
     let _fl3dFrameNumIdx   = 0;
@@ -762,70 +747,8 @@ import { nameLabelBox } from './components/viewer/internal/name_label.mjs';
     // ── Epipolar-line overlay: gate + toggle ─────────────────────
     // Enable the overlay only when it can actually draw, and say why when it
     // cannot — a checkbox that is simply dead teaches the user nothing.
-    function _fl3dRefreshEpiGate() {
-      if (!flEpiCheckbox) return;
-      const camCount = _fl3dSyncOn
-        ? document.querySelectorAll("#fl3d-canvas-row .fl3d-tile").length
-        : 1;
-      const reason = epiGateReason({
-        syncOn:            _fl3dSyncOn,
-        calibrationExists: !!_fl3dEpiCalib.exists,
-        camCount,
-      });
-      flEpiCheckbox.disabled = !!reason;
-      if (flEpiHint) flEpiHint.textContent = reason || "(P)";
-      if (reason && _fl3dEpiOn) _fl3dSetEpiEnabled(false);
-      _fl3dRefreshFreezeGate();
-    }
-
-    /** Freezing is meaningless with no lines on screen, so it rides on the
-     *  overlay: enabled only while the overlay is on, and released with it. */
-    function _fl3dRefreshFreezeGate() {
-      if (!flEpiFreeze) return;
-      flEpiFreeze.disabled = !_fl3dEpiOn;
-      if (!_fl3dEpiOn && _fl3dEpiFrozen) _fl3dSetEpiFrozen(false);
-      if (flEpiFreezeHint) {
-        flEpiFreezeHint.textContent = _fl3dEpiOn
-          ? "(PP)"
-          : "turn on epipolar lines first";
-      }
-    }
-
-    function _fl3dSetEpiFrozen(on) {
-      _fl3dEpiFrozen = !!on;
-      if (flEpiFreeze) flEpiFreeze.checked = _fl3dEpiFrozen;
-      if (_fl3dEpiFrozen && !Number.isFinite(_fl3dEpiRefCam)) {
-        _fl3dEpiRefCam = _fl3dFocusedCam;
-      }
-    }
-
-    function _fl3dSetEpiEnabled(on) {
-      _fl3dEpiOn = !!on;
-      if (flEpiCheckbox) flEpiCheckbox.checked = _fl3dEpiOn;
-      if (_fl3dEpiTimer) { clearTimeout(_fl3dEpiTimer); _fl3dEpiTimer = null; }
-      _fl3dEpiSig = "";
-      if (_fl3dEpiOn) {
-        if (!Number.isFinite(_fl3dEpiRefCam)) _fl3dEpiRefCam = _fl3dFocusedCam;
-        // Immediate — the labels are already settled and the user is waiting.
-        _fl3dEpiRecompute();
-      } else {
-        _fl3dEpiSegments = {};
-        _fl3dEpiRepaintTarget();
-      }
-      _fl3dRefreshFreezeGate();
-    }
-
-    flEpiFreeze?.addEventListener("change", () => {
-      _fl3dSetEpiFrozen(flEpiFreeze.checked);
-    });
-
-    flEpiCheckbox?.addEventListener("change", () => {
-      _fl3dSetEpiEnabled(flEpiCheckbox.checked);
-    });
-
-    // Establish the gate's initial state at setup — otherwise the checkbox
-    // reads enabled with hint "(P)" and does nothing until the first
-    // stem/sync interaction calls _fl3dRefreshEpiGate() itself.
+    // Establish each tile's gate at setup, so the per-tile boxes are never
+    // enabled-but-inert before the first stem/sync interaction.
     _fl3dRefreshEpiGate();
 
     // ── Load bodyparts + stems ───────────────────────────────────
@@ -1089,9 +1012,6 @@ import { nameLabelBox } from './components/viewer/internal/name_label.mjs';
         flFrameInfo.textContent = `Frame ${idx + 1} / ${_fl3dFrameNumbers.length}`;
         // Update primary fname display from the focused tile after render
         _fl3dSyncRenderRow(frameNum);
-        // Frozen pins the reference camera ACROSS frames — that is the whole
-        // point. The lines below still recompute, so they describe this frame.
-        if (!_fl3dEpiFrozen) _fl3dEpiRefCam = _fl3dFocusedCam;
         _fl3dEpiSig = "";                   // force a recompute for this frame
         _fl3dEpiSegments = {};              // don't paint the previous frame's lines
         _fl3dEpiRecompute();                // immediate; the labels are settled
@@ -1188,6 +1108,9 @@ import { nameLabelBox } from './components/viewer/internal/name_label.mjs';
         tile.innerHTML = `
           <div class="fl3d-tile-header">
             <span class="fl3d-tile-label">cam${cam}</span>
+            <label class="fl3d-tile-epi" title="Show epipolar lines projected from the other camera">
+              <input type="checkbox" class="fl3d-tile-epi-cb" disabled>epi
+            </label>
             <input type="range" class="fl3d-tile-size" min="50" max="300" step="25" value="${_w}">
             <span class="fl3d-tile-size-val">${_w}%</span>
           </div>
@@ -1199,6 +1122,9 @@ import { nameLabelBox } from './components/viewer/internal/name_label.mjs';
       }
 
       _fl3dApplyFocusClass();
+      // Tiles were just rebuilt: re-bind each one's epi checkbox and restore
+      // the camera's stored choice, which must outlive the DOM.
+      _fl3dRefreshEpiGate();
     }
 
     function _fl3dRenderTile(tile, cam, entry, frameNum) {
@@ -1270,7 +1196,7 @@ import { nameLabelBox } from './components/viewer/internal/name_label.mjs';
           if (!_flSelectedBp) return;
           if (!_flLabels[fname]) _flLabels[fname] = {};
           _flLabels[fname][_flSelectedBp] = [cx, cy];
-          _fl3dEpiNoteEdit(+tile.dataset.cam);
+          _fl3dEpiNoteEdit();
           _fl3dDirtyFrames.add(fname);
           _flDirty = true;
           _fl3dDrawTileMarkers(tile, fname);
@@ -1311,7 +1237,7 @@ import { nameLabelBox } from './components/viewer/internal/name_label.mjs';
           const fname = tile.dataset.fname;
           if (!_flLabels[fname]) return;
           _flLabels[fname][_flSelectedBp] = null;
-          _fl3dEpiNoteEdit(+tile.dataset.cam);
+          _fl3dEpiNoteEdit();
           _fl3dDirtyFrames.add(fname);
           _flDirty = true;
           _fl3dDrawTileMarkers(tile, fname);
@@ -1322,41 +1248,52 @@ import { nameLabelBox } from './components/viewer/internal/name_label.mjs';
     }
 
     // ── EPIPOLAR OVERLAY ─────────────────────────────────────────────────
-    // Projects every point labelled on the reference camera onto the other
-    // tile. The reference is the camera whose labels last CHANGED, not the
-    // focused one: projecting from the focused camera would make the lines
-    // vanish at the moment the user clicks across to use them.
+    // One checkbox per camera tile. Ticking a tile's box shows, ON THAT TILE,
+    // the epipolar lines projected from the OTHER camera's labels — so the box
+    // reads as "show me where the other camera says these points must lie".
+    //
+    // Each tile owning its own toggle is what removes the ambiguity: ticking
+    // cam1 means cam0 is the reference, full stop. An earlier design inferred
+    // the reference from whichever camera was edited last, so the lines hopped
+    // tiles mid-task and needed a "freeze" flag plus a keyboard shortcut to
+    // hold them still. Making the choice explicit per tile deleted all of it.
 
     const FL3D_EPI_DEBOUNCE_MS = 2000;
     const FL3D_EPI_LABEL_STEP  = 14;   // matches the marker name-label height
 
-    let _fl3dEpiSegments = {};    // bodypart -> [[x1,y1],[x2,y2]] | null
-    let _fl3dEpiRefCam   = null;  // cam index whose labels were last edited
-    let _fl3dEpiTimer    = null;
-    let _fl3dEpiGen      = 0;     // stale-response guard
-    let _fl3dEpiSig      = "";    // signature of the last issued request
-    // Freeze pins the REFERENCE CAMERA, not the geometry. The lines still
-    // recompute on every label edit and every frame change, so they always
-    // describe the frame on screen — freezing only stops them hopping to the
-    // other tile. Without it, placing your first matching point flips the
-    // reference to that camera and the guidance you were using disappears
-    // exactly when you start acting on it.
+    // Keyed by CAMERA, not by tile element: _fl3dSyncRenderRow rebuilds the
+    // tiles on every frame change, and the user's choice has to outlive that.
+    const _fl3dEpiShow     = new Map();   // cam -> bool
+    const _fl3dEpiSegments = new Map();   // cam -> {bodypart: segment|null}
+    const _fl3dEpiSig      = new Map();   // cam -> last issued payload signature
+    let _fl3dEpiTimer = null;
+    let _fl3dEpiGen   = 0;                // stale-response guard
 
-    /** A label changed on `cam` — that camera becomes the reference.
-     *
-     * While frozen the reference stays put, but the recompute is still
-     * scheduled: edits on the reference camera must move its own lines. Edits
-     * on the target camera cost nothing, since an unchanged payload signature
-     * short-circuits before any request goes out.
-     */
-    function _fl3dEpiNoteEdit(cam) {
-      if (!_fl3dEpiFrozen && Number.isFinite(cam)) _fl3dEpiRefCam = cam;
+    function _fl3dEpiTiles() {
+      return Array.from(document.querySelectorAll("#fl3d-canvas-row .fl3d-tile"));
+    }
+
+    function _fl3dEpiCamsShown() {
+      return _fl3dEpiTiles()
+        .map((t) => +t.dataset.cam)
+        .filter((c) => Number.isFinite(c) && _fl3dEpiShow.get(c));
+    }
+
+    /** The camera an overlay on `cam` projects FROM: the other tile. */
+    function _fl3dEpiSourceFor(cam) {
+      const other = _fl3dEpiTiles()
+        .map((t) => +t.dataset.cam)
+        .find((c) => Number.isFinite(c) && c !== cam);
+      return other === undefined ? null : other;
+    }
+
+    /** A label changed anywhere — refresh every overlay that is on. Debounced. */
+    function _fl3dEpiNoteEdit() {
       _fl3dEpiSchedule();
     }
 
-    /** Debounced: only label edits come through here. */
     function _fl3dEpiSchedule() {
-      if (!_fl3dEpiOn) return;
+      if (!_fl3dEpiCamsShown().length) return;
       if (_fl3dEpiTimer) clearTimeout(_fl3dEpiTimer);
       _fl3dEpiTimer = setTimeout(() => {
         _fl3dEpiTimer = null;
@@ -1369,37 +1306,32 @@ import { nameLabelBox } from './components/viewer/internal/name_label.mjs';
         `#fl3d-canvas-row .fl3d-tile[data-cam="${cam}"]`);
     }
 
-    /** Repaint whichever tile carries the lines. */
-    function _fl3dEpiRepaintTarget() {
-      if (!_fl3dSyncOn) return;   // no sibling tile to paint outside sync mode
-      const tiles = document.querySelectorAll("#fl3d-canvas-row .fl3d-tile");
-      tiles.forEach((t) => {
-        if (+t.dataset.cam !== _fl3dEpiRefCam && t.dataset.fname) {
-          _fl3dDrawTileMarkers(t, t.dataset.fname);
-        }
-      });
+    function _fl3dEpiRepaint(cam) {
+      const tile = _fl3dEpiTileFor(cam);
+      if (tile && tile.dataset.fname) _fl3dDrawTileMarkers(tile, tile.dataset.fname);
     }
 
-    /** Immediate: enabling, frame change, sync change. Never debounced. */
+    /** Recompute every enabled overlay. Immediate — callers debounce if needed. */
     async function _fl3dEpiRecompute() {
-      if (!_fl3dEpiOn || !Number.isFinite(_fl3dEpiRefCam)) return;
-      const refTile = _fl3dEpiTileFor(_fl3dEpiRefCam);
-      const tgtTile = Array.from(
-        document.querySelectorAll("#fl3d-canvas-row .fl3d-tile")
-      ).find((t) => +t.dataset.cam !== _fl3dEpiRefCam);
-      if (!refTile || !tgtTile) return;
+      for (const cam of _fl3dEpiCamsShown()) await _fl3dEpiRecomputeOne(cam);
+    }
 
-      const refFname = refTile.dataset.fname;
+    async function _fl3dEpiRecomputeOne(cam) {
+      const src = _fl3dEpiSourceFor(cam);
+      if (src === null) return;
+      const srcTile = _fl3dEpiTileFor(src);
+      if (!srcTile || !srcTile.dataset.fname) return;
+
+      const srcFname = srcTile.dataset.fname;
       const points = collectRefPoints(
-        _flLabels[refFname], _flHidden[refFname], _flBodyparts);
-      const sig = payloadSignature(
-        _flVideoStem, _fl3dEpiRefCam, +tgtTile.dataset.cam, points);
-      if (sig === _fl3dEpiSig) return;   // nothing moved; keep what is drawn
-      _fl3dEpiSig = sig;
+        _flLabels[srcFname], _flHidden[srcFname], _flBodyparts);
+      const sig = payloadSignature(_flVideoStem, src, cam, points);
+      if (sig === _fl3dEpiSig.get(cam)) return;   // nothing moved
+      _fl3dEpiSig.set(cam, sig);
 
       if (!points.length) {
-        _fl3dEpiSegments = {};
-        _fl3dEpiRepaintTarget();
+        _fl3dEpiSegments.set(cam, {});
+        _fl3dEpiRepaint(cam);
         return;
       }
 
@@ -1407,26 +1339,77 @@ import { nameLabelBox } from './components/viewer/internal/name_label.mjs';
       try {
         const url = "/dlc-3d/labeled-epilines"
           + `?session=${encodeURIComponent(_flVideoStem)}`
-          + `&ref_cam=${_fl3dEpiRefCam}&tgt_cam=${+tgtTile.dataset.cam}`
+          + `&ref_cam=${src}&tgt_cam=${cam}`
           + `&points=${encodeURIComponent(JSON.stringify(points))}`;
         const r = await fetch(url);
         if (gen !== _fl3dEpiGen) return;          // superseded mid-flight
         const d = await r.json().catch(() => ({}));
         if (gen !== _fl3dEpiGen) return;          // and again after the parse
-        _fl3dEpiSegments = r.ok ? (d.segments || {}) : {};
-        if (!r.ok && flEpiHint) flEpiHint.textContent = d.error || "epilines failed";
-        else if (flEpiHint) flEpiHint.textContent = "(P)";
+        _fl3dEpiSegments.set(cam, r.ok ? (d.segments || {}) : {});
       } catch (e) {
         if (gen !== _fl3dEpiGen) return;
-        _fl3dEpiSegments = {};
-        _fl3dEpiSig = "";
-        if (flEpiHint) flEpiHint.textContent = "epilines unavailable";
+        _fl3dEpiSegments.set(cam, {});
       }
-      _fl3dEpiRepaintTarget();
+      _fl3dEpiRepaint(cam);
     }
 
-    /** Paint stored segments. Never fetches — see the draw-path test. */
+    function _fl3dSetEpiShown(cam, on) {
+      _fl3dEpiShow.set(cam, !!on);
+      if (_fl3dEpiTimer) { clearTimeout(_fl3dEpiTimer); _fl3dEpiTimer = null; }
+      if (on) {
+        _fl3dEpiSig.delete(cam);       // force a fetch for this tile
+        _fl3dEpiRecomputeOne(cam);     // immediate: the user is waiting
+      } else {
+        _fl3dEpiSegments.delete(cam);
+        _fl3dEpiSig.delete(cam);
+        _fl3dEpiRepaint(cam);
+      }
+    }
+
+    function _fl3dEpiGateReason() {
+      return epiGateReason({
+        syncOn:            _fl3dSyncOn,
+        calibrationExists: !!_fl3dEpiCalib.exists,
+        camCount:          _fl3dSyncOn ? _fl3dEpiTiles().length : 1,
+      });
+    }
+
+    /** Wire (and re-wire) one tile's checkbox.
+     *
+     * Tiles are rebuilt on every frame change, so this restores the stored
+     * choice rather than assuming a fresh DOM, and marks the element so the
+     * change listener is attached once even though the gate re-runs often.
+     */
+    function _fl3dWireTileEpi(tile, cam) {
+      const cb = tile.querySelector(".fl3d-tile-epi-cb");
+      if (!cb) return;
+      const reason = _fl3dEpiGateReason();
+      cb.disabled = !!reason;
+      const label = cb.closest(".fl3d-tile-epi");
+      if (label) {
+        label.title = reason
+          || "Show epipolar lines projected from the other camera";
+      }
+      if (reason && _fl3dEpiShow.get(cam)) _fl3dSetEpiShown(cam, false);
+      cb.checked = !!_fl3dEpiShow.get(cam);
+      if (cb._fl3dEpiBound) return;
+      cb._fl3dEpiBound = true;
+      cb.addEventListener("change", () => _fl3dSetEpiShown(cam, cb.checked));
+    }
+
+    /** Re-apply the gate to every tile on screen. */
+    function _fl3dRefreshEpiGate() {
+      for (const tile of _fl3dEpiTiles()) {
+        const cam = +tile.dataset.cam;
+        if (Number.isFinite(cam)) _fl3dWireTileEpi(tile, cam);
+      }
+    }
+
     function _fl3dDrawEpilines(tile) {
+      const cam = +tile.dataset.cam;
+      if (!Number.isFinite(cam) || !_fl3dEpiShow.get(cam)) return;
+      const segments = _fl3dEpiSegments.get(cam);
+      if (!segments) return;
       const canvas = tile.querySelector(".fl3d-tile-canvas");
       if (!canvas) return;
       const ctx = canvas.getContext("2d");
@@ -1439,7 +1422,7 @@ import { nameLabelBox } from './components/viewer/internal/name_label.mjs';
       let order = 0;
       for (let i = 0; i < _flBodyparts.length; i++) {
         const bp = _flBodyparts[i];
-        const seg = _fl3dEpiSegments[bp];
+        const seg = segments[bp];
         if (!seg) continue;                   // null or absent — draw nothing
         drawable.push({ bp, seg, color: _flColor(i), order });
         order++;   // only a drawn line advances the staircase
@@ -1538,10 +1521,8 @@ import { nameLabelBox } from './components/viewer/internal/name_label.mjs';
       });
 
       // Epipolar lines belong on the tile that is NOT the reference.
-      if (_fl3dEpiOn && Number.isFinite(_fl3dEpiRefCam)
-          && +tile.dataset.cam !== _fl3dEpiRefCam) {
-        _fl3dDrawEpilines(tile);
-      }
+      // Per-tile: _fl3dDrawEpilines checks this tile's own toggle.
+      _fl3dDrawEpilines(tile);
     }
 
     function _fl3dApplyFocusClass() {
@@ -1776,7 +1757,7 @@ import { nameLabelBox } from './components/viewer/internal/name_label.mjs';
       if (!_flSelectedBp) return;
       if (!_flLabels[fname]) _flLabels[fname] = {};
       _flLabels[fname][_flSelectedBp] = [cx, cy];
-      _fl3dEpiNoteEdit(_fl3dFocusedCam);
+      _fl3dEpiNoteEdit();
       _fl3dDirtyFrames.add(fname);
       _flDirty = true;
       _flDraw();
@@ -1834,7 +1815,7 @@ import { nameLabelBox } from './components/viewer/internal/name_label.mjs';
       const fname = _fl3dActiveFname();
       if (!fname || !_flLabels[fname]) return;
       _flLabels[fname][bp] = null;
-      _fl3dEpiNoteEdit(_fl3dFocusedCam);
+      _fl3dEpiNoteEdit();
       // Also clear hidden state when marker is deleted
       if (_flHidden[fname]) delete _flHidden[fname][bp];
       _fl3dDirtyFrames.add(fname);
@@ -1849,7 +1830,7 @@ import { nameLabelBox } from './components/viewer/internal/name_label.mjs';
       if (!fname) return;
       if (!_flHidden[fname]) _flHidden[fname] = {};
       _flHidden[fname][bp] = !_flHidden[fname][bp];
-      _fl3dEpiNoteEdit(_fl3dFocusedCam);
+      _fl3dEpiNoteEdit();
       _flDraw();
       _flUpdateBpChipStatus();
     }
@@ -1860,7 +1841,7 @@ import { nameLabelBox } from './components/viewer/internal/name_label.mjs';
       if (!fname) return;
       delete _flLabels[fname];
       delete _flHidden[fname];
-      _fl3dEpiNoteEdit(_fl3dFocusedCam);
+      _fl3dEpiNoteEdit();
       _fl3dDirtyFrames.add(fname);
       _flDirty = true;
       if (_fl3dSyncOn) {
@@ -2010,7 +1991,7 @@ import { nameLabelBox } from './components/viewer/internal/name_label.mjs';
           x = Math.max(0, Math.min(x, _clampImg.naturalWidth  - 1));
           y = Math.max(0, Math.min(y, _clampImg.naturalHeight - 1));
           _flLabels[fname][_flSelectedBp] = [x, y];
-          _fl3dEpiNoteEdit(_fl3dFocusedCam);
+          _fl3dEpiNoteEdit();
           _fl3dDirtyFrames.add(fname);
           _flDirty = true;
           _flDraw();
@@ -2022,28 +2003,6 @@ import { nameLabelBox } from './components/viewer/internal/name_label.mjs';
       if (e.key.toLowerCase() === "l" && fl3dLockBp) {
         e.preventDefault();
         fl3dLockBp.checked = !fl3dLockBp.checked;
-        return;
-      }
-
-      // P — toggle the epipolar overlay. PP (double-tap) — toggle the freeze.
-      // Guarded on the same gate as the checkbox, so the key cannot bypass it.
-      //
-      // The single toggle fires immediately rather than waiting out the
-      // double-tap window; a 350 ms lag on every single press would be worse
-      // than the momentary flicker when someone does tap twice. That means the
-      // second press must first undo the first one — see classifyPPress.
-      if ((e.key === "p" || e.key === "P") && !flEpiCheckbox?.disabled) {
-        e.preventDefault();
-        const now = Date.now();
-        const { kind, revert } = classifyPPress(now, _fl3dLastPPress);
-        if (kind === "double") {
-          _fl3dLastPPress = null;          // a third press starts a new pair
-          if (revert) _fl3dSetEpiEnabled(!_fl3dEpiOn);   // undo press one
-          if (_fl3dEpiOn) _fl3dSetEpiFrozen(!_fl3dEpiFrozen);
-        } else {
-          _fl3dLastPPress = now;
-          _fl3dSetEpiEnabled(!_fl3dEpiOn);
-        }
         return;
       }
 

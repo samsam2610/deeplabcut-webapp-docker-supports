@@ -244,16 +244,6 @@
             <input type="checkbox" id="fl3d-show-names" checked style="accent-color:var(--accent)">
             Show names
           </label>
-          <label style="display:flex;align-items:center;gap:.45rem;font-size:.78rem;color:var(--text-dim);cursor:pointer;user-select:none">
-            <input type="checkbox" id="fl3d-epiline" style="accent-color:var(--accent)">
-            Epipolar lines
-          </label>
-          <span id="fl3d-epiline-hint" style="font-size:.72rem;color:var(--text-dim);opacity:.7">(P)</span>
-          <label style="display:flex;align-items:center;gap:.45rem;font-size:.78rem;color:var(--text-dim);cursor:pointer;user-select:none">
-            <input type="checkbox" id="fl3d-epiline-freeze" disabled style="accent-color:var(--accent)">
-            Freeze to this camera
-          </label>
-          <span id="fl3d-epiline-freeze-hint" style="font-size:.72rem;color:var(--text-dim);opacity:.7">(PP)</span>
         </div>
 
         <!-- Labeling canvas -->
@@ -261,6 +251,9 @@
           <div class="fl3d-tile focused" data-cam="" data-fname="" data-weight="100" style="flex-grow:100">
             <div class="fl3d-tile-header">
               <span class="fl3d-tile-label" id="fl3d-tile-label-primary"></span>
+              <label class="fl3d-tile-epi" title="Show epipolar lines projected from the other camera">
+                <input type="checkbox" class="fl3d-tile-epi-cb" disabled>epi
+              </label>
               <input type="range" class="fl3d-tile-size" min="50" max="300" step="25" value="100">
               <span class="fl3d-tile-size-val">100%</span>
             </div>
