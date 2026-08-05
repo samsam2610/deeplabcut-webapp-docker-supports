@@ -22,6 +22,12 @@ import { markerEditor } from "./components/viewer/features/marker_editor.js";
 import { clipExtractor } from "./components/viewer/features/clip_extractor.js";
 import { coverageRects, coverageFrameRects, nearestCoveredFrame, xToFrame, nextCoveredBucket, bucketToFrame, frameToBucket } from "./components/viewer/internal/coverage_timeline.mjs";
 import { pickLatestVariant } from "./components/viewer/internal/pick_latest_variant.mjs";
+import { pickPrimaryVariant } from "./internal/pick_primary_variant.mjs";
+
+// Cached `pinned_snapshot` ui-setting. Declared here, above every reader, and
+// refreshed whenever the variant list is fetched — the overlay's pick has to
+// stay synchronous, so it cannot await the setting itself.
+let _ia3drPinnedSnapshot = "";
 import { scaleFor, videoToCanvas } from "./components/viewer/internal/marker_overlay.mjs";
 import { nameLabelBox } from "./components/viewer/internal/name_label.mjs";
 import { labelAnchor } from "./internal/epiline_label.mjs";
@@ -923,6 +929,11 @@ async function _fetchOverlayH5Variants() {
     const data = await (await fetch(
       `/dlc/viewer/h5-variants?video=${encodeURIComponent(_primaryRel)}`,
     )).json();
+    try {
+      const ui = await (await fetch(
+        `/dlc/project/ui-setting?key=${IA3DR_PINNED_SNAPSHOT_KEY}`)).json();
+      _ia3drPinnedSnapshot = (ui && ui.value) || "";
+    } catch (_) { /* unpinned behaviour is the safe default */ }
     return data.variants || [];
   } catch (_) {
     return [];
@@ -936,8 +947,15 @@ async function _fetchOverlayH5Variants() {
 // → no primary → no bodypart chips).
 function _pickLatestKinematic(variants) {
   const all = variants || [];
-  const kinematic = all.filter((vr) => !/_analyzed\.h5$/i.test(vr.path || ""));
-  return pickLatestVariant(kinematic.length ? kinematic : all);
+  // The PINNED model wins when its h5 exists for this video. Pinning is how
+  // the user says "analyse with this model"; defaulting the overlay to a
+  // different one — usually whatever was analysed most recently — shows
+  // markers from a model they did not choose. Unpinned, or pinned to a model
+  // never run on this video, falls through to the previous rule unchanged.
+  return pickPrimaryVariant(all, _ia3drPinnedSnapshot, (vs) => {
+    const kinematic = vs.filter((vr) => !/_analyzed\.h5$/i.test(vr.path || ""));
+    return pickLatestVariant(kinematic.length ? kinematic : vs);
+  });
 }
 
 // Populate the primary h5 select for the current primary video (placeholder + one
