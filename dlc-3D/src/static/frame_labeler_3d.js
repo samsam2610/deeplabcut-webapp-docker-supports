@@ -119,6 +119,15 @@ import { nameLabelBox } from './components/viewer/internal/name_label.mjs';
     let _fl3dSyncOn        = false;
     let _fl3dEpiOn         = false;
     let _fl3dEpiCalib      = { exists: false, cams: [] };
+    // MUST be declared here, beside the other epi state, NOT down in the
+    // overlay section further below: _fl3dRefreshEpiGate() runs during init
+    // and reads these through _fl3dRefreshFreezeGate. `let` has a temporal
+    // dead zone, so declaring them after that call throws ReferenceError and
+    // takes the whole labeler module down with it. (Keep the words of this
+    // comment clear of that section's banner text — the wiring tests slice
+    // the file on it.)
+    let _fl3dEpiFrozen     = false;
+    let _fl3dLastPPress    = null;  // timestamp of the previous P, for PP
     let _fl3dFocusedCam    = 0;
     let _fl3dHoveredCam    = null;
     let _fl3dFrameNumIdx   = 0;
@@ -1332,8 +1341,6 @@ import { nameLabelBox } from './components/viewer/internal/name_label.mjs';
     // other tile. Without it, placing your first matching point flips the
     // reference to that camera and the guidance you were using disappears
     // exactly when you start acting on it.
-    let _fl3dEpiFrozen   = false;
-    let _fl3dLastPPress  = null;  // timestamp of the previous P, for PP
 
     /** A label changed on `cam` — that camera becomes the reference.
      *

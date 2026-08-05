@@ -376,3 +376,37 @@ def test_freeze_uses_the_shared_classifier_not_a_hand_rolled_timer(js):
     here would put them beyond that test's reach."""
     assert "classifyPPress" in js
     assert "internal/epiline_request.mjs" in js
+
+
+def test_init_time_gate_state_is_declared_before_the_init_call(js):
+    """Temporal-dead-zone guard. This shipped broken once (2026-08-05).
+
+    `_fl3dRefreshEpiGate()` is invoked once during module init. It reaches
+    `_fl3dRefreshFreezeGate`, which reads `_fl3dEpiFrozen`. `let` bindings are
+    NOT hoisted — reading one before its declaration executes throws
+    ReferenceError, which aborts the whole `initFl3d` IIFE and leaves the
+    labeler dead: the folder dropdown populates, then selecting one shows no
+    frame at all.
+
+    Declaring the freeze state down in the EPIPOLAR OVERLAY section put it ~500
+    lines AFTER the init call. `node --check` cannot see this (it is a runtime
+    error, not a syntax one) and no existing test executed the module, so it
+    reached production. Assert the ordering directly.
+    """
+    lines = js.splitlines()
+
+    def line_of(needle):
+        for i, line in enumerate(lines):
+            if needle in line:
+                return i
+        raise AssertionError(f"not found: {needle}")
+
+    init_call = line_of("    _fl3dRefreshEpiGate();")
+    for decl in ("let _fl3dEpiFrozen", "let _fl3dLastPPress",
+                 "let _fl3dEpiOn", "let _fl3dEpiCalib"):
+        assert line_of(decl) < init_call, (
+            f"`{decl}` is declared at line {line_of(decl) + 1}, after the "
+            f"init-time _fl3dRefreshEpiGate() call at line {init_call + 1}. "
+            "That is a temporal dead zone: init throws ReferenceError and the "
+            "frame labeler stops rendering frames entirely."
+        )
