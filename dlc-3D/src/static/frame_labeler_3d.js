@@ -1025,8 +1025,12 @@ import { nameLabelBox } from './components/viewer/internal/name_label.mjs';
         flFrameInfo.textContent = `Frame ${idx + 1} / ${_fl3dFrameNumbers.length}`;
         // Update primary fname display from the focused tile after render
         _fl3dSyncRenderRow(frameNum);
-        _fl3dEpiSig = "";                   // force a recompute for this frame
-        _fl3dEpiSegments = {};              // don't paint the previous frame's lines
+        // .clear(), NOT reassignment: these are const Maps since the per-tile
+        // refactor, and `_fl3dEpiSig = ""` threw TypeError here on every frame
+        // change — killing not just the epiline refresh but the frame-name
+        // label, chip status, label count and TAP status below it.
+        _fl3dEpiSig.clear();                // force a recompute for this frame
+        _fl3dEpiSegments.clear();           // don't paint the previous frame's lines
         _fl3dEpiRecompute();                // immediate; the labels are settled
         const focusedFname = _fl3dActiveFname();
         flFrameName.textContent = focusedFname || `(no cam${_fl3dFocusedCam} @ ${String(frameNum).padStart(5, "0")})`;

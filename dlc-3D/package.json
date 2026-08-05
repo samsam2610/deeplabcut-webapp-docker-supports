@@ -10,6 +10,8 @@
     "test:load": "node --test tests/unit/test_frame_labeler_loads.mjs"
   },
   "devDependencies": {
+    "acorn": "^8.18.0",
+    "acorn-walk": "^8.3.5",
     "jsdom": "^22.1.0"
   },
   "private": true
