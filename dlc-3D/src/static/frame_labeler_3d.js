@@ -1430,36 +1430,71 @@ import { nameLabelBox } from './components/viewer/internal/name_label.mjs';
       const canvas = tile.querySelector(".fl3d-tile-canvas");
       if (!canvas) return;
       const ctx = canvas.getContext("2d");
+
+      // Collect first, draw second. The staircase `order` must follow bodypart
+      // order so labels keep stable positions, but the SELECTED line has to be
+      // painted last or a later bodypart's line crosses over the one the user
+      // is aiming at. Two passes keep both true.
+      const drawable = [];
       let order = 0;
       for (let i = 0; i < _flBodyparts.length; i++) {
         const bp = _flBodyparts[i];
         const seg = _fl3dEpiSegments[bp];
         if (!seg) continue;                   // null or absent — draw nothing
-        const color = _flColor(i);
-        ctx.save();
+        drawable.push({ bp, seg, color: _flColor(i), order });
+        order++;   // only a drawn line advances the staircase
+      }
+
+      const isSel = (d) => d.bp === _flSelectedBp;
+      for (const d of [...drawable.filter((d) => !isSel(d)),
+                       ...drawable.filter(isSel)]) {
+        _fl3dDrawOneEpiline(ctx, d, isSel(d));
+      }
+    }
+
+    /** One epipolar line plus its edge label. `selected` gets the emphasis. */
+    function _fl3dDrawOneEpiline(ctx, { bp, seg, color, order }, selected) {
+      ctx.save();
+      ctx.setLineDash([6, 4]);
+      if (selected) {
+        // White casing under the coloured stroke — the same idiom
+        // _fl3dDrawTileMarkers uses for the selected marker's halo, so
+        // "selected" reads identically for a point and for its line. Survives
+        // both light and dark video, which a colour change alone would not.
         ctx.beginPath();
         ctx.moveTo(seg[0][0], seg[0][1]);
         ctx.lineTo(seg[1][0], seg[1][1]);
-        ctx.strokeStyle = color;
-        ctx.lineWidth = 1;
-        ctx.setLineDash([6, 4]);
+        ctx.strokeStyle = "rgba(255,255,255,0.85)";
+        ctx.lineWidth = 5;
         ctx.stroke();
-        ctx.restore();
-
-        const anchor = labelAnchor(seg, order, FL3D_EPI_LABEL_STEP);
-        if (anchor) {
-          ctx.save();
-          ctx.font = nameLabelBox(0, 0, 0, 0).font;
-          const box = nameLabelBox(anchor.x, anchor.y, 0,
-                                   ctx.measureText(bp).width);
-          ctx.fillStyle = "rgba(12,13,16,.65)";
-          ctx.fillRect(box.boxX, box.boxY, box.boxW, box.boxH);
-          ctx.fillStyle = color;
-          ctx.fillText(bp, box.textX, box.textY);
-          ctx.restore();
-        }
-        order++;   // only a drawn line advances the staircase
       }
+      ctx.beginPath();
+      ctx.moveTo(seg[0][0], seg[0][1]);
+      ctx.lineTo(seg[1][0], seg[1][1]);
+      ctx.strokeStyle = color;
+      if (selected) ctx.lineWidth = 2.5;
+      else ctx.lineWidth = 1;
+      ctx.stroke();
+      ctx.restore();
+
+      const anchor = labelAnchor(seg, order, FL3D_EPI_LABEL_STEP);
+      if (!anchor) return;
+      ctx.save();
+      ctx.font = nameLabelBox(0, 0, 0, 0).font;
+      const box = nameLabelBox(anchor.x, anchor.y, 0, ctx.measureText(bp).width);
+      // The selected label sits on an opaque plate so it is legible where
+      // several lines converge; the others stay translucent.
+      ctx.fillStyle = selected ? "rgba(12,13,16,.92)" : "rgba(12,13,16,.65)";
+      ctx.fillRect(box.boxX, box.boxY, box.boxW, box.boxH);
+      if (selected) {
+        ctx.strokeStyle = "rgba(255,255,255,0.85)";
+        ctx.lineWidth = 1;
+        ctx.setLineDash([]);
+        ctx.strokeRect(box.boxX, box.boxY, box.boxW, box.boxH);
+      }
+      ctx.fillStyle = color;
+      ctx.fillText(bp, box.textX, box.textY);
+      ctx.restore();
     }
 
     function _fl3dDrawTileMarkers(tile, fname) {

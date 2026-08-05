@@ -167,7 +167,9 @@ def test_style_matches_the_reprojection_card(js):
     # Scoped to _fl3dDrawEpilines itself: `ctx.lineWidth = 1.2` appears
     # elsewhere in the file (the marker outline), so an unscoped substring
     # check is satisfied even if the epiline width were changed to e.g. 7.
-    fn = js.split("function _fl3dDrawEpilines")[1].split("\n    }")[0]
+    # The stroke itself lives in _fl3dDrawOneEpiline since the selected-line
+    # highlight was added; _fl3dDrawEpilines is now just collect-and-order.
+    fn = js.split("function _fl3dDrawOneEpiline")[1].split("\n    }")[0]
     assert "lineWidth = 1" in fn
     assert "lineWidth = 1.2" not in fn, (
         "must pin the epiline's own lineWidth, not a value inherited from "
@@ -410,3 +412,47 @@ def test_init_time_gate_state_is_declared_before_the_init_call(js):
             "That is a temporal dead zone: init throws ReferenceError and the "
             "frame labeler stops rendering frames entirely."
         )
+
+
+# ── Selected-marker emphasis ────────────────────────────────────────────────
+
+def test_the_selected_bodypart_line_is_emphasised(js):
+    """Selecting a bodypart must make ITS line stand out — that line is the
+    one the user is about to click along."""
+    fn = js.split("function _fl3dDrawOneEpiline")[1].split("\n    }")[0]
+    assert "selected" in fn, "the draw must know which line is selected"
+    assert "lineWidth = 2.5" in fn, "the selected line must be thicker than 1"
+    # Scoped to the STROKE, before `strokeStyle = color`. The same white is
+    # reused on the selected label's outline further down, so an unscoped
+    # check passes with the line's casing deleted — verified by deleting it.
+    stroke = fn.split("ctx.strokeStyle = color")[0]
+    assert 'rgba(255,255,255,0.85)' in stroke, (
+        "the selected line needs the same white casing the selected MARKER "
+        "uses, so emphasis reads identically for a point and its line, and "
+        "survives both light and dark video"
+    )
+    assert "lineWidth = 5" in stroke, "the casing must be wider than the stroke"
+
+
+def test_the_selected_line_is_drawn_last(js):
+    """Painting it in bodypart order lets a later line cross over the very one
+    being aimed at."""
+    fn = js.split("function _fl3dDrawEpilines")[1].split("\n    }")[0]
+    assert "filter" in fn and "isSel" in fn, (
+        "expected a two-pass draw putting the selected line on top"
+    )
+    assert fn.index("!isSel(d)") < fn.index("...drawable.filter(isSel)"), (
+        "non-selected lines must be drawn before the selected one"
+    )
+
+
+def test_the_label_staircase_still_follows_bodypart_order(js):
+    """Reordering the DRAW must not reorder the labels, or they shuffle
+    position whenever the selection changes."""
+    fn = js.split("function _fl3dDrawEpilines")[1].split("\n    }")[0]
+    collect = fn.split("const isSel")[0]
+    assert "order++" in collect, (
+        "the staircase order must be assigned in the collection pass, in "
+        "bodypart order — not in the reordered draw pass"
+    )
+    assert collect.index("continue") < collect.index("order++")
