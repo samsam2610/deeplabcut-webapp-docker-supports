@@ -113,6 +113,19 @@ import { nameLabelBox } from './components/viewer/internal/name_label.mjs';
     let _fl3dPrimaryCam   = 0;
     let _fl3dSyncOn        = false;
     let _fl3dEpiCalib      = { exists: false, cams: [] };
+    // Overlay state. MUST live here, with the other early state, NOT down in
+    // the overlay section: _fl3dRefreshEpiGate() runs during init and reaches
+    // these through _fl3dWireTileEpi. `const` and `let` both have a temporal
+    // dead zone, so declaring them after that call throws ReferenceError and
+    // takes the whole labeler module down -- the folder list still renders,
+    // then picking one shows no frame at all. This has now happened twice.
+    // Keyed by CAMERA, not by tile element: the tiles are rebuilt on every
+    // frame change and the user's choice has to outlive that.
+    const _fl3dEpiShow     = new Map();   // cam -> bool
+    const _fl3dEpiSegments = new Map();   // cam -> {bodypart: segment|null}
+    const _fl3dEpiSig      = new Map();   // cam -> last issued payload signature
+    let _fl3dEpiTimer = null;
+    let _fl3dEpiGen   = 0;                // stale-response guard
     let _fl3dFocusedCam    = 0;
     let _fl3dHoveredCam    = null;
     let _fl3dFrameNumIdx   = 0;
@@ -1261,13 +1274,6 @@ import { nameLabelBox } from './components/viewer/internal/name_label.mjs';
     const FL3D_EPI_DEBOUNCE_MS = 2000;
     const FL3D_EPI_LABEL_STEP  = 14;   // matches the marker name-label height
 
-    // Keyed by CAMERA, not by tile element: _fl3dSyncRenderRow rebuilds the
-    // tiles on every frame change, and the user's choice has to outlive that.
-    const _fl3dEpiShow     = new Map();   // cam -> bool
-    const _fl3dEpiSegments = new Map();   // cam -> {bodypart: segment|null}
-    const _fl3dEpiSig      = new Map();   // cam -> last issued payload signature
-    let _fl3dEpiTimer = null;
-    let _fl3dEpiGen   = 0;                // stale-response guard
 
     function _fl3dEpiTiles() {
       return Array.from(document.querySelectorAll("#fl3d-canvas-row .fl3d-tile"));

@@ -345,9 +345,11 @@ def test_a_tile_projects_from_the_other_camera(js):
 def test_state_is_keyed_by_camera_not_by_tile_element(js):
     """_fl3dSyncRenderRow rebuilds the tiles every frame change; a choice
     stored on the element would be lost on the next frame."""
-    block = _epi_block(js)
-    assert "_fl3dEpiShow     = new Map()" in block
-    assert "_fl3dEpiSegments = new Map()" in block
+    # Declared with the other early state, not inside the overlay section —
+    # the init-time gate reads them, so they must precede it (see the TDZ
+    # guard below). Assert on the whole file, not the section.
+    assert "_fl3dEpiShow     = new Map()" in js
+    assert "_fl3dEpiSegments = new Map()" in js
 
 
 def test_tiles_are_rewired_after_every_row_render(js):
@@ -376,3 +378,44 @@ def test_each_tile_draws_only_its_own_segments(js):
     assert "_fl3dEpiSegments.get(cam)" in fn, (
         "each tile draws the lines computed for IT, not a shared set"
     )
+
+
+def test_no_init_time_read_hits_a_temporal_dead_zone(js):
+    """Generic TDZ guard. This exact failure has shipped TWICE (2026-08-05).
+
+    `_fl3dRefreshEpiGate()` is invoked once during module init, and reaches
+    module state through `_fl3dWireTileEpi`. `let` and `const` are both
+    hoisted-but-uninitialised, so reading one before its declaration executes
+    throws ReferenceError — which aborts the whole `initFl3d` IIFE and leaves
+    the labeler dead: the folder dropdown still populates (server-rendered),
+    then selecting one renders no frame at all.
+
+    Deliberately generic rather than a fixed list of names: the first version
+    of this test enumerated the state of the day, so when the overlay was
+    rewritten the test looked design-specific, was deleted with the rest of
+    that design, and the bug came straight back. Anything the init-time gate
+    path touches is covered automatically.
+    """
+    lines = js.splitlines()
+    init_call = next(i for i, l in enumerate(lines)
+                     if l.strip() == "_fl3dRefreshEpiGate();")
+
+    # Names the init-time gate path can read, gathered from the functions it
+    # actually calls rather than hardcoded.
+    reached = ["_fl3dRefreshEpiGate", "_fl3dWireTileEpi", "_fl3dEpiGateReason",
+               "_fl3dSetEpiShown", "_fl3dEpiTiles"]
+    bodies = "".join(js.split(f"function {fn}")[1].split("\n    }")[0]
+                     for fn in reached if f"function {fn}" in js)
+
+    import re
+    for i, line in enumerate(lines):
+        m = re.match(r"\s*(?:let|const)\s+(_fl3d\w+|_fl\w+)\s*=", line)
+        if not m or i < init_call:
+            continue
+        name = m.group(1)
+        assert name not in bodies, (
+            f"`{name}` is declared at line {i + 1}, AFTER the init-time "
+            f"_fl3dRefreshEpiGate() call at line {init_call + 1}, and is read "
+            "on that call path. That is a temporal dead zone: init throws "
+            "ReferenceError and the frame labeler stops rendering frames."
+        )
