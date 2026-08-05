@@ -456,3 +456,23 @@ def test_the_label_staircase_still_follows_bodypart_order(js):
         "bodypart order — not in the reordered draw pass"
     )
     assert collect.index("continue") < collect.index("order++")
+
+
+def test_auto_advance_is_judged_on_the_frame_just_labelled(js):
+    """Both click handlers must pass the frame they wrote to.
+
+    Falling back to the focused tile stalled the advance in sync mode: the
+    canvas click fires in the target phase, the row handler moves focus only
+    afterwards on the bubble, so clicking the non-focused camera judged the
+    advance against the other one. With cam0 complete, nothing was missing
+    there and the selection never moved -- the exact workflow the epipolar
+    lines encourage. See tests/unit/test_auto_advance.mjs for the rule itself.
+    """
+    calls = [l.strip() for l in js.splitlines() if "_flAutoAdvanceBp(" in l
+             and "function _flAutoAdvanceBp" not in l]
+    assert len(calls) == 2, f"expected both click handlers to call it, got {calls}"
+    for c in calls:
+        assert "_flAutoAdvanceBp(fname" in c, (
+            f"{c!r} passes no frame, so it falls back to the focused tile "
+            "and stalls in sync mode"
+        )

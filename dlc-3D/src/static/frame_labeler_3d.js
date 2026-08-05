@@ -1276,7 +1276,7 @@ import { nameLabelBox } from './components/viewer/internal/name_label.mjs';
           _fl3dDrawTileMarkers(tile, fname);
           _flUpdateBpChipStatus();
           _flUpdateLabelCount();
-          _flAutoAdvanceBp();
+          _flAutoAdvanceBp(fname);   // this tile's frame, not the focused one
         });
 
         // Mousemove → cursor state + hover-bp tracking on sibling canvas.
@@ -1782,7 +1782,7 @@ import { nameLabelBox } from './components/viewer/internal/name_label.mjs';
       _flDraw();
       _flUpdateBpChipStatus();
       _flUpdateLabelCount();
-      _flAutoAdvanceBp();
+      _flAutoAdvanceBp(fname);   // the frame just labelled
     });
 
     // Right-click → remove current body-part point
@@ -1925,11 +1925,23 @@ import { nameLabelBox } from './components/viewer/internal/name_label.mjs';
     });
 
     // Cycle to the next unlabeled body part on this frame (napari behavior)
-    function _flAutoAdvanceBp() {
+    /**
+     * Advance to the next bodypart with no label on `forFname`.
+     *
+     * `forFname` is the frame that was just labelled, and callers must pass it.
+     * Falling back to _fl3dActiveFname() — the FOCUSED tile — was wrong in sync
+     * mode: a canvas click fires in the target phase, but the row handler that
+     * moves focus to the clicked tile only runs afterwards on the bubble. So
+     * clicking the non-focused camera wrote the label to that camera while the
+     * advance was computed against the OTHER one. Label cam0 completely, cross
+     * to cam1, and the search found nothing missing on cam0 and never advanced
+     * at all — which is the workflow the epipolar lines exist to support.
+     */
+    function _flAutoAdvanceBp(forFname) {
       // Lock BP toggle (L): when checked, stay on the current BP so the user
       // can overwrite the marker on the next click instead of cycling away.
       if (fl3dLockBp && fl3dLockBp.checked) return;
-      const fname       = _fl3dActiveFname();
+      const fname       = forFname || _fl3dActiveFname();
       const frameLabels = _flLabels[fname] || {};
       const cur         = _flBodyparts.indexOf(_flSelectedBp);
       for (let i = 1; i <= _flBodyparts.length; i++) {
