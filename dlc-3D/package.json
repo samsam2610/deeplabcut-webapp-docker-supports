@@ -1,0 +1,16 @@
+{
+  "name": "dlc-3d-tests",
+  "version": "1.0.0",
+  "description": "Dev-only: jsdom for the frame-labeler module-load smoke test. The module itself ships as plain browser ES modules with no build step and no runtime dependencies.",
+  "directories": {
+    "doc": "docs",
+    "test": "tests"
+  },
+  "scripts": {
+    "test:load": "node --test tests/unit/test_frame_labeler_loads.mjs"
+  },
+  "devDependencies": {
+    "jsdom": "^22.1.0"
+  },
+  "private": true
+}

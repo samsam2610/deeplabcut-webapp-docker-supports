@@ -10,3 +10,6 @@ __pycache__/
 dist/
 build/
 .superpowers/
+
+# JS dev dependencies (jsdom, for the frame-labeler module-load smoke test)
+node_modules/
