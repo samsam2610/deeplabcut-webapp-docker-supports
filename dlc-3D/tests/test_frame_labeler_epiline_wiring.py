@@ -65,26 +65,56 @@ def test_the_draw_path_never_fetches(js):
     )
 
 
-def test_a_generation_counter_guards_the_async_draw(js):
-    """Recorded regression on the sibling overlay — see docs/regression-catalog.md.
+def test_the_generation_counter_is_per_camera(js):
+    """Two overlays can be in flight at once, one per camera.
 
-    Positional, not just a count: every `await` must be immediately followed
-    (before the next statement) by a `_fl3dEpiGen` recheck, so a response
-    that lands after the user moved on is discarded before its data is used.
+    A single shared counter (carried over from the one-overlay design) meant
+    camera B's request bumped it and camera A's response was discarded as
+    stale — while A's signature had already been written, so no later
+    recompute retried it. A's lines vanished and stayed vanished.
+
+    Also positional: every `await` must be followed immediately by a recheck,
+    before the response is used.
     """
-    block = _epi_block(js)
-    assert "_fl3dEpiGen" in block
-    assert "++_fl3dEpiGen" in block
+    # Declared with the other early state (the init-time gate reads it), not
+    # inside the overlay section — assert on the whole file.
+    assert "_fl3dEpiGen = new Map()" in js, (
+        "the guard must be keyed by camera, like every other piece of "
+        "overlay state"
+    )
     fn = js.split("function _fl3dEpiRecomputeOne")[1].split("\n    }")[0]
+    assert "_fl3dEpiGen.set(cam" in fn, "each camera bumps its own generation"
     awaits = fn.split("await")[1:]
     assert len(awaits) >= 2, "expected two awaits: the fetch and the .json() parse"
     for i, chunk in enumerate(awaits):
-        after_await_stmt = chunk[chunk.index(";") + 1:]
-        next_stmt = after_await_stmt.split(";")[0]
-        assert "_fl3dEpiGen" in next_stmt, (
-            f"await #{i + 1} in _fl3dEpiRecompute must be followed immediately "
-            "by a _fl3dEpiGen recheck, before the response is used"
+        next_stmt = chunk[chunk.index(";") + 1:].split(";")[0]
+        assert "_fl3dEpiGen.get(cam)" in next_stmt, (
+            f"await #{i + 1} must be followed immediately by a per-camera "
+            "generation recheck, before the response is used"
         )
+
+
+def test_a_failed_request_drops_the_signature(js):
+    """Otherwise one transient 502 kills that camera's overlay permanently:
+    every later recompute matches the poisoned signature and short-circuits
+    without retrying."""
+    fn = js.split("function _fl3dEpiRecomputeOne")[1].split("\n    }")[0]
+    catch = fn.split("} catch")[1]
+    assert "_fl3dEpiSig.delete(cam)" in catch, "the catch must drop the signature"
+    non_ok = fn.split("if (r.ok)")[1].split("} catch")[0]
+    assert "_fl3dEpiSig.delete(cam)" in non_ok, (
+        "a non-OK response must drop it too, not just a thrown error"
+    )
+
+
+def test_toggling_one_camera_does_not_cancel_the_other_s_refresh(js):
+    """The debounce timer is shared; a pending tick may belong to the other
+    camera, which would then keep drawing pre-edit geometry."""
+    fn = js.split("function _fl3dSetEpiShown")[1].split("\n    }")[0]
+    assert "clearTimeout" not in fn, (
+        "cancelling the shared timer here silently drops the OTHER camera's "
+        "pending refresh"
+    )
 
 
 def test_style_matches_the_reprojection_card(js):
@@ -304,8 +334,9 @@ def test_auto_advance_is_judged_on_the_frame_just_labelled(js):
 # ── Per-tile toggles ────────────────────────────────────────────────────────
 # Each camera tile owns a checkbox. Ticking it shows, on THAT tile, the lines
 # projected from the OTHER camera. That makes the reference explicit, which is
-# what let the old global toggle, the "freeze" flag and the P/PP shortcuts all
-# be deleted.
+# what let the old global toggle and the "freeze" flag be deleted. The PP
+# double-tap went with them; a plain P was later re-added, scoped to the
+# focused tile (see the P section below).
 
 def test_both_tile_headers_carry_a_disabled_checkbox(html, js):
     """Primary comes from the template, siblings are built in JS. Both, or the
@@ -322,13 +353,6 @@ def test_the_removed_controls_are_gone(html, js):
     for gone in ("_fl3dEpiOn", "_fl3dEpiFrozen", "_fl3dSetEpiFrozen",
                  "classifyPPress", "_fl3dLastPPress", "_fl3dEpiRefCam"):
         assert gone not in js, f"{gone} survives the per-tile redesign"
-
-
-def test_no_p_shortcut_remains(js):
-    block = js.split("document.addEventListener(\"keydown\"")[1]
-    assert 'e.key === "p"' not in block and 'e.key === "P"' not in block, (
-        "the P/PP shortcuts were removed by request"
-    )
 
 
 def test_a_tile_projects_from_the_other_camera(js):
@@ -449,4 +473,60 @@ def test_p_is_bound_and_cannot_fire_while_typing(js):
     # The handler-wide guard must come first, or P fires inside text fields.
     assert block.index("TEXTAREA") < block.index('e.key.toLowerCase() === "p"'), (
         "the typing guard must precede the P branch"
+    )
+
+
+# ── Camera keying ───────────────────────────────────────────────────────────
+# All per-camera state hangs off a tile's data-cam. Two Critical bugs came
+# from that value being wrong or captured too early.
+
+def test_a_tile_with_no_camera_set_is_not_camera_zero(js):
+    """`+"" === 0` and `Number.isFinite(0)` is true, so an unset data-cam read
+    as camera ZERO. That is how the primary tile's checkbox got bound to cam 0
+    at init and stayed there — right by accident on a cam0/cam1 layout, wrong
+    everywhere else."""
+    fn = js.split("function _fl3dCamOf")[1].split("\n    }")[0]
+    assert 'raw === ""' in fn, "an unset data-cam must resolve to null, not 0"
+    assert "Number.isInteger" in fn, (
+        "Number.isFinite accepts the 0 that an empty string coerces to"
+    )
+    # Every function that turns a tile into a per-camera key must go through
+    # it. Scoped to those functions: unrelated hover/cursor handlers elsewhere
+    # in the file compare cameras without keying persistent state off them.
+    for name in ("_fl3dEpiCamsShown", "_fl3dEpiSourceFor", "_fl3dRefreshEpiGate",
+                 "_fl3dDrawEpilines"):
+        fn = js.split(f"function {name}")[1].split("\n    }")[0]
+        assert "dataset.cam" not in fn, (
+            f"{name} parses data-cam by hand; use _fl3dCamOf or the +'' trap "
+            "returns"
+        )
+        assert "_fl3dCamOf" in fn, f"{name} must resolve its camera via _fl3dCamOf"
+
+
+def test_the_checkbox_listener_reads_the_live_camera(js):
+    """The primary tile element is never recreated — _fl3dSyncRenderRow
+    replaces only siblings — so a camera captured at bind time stays frozen
+    for the life of the page while the tile switches camera underneath it."""
+    fn = js.split("function _fl3dWireTileEpi")[1].split("\n    }")[0]
+    listener = fn.split('addEventListener("change"')[1]
+    assert "_fl3dCamOf(tile)" in listener, (
+        "the listener must re-read the tile's camera at event time"
+    )
+
+
+def test_render_tile_writes_the_camera_onto_the_tile(js):
+    """The primary tile is reused across stems; without this it keeps the
+    previous stem's camera, and every per-camera lookup keys off that."""
+    fn = js.split("function _fl3dRenderTile")[1].split("\n    function ")[0]
+    assert "tile.dataset.cam = String(cam)" in fn
+
+
+def test_p_does_not_swallow_ctrl_or_cmd_p(js):
+    """A bare preventDefault() blocked the browser's print dialog whenever the
+    card was open, including in single-camera projects where P does nothing."""
+    block = js.split("document.addEventListener(\"keydown\"")[1]
+    idx = block.index('e.key.toLowerCase() === "p"')
+    guard = block[idx: idx + 200]
+    assert "ctrlKey" in guard and "metaKey" in guard, (
+        "the P branch must exclude modifier chords before preventDefault()"
     )

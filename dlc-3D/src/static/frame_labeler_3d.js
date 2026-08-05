@@ -125,7 +125,13 @@ import { nameLabelBox } from './components/viewer/internal/name_label.mjs';
     const _fl3dEpiSegments = new Map();   // cam -> {bodypart: segment|null}
     const _fl3dEpiSig      = new Map();   // cam -> last issued payload signature
     let _fl3dEpiTimer = null;
-    let _fl3dEpiGen   = 0;                // stale-response guard
+    // Per CAMERA, like everything else here. A single shared counter was
+    // carried over from the one-overlay design: with two overlays able to be
+    // in flight at once, camera B's request bumped it and camera A's response
+    // was then discarded as stale -- while A's signature had already been
+    // written, so no later recompute would retry it. A's lines vanished and
+    // stayed vanished.
+    const _fl3dEpiGen = new Map();        // cam -> generation
     let _fl3dFocusedCam    = 0;
     let _fl3dHoveredCam    = null;
     let _fl3dFrameNumIdx   = 0;
@@ -1149,6 +1155,10 @@ import { nameLabelBox } from './components/viewer/internal/name_label.mjs';
       const empty  = tile.querySelector(".fl3d-tile-empty");
       const label  = tile.querySelector(".fl3d-tile-label");
       if (label) label.textContent = `cam${cam}`;
+      // Siblings get this at construction; the PRIMARY tile is reused across
+      // stems and would otherwise keep the previous stem's camera, which every
+      // per-camera lookup keys off.
+      tile.dataset.cam = String(cam);
 
       if (!entry) {
         canvas.style.display = "none";
@@ -1273,11 +1283,28 @@ import { nameLabelBox } from './components/viewer/internal/name_label.mjs';
     // cam1 means cam0 is the reference, full stop. An earlier design inferred
     // the reference from whichever camera was edited last, so the lines hopped
     // tiles mid-task and needed a "freeze" flag plus a keyboard shortcut to
-    // hold them still. Making the choice explicit per tile deleted all of it.
+    // hold them still. Making the choice explicit per tile deleted the freeze
+    // flag and the PP double-tap; a plain P remains, scoped to the focused
+    // tile (see _fl3dToggleEpiForFocusedCam).
 
     const FL3D_EPI_DEBOUNCE_MS = 2000;
     const FL3D_EPI_LABEL_STEP  = 14;   // matches the marker name-label height
 
+
+    /** A tile's camera, or null.
+     *
+     * `+""` is 0 and `Number.isFinite(0)` is true, so a tile whose data-cam
+     * has not been set yet reads as camera ZERO. That is how the primary
+     * tile's checkbox got permanently bound to cam 0 at init: on the common
+     * cam0/cam1 layout the wrong answer happened to be right, so it survived
+     * review. Never parse data-cam anywhere else.
+     */
+    function _fl3dCamOf(tile) {
+      const raw = tile && tile.dataset ? tile.dataset.cam : "";
+      if (raw === "" || raw === undefined || raw === null) return null;
+      const n = Number(raw);
+      return Number.isInteger(n) ? n : null;
+    }
 
     function _fl3dEpiTiles() {
       return Array.from(document.querySelectorAll("#fl3d-canvas-row .fl3d-tile"));
@@ -1285,15 +1312,15 @@ import { nameLabelBox } from './components/viewer/internal/name_label.mjs';
 
     function _fl3dEpiCamsShown() {
       return _fl3dEpiTiles()
-        .map((t) => +t.dataset.cam)
-        .filter((c) => Number.isFinite(c) && _fl3dEpiShow.get(c));
+        .map(_fl3dCamOf)
+        .filter((c) => c !== null && _fl3dEpiShow.get(c));
     }
 
     /** The camera an overlay on `cam` projects FROM: the other tile. */
     function _fl3dEpiSourceFor(cam) {
       const other = _fl3dEpiTiles()
-        .map((t) => +t.dataset.cam)
-        .find((c) => Number.isFinite(c) && c !== cam);
+        .map(_fl3dCamOf)
+        .find((c) => c !== null && c !== cam);
       return other === undefined ? null : other;
     }
 
@@ -1345,27 +1372,39 @@ import { nameLabelBox } from './components/viewer/internal/name_label.mjs';
         return;
       }
 
-      const gen = ++_fl3dEpiGen;
+      const gen = (_fl3dEpiGen.get(cam) || 0) + 1;
+      _fl3dEpiGen.set(cam, gen);
       try {
         const url = "/dlc-3d/labeled-epilines"
           + `?session=${encodeURIComponent(_flVideoStem)}`
           + `&ref_cam=${src}&tgt_cam=${cam}`
           + `&points=${encodeURIComponent(JSON.stringify(points))}`;
         const r = await fetch(url);
-        if (gen !== _fl3dEpiGen) return;          // superseded mid-flight
+        if (gen !== _fl3dEpiGen.get(cam)) return;   // superseded mid-flight
         const d = await r.json().catch(() => ({}));
-        if (gen !== _fl3dEpiGen) return;          // and again after the parse
+        if (gen !== _fl3dEpiGen.get(cam)) return;   // and again after the parse
         _fl3dEpiSegments.set(cam, r.ok ? (d.segments || {}) : {});
+        // C3: a poisoned signature is unrecoverable. On failure the signature
+        // must be dropped, or every later recompute matches it, short-circuits
+        // and never retries -- one transient 502 killed the overlay for good.
+        if (r.ok) _fl3dEpiFail(cam, null);
+        else { _fl3dEpiSig.delete(cam); _fl3dEpiFail(cam, `epilines failed (${r.status})`); }
       } catch (e) {
-        if (gen !== _fl3dEpiGen) return;
+        if (gen !== _fl3dEpiGen.get(cam)) return;
         _fl3dEpiSegments.set(cam, {});
+        _fl3dEpiSig.delete(cam);
+        _fl3dEpiFail(cam, "epilines unavailable");
       }
       _fl3dEpiRepaint(cam);
     }
 
     function _fl3dSetEpiShown(cam, on) {
       _fl3dEpiShow.set(cam, !!on);
-      if (_fl3dEpiTimer) { clearTimeout(_fl3dEpiTimer); _fl3dEpiTimer = null; }
+      // The debounce timer is shared, and a pending tick may belong to the
+      // OTHER camera. Cancelling it here dropped that camera's refresh
+      // silently, leaving it drawing pre-edit geometry. Let it fire: the tick
+      // recomputes every shown overlay and an unchanged signature costs
+      // nothing.
       if (on) {
         _fl3dEpiSig.delete(cam);       // force a fetch for this tile
         _fl3dEpiRecomputeOne(cam);     // immediate: the user is waiting
@@ -1374,6 +1413,21 @@ import { nameLabelBox } from './components/viewer/internal/name_label.mjs';
         _fl3dEpiSig.delete(cam);
         _fl3dEpiRepaint(cam);
       }
+    }
+
+    /** Surface a runtime failure on the tile's own control, or clear it.
+     *
+     * The overlay's only error surface was a toolbar hint span, deleted with
+     * the global toggle. Without this a 500, a malformed response or a dropped
+     * connection is completely silent: box ticked, no lines, no explanation.
+     */
+    function _fl3dEpiFail(cam, message) {
+      const tile = _fl3dEpiTileFor(cam);
+      const label = tile && tile.querySelector(".fl3d-tile-epi");
+      if (!label) return;
+      label.classList.toggle("fl3d-tile-epi-failed", !!message);
+      label.title = message
+        || "Show epipolar lines projected from the other camera";
     }
 
     function _fl3dEpiGateReason() {
@@ -1404,7 +1458,13 @@ import { nameLabelBox } from './components/viewer/internal/name_label.mjs';
       cb.checked = !!_fl3dEpiShow.get(cam);
       if (cb._fl3dEpiBound) return;
       cb._fl3dEpiBound = true;
-      cb.addEventListener("change", () => _fl3dSetEpiShown(cam, cb.checked));
+      cb.addEventListener("change", () => {
+        // Re-read the camera at event time. The primary tile element is never
+        // recreated (_fl3dSyncRenderRow only replaces siblings), so a value
+        // captured here would stay frozen while the tile switches camera.
+        const live = _fl3dCamOf(tile);
+        if (live !== null) _fl3dSetEpiShown(live, cb.checked);
+      });
     }
 
     /** P: toggle the FOCUSED tile's overlay.
@@ -1430,14 +1490,14 @@ import { nameLabelBox } from './components/viewer/internal/name_label.mjs';
     /** Re-apply the gate to every tile on screen. */
     function _fl3dRefreshEpiGate() {
       for (const tile of _fl3dEpiTiles()) {
-        const cam = +tile.dataset.cam;
-        if (Number.isFinite(cam)) _fl3dWireTileEpi(tile, cam);
+        const cam = _fl3dCamOf(tile);
+        if (cam !== null) _fl3dWireTileEpi(tile, cam);
       }
     }
 
     function _fl3dDrawEpilines(tile) {
-      const cam = +tile.dataset.cam;
-      if (!Number.isFinite(cam) || !_fl3dEpiShow.get(cam)) return;
+      const cam = _fl3dCamOf(tile);
+      if (cam === null || !_fl3dEpiShow.get(cam)) return;
       const segments = _fl3dEpiSegments.get(cam);
       if (!segments) return;
       const canvas = tile.querySelector(".fl3d-tile-canvas");
@@ -1550,7 +1610,6 @@ import { nameLabelBox } from './components/viewer/internal/name_label.mjs';
         }
       });
 
-      // Epipolar lines belong on the tile that is NOT the reference.
       // Per-tile: _fl3dDrawEpilines checks this tile's own toggle.
       _fl3dDrawEpilines(tile);
     }
@@ -1564,8 +1623,11 @@ import { nameLabelBox } from './components/viewer/internal/name_label.mjs';
     document.getElementById("fl3d-canvas-row").addEventListener("click", (e) => {
       const tile = e.target.closest(".fl3d-tile");
       if (!tile) return;
-      const cam = +tile.dataset.cam;
-      if (Number.isNaN(cam)) return;
+      // _fl3dCamOf, not +dataset.cam: `+""` is 0, NOT NaN, so a tile whose
+      // camera is unset would silently focus camera 0 — and P acts on the
+      // focused camera.
+      const cam = _fl3dCamOf(tile);
+      if (cam === null) return;
       if (cam === _fl3dFocusedCam) return;  // no-op if already focused
       _fl3dFocusedCam = cam;
       _fl3dApplyFocusClass();
@@ -2031,7 +2093,11 @@ import { nameLabelBox } from './components/viewer/internal/name_label.mjs';
 
       // P — toggle the epipolar overlay on the FOCUSED tile. The whole-handler
       // guard above already stops this firing while the user is typing.
-      if (e.key.toLowerCase() === "p") {
+      if (e.key.toLowerCase() === "p"
+          && !e.ctrlKey && !e.metaKey && !e.altKey) {
+        // Modifier check: a bare preventDefault() here swallowed Ctrl+P / #P
+        // whenever the card was open, blocking the browser's print dialog even
+        // in single-camera projects where P does nothing.
         e.preventDefault();
         _fl3dToggleEpiForFocusedCam();
         return;

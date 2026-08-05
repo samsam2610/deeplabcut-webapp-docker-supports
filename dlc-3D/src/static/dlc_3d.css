@@ -210,7 +210,19 @@
   cursor: pointer;
 }
 .fl3d-tile-epi input:disabled { cursor: not-allowed; }
-.fl3d-tile-epi:has(input:disabled) { opacity: .45; cursor: not-allowed; }
+/* Hidden entirely when unusable rather than shown greyed out: outside sync
+   mode there is no second camera to project from, so the control would sit
+   permanently dead on screen. The row gets .sync-on only in sync mode, the
+   same mechanism the per-tile size slider uses. */
+.fl3d-tile-epi { display: none; }
+.fl3d-canvas-row.sync-on .fl3d-tile-epi { display: flex; }
+.fl3d-canvas-row.sync-on .fl3d-tile-epi:has(input:disabled) {
+  opacity: .45;
+  cursor: not-allowed;
+}
+/* A runtime failure (500, dropped connection) has no other surface since the
+   toolbar hint was removed; the reason goes in the label's title. */
+.fl3d-tile-epi-failed { color: var(--danger, #e5534b); opacity: 1 !important; }
 
 .fl3d-tile-size {
   width: 70px;
