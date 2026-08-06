@@ -91,3 +91,44 @@ test("empty or malformed input does not throw", () => {
   assert.doesNotThrow(() => pickPrimaryVariant([null, {}, { path: null }], PIN, latest));
   assert.doesNotThrow(() => pickPrimaryVariant([{ path: H5_PINNED }], PIN, null));
 });
+
+// ── Zero padding (found 2026-08-06 against real project files) ─────────────
+// DLC's Snapshot.uid() stringifies an INT, so the padding in the .pt filename
+// is not carried into the scorer. A literal replace kept it, and every pin on
+// a padded snapshot silently fell back to "latest".
+const PIN_PADDED = "dlc-models-pytorch/iteration-26/X-trainset70shuffle1/train/snapshot-050.pt";
+const H5_PADDED  = "/d/banh-mi-1_cam0DLC_HrnetW48_DREADDJan7shuffle1_iter26_snapshot_50.h5";
+
+test("a zero-padded snapshot maps to its unpadded scorer", () => {
+  assert.deepEqual(pinnedScorerTokens(PIN_PADDED),
+                   { iter: "iter26", snap: "snapshot_50" });
+});
+
+test("a zero-padded pin matches the h5 DLC actually wrote", () => {
+  // This exact pair exists on disk: snapshot-050.pt produced ..._snapshot_50.h5
+  assert.equal(matchesPinned(H5_PADDED, pinnedScorerTokens(PIN_PADDED)), true);
+});
+
+test("a padded BEST snapshot also loses its padding", () => {
+  // uid() returns f"best-{epochs}" with epochs an int → best-40, not best-040.
+  assert.deepEqual(
+    pinnedScorerTokens("m/iteration-26/x/train/snapshot-best-040.pt"),
+    { iter: "iter26", snap: "snapshot_best-40" });
+});
+
+test("the padded pin still beats a newer variant", () => {
+  const variants = [{ path: H5_PADDED, ts: "2026-01-01" },
+                    { path: H5_OTHER, ts: "2026-08-01" }];
+  assert.equal(pickPrimaryVariant(variants, PIN_PADDED, latest).path, H5_PADDED);
+});
+
+test("50 must not match 500", () => {
+  // parseInt-normalising must not turn the token into a loose prefix.
+  const other = "/d/vDLC_HrnetW48_DREADDJan7shuffle1_iter26_snapshot_500.h5";
+  assert.equal(matchesPinned(other, pinnedScorerTokens(PIN_PADDED)), false,
+    "snapshot_50 must not match snapshot_500");
+});
+
+test("a non-numeric snapshot stem yields no tokens", () => {
+  assert.equal(pinnedScorerTokens("m/iteration-1/x/train/snapshot-final.pt"), null);
+});
