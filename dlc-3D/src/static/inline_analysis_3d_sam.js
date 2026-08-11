@@ -3843,11 +3843,32 @@ function _samSay(msg, isErr) {
   el.classList.toggle("err", !!isErr);
 }
 
-// The card's own video selection drives the panel; fall back to whatever the
-// cloned card last opened so the panel is never silently pointed elsewhere.
+// The cloned card's own accessor for the opened cam0 video. There is no
+// _state object on this card — an earlier version of this function guessed at
+// one, so the panel could never see the opened pair and the trial list stayed
+// empty however many times you pressed refresh.
 function _samCurrentVideo() {
-  return _samState.video ||
-    (typeof _state === "object" && _state && (_state.videoPath || _state.video)) || null;
+  try {
+    if (typeof _cam0Path === "function") {
+      const p = _cam0Path();
+      if (p) return p;
+    }
+  } catch (e) { /* card not open yet */ }
+  return _samState.video || null;
+}
+
+// The card can open a pair long after this panel wired itself, and it emits no
+// event we can hook, so poll. Cheap: a string compare every second, and it only
+// acts on an actual change.
+function _samWatchVideo() {
+  if (_samState._watch) return;
+  _samState._watch = setInterval(() => {
+    const v = _samCurrentVideo();
+    if (v && v !== _samState.seen) {
+      _samState.seen = v;
+      _samLoadWindows();
+    }
+  }, 1000);
 }
 
 async function _samJSON(url, opts) {
@@ -3877,8 +3898,54 @@ async function _samLoadWindows() {
     _samSay(`${_samState.windows.length} trial windows`);
     if (_samState.windows.length) _samSelectTrial(0);
   } catch (e) {
-    _samSay(`windows: ${e.message}`, true);
+    if (/not swept/i.test(e.message)) {
+      _samSay("this video has no pellet sweep yet", true);
+      _samOfferSweep();
+    } else {
+      _samSay(`windows: ${e.message}`, true);
+    }
   }
+}
+
+// A sweep is ~3.5 min of CPU, so it is offered rather than triggered: the panel
+// should never start minutes of work because someone opened a video.
+function _samOfferSweep() {
+  const note = _samEl("ia3ds-sam-note");
+  if (!note) return;
+  note.innerHTML = "";
+  const btn = document.createElement("button");
+  btn.className = "btn-sm";
+  btn.textContent = "Sweep this video (~3.5 min)";
+  btn.onclick = async () => {
+    btn.disabled = true;
+    const bar = _samEl("ia3ds-sam-progress");
+    bar.classList.remove("hidden");
+    try {
+      const video = _samCurrentVideo();
+      const started = await _samJSON("/sam-training/api/sweep", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ video }),
+      });
+      if (started.state !== "done" && started.job) {
+        for (;;) {
+          const j = await _samJSON(`${SAMAPI}/job/${started.job}`);
+          bar.firstElementChild.style.width = `${Math.round((j.progress || 0) * 100)}%`;
+          _samSay(`sweeping… ${Math.round((j.progress || 0) * 100)}%`);
+          if (j.state === "error") throw new Error(j.message || "sweep failed");
+          if (j.state !== "running") break;
+          await new Promise((r) => setTimeout(r, 2000));
+        }
+      }
+      note.innerHTML = "";
+      await _samLoadWindows();
+    } catch (err) {
+      _samSay(`sweep: ${err.message}`, true);
+      btn.disabled = false;
+    } finally {
+      bar.classList.add("hidden");
+    }
+  };
+  note.appendChild(btn);
 }
 
 function _samSelectTrial(i) {
@@ -4032,6 +4099,7 @@ function _samWirePanel() {
   });
   window.addEventListener("resize", _samDrawStrip);
   _samDrawStrip();
+  _samWatchVideo();
   _samLoadWindows();
 }
 
