@@ -9,13 +9,30 @@ from dataclasses import dataclass
 
 # NCC above this = the pellet template matches = pellet sitting on the pedestal.
 # Measured separation across 3 animals and 2 months: present ~0.76-0.82,
-# absent ~0.34-0.50. 0.55 sits in the gap.
-PRESENT_THRESHOLD = 0.55
+# absent ~0.34-0.50. Set at the low end of the gap on purpose — at the onset the
+# paw is closing over the pellet and partially occluding the template, which
+# drags the score down (median 0.64 at the tag vs 0.79 twenty frames later).
+# Tuned against the worst-case session: 0.55 loses 12 of 82 onsets, 0.50 loses 0.
+PRESENT_THRESHOLD = 0.50
 
 # A state flip must persist this many CONSECUTIVE samples to count. The paw and
 # the rat's body transiently occlude the pedestal, and the white reload vane
 # sweeps through; without debouncing every one of those is a spurious edge.
-MIN_RUN_SAMPLES = 20
+#
+# At stride 5 this is 30 frames (0.15s). It was 20 samples (100 frames) and that
+# was far too aggressive — it eroded short armed stretches entirely and cost 12
+# of 82 onsets on the worst-case session.
+MIN_RUN_SAMPLES = 6
+
+# How far back a window reaches from its outcome marker. Deliberately equal to
+# notes.MAX_TRIAL_FRAMES: the pairing rule and the window rule then agree on what
+# a trial can span, so a paired trial can never be un-searchable.
+#
+# The onset->outcome gap is strongly bimodal ACROSS SESSIONS — khoai-lang runs a
+# median of ~340 frames while eggtart-1 Jul 1 and banh-mi-1 Jul 2 run ~1050-1200.
+# Globally: median 372, p90 1080, p99 2217, max 2926. A 1200 lookback covers
+# 93.3% overall but only ~45% of the two slow sessions; 3000 covers 100%.
+MAX_LOOKBACK = 3000
 
 
 @dataclass(frozen=True)
@@ -94,47 +111,58 @@ def present_intervals(frames, scores,
 class SearchWindow:
     """Where stage 2/3 look for one trial's onset.
 
-    Closes at the human outcome marker; opens at the start of the pellet-present
-    interval that the marker falls in or follows. Both of the user's conditions
-    are enforced here rather than downstream: the window exists only because an
-    outcome marker follows it, and it spans only pellet-stationary frames.
+    Closes at the human outcome marker and opens ``max_lookback`` before it.
+    Both of the user's conditions are enforced here rather than downstream: the
+    window exists only because an outcome marker follows it, and only
+    pellet-stationary frames inside it are candidates.
+
+    ``armed`` holds the pellet-present intervals clipped to the span. It is a
+    per-frame MASK, not a single chosen interval — a trial's span routinely
+    contains two armed stretches (the one the reach happens in, then the vane
+    reloading a fresh pellet), and picking either one alone drops onsets.
     """
     start: int
     end: int                        # the outcome marker frame, inclusive
     outcome: str
+    armed: tuple[Interval, ...] = ()
     onset_frame: int | None = None  # ground truth when known, for evaluation
 
     @property
     def length(self) -> int:
         return self.end - self.start + 1
 
+    @property
+    def n_candidates(self) -> int:
+        return sum(iv.length for iv in self.armed)
 
-def build_windows(trials, intervals, max_lookback: int = 1200,
-                  min_length: int = 30) -> list[SearchWindow]:
-    """One search window per trial, or none where the trial cannot be bounded.
+    def is_candidate(self, frame: int) -> bool:
+        return any(frame in iv for iv in self.armed)
 
-    ``max_lookback`` caps how far back a window may reach: the onset->outcome
-    gap has p90 = 1080 frames, so 1200 covers essentially every real trial while
-    refusing to run a window back into the previous one.
+    def candidate_frames(self) -> list[int]:
+        """Every pellet-stationary frame in the span, ascending."""
+        return [f for iv in self.armed for f in range(iv.start, iv.end + 1)]
+
+
+def build_windows(trials, intervals, max_lookback: int = MAX_LOOKBACK,
+                  min_candidates: int = 30) -> list[SearchWindow]:
+    """One search window per trial that has any armed frame to search.
+
+    See ``MAX_LOOKBACK`` for why the default is what it is — tuning it down to
+    save stage-2 work silently drops onsets on the slow sessions, and stage 1 is
+    the recall gate: anything it drops, nothing downstream can recover.
     """
     out: list[SearchWindow] = []
     for trial in trials:
         marker = trial.outcome_frame
-        floor = marker - max_lookback
-        # The interval the marker sits in, else the last one that ended before
-        # it — the pellet often leaves the pedestal a beat before the human
-        # keys the outcome, which closes the interval early.
-        chosen = None
-        for iv in intervals:
-            if iv.start > marker:
-                break
-            if iv.end >= floor:
-                chosen = iv
-        if chosen is None:
-            continue
-        start = max(chosen.start, floor)
-        if marker - start + 1 < min_length:
+        start = max(0, marker - max_lookback)
+        armed = tuple(
+            Interval(max(iv.start, start), min(iv.end, marker))
+            for iv in intervals
+            if iv.end >= start and iv.start <= marker
+        )
+        armed = tuple(iv for iv in armed if iv.end >= iv.start)
+        if sum(iv.length for iv in armed) < min_candidates:
             continue
         out.append(SearchWindow(start=start, end=marker, outcome=trial.outcome,
-                                onset_frame=trial.onset_frame))
+                                armed=armed, onset_frame=trial.onset_frame))
     return out
