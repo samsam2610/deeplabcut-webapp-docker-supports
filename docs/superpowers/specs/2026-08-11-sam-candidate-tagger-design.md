@@ -128,9 +128,40 @@ onset frame, leave-one-session-out:
 | 400 frames | 83.8 % | 89.8 % | 92.8 % | 42.7 % |
 | 550 frames | 84.4 % | 89.9 % | 91.9 % | 40.8 % |
 
-Median absolute error: **2 frames**. Per-fold ±5 ranges 64.7 % (banh-mi-1 Jul 2) to
-97.2 % (banh-mi-1 Jul 6). Accuracy is flat as the search window widens 2.2×, so the head is
-finding a real local signature rather than exploiting a positional prior.
+Median absolute error: **2 frames**. Accuracy is flat as the search window widens 2.2×, so
+the head is finding a real local signature rather than exploiting a positional prior.
+
+#### Controlling for DLC training contamination
+
+Leave-one-session-out holds out the *head*'s training data but **not the DLC model's** —
+the model has labelled frames from these same sessions, and in eggtart-1 Jul 1, 21 of its
+30 labelled frames sit within ±5 frames of a tag (median distance 4). That contamination is
+real and had to be measured, not assumed away.
+
+Cross-referencing labelled-frame count against fold accuracy shows it runs the **opposite**
+way:
+
+| session | labelled cam0 frames | fold ±5 |
+|---|---|---|
+| banh-mi-1 Jul 2 | 163 | 63.5 % |
+| eggtart-1 Jul 1 | 30 (21 within ±5 of a tag) | 74.6 % |
+| banh-mi-1 Jul 4 | 53 | 85.8 % |
+| banh-mi-1 Jul 5 | 5 | 89.0 % |
+| **eggtart-1 Jul 5** | **0** | **89.1 %** |
+| **banh-mi-1 Jul 6** | **0** | **96.5 %** |
+
+Restricted to the two sessions with **zero labelled frames anywhere in DLC training**
+(281 trials): **92.9 % within ±5, 95.7 % ±10, 97.5 % ±25, median absolute error 1 frame** —
+better than the contaminated average, not worse.
+
+Hypothesis for the inversion (unverified): the labelling workflow targets frames where the
+model already fails, so heavily-labelled sessions are the hard ones.
+
+**Limitation — session-clean, not animal-clean.** Both clean sessions come from animals
+with labelled frames on other days, and no animal in this project is entirely unlabelled,
+so animal-level DLC generalisation cannot be tested without retraining DLC minus an animal.
+If a new animal always gets frames labelled before analysis, "new day, known animal" is the
+deployment case and 92.9 % is the honest figure. It does not cover a never-labelled animal.
 
 ### Both cameras are needed, for opposite reasons
 
@@ -225,7 +256,8 @@ per-video false-positive count (a review list longer than the manual pass is a f
 regardless of precision). **No success/failure accuracy** — the label is read from the
 CSV, not predicted.
 
-**The bar SAM must clear is now measured: 85 % within ±5, median error 2 frames**, from
+**The bar SAM must clear is now measured: 92.9 % within ±5 on DLC-clean sessions, median
+error 1 frame** (83.5 % across all folds including contaminated ones), from
 the existing DLC model at zero additional inference cost. SAM has to beat that to justify
 its own stage. Remaining gaps where it might: the 64.7 % worst fold, the untested
 leave-one-animal-out generalisation, and the ~15 % of trials the head misses.
