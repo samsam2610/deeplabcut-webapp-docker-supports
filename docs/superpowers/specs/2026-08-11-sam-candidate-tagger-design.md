@@ -183,7 +183,7 @@ alone (27.3 % vs 43.8 %); the learned head weights them and reaches 85 %.
 
 ```
 per video (cam0)
-├─ Stage 0  locate pedestal + aperture once per session      NCC, seconds
+├─ Stage 0  validate the canonical pellet template here      NCC, seconds
 ├─ Stage 1  NCC sweep → pellet-stationary intervals          CPU, ~4 min/video
 ├─ Stage 2  SAM 3, on those intervals only
 │            ├─ paw/wrist mask crosses the aperture → window opens (now "outside glass")
@@ -198,8 +198,33 @@ per video (cam0)
 Each search window is bounded: it **opens** when the paw clears the aperture and **closes**
 at the human `s`/`f` marker. Windows without a closing marker are skipped entirely.
 
-The aperture is static, so SAM never has to find it — it is located once per session by
-the same NCC trick, and SAM's only job is the paw/wrist mask.
+The aperture is static, so SAM never has to find it — and SAM's only job is the paw/wrist
+mask. **Not yet implemented:** stage 0 does not locate the aperture, it uses a hard-coded
+default. Nothing needs it until stage 2 gates on the paw clearing it, at which point it has
+to become a real measurement.
+
+### Stage 0 validates a canonical template — it does not derive one
+
+Implementation note, and a correction to the original design. Deriving a pellet template
+per session was tried three ways and each broke a *different* session:
+
+| selection rule | worst session | separation |
+|---|---|---|
+| highest patch contrast | banh-mi-1 Jul 4 | +0.12 — lost 42 % of its onsets |
+| widest probe-score spread | banh-mi-1 Jul 2 | −0.01 — selected the reload vane |
+| both combined | khoai-lang-1 May 6 | −0.10 |
+
+The vane is the recurring confounder: its in/out cycle is the strongest bimodal signal in
+the pellet box, so "most discriminative patch" picks it rather than the pellet.
+
+One template cut from banh-mi-1 Jul 2 frame 49296 separates present from absent by
+**+0.34 to +0.56 on all ten sessions** — better than every per-session pick, which follows
+from the camera not having moved in two months. It ships as
+`sam-training/src/assets/pellet_template.png`.
+
+Stage 0 therefore measures the canonical's score spread on a sample of the session and only
+searches locally if it falls below `MIN_SPREAD`, which would mean the camera actually moved.
+All 10 sessions choose the canonical.
 
 ### Stage 3 — what the head learns
 
@@ -289,7 +314,7 @@ The panel is cloned from the inline-analysis-3D card —
 already performs the id / class / global renaming for this kind of spin-off. Copy rather
 than refactor; the clone is then trimmed to what the SAM panel needs.
 
-**Every stage must render its result on the frame**: Stage 0/1 overlay the pedestal and
+**Every stage must render its result on the frame** (built, see the module README): Stage 0/1 overlay the pedestal and
 aperture boxes and the NCC trace; Stage 2 overlays SAM masks; Stage 3 shows the per-frame
 key-frame probability against the window with the proposed frame marked. Nothing in this
 pipeline is trusted from a number alone — the failures found while designing it (the vane
