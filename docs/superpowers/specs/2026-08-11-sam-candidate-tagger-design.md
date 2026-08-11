@@ -6,12 +6,28 @@
 
 ## Problem
 
-On the RatBox reaching task, a human watches each ~21-minute cam0 video and hand-tags
-the onset of every reach attempt as `start-success` or `start-failure` — roughly 85 tags
-per video, ~0.03 % of frames. We want a model to propose those tags so the human
-confirms rather than hunts.
+During the experiment the human keys the outcome of each reach live, as an `s` or `f` note.
+Afterwards they must go back through a ~21-minute, 252 k-frame video and hand-place the
+onset frame for each one — roughly 85 per video, ~0.03 % of frames. **That retrospective
+onset hunt is the only thing being automated.**
+
+**Success/failure is never predicted.** It is already in the CSV: the label for a candidate
+is read off the next human `s`/`f` marker after it. A candidate is therefore only emitted
+where a downstream human outcome marker exists — no marker, no candidate.
 
 The tool proposes **candidates only**. A human always makes the final call.
+
+The immediate payoff is the **~290 orphan `s`/`f` markers** (944 `s` vs 817
+`start-success`; 713 `f` vs 551 `start-failure`) — trials whose outcome was keyed live but
+whose onset was never tagged.
+
+### Scope
+
+Only the phase where the **wrist, digit joints and pellet are all outside the glass**,
+reaching for the pellet. Frames where the animal is behind the panel are explicitly out of
+scope — no occlusion handling, no behind-glass segmentation, no implant-occlusion logic.
+The aperture crossing is precisely the moment the paw becomes "outside the glass", so the
+gate and the scope boundary are the same event.
 
 ## Data
 
@@ -56,9 +72,9 @@ makes the heavy stage affordable: SAM sees ~50 k frames per video instead of 252
 plateau (~0.82) and collapses shortly after; the steepest drop lands within ±5 frames of
 the tag on only **5 %** of trials (±10: 18 %, ±25: 39 %).
 
-**NCC alone cannot call success/failure.** Best AUC from the NCC trace is 0.71
-(`ncc_at_+99`). Lower bound — the window only extended 0.5 s past onset while the outcome
-resolves ~1.9 s later — but far from usable.
+**Success/failure separability was measured and is now moot.** Best AUC from the NCC trace
+was 0.71 (`ncc_at_+99`). Recorded only so nobody re-runs it: nothing predicts the outcome,
+because the human already keyed it.
 
 **Photometric paw detection fails on the vane.** Three successive OpenCV guards
 (global-median, bright-fraction, texture) all failed to distinguish the white reload vane
@@ -79,14 +95,17 @@ per video (cam0)
 ├─ Stage 0  locate pedestal + aperture once per session      NCC, seconds
 ├─ Stage 1  NCC sweep → pellet-stationary intervals          CPU, ~4 min/video
 ├─ Stage 2  SAM 3, on those intervals only
-│            ├─ paw/wrist mask crosses the aperture → window gate
-│            └─ per-frame mask features across the window
+│            ├─ paw/wrist mask crosses the aperture → window opens (now "outside glass")
+│            └─ per-frame mask features until the human s/f marker closes it
 ├─ Stage 3  temporal head over the window
-│            ├─ per-frame key-frame probability → argmax
-│            └─ window-level success/failure logit
-└─ Stage 4  write start-success-candidate / start-failure-candidate
-            → human confirms/flips → real tag
+│            └─ per-frame key-frame probability → argmax          (localisation only)
+└─ Stage 4  suffix := next human s/f marker after the frame
+            write start-success-candidate / start-failure-candidate
+            → human confirms/nudges → real tag
 ```
+
+Each search window is bounded: it **opens** when the paw clears the aperture and **closes**
+at the human `s`/`f` marker. Windows without a closing marker are skipped entirely.
 
 The aperture is static, so SAM never has to find it — it is located once per session by
 the same NCC trick, and SAM's only job is the paw/wrist mask.
@@ -99,11 +118,19 @@ displacement from its resting position, wrist position relative to the aperture,
 velocities). A 1D-CNN or BiGRU over the window learns whatever regularity the human
 tagging follows, trained on the 1361 labelled windows.
 
+**Localisation only — there is no classification head.** The window's success/failure is
+already known from its closing `s`/`f` marker. It may still be fed in as an *input* feature
+if it helps localisation (success and failure reaches may peak differently), but it is
+never an output.
+
 ### Stage 4 — write rules
 
 Candidates are written into the real companion CSV, under a distinct namespace.
 `tagged_frames()` matches **exactly**, so `*-candidate` notes can never be picked up by
 tag-mode analysis until a human promotes them.
+
+The suffix is **derived, not predicted**: `s` → `start-success-candidate`, `f` →
+`start-failure-candidate`, taken from the marker that closed the window.
 
 Three hard rules:
 
@@ -128,15 +155,24 @@ Three hard rules:
 random split leaks the same animal's posture across train and test and reports a fake
 number.
 
-**Metric:** fraction of candidates within ±5 / ±10 / ±25 frames of the human tag, plus
-success/failure accuracy, plus per-video false-positive count (a review list longer than
-the manual pass is a failure regardless of precision).
+**Metric:** fraction of candidates within ±5 / ±10 / ±25 frames of the human tag, and
+per-video false-positive count (a review list longer than the manual pass is a failure
+regardless of precision). **No success/failure accuracy** — the label is read from the
+CSV, not predicted.
 
 **Baselines SAM must beat** — if either wins, SAM is not needed:
 
 - NCC steepest-drop: 5 % at ±5 (already measured).
-- Existing DLC model's `Wrist` / `Pellet` / `Snout` keypoints fed to the same Stage-3 head.
+- Existing DLC model's `Wrist`, digit joints and `Pellet` fed to the same Stage-3 head.
   Free to run, trained on this exact rig, 4718 labelled frames.
+
+The DLC baseline is now the **stronger** of the two, and may well win. Restricting scope to
+the unoccluded outside-the-glass phase removes occlusion robustness, which was SAM's main
+structural edge; and DLC already outputs exactly the landmarks in scope — wrist, twelve
+digit joints, pellet. SAM's remaining edge is that a mask's extent is better defined than a
+point estimate, and that it is immune to the vane confounder that defeated every
+photometric approach tried. Run the DLC baseline first; it is cheap and it may end the
+question.
 
 ## Environment
 
@@ -179,12 +215,13 @@ incident where webapp tests leaked 614 GB into `/tmp`.
 
 ## Risks
 
-1. **SAM 3 zero-shot quality on this imagery is unknown** and is the single biggest
-   technical risk. 800×600 grayscale rodent paws behind glass, with a head implant and a
-   white vane, are out of its training distribution. **Spike this first**: request the
-   gated checkpoint (`facebook/sam3.1` on Hugging Face), run zero-shot on ~50 frames
-   spanning armed / reaching / occluded / vane-in, and look at the masks. If text
-   prompting is poor, prompt with the existing DLC `Pellet` / `Left-Paw` keypoints.
+1. **SAM 3 zero-shot quality on this imagery is unknown** — still the biggest technical
+   risk, though the scope restriction cuts it down: SAM only ever sees an unoccluded white
+   paw and a white pellet against a dark background, never a paw behind glass. **Spike this
+   first**: request the gated checkpoint (`facebook/sam3.1` on Hugging Face), run zero-shot
+   on ~50 frames spanning the outside-the-glass reach phase including vane-in frames, and
+   look at the masks. If text prompting is poor on grayscale rodent anatomy, prompt with the
+   existing DLC `Pellet` / `Left-Paw` keypoints.
 2. **Checkpoint access is gated** — request it before anything else; it blocks Stage 2.
 3. **No masks exist for fine-tuning.** Start zero-shot + a learned head. Only fine-tune if
    that misses, bootstrapping masks by prompting SAM with DLC keypoints.
