@@ -18,11 +18,8 @@ where a downstream human outcome marker exists — no marker, no candidate.
 The tool proposes **candidates only**. A human always makes the final call.
 
 The immediate payoff is the **orphan `s`/`f` markers** — trials whose outcome was keyed
-live but whose onset was never tagged. Measured: 313 orphan markers across the 13 tracked
-files, but Jul 3 is one session stored twice (see below), so **~203 unique untagged
-trials**. They are not scattered: nine videos have 0–1 orphans each, and 98 % sit in
-banh-mi-1 Jul 7 (131, never onset-tagged), Jul 3 (67 of 107, a third done) and the Jul 3
-duplicate.
+live but whose onset was never tagged: **198 of them**, in banh-mi-1 Jul 3 (67 of 107) and
+Jul 7 (131 of 131).
 
 ### Scope
 
@@ -41,13 +38,36 @@ memory. Summary of what this design depends on:
 |---|---|
 | Source videos | 800×600 **grayscale** MJPG AVI, 200 fps, ~252 k frames, ~9.9 GB, cam0 |
 | Tags live in | `<video>.csv` — `timestamp, frame_number, frame_line_status, note`; 1-based |
-| Onset tags | 817 `start-success` + 551 `start-failure` across 13 tracked videos |
+| Onset tags | 1323 in the training set — see the dataset selector below |
 | Outcome markers | `s` / `f`, keyed **live during the experiment** |
 | Onset→outcome gap | median 373 frames, p10 306, p90 1080 — **varies, never a fixed offset** |
 | Paired trials | 1361 / 1368 onsets pair with a matching outcome within 3000 frames |
 | Animals | 4 (khoai-lang-1, khoai-lang-2, banh-mi-1, eggtart-1) across 13 videos |
 
 Tags are cam0-only; cameras are hardware-triggered so frame *n* is the same instant on cam1.
+
+### Dataset selector — `Tag = Done`
+
+**The training set is defined by `tracked_files.sqlite`, not by scanning the videos
+directory.** Use only tracked files whose `Tag` progress segment is `Done`. Join
+`tracked` → `video` → `progress_value` → `progress_segment`/`progress_option`; the `video`
+table alone is a registry of files seen, not the working set.
+
+| | videos | `start-*` | `s`/`f` | orphans |
+|---|---|---|---|---|
+| **Training set** (`Tag = Done`) | 10 | **1323** | 1309 | 5 |
+| **Targets** (`Tag` not Done) | 2 | 45 | 238 | **198** |
+
+`Tag = Done` videos are 99.6 % complete, which is the check that the filter is right.
+
+Two traps this avoids. 13 files are registered but only **12 are tracked** — the extra is
+`banh-mi-1_cam0_20260703_115411_2...avi`, an untracked near-duplicate of the tracked
+`..._synced.avi` (107 of 110 `s`/`f` markers at identical frame numbers). And the two
+untagged videos are exactly the two whose `Tag` is unset, so the selector excludes them
+from training and identifies them as the targets in one step.
+
+Animals: khoai-lang-1 (3 videos), banh-mi-1 (4), eggtart-1 (2), khoai-lang-2 (1).
+Both targets are banh-mi-1 days.
 
 ## Measured findings that drive the design
 
@@ -154,16 +174,14 @@ Three hard rules:
 
 ## Validation
 
-**Leave-one-animal-out.** There are only 4 animals and sessions are per-animal-per-day; a
-random split leaks the same animal's posture across train and test and reports a fake
-number.
+Report **both** protocols; a random split leaks the same animal's posture across train and
+test and reports a fake number.
 
-**Deduplicate by session, not by file.** `banh-mi-1_cam0_20260703_115411_2.avi` (253 083
-frames) and `..._synced.avi` (253 078) are the same recording — 107 of 110 `s`/`f` markers
-sit at identical frame numbers, median offset 0. Both are in `tracked_files.sqlite`, and
-the tagging is split across them (0 start tags on one, 45 on the other). Feeding both into
-training duplicates those 40 trials inside a fold and inflates the score. Pick one
-canonical file per session before building the dataset; the human should decide which.
+- **Leave-one-session-out** — matches deployment. Both targets are banh-mi-1 days and
+  banh-mi-1 already has 4 sessions in training, so the real question is "predict a new day
+  for an animal we have seen".
+- **Leave-one-animal-out** — the conservative bound, with only 4 groups (and khoai-lang-2
+  contributing a single session).
 
 **Metric:** fraction of candidates within ±5 / ±10 / ±25 frames of the human tag, and
 per-video false-positive count (a review list longer than the manual pass is a failure
@@ -238,7 +256,8 @@ incident where webapp tests leaked 614 GB into `/tmp`.
 4. **±5 may be below the human's own tagging noise.** Every trial is tagged once, so it
    cannot be measured from existing data. Re-tag ~30 trials blind and compute
    self-agreement; if the human's own jitter exceeds ±5, the target must move.
-5. **Two videos carry no tags** (`banh-mi-1` Jul 3 and Jul 7) — 11 usable, not 13.
+5. **khoai-lang-2 contributes a single session** (117 trials), so its leave-one-animal-out
+   fold trains on three animals and tests on one thin one. Expect that fold to be noisy.
 
 ## Deferred: improving DLC labels
 
