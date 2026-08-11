@@ -17,9 +17,12 @@ where a downstream human outcome marker exists — no marker, no candidate.
 
 The tool proposes **candidates only**. A human always makes the final call.
 
-The immediate payoff is the **~290 orphan `s`/`f` markers** (944 `s` vs 817
-`start-success`; 713 `f` vs 551 `start-failure`) — trials whose outcome was keyed live but
-whose onset was never tagged.
+The immediate payoff is the **orphan `s`/`f` markers** — trials whose outcome was keyed
+live but whose onset was never tagged. Measured: 313 orphan markers across the 13 tracked
+files, but Jul 3 is one session stored twice (see below), so **~203 unique untagged
+trials**. They are not scattered: nine videos have 0–1 orphans each, and 98 % sit in
+banh-mi-1 Jul 7 (131, never onset-tagged), Jul 3 (67 of 107, a third done) and the Jul 3
+duplicate.
 
 ### Scope
 
@@ -154,6 +157,13 @@ Three hard rules:
 **Leave-one-animal-out.** There are only 4 animals and sessions are per-animal-per-day; a
 random split leaks the same animal's posture across train and test and reports a fake
 number.
+
+**Deduplicate by session, not by file.** `banh-mi-1_cam0_20260703_115411_2.avi` (253 083
+frames) and `..._synced.avi` (253 078) are the same recording — 107 of 110 `s`/`f` markers
+sit at identical frame numbers, median offset 0. Both are in `tracked_files.sqlite`, and
+the tagging is split across them (0 start tags on one, 45 on the other). Feeding both into
+training duplicates those 40 trials inside a fold and inflates the score. Pick one
+canonical file per session before building the dataset; the human should decide which.
 
 **Metric:** fraction of candidates within ±5 / ±10 / ±25 frames of the human tag, and
 per-video false-positive count (a review list longer than the manual pass is a failure
