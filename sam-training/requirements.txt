@@ -1,4 +1,8 @@
 flask>=3.0
-opencv-python>=4.8
+# SAM 3 landed in transformers 5.x; 4.57 has DINOv3 but not SAM 3.
+transformers>=5.15
+accelerate>=1.14
+opencv-python-headless>=4.8
 numpy>=1.24
+pillow>=10.0
 pytest>=8.0

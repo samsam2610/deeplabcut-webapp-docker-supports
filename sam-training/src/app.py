@@ -21,6 +21,10 @@ from . import config, intervals, ncc, notes, overlays, rig, store, tracked
 app = Flask(__name__, template_folder="templates", static_folder="static",
             static_url_path="/sam-training/static")
 
+# Stage 2/3 routes live in their own module — see api_sam.py.
+from . import api_sam  # noqa: E402  (after app, avoids a circular import)
+app.register_blueprint(api_sam.bp)
+
 PREFIX = "/sam-training"
 PROJECT_PATH = os.environ.get(
     "SAM_TRAINING_PROJECT",
@@ -138,13 +142,11 @@ def api_sweep():
     return jsonify({"state": "running", "job": job.id})
 
 
-@app.get(f"{PREFIX}/api/job/<job_id>")
-def api_job(job_id):
-    job = store.registry.get(job_id)
-    if job is None:
-        return jsonify({"error": "unknown job"}), 404
-    return jsonify({"state": job.state, "progress": round(job.progress, 3),
-                    "message": job.message})
+# NOTE: /api/job/<id> lives in api_sam.py, which serves BOTH the sweep jobs
+# started here and the scoring jobs started there. It used to be defined in
+# both, with different response shapes — this one omitted `result`, the other
+# included it — so which one answered depended on blueprint registration order,
+# and the SAM panel silently rendered nothing whenever this one won.
 
 
 @app.get(f"{PREFIX}/api/frame")

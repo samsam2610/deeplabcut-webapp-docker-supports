@@ -1,0 +1,1017 @@
+    <section class="card dlc-theme hidden" id="inline-analysis-3d-sam-card">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:.3rem">
+        <h2>3D Inline Analysis - SAM Model</h2>
+        <button class="btn-sm" id="btn-close-inline-analysis-3d-sam" title="Close">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+          Close
+        </button>
+      </div>
+      <p class="subtitle">Everything the original card does, plus SAM 3 masks and DINOv3 exemplar similarity over a trial's candidate frames — so a proposed onset can be judged by looking at it, not just by its score.</p>
+
+      <!-- Source tabs -->
+      <div style="display:flex;gap:.4rem;margin-bottom:.6rem">
+        <button id="ia3ds-tab-project" class="btn-sm active" style="padding:.2rem .65rem;font-size:.75rem">Project Content</button>
+        <button id="ia3ds-tab-browse" class="btn-sm" style="padding:.2rem .65rem;font-size:.75rem">Browse Folders</button>
+        <button id="ia3ds-tab-tracked" class="btn-sm" style="padding:.2rem .65rem;font-size:.75rem">Tracked Files</button>
+      </div>
+
+      <!-- Launcher-level error line. Lives OUTSIDE #ia3ds-player-section because an
+           aborted open (missing file) never reveals the player. -->
+      <div id="ia3ds-launcher-error" class="fe-extract-status" style="margin-bottom:.4rem"></div>
+
+      <!-- Tab: Project Content -->
+      <div id="ia3ds-tab-project-panel">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:.3rem">
+          <label style="font-size:.78rem;color:var(--text-dim)">Labeled content</label>
+          <button class="btn-sm" id="ia3ds-refresh-btn" style="padding:.2rem .45rem;font-size:.75rem">↺ Refresh</button>
+        </div>
+        <div id="ia3ds-content-list" style="max-height:220px;overflow-y:auto;border:1px solid var(--border);border-radius:6px;background:var(--surface-2);padding:.4rem .5rem;font-size:.77rem">
+          <p class="explorer-empty">Loading…</p>
+        </div>
+      </div>
+
+      <!-- Tab: Browse Folders -->
+      <div id="ia3ds-tab-browse-panel" class="hidden">
+        <label style="display:flex;align-items:center;gap:.4rem;font-size:.73rem;color:var(--text-dim);margin-bottom:.3rem;cursor:pointer">
+          <input type="checkbox" id="ia3ds-browse-hide-no-h5" checked
+                 style="accent-color:var(--accent);width:13px;height:13px"/>
+          Hide videos without h5
+        </label>
+        <div style="display:flex;align-items:center;gap:.4rem;margin-bottom:.35rem">
+          <input id="ia3ds-browse-breadcrumb" type="text" spellcheck="false" autocomplete="off"
+            placeholder="/paste/a/path/here"
+            style="flex:1;min-width:0;font-family:var(--mono);font-size:.75rem;color:var(--text);background:var(--surface-2);border:1px solid var(--border);border-radius:5px;padding:.25rem .45rem" />
+          <button class="btn-sm" id="ia3ds-browse-up" style="padding:.2rem .45rem;font-size:.75rem" title="Go up one level">↑ Up</button>
+        </div>
+        <div id="ia3ds-browse-list" style="max-height:220px;overflow-y:auto;border:1px solid var(--border);border-radius:6px;background:var(--surface-2);padding:.4rem .5rem;font-size:.77rem">
+          <p class="explorer-empty">Loading…</p>
+        </div>
+      </div>
+
+      <!-- Tab: Tracked Files -->
+      <div id="ia3ds-tab-tracked-panel" class="hidden">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:.3rem">
+          <label style="font-size:.78rem;color:var(--text-dim)">Tracked videos</label>
+          <span id="ia3ds-sort"></span>
+          <button class="btn-sm" id="ia3ds-tracked-refresh" style="padding:.2rem .45rem;font-size:.75rem">↺ Refresh</button>
+        </div>
+        <div id="ia3ds-tracked-list" style="max-height:220px;overflow-y:auto;border:1px solid var(--border);border-radius:6px;background:var(--surface-2);padding:.4rem .5rem;font-size:.77rem">
+          <p class="explorer-empty">Loading…</p>
+        </div>
+      </div>
+
+      <!-- ── Analysis Parameters (mirrors the 2D Inline Analysis card) ── -->
+      <div style="margin-top:.85rem;margin-bottom:.6rem;padding:.5rem .65rem;border:1px solid var(--border);border-radius:7px;background:var(--surface-2)">
+        <div style="font-size:.72rem;font-weight:600;color:var(--text-dim);text-transform:uppercase;letter-spacing:.05em;margin-bottom:.5rem">Analysis Parameters</div>
+        <div class="scorer-row" style="margin-bottom:.4rem">
+          <label for="ia3ds-shuffle">Shuffle</label>
+          <input type="number" id="ia3ds-shuffle" value="1" min="1" max="20" style="width:5rem"/>
+        </div>
+        <div class="scorer-row" style="margin-bottom:.4rem">
+          <label for="ia3ds-trainingsetindex">Training set index</label>
+          <input type="number" id="ia3ds-trainingsetindex" value="0" min="0" style="width:5rem"/>
+        </div>
+        <div class="scorer-row" style="margin-bottom:.4rem">
+          <label for="ia3ds-snapshot">Snapshot</label>
+          <select id="ia3ds-snapshot" style="flex:1;min-width:0"></select>
+          <button class="btn-sm" id="ia3ds-refresh-snapshots" title="Refresh">↺</button>
+        </div>
+        <div id="ia3ds-snapshot-pin-list" style="max-height:7.5rem;overflow-y:auto;border:1px solid var(--border);border-radius:6px;background:var(--surface-2);padding:.3rem .5rem;margin-bottom:.4rem;font-size:.77rem"></div>
+        <div class="scorer-row" style="margin-bottom:.4rem">
+          <label for="ia3ds-batch-size">Batch size</label>
+          <input type="number" id="ia3ds-batch-size" value="8" min="1" max="256" style="width:5rem"/>
+        </div>
+        <div class="scorer-row" style="margin-bottom:.4rem">
+          <label for="ia3ds-frames-per-click">Frames per click</label>
+          <input type="number" id="ia3ds-frames-per-click" value="500" min="1" max="10000" style="width:6rem"/>
+        </div>
+        <div class="scorer-row" style="margin-bottom:.4rem">
+          <label for="ia3ds-keep-warm-seconds">Keep worker warm (s)</label>
+          <input type="number" id="ia3ds-keep-warm-seconds" value="300" min="10" max="3600" style="width:6rem"/>
+          <span id="ia3ds-warm-indicator" style="margin-left:auto;font-size:.74rem;color:var(--text-dim)">○ cold</span>
+        </div>
+        <div class="scorer-row" style="margin-bottom:.4rem">
+          <label for="ia3ds-save-csv">Save as CSV</label>
+          <input type="checkbox" id="ia3ds-save-csv" style="width:auto"/>
+        </div>
+        <div id="ia3ds-sibling-status" class="subtitle" style="margin:.1rem 0 .3rem">Pick a cam0 video to resolve its sibling.</div>
+        <button id="ia3ds-btn-analyze-range" class="btn-sm btn-create" disabled style="margin-top:.3rem">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+          Start Analysis
+        </button>
+        <div id="ia3ds-last-run-status" class="fe-extract-status" style="margin-top:.35rem"></div>
+        <button id="ia3ds-init-analysis-file" class="btn-sm" disabled style="width:100%;margin-top:.3rem">○ Initialize analysis files (both cameras)</button>
+        <div id="ia3ds-init-file-status" class="subtitle" style="margin-top:.2rem"></div>
+      </div>
+
+      <!-- Player section (shown after a selection is made) -->
+      <div id="ia3ds-player-section" class="hidden">
+        <div style="display:flex;align-items:center;gap:.5rem;margin-bottom:.5rem;flex-wrap:wrap">
+          <label id="ia3ds-track-label" class="hidden" title="Track this file — it will appear in the Tracked Files tab"
+                 style="display:flex;align-items:center;gap:.35rem;flex-shrink:0;cursor:pointer">
+            <input type="checkbox" id="ia3ds-track-checkbox" style="accent-color:var(--accent);width:14px;height:14px">
+          </label>
+          <span id="ia3ds-selected-name" style="font-family:var(--mono);font-size:.78rem;color:var(--text-dim);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;min-width:0"></span>
+          <span id="ia3ds-track-bar" style="flex-shrink:0"></span>
+          <button class="btn-sm" id="ia3ds-btn-back" style="padding:.2rem .6rem;font-size:.75rem;flex-shrink:0">&#8592; Back</button>
+        </div>
+
+        <!-- Viewer size control -->
+        <div style="display:flex;align-items:center;gap:1.2rem;margin-bottom:.5rem">
+          <label style="display:flex;align-items:center;gap:.45rem;font-size:.78rem;color:var(--text-dim);white-space:nowrap">
+            Viewer size
+            <input type="range" id="ia3ds-zoom" min="50" max="300" value="100" step="25" style="width:80px;accent-color:var(--accent)">
+            <span id="ia3ds-zoom-val" style="min-width:2.5rem;text-align:right;color:var(--text)">100 %</span>
+          </label>
+          <button id="ia3ds-equalize-btn" class="btn-sm hidden" title="Reset all per-camera viewer sizes to equal" style="font-size:.75rem;padding:.2rem .55rem;margin-left:.4rem">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+            Equalize
+          </button>
+          <label id="ia3ds-sync-cam-label" style="display:none;align-items:center;gap:.45rem;font-size:.78rem;color:var(--text-dim);cursor:pointer;user-select:none">
+            <input type="checkbox" id="ia3ds-sync-cam">
+            Sync Cam
+          </label>
+        </div>
+
+        <!-- ── Video Metadata Strip (companion CSV) ─────────── -->
+        <div id="ia3ds-metadata-panel" style="display:flex;align-items:center;gap:.6rem;flex-wrap:wrap;margin-bottom:.5rem;padding:.32rem .55rem;background:var(--surface-2);border:1px solid var(--border);border-radius:6px;font-size:.76rem">
+          <span style="color:var(--text-dim);flex-shrink:0">CSV</span>
+          <span id="ia3ds-meta-csv-info" style="color:var(--text-dim);font-family:var(--mono)">No companion CSV</span>
+          <div id="ia3ds-meta-frame-row" style="display:none;margin-left:auto;display:flex;gap:.45rem;align-items:center;font-size:.75rem">
+            <span style="color:var(--text-dim)">Note:</span>
+            <span id="ia3ds-meta-frame-note" style="color:var(--text);font-style:italic;max-width:18rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"></span>
+            <span style="color:var(--text-dim);margin-left:.35rem">Status:</span>
+            <span id="ia3ds-meta-frame-status" style="font-family:var(--mono);color:var(--text)"></span>
+          </div>
+        </div>
+
+        <!-- ── Kinematic Overlay Panel ──────────────────────── -->
+        <div id="ia3ds-overlay-panel" style="margin-bottom:.6rem;padding:.5rem .65rem;background:var(--surface-2);border:1px solid var(--border);border-radius:7px">
+          <!-- Toggle row -->
+          <div style="display:flex;align-items:center;gap:.6rem;flex-wrap:wrap">
+            <label style="display:flex;align-items:center;gap:.45rem;font-size:.8rem;font-weight:500;cursor:pointer;user-select:none">
+              <input type="checkbox" id="ia3ds-overlay-toggle" style="accent-color:var(--accent);width:14px;height:14px" />
+              Show Kinematic Markers
+            </label>
+            <span id="ia3ds-overlay-status" class="fe-extract-status" style="font-size:.73rem"></span>
+          </div>
+
+          <!-- Controls (hidden until toggled on) -->
+          <div id="ia3ds-overlay-controls" class="hidden" style="margin-top:.5rem">
+
+            <!-- ── Primary layer picker ─────────────────────────────── -->
+            <div style="margin-bottom:.45rem">
+              <label style="display:block;font-size:.73rem;color:var(--text-dim);margin-bottom:.25rem">Primary layer (.h5)</label>
+              <div style="display:flex;gap:.35rem;align-items:center">
+                <select id="ia3ds-overlay-primary-select"
+                  style="flex:1;min-width:0;font-family:var(--mono);font-size:.75rem;padding:.28rem .45rem;background:var(--surface);border:1px solid var(--border);border-radius:5px;color:var(--text)">
+                  <option value="">(no h5 detected — use Browse)</option>
+                </select>
+                <button class="btn-sm" id="ia3ds-overlay-h5-browse" title="Browse for any h5">Browse</button>
+                <button class="btn-sm" id="ia3ds-overlay-h5-clear" style="opacity:.7" title="Clear">✕</button>
+              </div>
+              <input type="text" id="ia3ds-overlay-h5-path" readonly
+                style="margin-top:.25rem;width:100%;font-family:var(--mono);font-size:.7rem;padding:.2rem .4rem;background:var(--surface);border:1px solid var(--border);border-radius:5px;color:var(--text-dim)" />
+              <div id="ia3ds-overlay-h5-browser" class="hidden"
+                style="margin-top:.4rem;max-height:160px;overflow-y:auto;border:1px solid var(--border);border-radius:6px;background:var(--surface);padding:.3rem .4rem;font-size:.75rem"></div>
+            </div>
+
+            <!-- Likelihood threshold -->
+            <div style="display:flex;align-items:center;gap:.6rem;margin-bottom:.35rem;flex-wrap:wrap">
+              <label style="display:flex;align-items:center;gap:.4rem;font-size:.78rem;color:var(--text-dim);white-space:nowrap">
+                Threshold
+                <input type="range" id="ia3ds-overlay-threshold" min="0" max="1" step="0.05" value="0.6"
+                  style="width:90px;accent-color:var(--accent)">
+                <span id="ia3ds-overlay-threshold-val" style="font-family:var(--mono);font-size:.75rem;min-width:2.5rem">0.60</span>
+              </label>
+              <label style="display:flex;align-items:center;gap:.4rem;font-size:.78rem;color:var(--text-dim);white-space:nowrap">
+                Marker size
+                <input type="range" id="ia3ds-overlay-marker-size" min="1" max="30" step="1" value="4"
+                  style="width:70px;accent-color:var(--accent)">
+                <span id="ia3ds-overlay-marker-size-val" style="font-family:var(--mono);font-size:.75rem;min-width:1.8rem">4</span>px
+              </label>
+              <label style="display:flex;align-items:center;gap:.4rem;font-size:.78rem;color:var(--text-dim);white-space:nowrap">
+                <input type="checkbox" id="ia3ds-overlay-show-names" style="accent-color:var(--accent)">
+                Show names
+              </label>
+            </div>
+
+            <!-- Body part visibility shortcuts -->
+            <div style="display:flex;align-items:center;gap:.5rem">
+              <span style="font-size:.73rem;color:var(--text-dim)">Body parts</span>
+              <button class="btn-sm" id="ia3ds-overlay-parts-all" style="padding:.1rem .4rem;font-size:.7rem" title="Show all body parts">Show all</button>
+              <button class="btn-sm" id="ia3ds-overlay-parts-none" style="padding:.1rem .4rem;font-size:.7rem" title="Hide all body parts">Hide all</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- ── Two-column split: LEFT = viewer + controls + timelines, RIGHT = finalize panel ── -->
+        <div class="ia3ds-split">
+        <div class="ia3ds-left">
+
+        <!-- Red lock flag — shown only when the keyframe is range-locked (text set by JS) -->
+        <div id="ia3ds-lock-flag" class="ia3ds-lock-flag hidden"></div>
+
+        <!-- VideoViewer (shared library) renders the camera tile(s) here.
+             Created with perTileSize:true in inline_analysis_3d.js, so it
+             generates each tile's frame img + overlay canvas + per-tile size
+             slider. The old static dual-tile markup + tile template were
+             removed in the Phase 4c library migration. -->
+        <div id="ia3ds-viewer-mount"></div>
+
+        <!-- Seek / timeline canvas — dark track + marker-coverage + playhead; click/drag to seek.
+             Wrapped so the lock overlays can absolutely-position over it. -->
+        <div class="ia3ds-seek-wrap">
+          <canvas id="ia3ds-seek-canvas" height="14" title="Click or drag to seek"
+            style="width:100%;display:block;cursor:pointer"></canvas>
+          <div id="ia3ds-lock-dim-left"  class="ia3ds-lock-out hidden"></div>
+          <div id="ia3ds-lock-dim-right" class="ia3ds-lock-out hidden"></div>
+          <div id="ia3ds-lock-range"     class="ia3ds-lock-range hidden"></div>
+        </div>
+
+        <!-- Controls flank: controls (2 rows) + frame#/time meta on top; chips fill below;
+             analysis-start flank on the right -->
+        <div class="ia3ds-controls-flank">
+        <div class="ia3ds-controls-left">
+        <div class="ia3ds-ctrl-top">
+        <!-- Controls — two rows: playback / skip-group; frame#/time/help moved to .ia3ds-meta-mid -->
+        <div class="fe-controls ia3ds-controls-main" style="flex:none">
+          <div class="ia3ds-ctrl-row">
+            <button id="ia3ds-btn-play-back" class="btn-sm fe-ctrl-btn" title="Play backward">
+              <svg id="ia3ds-play-back-icon" width="14" height="14" viewBox="0 0 24 24" fill="currentColor" stroke="none"><polygon points="19 3 5 12 19 21 19 3"/></svg>
+              <svg id="ia3ds-pause-back-icon" width="14" height="14" viewBox="0 0 24 24" fill="currentColor" stroke="none" class="hidden"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg>
+            </button>
+            <button id="ia3ds-btn-play" class="btn-sm fe-ctrl-btn" title="Play / Pause (Space)">
+              <svg id="ia3ds-play-icon" width="14" height="14" viewBox="0 0 24 24" fill="currentColor" stroke="none"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+              <svg id="ia3ds-pause-icon" width="14" height="14" viewBox="0 0 24 24" fill="currentColor" stroke="none" class="hidden"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg>
+            </button>
+            <button id="ia3ds-btn-prev" class="btn-sm fe-ctrl-btn" title="Previous frame (←)">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polyline points="15 18 9 12 15 6"/><line x1="9" y1="6" x2="9" y2="18"/></svg>
+            </button>
+            <button id="ia3ds-btn-next" class="btn-sm fe-ctrl-btn" title="Next frame (→)">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polyline points="9 18 15 12 9 6"/><line x1="15" y1="6" x2="15" y2="18"/></svg>
+            </button>
+            <label style="display:flex;align-items:center;gap:.3rem;font-size:.75rem;color:var(--text-dim);white-space:nowrap"
+                   title="Playback rate (frames per wall-clock second)">
+              fps
+              <input type="number" id="ia3ds-play-fps" value="5" min="1" max="120" step="1"
+                     style="width:46px;text-align:center;font-family:var(--mono);font-size:.78rem;padding:.18rem .3rem;background:var(--surface-2);border:1px solid var(--border);border-radius:5px;color:var(--text)">
+            </label>
+            <label style="display:flex;align-items:center;gap:.3rem;font-size:.75rem;color:var(--text-dim);white-space:nowrap"
+                   title="Play every N frames (1 = every frame, 2 = every other, …)">
+              step
+              <input type="number" id="ia3ds-play-step" value="1" min="1" max="100" step="1"
+                     style="width:46px;text-align:center;font-family:var(--mono);font-size:.78rem;padding:.18rem .3rem;background:var(--surface-2);border:1px solid var(--border);border-radius:5px;color:var(--text)">
+            </label>
+          </div>
+          <div class="ia3ds-ctrl-row">
+            <!-- Multi-frame skip — kept together as one non-wrapping group so the
+                 back/forward pair never splits across a controls-row wrap -->
+            <span class="ia3ds-skip-group">
+              <button id="ia3ds-btn-skip-back" class="btn-sm fe-ctrl-btn" title="Skip backward N frames (Ctrl+←)">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><polyline points="19 18 13 12 19 6"/><polyline points="13 18 7 12 13 6"/></svg>
+              </button>
+              <button id="ia3ds-btn-skip-fwd" class="btn-sm fe-ctrl-btn" title="Skip forward N frames (Ctrl+→)">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><polyline points="5 18 11 12 5 6"/><polyline points="11 18 17 12 11 6"/></svg>
+              </button>
+              <input type="number" id="ia3ds-skip-n" value="10" min="1" max="9999" step="1"
+                title="Frames to skip (Ctrl+← / Ctrl+→)"
+                style="width:72px;text-align:center;font-family:var(--mono);font-size:.78rem;padding:.18rem .3rem;background:var(--surface-2);border:1px solid var(--border);border-radius:5px;color:var(--text)" />
+              <span class="ia3ds-skip-presets" style="display:inline-flex;gap:.2rem">
+                <button type="button" class="ia3ds-skip-preset" data-n="1">1</button>
+                <button type="button" class="ia3ds-skip-preset" data-n="5">5</button>
+                <button type="button" class="ia3ds-skip-preset" data-n="10">10</button>
+                <button type="button" class="ia3ds-skip-preset" data-n="30">30</button>
+                <button type="button" class="ia3ds-skip-preset" data-n="100">100</button>
+              </span>
+            </span>
+          </div>
+        </div>
+        <!-- end .fe-controls (two ctrl-rows) -->
+
+          <!-- Compact frame # + time + help beside the controls -->
+          <div class="ia3ds-meta-mid">
+            <span class="fe-frame-counter" id="ia3ds-frame-counter" title="Click to jump to a frame" style="cursor:pointer">Frame 0 / 0</span>
+            <input type="number" id="ia3ds-frame-jump" class="hidden" min="0" title="Type a frame number, Enter to jump"
+              style="width:5.5rem;text-align:center;font-family:var(--mono);font-size:.78rem;padding:.18rem .3rem;background:var(--surface-2);border:1px solid var(--accent);border-radius:5px;color:var(--text)" />
+            <span class="fe-time-display" id="ia3ds-time-display">0.000 s</span>
+            <button type="button" id="ia3ds-help-btn" class="btn-sm fe-ctrl-btn" title="Keyboard shortcuts">?</button>
+            <div id="ia3ds-help-tooltip" class="hidden" style="position:absolute;z-index:20;background:var(--surface-2);border:1px solid var(--border);border-radius:6px;padding:.5rem .7rem;font-size:.72rem;font-family:var(--mono);color:var(--text-dim);box-shadow:0 4px 16px rgba(0,0,0,.4)">
+              <div><b>Space</b> play/pause · <b>Shift+Space</b> play backward</div>
+              <div><b>← / →</b> step ±1 · <b>Shift+← / →</b> step ±skip</div>
+              <div><b>Click frame #</b> jump to frame</div>
+              <div><b>Tab</b> next bodypart · <b>WASD</b> nudge · <b>⌫/Del</b> remove · <b>h</b> hide on this frame</div>
+            </div>
+          </div>
+        </div>
+        <!-- end .ia3ds-ctrl-top -->
+
+        <!-- Body-part chip selector (fills below controls; visible when overlay is on and H5 is loaded) -->
+        <div id="ia3ds-bp-list-wrap" class="ia3ds-bp-chips-wrap hidden" style="margin-top:.35rem;margin-bottom:.2rem">
+          <div class="fl-bodypart-list" id="ia3ds-bp-chips"></div>
+        </div>
+
+        <!-- Marker-edit controls — shown only when Finalize analysis is on -->
+        <div id="ia3ds-marker-edit-controls" class="hidden"
+          style="display:flex;align-items:center;gap:.55rem;flex-wrap:wrap;margin-top:.35rem;margin-bottom:.2rem;font-size:.77rem">
+          <span id="ia3ds-marker-edit-count" style="color:var(--accent);font-weight:500">0 frames edited</span>
+          <button class="btn-sm" id="ia3ds-save-adjustments-btn"
+            style="background:var(--accent);color:#fff;font-weight:500;padding:.28rem .7rem"
+            title="Write marker adjustments back to the .h5 and .csv files">
+            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" style="margin-right:.3rem"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>Save Adjustments
+          </button>
+          <button class="btn-sm" id="ia3ds-discard-adjustments-btn"
+            style="opacity:.75;padding:.28rem .6rem" title="Discard all pending marker adjustments">Discard</button>
+          <button class="btn-sm" id="ia3ds-clear-frame-btn"
+            style="opacity:.65;padding:.28rem .6rem" title="Double-click to erase all markers on the current frame">Clear Frame</button>
+          <label class="ia3ds-lock-bp-label" title="Keep the selected body-part after placing (re-place to correct it) — does not auto-advance">
+            <input type="checkbox" id="ia3ds-lock-bp"> Lock BP
+          </label>
+        </div>
+        </div>
+        <!-- end .ia3ds-controls-left -->
+        </div>
+        <!-- end .ia3ds-controls-flank -->
+
+        <span id="ia3ds-status" class="fe-extract-status"></span>
+
+        <!-- Status / note timeline — always visible in the viewer (surfaced from curation) -->
+        <div id="ia3ds-viewer-timeline" style="margin-top:.5rem">
+          <div id="ia3ds-csv-bars" style="margin-top:.5rem">
+            <div id="ia3ds-status-bar-wrap" style="display:none">
+              <div style="display:flex;align-items:center;gap:.4rem;margin-top:.55rem;margin-bottom:.18rem">
+                <span class="fe-csv-bar-label" style="margin:0">Status</span>
+                <button id="ia3ds-status-prev-btn" class="btn-sm" disabled title="Previous status frame" style="padding:.12rem .4rem;font-size:.72rem;line-height:1">◀</button>
+                <button id="ia3ds-status-next-btn" class="btn-sm" disabled title="Next status frame" style="padding:.12rem .4rem;font-size:.72rem;line-height:1">▶</button>
+              </div>
+              <canvas id="ia3ds-status-canvas" height="18"
+                style="width:100%;display:block;cursor:pointer;border-radius:3px;background:var(--surface)"
+                title="Click to jump to frame"></canvas>
+              <div id="ia3ds-status-chips" class="fe-tag-filter" style="margin-top:.3rem;min-height:1rem"></div>
+              <div class="ia3ds-edit-row">
+                <input type="text" id="ia3ds-status-input" class="ia3ds-edit-input" placeholder="status @ current frame" />
+                <button id="ia3ds-save-status-btn" class="btn-sm btn-create" style="padding:.28rem .65rem">Save</button>
+                <span class="ia3ds-edit-tags">
+                  <span class="ia3ds-tags-lbl">tags:</span>
+                  <span id="ia3ds-status-tags" class="ia3ds-tags" style="margin:0"></span>
+                </span>
+              </div>
+            </div>
+            <div id="ia3ds-note-bar-wrap" style="display:none;margin-top:.4rem">
+              <div style="display:flex;align-items:center;gap:.4rem;margin-top:.55rem;margin-bottom:.18rem">
+                <span class="fe-csv-bar-label" style="margin:0">Notes</span>
+                <button id="ia3ds-note-prev-btn" class="btn-sm" disabled title="Previous note frame" style="padding:.12rem .4rem;font-size:.72rem;line-height:1">◀</button>
+                <button id="ia3ds-note-next-btn" class="btn-sm" disabled title="Next note frame" style="padding:.12rem .4rem;font-size:.72rem;line-height:1">▶</button>
+              </div>
+              <canvas id="ia3ds-note-canvas" height="18"
+                style="width:100%;display:block;cursor:pointer;border-radius:3px;background:var(--surface)"
+                title="Click to jump to frame"></canvas>
+              <div id="ia3ds-note-chips" class="fe-tag-filter" style="margin-top:.3rem;min-height:1rem"></div>
+              <div class="ia3ds-edit-row">
+                <input type="text" id="ia3ds-note-input" class="ia3ds-edit-input" placeholder="note @ current frame" />
+                <button id="ia3ds-save-note-btn" class="btn-sm btn-create" style="padding:.28rem .65rem">Save</button>
+                <span class="ia3ds-edit-tags">
+                  <span class="ia3ds-tags-lbl">tags:</span>
+                  <span id="ia3ds-note-tags" class="ia3ds-tags" style="margin:0"></span>
+                </span>
+              </div>
+              <span id="ia3ds-annot-save-status" class="fe-extract-status"></span>
+            </div>
+          </div>
+          <!-- Finalized-frames coverage timeline — relocated OUT of the finalize panel -->
+          <div id="ia3ds-finalize-coverage-wrap" class="ia3ds-bar">
+            <div class="ia3ds-bar-header">
+              <span class="fe-csv-bar-label">Finalized frames</span>
+              <button id="ia3ds-finalize-prev" class="btn-sm" disabled title="Previous finalized region" style="padding:.12rem .4rem;font-size:.72rem;line-height:1">◀</button>
+              <button id="ia3ds-finalize-next" class="btn-sm" disabled title="Next finalized region" style="padding:.12rem .4rem;font-size:.72rem;line-height:1">▶</button>
+              <span style="font-size:.7rem;color:var(--text-dim)">coverage of _analyzed</span>
+            </div>
+            <canvas id="ia3ds-finalize-coverage" height="14" title="Finalized frames — click or drag to seek"
+              style="width:100%;display:block;cursor:pointer"></canvas>
+          </div>
+          <!-- 3D coverage bar — mirrors the "Finalized frames" bar; relocated OUT of the
+               Triangulate panel so it's always visible under the viewer. -->
+          <div id="ia3ds-triangulate-coverage-wrap" class="ia3ds-bar">
+            <div class="ia3ds-bar-header">
+              <span class="fe-csv-bar-label">3D coverage</span>
+              <button id="ia3ds-triangulate-prev" class="btn-sm" disabled title="Previous triangulated region" style="padding:.12rem .4rem;font-size:.72rem;line-height:1">◀</button>
+              <button id="ia3ds-triangulate-next" class="btn-sm" disabled title="Next triangulated region" style="padding:.12rem .4rem;font-size:.72rem;line-height:1">▶</button>
+              <span style="font-size:.7rem;color:var(--text-dim)">coverage of pose-3d</span>
+            </div>
+            <canvas id="ia3ds-triangulate-coverage" height="14" title="Frames with 3D data"
+              style="width:100%;display:block;cursor:pointer"></canvas>
+          </div>
+        </div>
+        </div>
+        <!-- end .ia3ds-left -->
+
+        <!-- ─────────────  RIGHT: Finalize-analysis sub-card  ───────────── -->
+        <div class="ia3ds-right">
+
+        <!-- ── Finalize Analysis Panel (relocated into the right column) ──── -->
+        <div id="ia3ds-finalize-panel" style="margin-top:0;padding:.5rem .65rem;background:var(--surface-2);border:1px solid var(--border);border-radius:7px">
+          <label style="display:flex;align-items:center;gap:.45rem;font-size:.8rem;font-weight:500;cursor:pointer;user-select:none">
+            <input type="checkbox" id="ia3ds-finalize-toggle" checked style="accent-color:var(--accent);width:14px;height:14px"/>
+            Finalize analysis
+          </label>
+          <div id="ia3ds-finalize-controls" class="hidden" style="margin-top:.5rem">
+            <div style="display:flex;align-items:center;gap:.5rem;flex-wrap:wrap;margin-bottom:.35rem">
+              <span style="font-size:.76rem;color:var(--text-dim)">Keyframe</span>
+              <input type="number" id="ia3ds-finalize-keyframe" min="0" value="0"
+                style="width:5rem;font-family:var(--mono);font-size:.78rem;background:var(--surface);border:1px solid var(--border);border-radius:5px;color:var(--text);padding:.18rem .3rem" />
+              <label style="display:flex;align-items:center;gap:.3rem;font-size:.74rem;color:var(--text-dim);cursor:pointer;user-select:none">
+                <input type="checkbox" id="ia3ds-finalize-lock" style="accent-color:var(--accent);width:13px;height:13px"/>
+                Lock (l)
+              </label>
+            </div>
+            <div style="display:flex;align-items:center;gap:.4rem;flex-wrap:wrap;margin-bottom:.35rem">
+              <label style="font-size:.74rem;color:var(--text-dim)">before</label>
+              <input type="number" id="ia3ds-finalize-before" value="200" min="0"
+                style="width:4.4rem;font-size:.76rem;background:var(--surface);border:1px solid var(--border);border-radius:5px;color:var(--text);padding:.22rem .4rem" />
+              <label style="font-size:.74rem;color:var(--text-dim)">after</label>
+              <input type="number" id="ia3ds-finalize-after" value="599" min="0"
+                style="width:4.4rem;font-size:.76rem;background:var(--surface);border:1px solid var(--border);border-radius:5px;color:var(--text);padding:.22rem .4rem" />
+              <label style="font-size:.74rem;color:var(--text-dim)">length</label>
+              <input type="number" id="ia3ds-finalize-length" value="800" min="1"
+                style="width:4.9rem;font-size:.76rem;background:var(--surface);border:1px solid var(--border);border-radius:5px;color:var(--text);padding:.22rem .4rem" />
+            </div>
+            <div style="margin-bottom:.3rem">
+              <span id="ia3ds-finalize-range" style="font-size:.72rem;color:var(--text-dim);font-family:var(--mono)">frames 0–0 (0)</span>
+            </div>
+          </div>
+          <!-- end #ia3ds-finalize-controls (keyframe group — gated by the toggle) -->
+
+          <!-- Always-visible analyze block (moved from the old analysis-start flank).
+               Not gated: 'Start from current' + the extract button work outside finalize
+               mode; 'Start for range' stays disabled until the keyframe is locked. -->
+          <div class="ia3ds-analyze-block">
+            <span id="ia3ds-start-count" class="ia3ds-start-count">≈ <b id="ia3ds-start-count-n">0</b> frames from current frame</span>
+            <button id="ia3ds-btn-analyze-current" class="btn-sm btn-create" disabled>▶ Start analysis from current frame</button>
+            <button id="ia3ds-btn-analyze-range-confined" class="btn-sm btn-create" disabled>▶ Start analysis for range</button>
+            <span id="ia3ds-start-hint" class="ia3ds-start-hint"></span>
+            <div class="ia3ds-group-sep"></div>
+            <!-- Analyze for tag: batch the model over every frame carrying one locked
+                 note tag. Lock-tag is enabled only when exactly one note tag is active;
+                 checking it freezes the note chips. Button gated like "for range". -->
+            <div class="ia3ds-tag-batch">
+              <label class="ia3ds-tag-lock-label" title="Lock the single active note tag (freezes note chips)">
+                <input type="checkbox" id="ia3ds-tag-lock" disabled style="accent-color:var(--accent);width:14px;height:14px"/>
+                Lock tag
+              </label>
+              <label class="ia3ds-tag-lock-label" title="When ON, re-run the model over every frame in the tagged windows and OVERWRITE existing predictions AND human corrections. Default OFF preserves already-labeled frames.">
+                <input type="checkbox" id="ia3ds-override-labels" style="accent-color:var(--danger,#e66);width:14px;height:14px"/>
+                override existing labels
+              </label>
+              <label class="ia3ds-tag-lock-label" title="When ON (default), skip frames already finalized in the _analyzed timeline — even if 'override existing labels' is on. Protects human-curated frames.">
+                <input type="checkbox" id="ia3ds-ignore-analyzed" checked style="accent-color:var(--accent);width:14px;height:14px"/>
+                ignore frames in _analyzed
+              </label>
+              <button id="ia3ds-btn-analyze-tag" class="btn-sm btn-create" disabled
+                title="Run analysis on every frame carrying the locked note tag (both cameras)">
+                ▶ Analyze for tag
+              </button>
+              <button id="ia3ds-btn-triangulate-tag" class="btn-sm btn-create" disabled
+                title="Triangulate every frame carrying the locked note tag (both cameras)">
+                ▲ Triangulate all for tag
+              </button>
+              <span id="ia3ds-tag-hint" class="ia3ds-start-hint"></span>
+              <div class="ia3ds-group-sep"></div>
+            </div>
+            <button id="ia3ds-add-frame-nomarkers-btn" class="btn-sm"
+              title="Save the raw current frame from BOTH cameras as lossless PNGs in labeled-data/ (no markers, no CSV entry; single-cam falls back to one)">
+              ＋ Add current frame (both cams) to labeled-data
+            </button>
+          </div>
+
+          <!-- Finalize outputs — gated by the same 'Finalize analysis' toggle. -->
+          <div id="ia3ds-finalize-outputs" class="hidden">
+            <div style="display:flex;align-items:center;gap:.4rem;flex-wrap:wrap;margin-bottom:.4rem">
+              <button class="btn-sm btn-create" id="ia3ds-finalize-add-btn"
+                title="Save marker edits to both cameras' layers, then copy this keyframe window into each camera's _analyzed file">
+                Add range to _analyzed
+              </button>
+            </div>
+            <div style="display:flex;align-items:center;gap:.5rem;flex-wrap:wrap;margin-bottom:.35rem">
+              <input type="text" id="ia3ds-finalize-clip-postfix" placeholder="postfix (optional)"
+                style="flex:1;min-width:110px;font-size:.76rem;background:var(--surface);border:1px solid var(--border);border-radius:5px;color:var(--text);padding:.22rem .4rem" />
+              <label style="display:flex;align-items:center;gap:.3rem;font-size:.74rem;color:var(--text-dim);cursor:pointer;user-select:none">
+                <input type="checkbox" id="ia3ds-finalize-clip-sibling" checked style="accent-color:var(--accent);width:13px;height:13px"/> both cams
+              </label>
+            </div>
+            <div style="font-size:.74rem;color:var(--text-dim);margin:.2rem 0 .3rem">postfix tags <span style="color:var(--text-dim)">(click to fill · saved per project)</span></div>
+            <div id="ia3ds-postfix-tags" class="ia3ds-tags"></div>
+            <div style="display:flex;align-items:center;gap:.4rem;flex-wrap:wrap;margin-bottom:.4rem">
+              <button class="btn-sm btn-create" id="ia3ds-finalize-clip-btn"
+                title="Add this range to _analyzed AND extract a clip from it">Add range to _analyzed and extract clip</button>
+              <button class="btn-sm" id="ia3ds-finalize-clip-rename-btn" disabled
+                title="Rename the extracted clip with the postfix">Rename clip</button>
+              <button class="btn-sm" id="ia3ds-finalize-clip-delete-btn" disabled
+                title="Delete the clip AND un-finalize its frames from _analyzed">Delete clip</button>
+            </div>
+            <div id="ia3ds-finalize-status" class="fe-extract-status"></div>
+          </div>
+        </div>
+        <!-- ── end Finalize Analysis Panel ─────────────────────────── -->
+
+        </div>
+        <!-- end .ia3ds-right -->
+        </div>
+        <!-- end .ia3ds-split -->
+
+        <!-- ── Triangulate Panel (Phase 1: init anipose folder) ──────── -->
+        <div id="ia3ds-triangulate-panel" style="margin-top:.65rem;padding:.5rem .65rem;background:var(--surface-2);border:1px solid var(--border);border-radius:7px">
+
+          <!-- Toggle row -->
+          <div style="display:flex;align-items:center;gap:.6rem;flex-wrap:wrap">
+            <label style="display:flex;align-items:center;gap:.45rem;font-size:.8rem;font-weight:500;cursor:pointer;user-select:none">
+              <input type="checkbox" id="ia3ds-triangulate-toggle"
+                     style="accent-color:var(--accent);width:14px;height:14px"/>
+              Triangulate
+            </label>
+          </div>
+
+          <!-- Controls (hidden until the toggle is checked) -->
+          <div id="ia3ds-triangulate-controls" class="hidden" style="margin-top:.5rem">
+            <div style="display:flex;align-items:center;gap:.4rem;flex-wrap:wrap">
+              <button class="btn-sm" id="ia3ds-anipose-init-btn"
+                title="Copy calibration + per-cam analyzed files into anipose calibration/ and pose-2d/ folders">
+                ⚙ Initialize into anipose format
+              </button>
+              <span id="ia3ds-anipose-init-status" class="fe-extract-status" style="font-size:.73rem;flex:1;min-width:0"></span>
+            </div>
+
+            <!-- Phase 2: triangulate the current finalize keyframe window (gated on lock) -->
+            <div style="display:flex;align-items:center;gap:.4rem;flex-wrap:wrap;margin-top:.5rem">
+              <button class="btn-sm btn-create" id="ia3ds-triangulate-range-btn" disabled
+                title="Triangulate the locked keyframe range on the selected stereo pair (incremental — accumulates into pose-3d/)">
+                ▶ Triangulate keyframe range
+              </button>
+              <span id="ia3ds-triangulate-range-status" class="fe-extract-status" style="font-size:.73rem;flex:1;min-width:0"></span>
+            </div>
+          </div>
+          <!-- end ia3ds-triangulate-controls -->
+        </div>
+        <!-- ── end Triangulate Panel ─────────────────────────────────── -->
+
+        <!-- ── Anipose Parameters Panel (config.toml editor) ─────────── -->
+        <div id="ia3ds-params-panel" style="margin-top:.65rem;padding:.5rem .65rem;background:var(--surface-2);border:1px solid var(--border);border-radius:7px">
+
+          <!-- Toggle row -->
+          <div style="display:flex;align-items:center;gap:.6rem;flex-wrap:wrap">
+            <label style="display:flex;align-items:center;gap:.45rem;font-size:.8rem;font-weight:500;cursor:pointer;user-select:none">
+              <input type="checkbox" id="ia3ds-params-toggle"
+                     style="accent-color:var(--accent);width:14px;height:14px"/>
+              Anipose Parameters
+            </label>
+          </div>
+
+          <!-- Controls (hidden until the toggle is checked) -->
+          <div id="ia3ds-params-controls" class="hidden" style="margin-top:.5rem;font-size:.76rem">
+
+            <!-- ── [triangulation] ─────────────────────────────────── -->
+            <div style="margin-bottom:.55rem">
+              <div style="font-size:.7rem;font-weight:600;color:var(--text-dim);text-transform:uppercase;letter-spacing:.05em;margin-bottom:.35rem">[triangulation]</div>
+              <div style="display:flex;align-items:center;gap:.35rem;flex-wrap:wrap;margin-bottom:.35rem">
+                <label style="color:var(--text-dim)">cam_regex</label>
+                <input type="text" id="ia3ds-param-tri-cam_regex" spellcheck="false" autocomplete="off"
+                  style="flex:1;min-width:8rem;font-family:var(--mono);font-size:.74rem;background:var(--surface);border:1px solid var(--border);border-radius:5px;color:var(--text);padding:.18rem .35rem"/>
+              </div>
+              <div style="display:flex;align-items:center;gap:.9rem;flex-wrap:wrap;margin-bottom:.35rem">
+                <label style="display:flex;align-items:center;gap:.3rem;color:var(--text-dim);cursor:pointer">
+                  <input type="checkbox" id="ia3ds-param-tri-ransac" style="accent-color:var(--accent)"/> ransac</label>
+                <label style="display:flex;align-items:center;gap:.3rem;color:var(--text-dim);cursor:pointer">
+                  <input type="checkbox" id="ia3ds-param-tri-optim" style="accent-color:var(--accent)"/> optim</label>
+                <label style="display:flex;align-items:center;gap:.3rem;color:var(--text-dim);cursor:pointer">
+                  <input type="checkbox" id="ia3ds-param-tri-optim_chunking" style="accent-color:var(--accent)"/> optim_chunking</label>
+              </div>
+              <div style="display:flex;align-items:center;gap:.7rem;flex-wrap:wrap">
+                <label style="display:flex;align-items:center;gap:.3rem;color:var(--text-dim)">scale_smooth
+                  <input type="number" id="ia3ds-param-tri-scale_smooth" style="width:3.6rem"/></label>
+                <label style="display:flex;align-items:center;gap:.3rem;color:var(--text-dim)">scale_length
+                  <input type="number" id="ia3ds-param-tri-scale_length" style="width:3.6rem"/></label>
+                <label style="display:flex;align-items:center;gap:.3rem;color:var(--text-dim)">scale_length_weak
+                  <input type="number" id="ia3ds-param-tri-scale_length_weak" style="width:3.6rem"/></label>
+                <label style="display:flex;align-items:center;gap:.3rem;color:var(--text-dim)">reproj_error_threshold
+                  <input type="number" id="ia3ds-param-tri-reproj_error_threshold" style="width:3.6rem"/></label>
+                <label style="display:flex;align-items:center;gap:.3rem;color:var(--text-dim)">score_threshold
+                  <input type="number" id="ia3ds-param-tri-score_threshold" step="0.01" style="width:3.6rem"/></label>
+                <label style="display:flex;align-items:center;gap:.3rem;color:var(--text-dim)">n_deriv_smooth
+                  <input type="number" id="ia3ds-param-tri-n_deriv_smooth" style="width:3.6rem"/></label>
+                <label style="display:flex;align-items:center;gap:.3rem;color:var(--text-dim)">optim_chunking_size
+                  <input type="number" id="ia3ds-param-tri-optim_chunking_size" style="width:3.6rem"/></label>
+              </div>
+              <!-- constraints = the anipose skeleton (limb pairs). One "A, B" per
+                   line. Only enforced when `optim` is checked. -->
+              <div style="margin-top:.45rem">
+                <div style="display:flex;align-items:center;gap:.5rem;margin-bottom:.2rem;flex-wrap:wrap">
+                  <label style="color:var(--text-dim)">constraints</label>
+                  <span style="color:var(--text-dim);font-size:.66rem;flex:1;min-width:0">skeleton — one "A, B" pair per line; enforced only when <b>optim</b> is on</span>
+                  <button class="btn-sm" id="ia3ds-param-tri-constraints-fill" type="button"
+                    title="Fill from the bodypart names (Wrist→MCP-k→PIP-k→DIP-k finger chains)"
+                    style="padding:.1rem .4rem;font-size:.7rem">Fill from skeleton</button>
+                </div>
+                <textarea id="ia3ds-param-tri-constraints" rows="4" spellcheck="false" autocomplete="off"
+                  placeholder="Wrist, MCP-1&#10;MCP-1, PIP-1&#10;PIP-1, DIP-1"
+                  style="width:100%;box-sizing:border-box;font-family:var(--mono);font-size:.72rem;background:var(--surface);border:1px solid var(--border);border-radius:5px;color:var(--text);padding:.25rem .35rem;resize:vertical"></textarea>
+              </div>
+            </div>
+
+            <!-- ── [filter] (2D) ───────────────────────────────────── -->
+            <div style="margin-bottom:.55rem">
+              <div style="font-size:.7rem;font-weight:600;color:var(--text-dim);text-transform:uppercase;letter-spacing:.05em;margin-bottom:.35rem">[filter] (2D)</div>
+              <div style="display:flex;align-items:center;gap:.9rem;flex-wrap:wrap;margin-bottom:.35rem">
+                <label style="display:flex;align-items:center;gap:.3rem;color:var(--text-dim);cursor:pointer">
+                  <input type="checkbox" id="ia3ds-param-filter-enabled" style="accent-color:var(--accent)"/> enabled</label>
+                <label style="display:flex;align-items:center;gap:.3rem;color:var(--text-dim);cursor:pointer">
+                  <input type="checkbox" id="ia3ds-param-filter-spline" style="accent-color:var(--accent)"/> spline</label>
+                <label style="display:flex;align-items:center;gap:.3rem;color:var(--text-dim);cursor:pointer">
+                  <input type="checkbox" id="ia3ds-param-filter-multiprocessing" style="accent-color:var(--accent)"/> multiprocessing</label>
+                <label style="display:flex;align-items:center;gap:.3rem;color:var(--text-dim)">type
+                  <select id="ia3ds-param-filter-type"
+                    style="font-size:.74rem;background:var(--surface);border:1px solid var(--border);border-radius:5px;color:var(--text);padding:.16rem .3rem">
+                    <option value="medfilt">medfilt</option>
+                    <option value="viterbi">viterbi</option>
+                  </select></label>
+              </div>
+              <div style="display:flex;align-items:center;gap:.7rem;flex-wrap:wrap">
+                <label style="display:flex;align-items:center;gap:.3rem;color:var(--text-dim)">medfilt
+                  <input type="number" id="ia3ds-param-filter-medfilt" step="2" style="width:3.6rem"/></label>
+                <label style="display:flex;align-items:center;gap:.3rem;color:var(--text-dim)">offset_threshold
+                  <input type="number" id="ia3ds-param-filter-offset_threshold" style="width:3.6rem"/></label>
+                <label style="display:flex;align-items:center;gap:.3rem;color:var(--text-dim)">score_threshold
+                  <input type="number" id="ia3ds-param-filter-score_threshold" step="0.01" style="width:3.6rem"/></label>
+                <label style="display:flex;align-items:center;gap:.3rem;color:var(--text-dim)">n_back
+                  <input type="number" id="ia3ds-param-filter-n_back" style="width:3.6rem"/></label>
+              </div>
+            </div>
+
+            <!-- ── [filter3d] ──────────────────────────────────────── -->
+            <div style="margin-bottom:.5rem">
+              <div style="font-size:.7rem;font-weight:600;color:var(--text-dim);text-transform:uppercase;letter-spacing:.05em;margin-bottom:.35rem">[filter3d]</div>
+              <div style="display:flex;align-items:center;gap:.9rem;flex-wrap:wrap">
+                <label style="display:flex;align-items:center;gap:.3rem;color:var(--text-dim);cursor:pointer">
+                  <input type="checkbox" id="ia3ds-param-f3d-enabled" style="accent-color:var(--accent)"/> enabled</label>
+                <label style="display:flex;align-items:center;gap:.3rem;color:var(--text-dim)">medfilt
+                  <input type="number" id="ia3ds-param-f3d-medfilt" step="2" style="width:3.6rem"/></label>
+                <label style="display:flex;align-items:center;gap:.3rem;color:var(--text-dim)">offset_threshold
+                  <input type="number" id="ia3ds-param-f3d-offset_threshold" style="width:3.6rem"/></label>
+              </div>
+            </div>
+
+            <!-- Save + status -->
+            <div style="display:flex;align-items:center;gap:.4rem;flex-wrap:wrap;margin-top:.4rem">
+              <button class="btn-sm btn-create" id="ia3ds-params-save"
+                title="Persist these parameters to config.toml">Save parameters</button>
+              <span id="ia3ds-params-status" class="fe-extract-status" style="font-size:.73rem;flex:1;min-width:0"></span>
+            </div>
+            <div style="font-size:.7rem;color:var(--text-dim);margin-top:.35rem">
+              triangulation &amp; 2D-filter changes apply on next Triangulate; filter3d on next re-filter.
+            </div>
+          </div>
+          <!-- end ia3ds-params-controls -->
+        </div>
+        <!-- ── end Anipose Parameters Panel ──────────────────────────── -->
+
+        <!-- ── 3D View Panel (three.js pose viewer spike) ────────────── -->
+        <div id="ia3ds-pose3d-panel" style="margin-top:.65rem;padding:.5rem .65rem;background:var(--surface-2);border:1px solid var(--border);border-radius:7px">
+
+          <!-- Toggle row -->
+          <div style="display:flex;align-items:center;gap:.6rem;flex-wrap:wrap">
+            <label style="display:flex;align-items:center;gap:.45rem;font-size:.8rem;font-weight:500;cursor:pointer;user-select:none">
+              <input type="checkbox" id="ia3ds-pose3d-toggle"
+                     style="accent-color:var(--accent);width:14px;height:14px"/>
+              3D View
+            </label>
+          </div>
+
+          <!-- Controls (hidden until the toggle is checked) -->
+          <div id="ia3ds-pose3d-controls" class="hidden" style="margin-top:.5rem">
+            <div style="display:flex;align-items:center;gap:.4rem;flex-wrap:wrap;margin-bottom:.4rem">
+              <button class="btn-sm" id="ia3ds-pose3d-reset"
+                title="Recenter the camera on the reconstructed pose">
+                Reset view
+              </button>
+              <span id="ia3ds-pose3d-status" class="fe-extract-status" style="font-size:.73rem;flex:1;min-width:0"></span>
+            </div>
+
+            <!-- Part 1: mini multi-cam row — mirrors the MAIN viewer's current-frame
+                 tiles (read-only). Each wrapper hides when its tile is absent. -->
+            <!-- Mini multi-cam: cam0 + cam1 fill the panel width (like the original viewer). -->
+            <!-- Mini-cams are sized 1:1 to the ORIGINAL tiles by JS (track the
+                 Viewer-size zoom); overflow-x scrolls if the duplicate is wider. -->
+            <div id="ia3ds-pose3d-cams" style="display:flex;gap:.4rem;margin-bottom:.4rem;overflow-x:auto;align-items:flex-start">
+              <div id="ia3ds-pose3d-cam0-wrap" class="hidden" style="flex:0 0 auto">
+                <canvas id="ia3ds-pose3d-cam0"
+                  style="border:1px solid var(--border);border-radius:4px;background:var(--surface);display:block"></canvas>
+              </div>
+              <div id="ia3ds-pose3d-cam1-wrap" class="hidden" style="flex:0 0 auto">
+                <canvas id="ia3ds-pose3d-cam1"
+                  style="border:1px solid var(--border);border-radius:4px;background:var(--surface);display:block"></canvas>
+              </div>
+            </div>
+
+            <!-- Reflow row: left = all controls (stacked), right = the 3D viewport.
+                 Tops aligned so the sliders sit level with the canvas top. -->
+            <div style="display:flex;align-items:flex-start;gap:.6rem;flex-wrap:wrap;margin-top:.5rem">
+
+              <!-- Left controls column (sliders + view size + flips + re-filter). -->
+              <div class="ia3ds-pose3d-ctl-col">
+
+                <!-- Part 3: live quality thresholds (score ≥ / error ≤) + marker
+                     size — number fields (match view width/height). -->
+                <div style="display:flex;flex-direction:column;gap:.3rem">
+                  <label style="display:flex;align-items:center;gap:.5rem;font-size:.75rem">
+                    <span style="flex:0 0 5.5rem">score ≥</span>
+                    <input type="number" id="ia3ds-pose3d-score-thr" min="0" max="1" step="0.01" value="0"
+                      style="flex:0 0 4.5rem;width:4.5rem"/>
+                  </label>
+                  <label style="display:flex;align-items:center;gap:.5rem;font-size:.75rem">
+                    <span style="flex:0 0 5.5rem">error ≤</span>
+                    <input type="number" id="ia3ds-pose3d-error-thr" min="0" step="0.01" value="1"
+                      style="flex:0 0 4.5rem;width:4.5rem"/>
+                  </label>
+                  <label style="display:flex;align-items:center;gap:.5rem;font-size:.75rem">
+                    <span style="flex:0 0 5.5rem">3D marker size</span>
+                    <input type="number" id="ia3ds-pose3d-marker-size" min="0.2" max="5" step="0.1" value="1"
+                      style="flex:0 0 4.5rem;width:4.5rem"/>
+                  </label>
+                  <label style="display:flex;align-items:center;gap:.5rem;font-size:.75rem">
+                    <span style="flex:0 0 5.5rem">Background</span>
+                    <input type="color" id="ia3ds-pose3d-bg" value="#12141a"
+                      style="flex:0 0 2.5rem;width:2.5rem;height:1.4rem;padding:0;background:none;border:1px solid var(--border);border-radius:4px;cursor:pointer"/>
+                  </label>
+                </div>
+
+                <!-- View width / height (px, persisted) — size the viewport at right. -->
+                <div style="display:flex;flex-direction:column;gap:.3rem;margin-top:.4rem">
+                  <label style="display:flex;align-items:center;gap:.5rem;font-size:.75rem">
+                    <span style="flex:0 0 5.5rem">view width</span>
+                    <input type="number" id="ia3ds-pose3d-view-w" value="460" min="200" max="1600" step="10"
+                      style="flex:0 0 4.5rem;width:4.5rem"/>
+                  </label>
+                  <label style="display:flex;align-items:center;gap:.5rem;font-size:.75rem">
+                    <span style="flex:0 0 5.5rem">view height</span>
+                    <input type="number" id="ia3ds-pose3d-view-h" value="520" min="200" max="1200" step="10"
+                      style="flex:0 0 4.5rem;width:4.5rem"/>
+                  </label>
+                </div>
+
+                <!-- Flip X / Y / Z (mirror the pose group per axis, persisted). -->
+                <div style="display:flex;align-items:center;gap:.6rem;flex-wrap:wrap;margin-top:.4rem;font-size:.75rem">
+                  <span style="flex:0 0 5.5rem">flip</span>
+                  <label style="display:flex;align-items:center;gap:.25rem;cursor:pointer">
+                    <input type="checkbox" id="ia3ds-pose3d-flip-x" style="accent-color:var(--accent);width:13px;height:13px"/>X</label>
+                  <label style="display:flex;align-items:center;gap:.25rem;cursor:pointer">
+                    <input type="checkbox" id="ia3ds-pose3d-flip-y" style="accent-color:var(--accent);width:13px;height:13px"/>Y</label>
+                  <label style="display:flex;align-items:center;gap:.25rem;cursor:pointer">
+                    <input type="checkbox" id="ia3ds-pose3d-flip-z" style="accent-color:var(--accent);width:13px;height:13px"/>Z</label>
+                </div>
+
+                <!-- Grid + world-origin axes (persisted; default off). -->
+                <div style="display:flex;align-items:center;gap:.6rem;flex-wrap:wrap;margin-top:.4rem;font-size:.75rem">
+                  <span style="flex:0 0 5.5rem">show</span>
+                  <label style="display:flex;align-items:center;gap:.25rem;cursor:pointer">
+                    <input type="checkbox" id="ia3ds-pose3d-grid" style="accent-color:var(--accent);width:13px;height:13px"/>grid</label>
+                  <label style="display:flex;align-items:center;gap:.25rem;cursor:pointer">
+                    <input type="checkbox" id="ia3ds-pose3d-origin" style="accent-color:var(--accent);width:13px;height:13px"/>origin</label>
+                </div>
+
+                <!-- Part 4: on-the-go median re-filter (synchronous rewrite of pose-3d-filtered). -->
+                <div style="display:flex;align-items:center;gap:.4rem;flex-wrap:wrap;margin-top:.5rem">
+                  <label style="display:flex;align-items:center;gap:.3rem;font-size:.75rem">
+                    medfilt
+                    <input type="number" id="ia3ds-pose3d-medfilt" value="17" min="1" max="199" step="2"
+                      style="width:3.5rem"/>
+                  </label>
+                  <label style="display:flex;align-items:center;gap:.3rem;font-size:.75rem">
+                    offset
+                    <input type="number" id="ia3ds-pose3d-offset" value="15" min="0" step="1"
+                      style="width:3.5rem"/>
+                  </label>
+                  <button class="btn-sm btn-create" id="ia3ds-pose3d-apply"
+                    title="Re-filter the 3D poses with this median window + offset threshold">
+                    Apply filter
+                  </button>
+                  <span id="ia3ds-pose3d-refilter-status" class="fe-extract-status" style="font-size:.73rem;flex:1;min-width:0"></span>
+                </div>
+              </div>
+
+              <!-- Right: fixed WebGL viewport; canvas fills it (three.js renders here).
+                   Size is driven by the view width/height inputs (no auto-centering).
+                   Part 2: an absolutely-positioned on-screen control cluster overlays it. -->
+              <div id="ia3ds-pose3d-canvas-box" style="position:relative;flex:0 0 auto;width:460px;height:520px;border:1px solid var(--border);border-radius:6px;background:var(--surface);overflow:hidden">
+                <canvas id="ia3ds-pose3d-canvas" style="width:100%;height:100%;display:block"></canvas>
+
+                <!-- Home (top-right) → resetView -->
+                <button class="btn-sm" id="ia3ds-pose3d-home" title="Reset / fit view"
+                  style="position:absolute;top:6px;right:6px;padding:.15rem .4rem;line-height:1">⌂</button>
+
+                <!-- Zoom cluster (top-left) -->
+                <div style="position:absolute;top:6px;left:6px;display:flex;flex-direction:column;gap:.2rem">
+                  <button class="btn-sm" id="ia3ds-pose3d-zoom-in" title="Zoom in"
+                    style="padding:.1rem .4rem;line-height:1">+</button>
+                  <button class="btn-sm" id="ia3ds-pose3d-zoom-out" title="Zoom out"
+                    style="padding:.1rem .4rem;line-height:1">−</button>
+                </div>
+
+                <!-- Orbit d-pad (bottom-right) -->
+                <div style="position:absolute;bottom:6px;right:6px;display:grid;grid-template-columns:repeat(3,1.5rem);grid-template-rows:repeat(3,1.5rem);gap:.15rem;justify-items:center;align-items:center">
+                  <span></span>
+                  <button class="btn-sm" id="ia3ds-pose3d-orbit-up" title="Orbit up"
+                    style="padding:0;width:1.5rem;height:1.5rem;line-height:1">↑</button>
+                  <span></span>
+                  <button class="btn-sm" id="ia3ds-pose3d-orbit-left" title="Orbit left"
+                    style="padding:0;width:1.5rem;height:1.5rem;line-height:1">←</button>
+                  <span></span>
+                  <button class="btn-sm" id="ia3ds-pose3d-orbit-right" title="Orbit right"
+                    style="padding:0;width:1.5rem;height:1.5rem;line-height:1">→</button>
+                  <span></span>
+                  <button class="btn-sm" id="ia3ds-pose3d-orbit-down" title="Orbit down"
+                    style="padding:0;width:1.5rem;height:1.5rem;line-height:1">↓</button>
+                  <span></span>
+                </div>
+              </div>
+            </div>
+          </div>
+          <!-- end ia3ds-pose3d-controls -->
+        </div>
+        <!-- ── end 3D View Panel ─────────────────────────────────────── -->
+
+        <!-- ── Dataset Curation Panel ──────────────────────────────── -->
+        <div id="ia3ds-curation-panel" style="margin-top:.65rem;padding:.5rem .65rem;background:var(--surface-2);border:1px solid var(--border);border-radius:7px">
+
+          <!-- Toggle row (master kill-switch for the curation tools) -->
+          <div style="display:flex;align-items:center;gap:.6rem;flex-wrap:wrap">
+            <label style="display:flex;align-items:center;gap:.45rem;font-size:.8rem;font-weight:500;cursor:pointer;user-select:none">
+              <input type="checkbox" id="ia3ds-curation-toggle"
+                     style="accent-color:var(--accent);width:14px;height:14px"/>
+              Dataset Curation
+            </label>
+            <span id="ia3ds-curation-status" class="fe-extract-status" style="font-size:.73rem;flex:1;min-width:0"></span>
+          </div>
+          <label id="ia3ds-both-cams-label" style="display:none;align-items:center;gap:.45rem;font-size:.78rem;color:var(--text-dim);cursor:pointer;user-select:none;margin-top:.4rem">
+            <input type="checkbox" id="ia3ds-both-cams" checked style="accent-color:var(--accent);width:13px;height:13px"/>
+            Extract from both cams
+          </label>
+
+          <!-- Existing inner rows wrapped in a hidden-by-default div -->
+          <div id="ia3ds-curation-controls" class="hidden" style="margin-top:.5rem">
+
+          <!-- Row 1: Quick-extract + Add to Dataset -->
+          <div style="display:flex;align-items:center;gap:.4rem;flex-wrap:wrap;margin-bottom:.4rem">
+            <button class="btn-sm" id="ia3ds-extract-frame-btn"
+              title="Save the raw video frame as a lossless PNG in labeled-data/ (no CSV entry)">
+              Extract Frame
+            </button>
+            <button class="btn-sm" id="ia3ds-add-to-dataset-btn"
+              style="background:var(--accent);color:#fff;font-weight:500"
+              title="Extract frame + add blank entry to CollectedData CSV/H5">
+              + Add to Dataset
+            </button>
+          </div>
+
+          <!-- Row 2: Batch extraction controls -->
+          <div style="display:flex;align-items:center;gap:.4rem;flex-wrap:wrap;margin-bottom:.4rem">
+            <label style="font-size:.76rem;color:var(--text-dim);white-space:nowrap">Batch:</label>
+            <input type="number" id="ia3ds-batch-count" value="10" min="1" max="500"
+              style="width:4.2rem;font-size:.76rem;background:var(--surface);border:1px solid var(--border);border-radius:5px;color:var(--text);padding:.22rem .4rem"
+              title="Number of frames to add" />
+            <label style="font-size:.76rem;color:var(--text-dim);white-space:nowrap">every</label>
+            <input type="number" id="ia3ds-batch-step" value="30" min="1" max="9999"
+              style="width:4.2rem;font-size:.76rem;background:var(--surface);border:1px solid var(--border);border-radius:5px;color:var(--text);padding:.22rem .4rem"
+              title="Frame step between additions" />
+            <label style="font-size:.76rem;color:var(--text-dim);white-space:nowrap">frames</label>
+            <button class="btn-sm" id="ia3ds-batch-add-btn"
+              title="Add multiple frames to the dataset starting from the current frame">
+              Batch Add
+            </button>
+          </div>
+
+          <!-- Row 3: Companion CSV status -->
+          <div id="ia3ds-csv-section" style="border-top:1px solid var(--border);padding-top:.45rem;margin-top:.05rem">
+            <!-- No CSV found -->
+            <div id="ia3ds-csv-none">
+              <span style="font-size:.79rem;color:var(--text-dim)">No companion CSV found.</span>
+              <div style="margin-top:.35rem;display:flex;align-items:center;gap:.5rem">
+                <button class="btn-sm btn-create" id="ia3ds-create-csv-btn">
+                  <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                  Create CSV
+                </button>
+                <span id="ia3ds-csv-create-status" class="fe-extract-status"></span>
+              </div>
+            </div>
+            <!-- CSV loaded -->
+            <div id="ia3ds-csv-loaded" class="hidden" style="display:flex;align-items:center;gap:.4rem;flex-wrap:wrap">
+              <span style="font-size:.74rem;color:var(--text-dim);flex-shrink:0">CSV:</span>
+              <span id="ia3ds-csv-path-display" style="font-family:var(--mono);font-size:.71rem;color:var(--text-dim);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;min-width:0"></span>
+            </div>
+          </div>
+
+          <!-- Row 4: Annotation panel (shown when CSV loaded) -->
+          <div id="ia3ds-annot-panel" class="hidden" style="margin-top:.5rem">
+            <div style="font-size:.72rem;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:var(--text-dim);margin-bottom:.4rem">
+              Annotate frame <span id="ia3ds-annot-frame-num" style="color:var(--text);font-family:var(--mono)">0</span>
+            </div>
+            <!-- Add note tag -->
+            <div style="margin-top:.45rem;display:flex;align-items:center;gap:.4rem;flex-wrap:wrap">
+              <input type="text" id="ia3ds-new-tag-input" placeholder="New note tag…"
+                style="flex:1;min-width:110px;font-size:.8rem;background:var(--surface);border:1px solid var(--border);border-radius:5px;color:var(--text);padding:.24rem .4rem" />
+              <button id="ia3ds-add-tag-btn" class="btn-sm">
+                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                Add Tag
+              </button>
+            </div>
+          </div>
+          </div>
+          <!-- end ia3ds-curation-controls -->
+        </div>
+        <!-- ── end Dataset Curation Panel ──────────────────────────── -->
+
+        <!-- ── Create Clip (trim current range, both cams) ──────────── -->
+        <div id="ia3ds-clip-panel-wrap" style="margin-top:.65rem;padding:.5rem .65rem;background:var(--surface-2);border:1px solid var(--border);border-radius:7px">
+          <label style="display:flex;align-items:center;gap:.45rem;font-size:.8rem;font-weight:500;cursor:pointer;user-select:none">
+            <input type="checkbox" id="ia3ds-clip-enable" style="accent-color:var(--accent);width:14px;height:14px"/>
+            Create Clip
+          </label>
+          <div id="ia3ds-clip-panel" class="hidden" style="margin-top:.5rem;display:flex;flex-direction:column;gap:.4rem">
+            <div style="display:flex;align-items:center;gap:.4rem;flex-wrap:wrap;font-size:.78rem;color:var(--text-dim)">
+              <span style="font-size:.74rem;color:var(--text-dim)">keyframe</span>
+              <input type="number" id="ia3ds-clip-keyframe" min="0" value="0"
+                style="width:5rem;font-family:var(--mono);font-size:.78rem;background:var(--surface);border:1px solid var(--border);border-radius:5px;color:var(--text);padding:.18rem .3rem" />
+              <label style="display:flex;align-items:center;gap:.3rem;font-size:.74rem;color:var(--text-dim)"><input type="checkbox" id="ia3ds-clip-lock" style="accent-color:var(--accent);width:13px;height:13px"/> Lock (l)</label>
+              <label style="font-size:.74rem;color:var(--text-dim)">before <input type="number" id="ia3ds-clip-before" min="0" value="200" style="width:4.2rem;font-family:var(--mono);background:var(--surface);border:1px solid var(--border);border-radius:5px;color:var(--text);padding:.2rem .3rem"></label>
+              <label style="font-size:.74rem;color:var(--text-dim)">after <input type="number" id="ia3ds-clip-after" min="0" value="599" style="width:4.2rem;font-family:var(--mono);background:var(--surface);border:1px solid var(--border);border-radius:5px;color:var(--text);padding:.2rem .3rem"></label>
+              <label style="font-size:.74rem;color:var(--text-dim)">length <input type="number" id="ia3ds-clip-length" min="1" value="800" style="width:4.7rem;font-family:var(--mono);background:var(--surface);border:1px solid var(--border);border-radius:5px;color:var(--text);padding:.2rem .3rem"></label>
+              <span id="ia3ds-clip-range" style="font-size:.72rem;color:var(--text-dim);font-family:var(--mono)">frames 0–0 (0)</span>
+              <input type="hidden" id="ia3ds-clip-start" value="0" />
+              <input type="hidden" id="ia3ds-clip-frames" value="800" />
+              <input type="hidden" id="ia3ds-clip-end" value="0" />
+              <label style="display:flex;align-items:center;gap:.3rem"><input type="checkbox" id="ia3ds-clip-sibling" checked style="accent-color:var(--accent)">both cams</label>
+            </div>
+            <div style="display:flex;align-items:center;gap:.4rem;flex-wrap:wrap">
+              <input type="text" id="ia3ds-clip-postfix" placeholder="postfix (optional)" style="flex:1;min-width:120px;font-size:.78rem;background:var(--surface);border:1px solid var(--border);border-radius:5px;color:var(--text);padding:.22rem .4rem">
+              <button class="btn-sm btn-create" id="ia3ds-clip-extract-btn">Extract Clip</button>
+              <button class="btn-sm" id="ia3ds-clip-rename-btn" style="opacity:.8">Rename</button>
+              <button class="btn-sm" id="ia3ds-clip-delete-btn" style="opacity:.7">Delete</button>
+            </div>
+            <span id="ia3ds-clip-status" class="fe-extract-status"></span>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- ══ SAM PANEL ═══════════════════════════════════════════════════════
+           Hand-written; the clone script refuses to overwrite a file containing
+           "SAM PANEL", so re-running it preserves this block.
+           Everything above is generated from card_inline_analysis_3d.html. -->
+      <div class="ia3ds-sam-panel" id="ia3ds-sam-panel">
+        <div class="ia3ds-sam-head">
+          <span class="ia3ds-sam-badge">SAM 3 + DINOv3</span>
+          <span class="ia3ds-sam-sub">candidate frames for one trial</span>
+          <span class="ia3ds-sam-status" id="ia3ds-sam-status">pick a trial</span>
+        </div>
+
+        <!-- trial picker: windows come from stage 1, anchored on the s/f marker -->
+        <div class="ia3ds-sam-row">
+          <label for="ia3ds-sam-trial">Trial</label>
+          <select id="ia3ds-sam-trial" style="flex:1;min-width:0"></select>
+          <button class="btn-sm" id="ia3ds-sam-reload" title="Reload windows">↺</button>
+        </div>
+
+        <div class="ia3ds-sam-row">
+          <label for="ia3ds-sam-prompt">SAM text prompt</label>
+          <input type="text" id="ia3ds-sam-prompt" value="paw" spellcheck="false"/>
+          <label for="ia3ds-sam-topk" title="Exemplars averaged per candidate">top-k</label>
+          <input type="number" id="ia3ds-sam-topk" value="5" min="1" max="50" style="width:4.5rem"/>
+          <button class="btn-sm" id="ia3ds-sam-run">Run SAM + DINO</button>
+        </div>
+
+        <div class="ia3ds-sam-toggles">
+          <label><input type="checkbox" id="ia3ds-sam-show-mask" checked/> SAM mask</label>
+          <label><input type="checkbox" id="ia3ds-sam-show-box" checked/> mask bbox</label>
+          <label><input type="checkbox" id="ia3ds-sam-show-pellet" checked/> pellet NCC</label>
+          <label><input type="checkbox" id="ia3ds-sam-show-armed" checked/> armed mask</label>
+          <label><input type="checkbox" id="ia3ds-sam-only-cands"/> candidates only</label>
+        </div>
+
+        <div class="ia3ds-sam-progress hidden" id="ia3ds-sam-progress"><div></div></div>
+
+        <!-- similarity strip: DINO score per candidate frame across the window -->
+        <div class="ia3ds-sam-strip-wrap">
+          <canvas id="ia3ds-sam-strip" height="120"></canvas>
+          <div class="ia3ds-sam-legend">
+            <span><i class="ia3ds-sw sim"></i>DINO similarity</span>
+            <span><i class="ia3ds-sw armed"></i>pellet stationary</span>
+            <span><i class="ia3ds-sw pick"></i>proposed onset</span>
+            <span><i class="ia3ds-sw truth"></i>human tag (if any)</span>
+            <span><i class="ia3ds-sw cursor"></i>current frame</span>
+          </div>
+        </div>
+
+        <!-- top candidates, click to jump the viewer to that frame -->
+        <div class="ia3ds-sam-cands" id="ia3ds-sam-cands"></div>
+
+        <p class="ia3ds-sam-note" id="ia3ds-sam-note"></p>
+      </div>
+
+    </section>

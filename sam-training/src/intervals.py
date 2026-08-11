@@ -37,9 +37,18 @@ MAX_LOOKBACK = 3000
 
 @dataclass(frozen=True)
 class Interval:
-    """A half-open run of frames over which the pellet is present."""
+    """A run of frames over which the pellet is present, ends inclusive.
+
+    ``start``/``end`` are coerced to plain ``int``: they originate in a numpy
+    int64 sweep array, and numpy scalars are not JSON serialisable, so leaving
+    them meant every consumer that serialises a window had to remember to cast.
+    """
     start: int
-    end: int                        # inclusive
+    end: int
+
+    def __post_init__(self):
+        object.__setattr__(self, "start", int(self.start))
+        object.__setattr__(self, "end", int(self.end))
 
     def __contains__(self, frame: int) -> bool:
         return self.start <= frame <= self.end

@@ -156,3 +156,25 @@ def test_orphan_trials_get_windows_too():
     wins = intervals.build_windows(trials, ivs)
     assert len(wins) == 1 and wins[0].onset_frame is None
     assert wins[0].outcome == "f"
+
+
+def test_interval_bounds_are_plain_ints_not_numpy():
+    """Sweeps come back as int64 arrays and numpy scalars are not JSON
+    serialisable — this cost a 500 on /api/windows."""
+    import json
+    frames = np.arange(0, 100, dtype=np.int64)
+    scores = np.where(frames >= 20, 0.9, 0.3)
+    iv = intervals.present_intervals(frames, scores, min_run=3)[0]
+    assert type(iv.start) is int and type(iv.end) is int
+    json.dumps({"start": iv.start, "end": iv.end})     # must not raise
+
+
+def test_window_serialises_to_json():
+    frames = np.arange(0, 4000, 5, dtype=np.int64)
+    scores = np.where((frames >= 1000) & (frames < 2000), 0.9, 0.3)
+    ivs = intervals.present_intervals(frames, scores)
+    trials = [Trial(outcome_frame=1900, outcome="s", onset_frame=1500)]
+    w = intervals.build_windows(trials, ivs)[0]
+    import json
+    json.dumps({"start": w.start, "end": w.end, "n": w.n_candidates,
+                "armed": [{"start": a.start, "end": a.end} for a in w.armed]})
