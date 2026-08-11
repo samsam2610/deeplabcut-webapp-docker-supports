@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <title>SAM Training — Stage Debug</title>
+  <link rel="stylesheet" href="{{ prefix }}/static/sam_training.css"/>
+</head>
+<body>
+<main class="wrap">
+  <section class="card">
+    <div class="card-head">
+      <h2>SAM Training — Stage Debug</h2>
+      <span class="pill" id="st-project">…</span>
+    </div>
+    <p class="subtitle">
+      What each stage actually did to a given frame. Every bug found in this
+      pipeline so far was invisible in the numbers and obvious in a picture.
+    </p>
+
+    <!-- ── Video picker ─────────────────────────────────────────────── -->
+    <div class="row-head">
+      <label>Tracked videos</label>
+      <button class="btn-sm" id="st-refresh">↺ Refresh</button>
+    </div>
+    <div class="list" id="st-video-list"><p class="empty">Loading…</p></div>
+
+    <!-- ── Stage 0 ──────────────────────────────────────────────────── -->
+    <div class="stage">
+      <div class="stage-head">
+        <span class="badge s0">Stage 0</span>
+        <span>Rig calibration</span>
+        <button class="btn-sm" id="st-calibrate" disabled>Calibrate</button>
+        <span class="stage-note" id="st-calib-note">pick a video</span>
+      </div>
+    </div>
+
+    <!-- ── Stage 1 ──────────────────────────────────────────────────── -->
+    <div class="stage">
+      <div class="stage-head">
+        <span class="badge s1">Stage 1</span>
+        <span>Pellet sweep &amp; search windows</span>
+        <button class="btn-sm" id="st-sweep" disabled>Sweep</button>
+        <span class="stage-note" id="st-sweep-note">needs calibration</span>
+      </div>
+      <div class="progress hidden" id="st-sweep-progress"><div></div></div>
+
+      <div class="timeline-wrap">
+        <canvas id="st-timeline" height="150"></canvas>
+        <div class="legend">
+          <span><i class="sw armed"></i>pellet present</span>
+          <span><i class="sw window"></i>search window</span>
+          <span><i class="sw onset"></i>human onset</span>
+          <span><i class="sw outcome"></i>s / f marker</span>
+          <span><i class="sw cursor"></i>current frame</span>
+        </div>
+      </div>
+      <div class="acceptance" id="st-acceptance"></div>
+    </div>
+
+    <!-- ── Frame viewer ─────────────────────────────────────────────── -->
+    <div class="stage">
+      <div class="stage-head">
+        <span class="badge sv">Frame</span>
+        <button class="btn-sm" data-step="-100">⏪ 100</button>
+        <button class="btn-sm" data-step="-10">◀ 10</button>
+        <button class="btn-sm" data-step="-1">◀ 1</button>
+        <input type="number" id="st-frame" value="0" min="0"/>
+        <button class="btn-sm" data-step="1">1 ▶</button>
+        <button class="btn-sm" data-step="10">10 ▶</button>
+        <button class="btn-sm" data-step="100">100 ⏩</button>
+        <span class="stage-note" id="st-frame-note"></span>
+      </div>
+
+      <div class="layer-toggles" id="st-layers"></div>
+
+      <div class="viewer">
+        <canvas id="st-canvas"></canvas>
+      </div>
+      <div class="scalars" id="st-scalars"></div>
+      <div class="pending" id="st-pending"></div>
+    </div>
+  </section>
+</main>
+<script src="{{ prefix }}/static/sam_training.js"></script>
+</body>
+</html>

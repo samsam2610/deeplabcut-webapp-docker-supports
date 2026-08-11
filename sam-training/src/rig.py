@@ -1,9 +1,15 @@
 """Stage 0 — per-session rig calibration.
 
 The camera has not moved across animals or months, so the defaults in
-``config`` would usually work. We re-locate anyway: if the pedestal shifts even
-slightly, every downstream window silently degrades rather than failing loudly,
-and that is the worst kind of bug to inherit.
+``config`` would usually work. We re-derive the PELLET TEMPLATE anyway: if the
+pedestal shifts even slightly, every downstream window silently degrades rather
+than failing loudly, and that is the worst kind of bug to inherit.
+
+**The aperture box is NOT located — it is the config default, passed through.**
+Nothing needs it yet: stage 1 uses only the pellet. Stage 2 will gate on the paw
+clearing the aperture, and at that point this has to become a real measurement,
+because a wrong aperture box would silently mis-time every crossing. Tracked as
+a gap rather than papered over.
 
 Calibration stores *where* the template came from, not the pixels. Re-extracting
 from the video keeps the JSON small and human-readable, and means a stale
