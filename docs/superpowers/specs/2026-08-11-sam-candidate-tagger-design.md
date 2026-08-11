@@ -226,6 +226,31 @@ Stage 0 therefore measures the canonical's score spread on a sample of the sessi
 searches locally if it falls below `MIN_SPREAD`, which would mean the camera actually moved.
 All 10 sessions choose the canonical.
 
+### Stage 1 acceptance — 98.9 % of onsets survive
+
+Measured 2026-08-11 across all 10 `Tag=Done` videos, 1 304 tagged trials
+(`sam-training/scripts/acceptance.py`). This is the recall gate: anything stage 1 drops,
+stages 2–3 can never recover.
+
+| | |
+|---|---|
+| onset inside the window span | **1304/1304 (100 %)** |
+| onset is a candidate frame | **1290/1304 (98.9 %)** |
+| sessions at 100 % | 8 of 10 |
+| worst sessions | khoai-lang-1 May 6 (94.7 %), May 7 (96.1 %) |
+| median candidate frames per window | ~1 300 |
+| sweep cost | ~200 s per video, CPU only |
+
+The residual 14 losses are onsets where the paw occludes the pellet enough to drag NCC
+under the fixed 0.50 threshold. A per-session threshold derived from the calibration's
+measured modes is the obvious next lever, but three separate attempts to make stage 0
+adaptive each broke a different session, so it should only be attempted with all ten
+sessions measured — not tuned on one.
+
+~1 300 candidate frames per window is what stage 2 must process per trial. With SAM
+prompt-once-then-track rather than per-frame detection, that is the difference between
+tractable and not.
+
 ### Stage 3 — what the head learns
 
 The key-frame definition is **not hand-written**. SAM masks yield a compact per-frame
