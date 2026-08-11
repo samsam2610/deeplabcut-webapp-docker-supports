@@ -111,6 +111,43 @@ it is reliable.
 unstable across detector variants. It is a good *trigger* and a bad *answer*: it opens a
 search window, it does not name a frame.
 
+### The DLC keypoint baseline hits ±5 on ~85 % of trials
+
+Measured 2026-08-11 on the 6 `Tag=Done` videos that already carry
+`iter28_snapshot_best-120` h5 for **both** cameras (752 trials, eggtart-1 ×2 +
+banh-mi-1 ×4). No new inference was needed — the h5 already covers [−199, +399] around
+every tag, a by-product of the existing tag-mode analysis.
+
+A 3-layer dilated 1D-CNN over per-frame DLC features from both cameras (32 likelihoods,
+paw↔pellet geometry, pellet displacement, velocities — 100 features), trained to pick the
+onset frame, leave-one-session-out:
+
+| search window | CNN ±5 | ±10 | ±25 | best single feature ±5 |
+|---|---|---|---|---|
+| 250 frames | 85.1 % | 91.5 % | 93.8 % | 45.1 % |
+| 400 frames | 83.8 % | 89.8 % | 92.8 % | 42.7 % |
+| 550 frames | 84.4 % | 89.9 % | 91.9 % | 40.8 % |
+
+Median absolute error: **2 frames**. Per-fold ±5 ranges 64.7 % (banh-mi-1 Jul 2) to
+97.2 % (banh-mi-1 Jul 6). Accuracy is flat as the search window widens 2.2×, so the head is
+finding a real local signature rather than exploiting a positional prior.
+
+### Both cameras are needed, for opposite reasons
+
+| | cam0 | cam1 |
+|---|---|---|
+| mean `P(wrist)` over the window | 0.22 | **0.39** |
+| mean `P(digits)` | 0.39 | **0.49** |
+| **`P(wrist)` at the tag frame** | **0.73** | 0.43 |
+| `argmax P(wrist)` within ±5 | **43.8 %** | 13.0 % |
+
+cam0's wrist is poorly tracked on average but spikes sharply *exactly at the tag*
+(0.24 at −20 → 0.73 at +0 → 0.42 at +20): through the slot, the wrist is only visible at
+full extension. cam1 sees the wrist far better overall but as a broad plateau peaking
+*after* the tag (0.43 at +0 → 0.76 at +20 → 0.54 at +100), so it localises poorly alone.
+**On cam0 the occlusion is the signal.** Naively summing the two cameras is worse than cam0
+alone (27.3 % vs 43.8 %); the learned head weights them and reaches 85 %.
+
 ## Architecture
 
 ```
@@ -188,19 +225,10 @@ per-video false-positive count (a review list longer than the manual pass is a f
 regardless of precision). **No success/failure accuracy** — the label is read from the
 CSV, not predicted.
 
-**Baselines SAM must beat** — if either wins, SAM is not needed:
-
-- NCC steepest-drop: 5 % at ±5 (already measured).
-- Existing DLC model's `Wrist`, digit joints and `Pellet` fed to the same Stage-3 head.
-  Free to run, trained on this exact rig, 4718 labelled frames.
-
-The DLC baseline is now the **stronger** of the two, and may well win. Restricting scope to
-the unoccluded outside-the-glass phase removes occlusion robustness, which was SAM's main
-structural edge; and DLC already outputs exactly the landmarks in scope — wrist, twelve
-digit joints, pellet. SAM's remaining edge is that a mask's extent is better defined than a
-point estimate, and that it is immune to the vane confounder that defeated every
-photometric approach tried. Run the DLC baseline first; it is cheap and it may end the
-question.
+**The bar SAM must clear is now measured: 85 % within ±5, median error 2 frames**, from
+the existing DLC model at zero additional inference cost. SAM has to beat that to justify
+its own stage. Remaining gaps where it might: the 64.7 % worst fold, the untested
+leave-one-animal-out generalisation, and the ~15 % of trials the head misses.
 
 ## Environment
 
@@ -250,13 +278,24 @@ incident where webapp tests leaked 614 GB into `/tmp`.
    on ~50 frames spanning the outside-the-glass reach phase including vane-in frames, and
    look at the masks. If text prompting is poor on grayscale rodent anatomy, prompt with the
    existing DLC `Pellet` / `Left-Paw` keypoints.
-2. **Checkpoint access is gated** — request it before anything else; it blocks Stage 2.
-3. **No masks exist for fine-tuning.** Start zero-shot + a learned head. Only fine-tune if
+2. **Checkpoint access is gated and BLOCKING.** Verified 2026-08-11: both `facebook/sam3`
+   and `facebook/sam3.1` report `gated: manual` and return HTTP 401 unauthenticated. This
+   needs a human to request access on Hugging Face and Meta to approve it manually — it
+   cannot be worked around. `facebook/sam2.1-hiera-large` and `facebook/sam-vit-huge` are
+   ungated and usable today; since grayscale rodent anatomy is a poor fit for text prompts
+   and we would prompt with points/boxes anyway, SAM 2.1 is a viable stand-in for most of
+   what Stage 2 needs.
+
+3. **Only 2 animals were in the measured baseline.** The 4 khoai-lang videos lack an
+   `iter28` h5 (they carry iter23/24 and older), so leave-one-**animal**-out is untested.
+   Getting them analysed at iter28 on both cameras (~674 k frames, ~2 h GPU) is the single
+   most valuable remaining measurement.
+5. **No masks exist for fine-tuning.** Start zero-shot + a learned head. Only fine-tune if
    that misses, bootstrapping masks by prompting SAM with DLC keypoints.
-4. **±5 may be below the human's own tagging noise.** Every trial is tagged once, so it
+6. **±5 may be below the human's own tagging noise.** Every trial is tagged once, so it
    cannot be measured from existing data. Re-tag ~30 trials blind and compute
    self-agreement; if the human's own jitter exceeds ±5, the target must move.
-5. **khoai-lang-2 contributes a single session** (117 trials), so its leave-one-animal-out
+7. **khoai-lang-2 contributes a single session** (117 trials), so its leave-one-animal-out
    fold trains on three animals and tests on one thin one. Expect that fold to be noisy.
 
 ## Deferred: improving DLC labels
