@@ -26,12 +26,10 @@ PROJECT_PATH = os.environ.get(
     "SAM_TRAINING_PROJECT",
     "/user-data/Parra-Data/Disk/DLC-Projects/DREADD-Ali-2026-01-07")
 
-# Container path -> host-visible path is identity inside the container; the
-# tracked DB stores container paths, so nothing to translate.
-
-
-def _host(p: str) -> str:
-    return p
+# The tracked DB stores container paths. Inside the container that resolves and
+# this is identity; on the host, SAM_TRAINING_PATH_MAP translates. See
+# config.to_local for why the failure mode this avoids is worth the indirection.
+_host = config.to_local
 
 
 @app.get(f"{PREFIX}/")

@@ -43,3 +43,37 @@ FPS = 200.0
 CALIBRATION_FILENAME = "sam_training_rig.json"
 
 USER_DATA_DIR = os.environ.get("USER_DATA_DIR", "/user-data")
+
+# ── Path mapping ─────────────────────────────────────────────────────────────
+#
+# tracked_files.sqlite stores CONTAINER paths (/user-data/...). Inside the
+# container that is correct and this map is empty. On the host — where the panel
+# is genuinely useful for debugging before any container exists — those paths do
+# not resolve, and the symptom is silent: every video reports 0 notes rather
+# than erroring. Set SAM_TRAINING_PATH_MAP to translate, e.g.
+#
+#   /user-data/Parra-Data/Cloud=/home/sam/synology/Parra-Lab-Data,
+#   /user-data/Parra-Data/Disk=/home/sam/data-disk/Parra-Data
+#
+PATH_MAP_ENV = "SAM_TRAINING_PATH_MAP"
+
+
+def path_map() -> list[tuple[str, str]]:
+    """Longest prefix first, so a nested mapping cannot be shadowed."""
+    raw = os.environ.get(PATH_MAP_ENV, "").strip()
+    pairs = []
+    for chunk in raw.split(","):
+        chunk = chunk.strip()
+        if not chunk or "=" not in chunk:
+            continue
+        src, dst = chunk.split("=", 1)
+        pairs.append((src.strip(), dst.strip()))
+    return sorted(pairs, key=lambda p: -len(p[0]))
+
+
+def to_local(path: str) -> str:
+    """Container path -> a path this process can actually open."""
+    for src, dst in path_map():
+        if path.startswith(src):
+            return dst + path[len(src):]
+    return path
