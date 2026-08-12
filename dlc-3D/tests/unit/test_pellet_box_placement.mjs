@@ -19,32 +19,66 @@ import {
   nudge,
   centreFor,
   OVERLAY_PREFIX,
+  newVisibility,
+  isVisible,
+  setVisible,
+  canPlace,
 } from "../../src/static/internal/pellet_box.mjs";
 
-// ── tile selection: overlays are not tiles ──────────────────────────────────
+// ── tile selection ──────────────────────────────────────────────────────────
+//
+// A player tile is identified by WHAT IT IS (class vv-overlay-canvas), not by
+// "any canvas that is not one of these ids". The id-exclusion version shipped
+// twice and broke twice: first because the overlays it created had no id, then
+// because the card holds eight other canvases (seek bar, status strip, note
+// strip, two coverage bars, three pose3d canvases) that all matched.
 
-test("an overlay canvas is never treated as a tile", () => {
-  assert.equal(isTile({ id: `${OVERLAY_PREFIX}cam0` }), false);
-  assert.equal(isTile({ id: `${OVERLAY_PREFIX}cam1` }), false);
+// Exactly the canvases present in card_inline_analysis_3d_sam.html.
+const CARD_CANVASES = [
+  { id: "ia3ds-seek-canvas", className: "" },
+  { id: "ia3ds-status-canvas", className: "" },
+  { id: "ia3ds-note-canvas", className: "" },
+  { id: "ia3ds-finalize-coverage", className: "" },
+  { id: "ia3ds-triangulate-coverage", className: "" },
+  { id: "ia3ds-pose3d-cam0", className: "" },
+  { id: "ia3ds-pose3d-cam1", className: "" },
+  { id: "ia3ds-pose3d-canvas", className: "" },
+  { id: "", className: "vv-overlay-canvas" },     // cam0 tile
+  { id: "", className: "vv-overlay-canvas" },     // cam1 tile
+  { id: "ia3ds-sam-strip", className: "" },
+  { id: "ia3ds-sam-tags", className: "" },
+];
+
+test("only the two player tiles are selected from a full card", () => {
+  const tiles = selectTiles(CARD_CANVASES);
+  assert.equal(tiles.length, 2, "the card's other 10 canvases are not tiles");
+  assert.ok(tiles.every((t) => t.className.includes("vv-overlay-canvas")));
 });
 
-test("the strip and tag canvases are not tiles", () => {
-  assert.equal(isTile({ id: "ia3ds-sam-strip" }), false);
-  assert.equal(isTile({ id: "ia3ds-sam-tags" }), false);
+test("the seek bar and coverage strips are not tiles", () => {
+  // These come FIRST in document order, so an index-based camera mapping over
+  // an unfiltered list put cam0's overlay on the seek bar.
+  assert.equal(isTile({ id: "ia3ds-seek-canvas", className: "" }), false);
+  assert.equal(isTile({ id: "ia3ds-finalize-coverage", className: "" }), false);
+  assert.equal(isTile({ id: "ia3ds-pose3d-cam1", className: "" }), false);
 });
 
-test("a player tile is a tile", () => {
-  assert.equal(isTile({ id: "" }), true);
-  assert.equal(isTile({ id: "vv-tile-0" }), true);
+test("tile order is preserved so index 0 is cam0", () => {
+  const tiles = selectTiles(CARD_CANVASES);
+  assert.equal(CARD_CANVASES.indexOf(tiles[0]) < CARD_CANVASES.indexOf(tiles[1]), true);
+});
+
+test("our own overlay canvases are never tiles", () => {
+  assert.equal(isTile({ id: `${OVERLAY_PREFIX}cam0`, className: "ia3ds-overlay" }), false);
+  assert.equal(isTile({ id: `${OVERLAY_PREFIX}cam1`, className: "ia3ds-overlay" }), false);
 });
 
 test("selecting tiles twice does not grow the set", () => {
-  // THE exponential bug: pass 1 creates overlays, pass 2 must not see them as
-  // tiles and give each one an overlay of its own.
-  const canvases = [{ id: "" }, { id: "" }];
+  const canvases = CARD_CANVASES.slice();
   const first = selectTiles(canvases);
   assert.equal(first.length, 2);
-  first.forEach((c, i) => canvases.push({ id: `${OVERLAY_PREFIX}cam${i}` }));
+  first.forEach((c, i) => canvases.push(
+    { id: `${OVERLAY_PREFIX}cam${i}`, className: "ia3ds-overlay" }));
   const second = selectTiles(canvases);
   assert.equal(second.length, 2, "overlays must not be counted as tiles");
   assert.deepEqual(second, first);
@@ -159,4 +193,30 @@ test("no box and no default means unplaced, not a guess at (0,0)", () => {
 test("one camera's box does not supply the other's centre", () => {
   const s = placeClick(EMPTY, { cam: "cam0", frame: 1, x: 411, y: 402 });
   assert.deepEqual(centreFor(s, "cam1", { cx: 593, cy: 450 }), { cx: 593, cy: 450 });
+});
+
+// ── per-camera visibility ───────────────────────────────────────────────────
+
+test("visibility defaults to off for every camera", () => {
+  const v = newVisibility();
+  assert.equal(isVisible(v, "cam0"), false);
+  assert.equal(isVisible(v, "cam1"), false);
+});
+
+test("cameras toggle independently", () => {
+  let v = setVisible(newVisibility(), "cam0", true);
+  assert.equal(isVisible(v, "cam0"), true);
+  assert.equal(isVisible(v, "cam1"), false, "cam1 must not follow cam0");
+  v = setVisible(v, "cam1", true);
+  v = setVisible(v, "cam0", false);
+  assert.equal(isVisible(v, "cam0"), false);
+  assert.equal(isVisible(v, "cam1"), true);
+});
+
+test("visibility does not gate placement", () => {
+  // Hiding a box must not make its camera unclickable -- that coupling was the
+  // earlier "cannot place on cam1 after ticking show box" report.
+  const v = newVisibility();
+  assert.equal(canPlace(v, "cam1"), true);
+  assert.equal(canPlace(setVisible(v, "cam1", true), "cam1"), true);
 });

@@ -441,3 +441,5 @@
    lets the box be cleared before every redraw instead of trailing after-images
    across the frame. */
 .ia3ds-overlay { z-index: 5; }
+.ia3ds-cam-show { display: flex; align-items: center; gap: .25rem; font-size: .64rem; }
+.ia3ds-cam-show input { width: 12px; height: 12px; accent-color: var(--accent); }

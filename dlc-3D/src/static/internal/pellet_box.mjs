@@ -8,21 +8,28 @@
 /** Prefix for the overlay canvases this card creates. */
 export const OVERLAY_PREFIX = "ia3ds-ov-";
 
-/** Canvases the card owns, which must never be mistaken for player tiles. */
-const OWN_CANVAS_IDS = new Set(["ia3ds-sam-strip", "ia3ds-sam-tags"]);
+/** The class VideoViewer puts on each tile's overlay canvas. */
+export const TILE_CLASS = "vv-overlay-canvas";
 
 /**
  * Is this canvas one of the player's video tiles?
  *
- * Anything the card created is not. The previous version excluded exactly two
- * ids and nothing else, so overlay canvases — which had no id at all — counted
- * as tiles and each poll gave every overlay its own overlay.
+ * Identified by WHAT IT IS, not by excluding a list of ids. That inverted test
+ * shipped twice and broke twice:
+ *
+ *   1. the overlays this module creates had no id, so each poll counted them as
+ *      tiles and gave every overlay an overlay of its own;
+ *   2. the card holds eight OTHER canvases — the seek bar, the status and note
+ *      strips, two coverage bars and three pose3d canvases — which all passed
+ *      an id-exclusion test. They come first in document order, so cam0's
+ *      overlay landed on the seek bar and neither camera was clickable.
+ *
+ * An allowlist cannot rot the same way: a new canvas added to the card is not a
+ * tile unless it is a tile.
  */
 export function isTile(canvas) {
-  const id = (canvas && canvas.id) || "";
-  if (OWN_CANVAS_IDS.has(id)) return false;
-  if (id.startsWith(OVERLAY_PREFIX)) return false;
-  return true;
+  const cls = (canvas && canvas.className) || "";
+  return String(cls).split(/\s+/).includes(TILE_CLASS);
 }
 
 export function selectTiles(canvases) {
@@ -125,4 +132,29 @@ export function centreFor(state, cam, projectDefault) {
 export function unplacedCameras(state, cams = ["cam0", "cam1"]) {
   return cams.filter(
     (c) => !(state.marks || []).some((m) => m.kind === "box" && m.cam === c));
+}
+
+
+// ── per-camera box visibility ───────────────────────────────────────────────
+//
+// One toggle per camera, independent. A single shared toggle also coupled
+// visibility to interaction, which is how "cannot place on cam1 after ticking
+// show box" happened: whether a box is DRAWN and whether its camera accepts a
+// click are unrelated questions and are kept that way here.
+
+export function newVisibility() {
+  return {};
+}
+
+export function isVisible(vis, cam) {
+  return !!(vis && vis[cam]);
+}
+
+export function setVisible(vis, cam, on) {
+  return { ...(vis || {}), [cam]: !!on };
+}
+
+/** Placement is always allowed; visibility never gates it. */
+export function canPlace() {
+  return true;
 }

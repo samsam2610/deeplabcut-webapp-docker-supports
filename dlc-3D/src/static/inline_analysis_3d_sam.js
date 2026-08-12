@@ -37,7 +37,7 @@ import { tagKeyframes, mergeWindows } from "./components/viewer/internal/tag_bat
 import { state } from "/static/js/state.js";
 import {
   OVERLAY_PREFIX, selectTiles, placeClick, nudge, centreFor,
-  unplacedCameras, isNudgeKey,
+  unplacedCameras, isNudgeKey, newVisibility, isVisible, setVisible,
 } from "./internal/pellet_box.mjs";
 
 // ── Module state ────────────────────────────────────────────────────────────
@@ -4308,7 +4308,7 @@ function _samDrawTags() {
 // than folded straight into the template, so a stray click can be removed and
 // the template rebuilt without it.
 
-const _pellet = { model: null, showBox: false, confirmed: false,
+const _pellet = { model: null, vis: newVisibility(), confirmed: false,
                   state: { marks: [], last: null }, saveTimer: null };
 
 async function _pelletLoad() {
@@ -4349,7 +4349,11 @@ function _pelletRenderCams() {
     card.className = "ia3ds-cam-card";
     card.innerHTML = `
       <h4>${c.has_template ? `<img alt="" src="${SAMAPI}/pellet/template.png?cam=${name}&t=${Date.now()}"/>` : ""}
-        ${name} <span style="margin-left:auto">${c.n_samples || 0} samples</span></h4>
+        ${name}
+        <label class="ia3ds-cam-show" title="Draw this camera's box on its frame">
+          <input type="checkbox" data-showcam="${name}" ${isVisible(_pellet.vis, name) ? "checked" : ""}/> show box
+        </label>
+        <span style="margin-left:auto">${c.n_samples || 0} samples</span></h4>
       <div class="ia3ds-cam-fields">
         <label>cx<input type="number" step="1" data-cam="${name}" data-k="cx" value="${Math.round(c.cx)}"/></label>
         <label>cy<input type="number" step="1" data-cam="${name}" data-k="cy" value="${Math.round(c.cy)}"/></label>
@@ -4358,7 +4362,13 @@ function _pelletRenderCams() {
       </div>`;
     grid.appendChild(card);
   });
-  grid.querySelectorAll("input").forEach((el) => {
+  grid.querySelectorAll("input[data-showcam]").forEach((el) => {
+    el.onchange = (ev) => {
+      _pellet.vis = setVisible(_pellet.vis, ev.target.dataset.showcam, ev.target.checked);
+      _pelletDrawBox();
+    };
+  });
+  grid.querySelectorAll("input[data-k]").forEach((el) => {
     el.onchange = () => { _samDrawTags(); _pelletDrawBox(); };
   });
 }
@@ -4510,7 +4520,7 @@ function _pelletDrawBox() {
     if (!ov) return;
     const g = ov.getContext("2d");
     g.clearRect(0, 0, ov.width, ov.height);       // no after-images, ever
-    if (!_pellet.showBox) return;
+    if (!isVisible(_pellet.vis, camName)) return; // per camera, independent
     const def = (_pellet.model?.cameras || {})[camName];
     const centre = centreFor(_pellet.state, camName, def || null);
     if (!centre) return;
@@ -4603,6 +4613,16 @@ function _pelletRenderConfirm() {
 
 // ── wiring ──────────────────────────────────────────────────────────────────
 
+// Wiring an element that no longer exists throws on `.onclick` of null and
+// takes every later handler with it — the whole panel goes dead from one stale
+// id. `on()` makes a missing element a no-op instead.
+function on(id, event, fn) {
+  const el = _samEl(id);
+  if (el) el[event] = fn;
+  else console.warn(`[sam] no #${id} to wire`);
+  return !!el;
+}
+
 function _samWirePanel() {
   const reload = _samEl("ia3ds-sam-reload");
   if (!reload) return;                       // card not injected yet
@@ -4612,10 +4632,6 @@ function _samWirePanel() {
   _samEl("ia3ds-sam-build-csv").onclick = _samBuildCsv;
   _samEl("ia3ds-pellet-save").onclick = _pelletSave;
   _samEl("ia3ds-pellet-retrain").onclick = _pelletRetrain;
-  _samEl("ia3ds-pellet-show").onchange = (e) => {
-    _pellet.showBox = e.target.checked;
-    if (_pellet.showBox) { _pelletDrawBox(); }
-  };
   _samEl("ia3ds-confirm-btn").onclick = async () => {
     const video = _samCurrentVideo();
     if (!video) return;
