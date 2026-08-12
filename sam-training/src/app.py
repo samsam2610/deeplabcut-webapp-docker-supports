@@ -85,8 +85,19 @@ def api_calibrate():
     })
 
 
+def _sweep_sig(video):
+    """Detector identity for this video, so a moved box misses the cache.
+
+    Reads the box from the onset sidecar — the same place the sweep gate reads
+    it — so the key can never describe a box the detector is not using.
+    """
+    from . import onset_csv as _oc, pellet_model as _pm
+    return store.model_signature(_pm.load(PROJECT_PATH), Path(video).stem,
+                                 marks=_oc.read_marks(video))
+
+
 def _sweep_payload(video, stride):
-    cached = store.load_sweep(video, stride)
+    cached = store.load_sweep(video, stride, sig=_sweep_sig(video))
     if cached is None:
         return None
     frames, scores, n_frames = cached
@@ -133,9 +144,14 @@ def api_sweep():
             return jsonify({"error": "place and confirm the pellet box for this "
                                      "pair first"}), 428
 
-    payload = _sweep_payload(video, stride)
+    # `overwrite` forces a recompute even on a cache hit. The cache key already
+    # covers the box and the template, so a hit means nothing that affects the
+    # result has changed — this is for the cases the key cannot see, such as the
+    # video file itself being replaced.
+    overwrite = bool(body.get("overwrite"))
+    payload = None if overwrite else _sweep_payload(video, stride)
     if payload is not None:
-        return jsonify({"state": "done", **payload})
+        return jsonify({"state": "done", "cached": True, **payload})
 
     def run(job):
         calib = rig.load(PROJECT_PATH, Path(video).stem) or rig.calibrate(video)
@@ -147,7 +163,8 @@ def api_sweep():
 
         sw = ncc.sweep_video(video, template, calib.search_box, stride=stride,
                              progress=progress)
-        store.save_sweep(video, stride, sw.frames, sw.scores, sw.n_frames)
+        store.save_sweep(video, stride, sw.frames, sw.scores, sw.n_frames,
+                         sig=_sweep_sig(video))
         return True
 
     job = store.registry.start("sweep", run)

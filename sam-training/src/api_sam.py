@@ -42,7 +42,10 @@ def _windows_for(video: str):
     if calib is None:
         calib = rig.calibrate(video)
         rig.save(_project(), Path(video).stem, calib)
-    cached = store.load_sweep(video, config.SWEEP_STRIDE)
+    cached = store.load_sweep(
+        video, config.SWEEP_STRIDE,
+        sig=store.model_signature(_model(), Path(video).stem,
+                                  marks=onset_csv.read_marks(video)))
     if cached is None:
         return calib, None
     frames, scores, _n = cached

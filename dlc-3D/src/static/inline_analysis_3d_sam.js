@@ -4184,10 +4184,12 @@ async function _samRunSweep() {
   try {
     const started = await _samJSON("/sam-training/api/sweep", {
       method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ video }),
+      body: JSON.stringify({ video, overwrite: !!_samEl("ia3ds-sam-overwrite")?.checked }),
     });
     if (started.state === "done") {
-      _samSay("already swept");
+      // A hit means the box, template and thresholds are all unchanged, since
+      // the cache key covers them. Say so, rather than implying work happened.
+      _samSay("cached sweep reused (box unchanged) — tick overwrite to force");
     } else {
       for (;;) {
         const j = await _samJSON(`${SAMAPI}/job/${started.job}`);
@@ -4453,9 +4455,9 @@ function _pelletBindTiles() {
 
 // ── overlay canvases + click-to-place ──────────────────────────────────────
 //
-// Placement logic lives in tests/unit/helpers/pellet_box.mjs and is unit-tested
-// there. This file only does DOM: create an overlay per tile, translate a click
-// into image coordinates, draw, and persist.
+// Placement logic lives in src/static/internal/pellet_box.mjs and is unit-tested
+// by tests/unit/test_pellet_box_placement.mjs. This file only does DOM: create an
+// overlay per tile, translate a click into image coordinates, draw, and persist.
 //
 // Dragging was removed. It shipped three bugs — after-images from stroking the
 // player's own canvas, cam1 dying after cam0 was dragged, and overlays being
@@ -4476,7 +4478,9 @@ function _overlayFor(canvas, camName) {
     if (!parent) return null;
     if (getComputedStyle(parent).position === "static") parent.style.position = "relative";
     ov = document.createElement("canvas");
-    ov.id = OVERLAY_PREFIX + camName;      // an id, so selectTiles() excludes it
+    ov.id = OVERLAY_PREFIX + camName;      // addressable; NOT how it is excluded
+    // selectTiles() includes by class vv-overlay-canvas, so this overlay is
+    // excluded by not being one. Excluding by id is the rule that broke twice.
     ov.className = "ia3ds-overlay";
     ov.style.cssText = "position:absolute;pointer-events:auto;cursor:crosshair";
     parent.appendChild(ov);

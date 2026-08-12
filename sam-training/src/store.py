@@ -19,18 +19,61 @@ import numpy as np
 CACHE_DIR = Path("/app/data/sam-training/sweeps")
 
 
-def cache_key(video_path, stride: int) -> str:
-    raw = f"{Path(video_path).resolve()}|{stride}".encode()
+def cache_key(video_path, stride: int, sig: str = "") -> str:
+    """Identity of a cached sweep.
+
+    ``sig`` MUST cover everything that changes the result. It was omitted, so
+    the key was (path, stride) alone: after moving the pellet box, a sweep
+    returned the previous result instantly and the placement had no effect —
+    silently, and indistinguishable from success. A stale cache that looks fresh
+    is worse than no cache.
+    """
+    raw = f"{Path(video_path).resolve()}|{stride}|{sig}".encode()
     return hashlib.sha1(raw).hexdigest()[:16]
 
 
-def cache_file(video_path, stride: int, root: Path | None = None) -> Path:
+def model_signature(model, video_stem: str = "", marks=None) -> str:
+    """Everything about the detector that changes a sweep, as a short string.
+
+    Per-video box overrides are included via ``video_stem``, so moving one
+    video's box does not invalidate every other video's cache.
+
+    ``marks`` are the onset sidecar's rows, which are the source of truth for
+    the box. They win over ``PelletModel.videos``, whose coordinates are a
+    leftover from before placement moved into the sidecar: reading those would
+    key the cache on a box the detector is not using.
+    """
+    if model is None:
+        return ""
+    parts = [f"thr={getattr(model, 'threshold', '')}",
+             f"d3={getattr(model, 'max_3d_dist', '')}",
+             f"ref={getattr(model, 'ref_3d', None)}"]
+    for name in sorted(getattr(model, "cameras", {})):
+        cam = model.cameras[name]
+        cx, cy = cam.cx, cam.cy
+        box = getattr(model, "box_for", None)
+        if box and video_stem:
+            found = box(video_stem, name)
+            if found:
+                cx, cy = found
+        for mk in (marks or []):            # sidecar wins
+            if mk.get("kind") == "box" and mk.get("cam") == name:
+                cx, cy = float(mk["x"]), float(mk["y"])
+                break
+        parts.append(f"{name}:{cx:.2f},{cy:.2f},{cam.half},{cam.margin},"
+                     f"{len(getattr(cam, 'seed_b64', '') or '')},"
+                     f"{len(getattr(cam, 'exemplars', []) or [])}")
+    return hashlib.sha1("|".join(parts).encode()).hexdigest()[:12]
+
+
+def cache_file(video_path, stride: int, root: Path | None = None,
+               sig: str = "") -> Path:
     root = root or CACHE_DIR
-    return root / f"{Path(video_path).stem[:60]}.{cache_key(video_path, stride)}.npz"
+    return root / f"{Path(video_path).stem[:60]}.{cache_key(video_path, stride, sig)}.npz"
 
 
-def load_sweep(video_path, stride: int, root: Path | None = None):
-    path = cache_file(video_path, stride, root)
+def load_sweep(video_path, stride: int, root: Path | None = None, sig: str = ""):
+    path = cache_file(video_path, stride, root, sig)
     if not path.is_file():
         return None
     try:
@@ -41,8 +84,8 @@ def load_sweep(video_path, stride: int, root: Path | None = None):
 
 
 def save_sweep(video_path, stride: int, frames, scores, n_frames,
-               root: Path | None = None) -> None:
-    path = cache_file(video_path, stride, root)
+               root: Path | None = None, sig: str = "") -> None:
+    path = cache_file(video_path, stride, root, sig)
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_suffix(".tmp.npz")
     np.savez_compressed(tmp, frames=frames, scores=scores, n_frames=n_frames)

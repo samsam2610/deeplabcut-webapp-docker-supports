@@ -443,3 +443,5 @@
 .ia3ds-overlay { z-index: 5; }
 .ia3ds-cam-show { display: flex; align-items: center; gap: .25rem; font-size: .64rem; }
 .ia3ds-cam-show input { width: 12px; height: 12px; accent-color: var(--accent); }
+.ia3ds-overwrite { display: flex; align-items: center; gap: .25rem; font-size: .7rem; color: var(--text-dim); }
+.ia3ds-overwrite input { width: 12px; height: 12px; accent-color: var(--warn); }

@@ -82,3 +82,97 @@ def test_prune_keeps_running_jobs():
     done.started_at = 0.0
     reg.prune(older_than=1.0)
     assert reg.get(done.id) is None
+
+
+# ── the cache must not survive a detector change ────────────────────────────
+
+def test_signature_changes_the_cache_key():
+    """Moving the box must MISS the cache.
+
+    The key was (path, stride) only, so after moving the box a sweep returned
+    the previous result instantly and the placement had no effect at all —
+    silently, and looking like success.
+    """
+    a = store.cache_key("/v/a.avi", 5, sig="box=416,388")
+    b = store.cache_key("/v/a.avi", 5, sig="box=412,404")
+    assert a != b
+
+
+def test_same_signature_is_the_same_key():
+    a = store.cache_key("/v/a.avi", 5, sig="box=416,388")
+    b = store.cache_key("/v/a.avi", 5, sig="box=416,388")
+    assert a == b
+
+
+def test_signature_is_optional_for_callers_that_have_none():
+    assert store.cache_key("/v/a.avi", 5) == store.cache_key("/v/a.avi", 5)
+
+
+def test_a_sweep_saved_under_one_signature_is_not_read_under_another(tmp_path):
+    frames = np.arange(0, 50, 5)
+    store.save_sweep("/v/a.avi", 5, frames, frames * 0.0, 50,
+                     root=tmp_path, sig="box=416,388")
+    assert store.load_sweep("/v/a.avi", 5, root=tmp_path, sig="box=416,388") is not None
+    assert store.load_sweep("/v/a.avi", 5, root=tmp_path, sig="box=412,404") is None
+
+
+def test_model_signature_tracks_every_field_that_changes_the_result():
+    from src import pellet_model as pm
+    base = pm.PelletModel()
+    base.cameras["cam0"] = pm.CameraModel(cx=416, cy=388, half=22, margin=40)
+    first = store.model_signature(base, "vid")
+
+    moved = pm.PelletModel()
+    moved.cameras["cam0"] = pm.CameraModel(cx=412, cy=404, half=22, margin=40)
+    assert store.model_signature(moved, "vid") != first
+
+    resized = pm.PelletModel()
+    resized.cameras["cam0"] = pm.CameraModel(cx=416, cy=388, half=30, margin=40)
+    assert store.model_signature(resized, "vid") != first
+
+    wider = pm.PelletModel()
+    wider.cameras["cam0"] = pm.CameraModel(cx=416, cy=388, half=22, margin=60)
+    assert store.model_signature(wider, "vid") != first
+
+    thr = pm.PelletModel()
+    thr.cameras["cam0"] = pm.CameraModel(cx=416, cy=388, half=22, margin=40)
+    thr.threshold = 0.7
+    assert store.model_signature(thr, "vid") != first
+
+
+def test_signature_follows_the_per_video_box():
+    from src import pellet_model as pm
+    m = pm.PelletModel()
+    m.cameras["cam0"] = pm.CameraModel(cx=416, cy=388)
+    before = store.model_signature(m, "vid")
+    m.videos["vid"] = pm.VideoBox(cx0=412, cy0=404)
+    assert store.model_signature(m, "vid") != before
+    # a DIFFERENT video keeps its own signature
+    assert store.model_signature(m, "other") == before
+
+
+def test_signature_prefers_the_sidecar_marks_over_the_legacy_video_box(tmp_path):
+    """The onset CSV is the source of truth for the box.
+
+    A VideoBox with coordinates is a leftover from before placement moved into
+    the sidecar. If the signature read that while the detector reads the CSV,
+    the cache key would describe a box nobody is using.
+    """
+    from src import pellet_model as pm
+    m = pm.PelletModel()
+    m.cameras["cam0"] = pm.CameraModel(cx=416, cy=388)
+    m.videos["vid"] = pm.VideoBox(cx0=368, cy0=333)     # stale
+    from_legacy = store.model_signature(m, "vid")
+    from_marks = store.model_signature(
+        m, "vid", marks=[{"kind": "box", "cam": "cam0", "x": 412, "y": 404}])
+    assert from_marks != from_legacy
+
+
+def test_signature_with_marks_ignores_pellet_rows():
+    from src import pellet_model as pm
+    m = pm.PelletModel()
+    m.cameras["cam0"] = pm.CameraModel(cx=416, cy=388)
+    box_only = [{"kind": "box", "cam": "cam0", "x": 412, "y": 404}]
+    with_pellets = box_only + [{"kind": "pellet", "cam": "cam0", "x": 500, "y": 500}]
+    assert store.model_signature(m, "vid", marks=box_only) == \
+           store.model_signature(m, "vid", marks=with_pellets)
