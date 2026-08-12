@@ -12,7 +12,8 @@ Success/failure is never predicted. It is already in the CSV: a candidate's
 label is read off the human `s`/`f` marker that closes its window. No marker,
 no candidate.
 
-Design: `docs/superpowers/specs/2026-08-11-sam-candidate-tagger-design.md`.
+Method, with the numbers behind each decision: **[`METHODOLOGY.md`](METHODOLOGY.md)**.
+Design history: `docs/superpowers/specs/2026-08-1*-*.md`.
 
 ## Pipeline
 
