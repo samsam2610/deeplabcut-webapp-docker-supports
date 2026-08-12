@@ -4304,7 +4304,7 @@ function _samDrawTags() {
 // than folded straight into the template, so a stray click can be removed and
 // the template rebuilt without it.
 
-const _pellet = { model: null, clicking: false, showBox: false, bound: new WeakSet() };
+const _pellet = { model: null, clicking: false, showBox: false, confirmed: false };
 
 async function _pelletLoad() {
   try {
@@ -4442,56 +4442,80 @@ function _pelletTiles() {
     (c) => c.id !== "ia3ds-sam-strip" && c.id !== "ia3ds-sam-tags") : [];
 }
 
+// Overlays own all tile mouse handling now; this just makes sure one exists
+// for each tile, since tiles appear only once the card opens a pair.
 function _pelletBindTiles() {
-  _pelletTiles().forEach((canvas, i) => {
-    if (_pellet.bound.has(canvas)) return;
-    _pellet.bound.add(canvas);
-    canvas.addEventListener("click", async (ev) => {
-      if (!_pellet.clicking) return;
-      const video = _samCurrentVideo();
-      if (!video) { _samSay("open a pair first", true); return; }
-      const { x, y } = _pelletCanvasToImage(canvas, ev);
-      const cam = i === 0 ? "cam0" : "cam1";
-      try {
-        await _samJSON(`${SAMAPI}/pellet/label`, {
-          method: "POST", headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ video, cam, frame: _samState.frame + 1, x, y }),
-        });
-        await _pelletLoad();
-        _samSay(`labelled ${cam} f${_samState.frame + 1} at (${Math.round(x)}, ${Math.round(y)})`);
-      } catch (e) {
-        _samSay(`label: ${e.message}`, true);
-      }
-    });
-  });
+  _pelletTiles().forEach((canvas, i) => _overlayFor(canvas, _camNameFor(i)));
 }
 
-// Draw the template + search box straight onto the tile canvases. Off by
-// default: it is a diagnostic, not something to leave covering the frame.
+// ── overlay canvases ────────────────────────────────────────────────────────
+//
+// The box used to be stroked straight onto the viewer's tile canvas. That was
+// wrong three ways at once: every drag frame painted over the previous one with
+// nothing erasing it (a trail of after-images), the viewer's own repaint fought
+// with ours, and hit-testing on a canvas the viewer also owns made the second
+// tile stop responding once the first had been dragged.
+//
+// Each tile now gets its own transparent overlay canvas on top. We own it
+// completely, so we can clear it before every draw, and mouse handling belongs
+// to one element per camera instead of being shared with the player.
+
+function _overlayFor(canvas, camName) {
+  let ov = canvas._samOverlay;
+  if (!ov) {
+    const parent = canvas.parentElement;
+    if (!parent) return null;
+    if (getComputedStyle(parent).position === "static") parent.style.position = "relative";
+    ov = document.createElement("canvas");
+    ov.className = "ia3ds-overlay";
+    ov.dataset.cam = camName;
+    ov.style.cssText = "position:absolute;pointer-events:auto;cursor:grab";
+    parent.appendChild(ov);
+    canvas._samOverlay = ov;
+    _bindOverlay(ov, camName);
+  }
+  // Track the tile: it resizes with the card, and a stale overlay would put the
+  // box somewhere it is not.
+  ov.style.left = `${canvas.offsetLeft}px`;
+  ov.style.top = `${canvas.offsetTop}px`;
+  ov.style.width = `${canvas.clientWidth}px`;
+  ov.style.height = `${canvas.clientHeight}px`;
+  if (ov.width !== canvas.width || ov.height !== canvas.height) {
+    ov.width = canvas.width; ov.height = canvas.height;
+  }
+  return ov;
+}
+
 function _pelletDrawBox() {
-  if (!_pellet.showBox || !_pellet.model) return;
+  if (!_pellet.model) return;
   const cams = _pellet.model.cameras || {};
   _pelletTiles().forEach((canvas, i) => {
-    const c = cams[i === 0 ? "cam0" : "cam1"];
-    if (!c) return;
-    const g = canvas.getContext("2d");
+    const camName = _camNameFor(i);
+    const ov = _overlayFor(canvas, camName);
+    if (!ov) return;
+    const g = ov.getContext("2d");
+    g.clearRect(0, 0, ov.width, ov.height);        // <- kills the after-images
+    const c = cams[camName];
+    if (!c || !_pellet.showBox) return;            // checkbox controls VISIBILITY only
     const [ty0, ty1, tx0, tx1] = c.template_box;
     const [sy0, sy1, sx0, sx1] = c.search_box;
     g.strokeStyle = "#3ba7ff"; g.lineWidth = 1;
     g.strokeRect(sx0, sy0, sx1 - sx0, sy1 - sy0);
-    g.strokeStyle = "#ffd23b"; g.lineWidth = 2;
+    g.strokeStyle = _drag.cam === camName ? "#fff" : "#ffd23b";
+    g.lineWidth = 2;
     g.strokeRect(tx0, ty0, tx1 - tx0, ty1 - ty0);
+    g.fillStyle = g.strokeStyle;
+    g.fillText(camName, tx0 + 2, Math.max(10, ty0 - 3));
   });
 }
 
 // ── drag the template box, confirm per pair ─────────────────────────────────
 //
-// Number fields are fine for nudging but useless for "is the yellow box on the
-// pellet" — that is a visual question, so the box is draggable on the frame.
-// The project default was visibly wrong on banh-mi-1 Jul 7, which is why the
-// pair must be confirmed before it can be swept.
+// Always draggable. The checkbox governs whether the box is DRAWN, not whether
+// it can be moved — asking someone to tick a box before they can fix a box is
+// a step with no purpose.
 
-const _drag = { cam: null, canvas: null, dx: 0, dy: 0 };
+const _drag = { cam: null, dx: 0, dy: 0 };
 
 function _camNameFor(index) { return index === 0 ? "cam0" : "cam1"; }
 
@@ -4500,50 +4524,84 @@ function _boxHit(c, x, y) {
   return x >= tx0 && x <= tx1 && y >= ty0 && y <= ty1;
 }
 
-function _pelletBindDrag() {
-  _pelletTiles().forEach((canvas, i) => {
-    if (canvas._samDragBound) return;
-    canvas._samDragBound = true;
-    const camName = _camNameFor(i);
+function _recomputeBoxes(c) {
+  c.template_box = [c.cy - c.half, c.cy + c.half, c.cx - c.half, c.cx + c.half];
+  const h = c.half + c.margin;
+  c.search_box = [c.cy - h, c.cy + h, c.cx - h, c.cx + h];
+}
 
-    canvas.addEventListener("mousedown", (ev) => {
-      if (!_pellet.showBox || !_pellet.model) return;
-      const c = (_pellet.model.cameras || {})[camName];
-      if (!c) return;
-      const { x, y } = _pelletCanvasToImage(canvas, ev);
-      if (!_boxHit(c, x, y)) return;
-      _drag.cam = camName; _drag.canvas = canvas;
-      _drag.dx = x - c.cx; _drag.dy = y - c.cy;
+// Every overlay binds its own handlers, so the two cameras are independent —
+// previously a shared canvas meant dragging cam0 left cam1 unresponsive.
+function _bindOverlay(ov, camName) {
+  ov.addEventListener("mousedown", (ev) => {
+    const c = (_pellet.model?.cameras || {})[camName];
+    if (!c) return;
+    const { x, y } = _pelletCanvasToImage(ov, ev);
+    if (_pellet.clicking) {                     // labelling takes precedence
+      _pelletPlaceLabel(camName, x, y);
       ev.preventDefault(); ev.stopPropagation();
-    });
-
-    canvas.addEventListener("mousemove", (ev) => {
-      if (_drag.cam !== camName) return;
-      const c = _pellet.model.cameras[camName];
-      const { x, y } = _pelletCanvasToImage(canvas, ev);
-      c.cx = x - _drag.dx; c.cy = y - _drag.dy;
-      // Recompute the boxes locally so the drag is smooth; the server
-      // recomputes them authoritatively on save.
-      c.template_box = [c.cy - c.half, c.cy + c.half, c.cx - c.half, c.cx + c.half];
-      const h = c.half + c.margin;
-      c.search_box = [c.cy - h, c.cy + h, c.cx - h, c.cx + h];
-      _pelletDrawBox();
-      ev.preventDefault();
-    });
+      return;
+    }
+    if (!_boxHit(c, x, y)) return;
+    _drag.cam = camName; _drag.dx = x - c.cx; _drag.dy = y - c.cy;
+    ov.style.cursor = "grabbing";
+    _pelletDrawBox();
+    ev.preventDefault(); ev.stopPropagation();
   });
 
-  if (!_pellet.dragUp) {
-    _pellet.dragUp = true;
-    window.addEventListener("mouseup", async () => {
-      if (!_drag.cam) return;
-      const cam = _drag.cam;
-      _drag.cam = null; _drag.canvas = null;
-      const c = _pellet.model.cameras[cam];
-      // Dragging invalidates a previous confirmation: the box moved, so nobody
-      // has looked at where it is NOW.
-      await _pelletSaveVideoBox({ [cam]: { cx: c.cx, cy: c.cy } }, false);
-      _samSay(`${cam} box moved to (${Math.round(c.cx)}, ${Math.round(c.cy)}) — confirm when both look right`);
+  ov.addEventListener("mousemove", (ev) => {
+    const c = (_pellet.model?.cameras || {})[camName];
+    if (!c) return;
+    if (_drag.cam !== camName) {
+      ov.style.cursor = _pellet.clicking ? "crosshair"
+        : (_boxHit(c, ..._xy(ov, ev)) ? "grab" : "default");
+      return;
+    }
+    const { x, y } = _pelletCanvasToImage(ov, ev);
+    c.cx = x - _drag.dx; c.cy = y - _drag.dy;
+    _recomputeBoxes(c);
+    _pelletDrawBox();
+    ev.preventDefault();
+  });
+
+  ov.addEventListener("mouseup", async (ev) => {
+    if (_drag.cam !== camName) return;
+    _drag.cam = null;
+    ov.style.cursor = "grab";
+    const c = _pellet.model.cameras[camName];
+    // Moving the box invalidates any previous confirmation: nobody has looked
+    // at where it is now.
+    await _pelletSaveVideoBox({ [camName]: { cx: c.cx, cy: c.cy } }, false);
+    _samSay(`${camName} box at (${Math.round(c.cx)}, ${Math.round(c.cy)}) — confirm when both are right`);
+    _pelletDrawBox();
+    ev.stopPropagation();
+  });
+
+  // A drag that ends off the tile must not leave the box stuck to the pointer.
+  ov.addEventListener("mouseleave", () => {
+    if (_drag.cam === camName) {
+      _drag.cam = null; ov.style.cursor = "grab"; _pelletDrawBox();
+    }
+  });
+}
+
+function _xy(ov, ev) {
+  const p = _pelletCanvasToImage(ov, ev);
+  return [p.x, p.y];
+}
+
+async function _pelletPlaceLabel(camName, x, y) {
+  const video = _samCurrentVideo();
+  if (!video) { _samSay("open a pair first", true); return; }
+  try {
+    await _samJSON(`${SAMAPI}/pellet/label`, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ video, cam: camName, frame: _samState.frame + 1, x, y }),
     });
+    await _pelletLoad();
+    _samSay(`labelled ${camName} f${_samState.frame + 1} at (${Math.round(x)}, ${Math.round(y)})`);
+  } catch (e) {
+    _samSay(`label: ${e.message}`, true);
   }
 }
 
@@ -4606,7 +4664,7 @@ function _samWirePanel() {
   _samEl("ia3ds-pellet-retrain").onclick = _pelletRetrain;
   _samEl("ia3ds-pellet-show").onchange = (e) => {
     _pellet.showBox = e.target.checked;
-    if (_pellet.showBox) { _pelletBindDrag(); _pelletDrawBox(); }
+    if (_pellet.showBox) { _pelletDrawBox(); }
   };
   _samEl("ia3ds-confirm-btn").onclick = async () => {
     const cams = {};
@@ -4623,7 +4681,7 @@ function _samWirePanel() {
   };
   _pelletLoad();
   // Tiles are created when the card opens a pair, so keep looking for them.
-  setInterval(() => { _pelletBindTiles(); _pelletBindDrag(); _pelletDrawBox(); }, 1000);
+  setInterval(() => { _pelletBindTiles(); _pelletDrawBox(); }, 1000);
   _samEl("ia3ds-sam-tags").addEventListener("click", (ev) => {
     const rows = _samState.tagRows;
     if (!rows || !rows.length) return;
