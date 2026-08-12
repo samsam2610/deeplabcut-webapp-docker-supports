@@ -141,18 +141,27 @@ def api_judge_put():
     return jsonify(judge.to_dict())
 
 
-def _read_candidates(video, candidates, box, job=None, share=0.45, base=0.05):
+def _read_candidates(video, candidates, box, job=None, share=0.45, base=0.05,
+                     on_frame=None, keep_raw=0):
     """Read a video's candidate frames once, sequentially, cropping as we go.
 
     Sequential rather than seeking per frame: at stride 5 a seek costs more than
-    a decode, and this runs over ~200 frames twice (once per camera).
+    a decode, and this runs over the window twice (once per camera).
+
+    ``on_frame`` is called with each full frame and its result kept instead of
+    the frame. A window can hold 2500 candidates, and 2500 x 800x600x3 is 3.5 GB
+    per camera — so the 3D path segments during the read and keeps a centroid,
+    rather than buffering 7 GB of video to segment afterwards.
+
+    ``keep_raw`` retains at most that many full frames for a caller that cannot
+    know which ones it needs until later; the rest are re-read on demand.
     """
     # `candidates` are 1-based frame_numbers; cv2 counts from 0. This is the
     # only place the conversion happens on the way in.
     cap = cv2.VideoCapture(str(video))
     cap.set(cv2.CAP_PROP_POS_FRAMES, candidates[0] - 1)
     wanted = set(candidates)
-    crops, kept, raw = [], [], {}
+    crops, kept, raw, extra = [], [], {}, {}
     idx, last = candidates[0], candidates[-1]
     while idx <= last:
         ok, frame = cap.read()          # idx is the frame_number just read
@@ -161,12 +170,15 @@ def _read_candidates(video, candidates, box, job=None, share=0.45, base=0.05):
         if idx in wanted:
             crops.append(exemplars.crop_rgb(frame, box))
             kept.append(idx)
-            raw[idx] = frame
+            if on_frame is not None:
+                extra[idx] = on_frame(frame)
+            if len(raw) < keep_raw:
+                raw[idx] = frame
         idx += 1
-        if job is not None and len(kept) % 200 == 0:
+        if job is not None and len(kept) % 100 == 0:
             job.progress = base + share * (len(kept) / max(1, len(candidates)))
     cap.release()
-    return crops, kept, raw
+    return crops, kept, raw, extra
 
 
 def _paw_point(frame_bgr, camera, prompt):
@@ -222,12 +234,14 @@ def _score_window_3d(job, video, start, end, outcome, prompt, topk):
     stereo_cal = stereo.load(stereo.find_for_video(_project(), video))
 
     # ── read both cameras ─────────────────────────────────────────────────
-    c0, kept0, raw0 = _read_candidates(video, candidates,
-                                       exemplars.crop_for(cams["cam0"]), job,
-                                       share=0.15, base=0.02)
-    c1, kept1, raw1 = _read_candidates(str(sibling), candidates,
-                                       exemplars.crop_for(cams["cam1"]), job,
-                                       share=0.15, base=0.17)
+    c0, kept0, _r0, paw0 = _read_candidates(
+        video, candidates, exemplars.crop_for(cams["cam0"]), job,
+        share=0.35, base=0.02,
+        on_frame=lambda fr: _paw_point(fr, cams["cam0"], prompt))
+    c1, kept1, _r1, paw1 = _read_candidates(
+        str(sibling), candidates, exemplars.crop_for(cams["cam1"]), job,
+        share=0.35, base=0.37,
+        on_frame=lambda fr: _paw_point(fr, cams["cam1"], prompt))
     common = sorted(set(kept0) & set(kept1))
     if not common:
         raise RuntimeError("no frame could be read from both cameras")
@@ -246,7 +260,7 @@ def _score_window_3d(job, video, start, end, outcome, prompt, topk):
             raise RuntimeError(f"no '{outcome}' exemplars outside this session ({cam})")
         sims[cam] = models.similarity(models.embed(crops), ref, topk=topk)
     if job is not None:
-        job.progress = 0.4
+        job.progress = 0.82
 
     fused = np.array([(float(sims["cam0"][i0[f]]) + float(sims["cam1"][i1[f]])) / 2.0
                       for f in common])
@@ -254,8 +268,8 @@ def _score_window_3d(job, video, start, end, outcome, prompt, topk):
     # ── stage 2: SAM on both, epipolar gate, triangulate ──────────────────
     rows, ok_mask, epi_all, masks = [], [], [], []
     for n, f in enumerate(common):
-        p0, s0, m0 = _paw_point(raw0[f], cams["cam0"], prompt)
-        p1, s1, _m1 = _paw_point(raw1[f], cams["cam1"], prompt)
+        p0, s0, m0 = paw0[f]
+        p1, s1, _m1 = paw1[f]
         epi = None
         X = None
         if p0 is not None and p1 is not None and stereo_cal is not None:
@@ -277,8 +291,8 @@ def _score_window_3d(job, video, start, end, outcome, prompt, topk):
             Y=None if X is None else float(X[1]),
             Z=None if X is None else float(X[2]),
             epi_px=epi, score=float(fused[n])))
-        if job is not None and n % 25 == 0:
-            job.progress = 0.4 + 0.55 * (n / max(1, len(common)))
+        if job is not None and n % 100 == 0:
+            job.progress = 0.85 + 0.14 * (n / max(1, len(common)))
 
     motion3d.merge(video, rows)
 
@@ -325,26 +339,14 @@ def _score_window(job, video, start, end, outcome, prompt, topk):
         step = int(np.ceil(len(candidates) / MAX_CANDIDATES))
         candidates = candidates[::step]
 
-    # ── read the candidate frames once, sequentially ──────────────────────
-    cap = cv2.VideoCapture(video)
-    cap.set(cv2.CAP_PROP_POS_FRAMES, candidates[0])
-    wanted = set(candidates)
-    crops, kept, raw = [], [], {}
-    idx = candidates[0]
-    last = candidates[-1]
-    while idx <= last:
-        ok, frame = cap.read()
-        if not ok:
-            break
-        if idx in wanted:
-            crops.append(exemplars.crop_rgb(frame))
-            kept.append(idx)
-            if len(raw) < 12:
-                raw[idx] = frame
-        idx += 1
-        if job is not None and len(kept) % 200 == 0:
-            job.progress = 0.05 + 0.45 * (len(kept) / max(1, len(candidates)))
-    cap.release()
+    # The shared reader: same 1-based -> cv2 conversion, and the crop follows
+    # the placed box. This path had its own copy that seeked without the -1, so
+    # once frames became 1-based every crop was a frame late.
+    model = pipeline.model_for(_project(), video)
+    cam0 = model.cameras.get("cam0") if model else None
+    crops, kept, raw, _extra = _read_candidates(
+        video, candidates, exemplars.crop_for(cam0) if cam0 else None, job,
+        keep_raw=12)
     if not kept:
         raise RuntimeError("could not read any candidate frame")
 
