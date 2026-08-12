@@ -30,7 +30,7 @@ from pathlib import Path
 
 sys.path.insert(0, "/app")
 
-from src import (api_sam, config, exemplars, notes, pellet_model as pm,  # noqa: E402
+from src import (api_sam, config, onset_csv, pellet_model as pm,  # noqa: E402
                  pipeline, stereo, sweep2, sweep_cache, tracked)
 
 PROJECT = "/user-data/Parra-Data/Disk/DLC-Projects/DREADD-Ali-2026-01-07"
@@ -49,6 +49,27 @@ COLUMNS = ["session", "marker", "onset", "pick", "error", "reachable",
            "n_candidates", "mode", "seconds"]
 
 
+def place_box(video, centres):
+    """Write the box into this video's onset sidecar, as placing it would.
+
+    Everything downstream — the cache signature, the reference, the scorer —
+    reads the box from the sidecar. Threading an in-memory box through all of
+    them for a measurement would mean a second code path, which is how the
+    pipeline and the panel came to disagree twice already. So the harness does
+    what a person does: it places the box, then runs the real path.
+
+    Read-modify-write: any trace already in the sidecar is carried through.
+    """
+    build = onset_csv.Build()
+    for row in onset_csv.read(video):
+        if str(row.get("mark_kind") or "").strip():
+            continue                              # marks are replaced wholesale
+        build.rows[int(float(row["frame_number"]))] = onset_csv.row_from_csv(row)
+    for cam, (x, y) in sorted((centres or {}).items()):
+        build.add_mark(1, onset_csv.MARK_BOX, cam, float(x), float(y))
+    onset_csv.write(video, build)
+
+
 def say(msg):
     line = f"{time.strftime('%H:%M:%S')}  {msg}"
     print(line, flush=True)
@@ -56,24 +77,68 @@ def say(msg):
         fh.write(line + "\n")
 
 
-def ensure_sweep(video, sibling):
+def session_pellet(video):
+    """Median labelled Pellet position per camera for this recording's session.
+
+    The box is per video pair for a reason: the pedestal moves between sessions.
+    khoai-lang-1 May 6 has its cam1 pellet at (640.6, 402.3) against a project
+    default of (592.7, 449.7) — 67 px away, outside the +-62 px search box. The
+    first version of this harness used the default everywhere, cam1 never
+    matched, nothing armed, and the session reported "no paired trials" despite
+    having 132.
+
+    The panel gets this from a human click. Here it comes from the DLC labels,
+    which is where the template seed came from in the first place. Reuses
+    find_for_video's ranking so "nearest session" means the same thing it does
+    everywhere else.
+    """
+    import csv as _csv, re as _re, statistics as _st
+    cal_path = stereo.find_for_video(PROJECT, video)
+    if cal_path is None:
+        return {}
+    labels = Path(cal_path).parent / "CollectedData_Ali.csv"
+    if not labels.is_file():
+        return {}
+    rows = list(_csv.reader(open(labels)))
+    if len(rows) < 4:
+        return {}
+    parts, coords = rows[1][3:], rows[2][3:]
+    at = [i for i, (p_, c) in enumerate(zip(parts, coords))
+          if p_ == "Pellet" and c == "x"]
+    if not at:
+        return {}
+    i = at[0]
+    seen = {}
+    for r in rows[3:]:
+        m = _re.match(r"img_cam(\d)_", r[2] if len(r) > 2 else "")
+        if not m:
+            continue
+        try:
+            x, y = float(r[3:][i]), float(r[3:][i + 1])
+        except (ValueError, IndexError):
+            continue
+        if x == x and y == y:                       # skip NaN
+            seen.setdefault(f"cam{m.group(1)}", []).append((x, y))
+    return {cam: (_st.median([p[0] for p in v]), _st.median([p[1] for p in v]))
+            for cam, v in seen.items() if v}
+
+
+def ensure_sweep(video, sibling, centres):
     """Sweep the pair if it is not already cached, with THIS video's geometry."""
     model = pm.load(PROJECT)
-    if sweep_cache.load_pair(video, model, []) is not None:
+    marks = onset_csv.read_marks(video)
+    if sweep_cache.load_pair(video, model, marks) is not None:
         return "cached"
     cal = stereo.load(stereo.find_for_video(PROJECT, video))
-    resolved = pm.with_centres(model, {})          # project-default box
+    resolved = pm.with_centres(model, centres)
     # The reference must live in this calibration's frame, so derive it the same
     # way a placed box would: triangulate the two default centres.
-    marks = [{"frame": 1, "kind": "box", "cam": c,
-              "x": resolved.cameras[c].cx, "y": resolved.cameras[c].cy}
-             for c in ("cam0", "cam1") if c in resolved.cameras]
     resolved = pipeline.with_reference(resolved, cal, marks)
     t0 = time.time()
     sw = sweep2.sweep_pair(video, str(sibling), resolved, cal,
                            stride=config.SWEEP_STRIDE)
     sweep_cache.save_pair(video, sw.frames, sw.score0, sw.score1, sw.dist3d,
-                          sw.n_frames, model=model, marks=[])
+                          sw.n_frames, model=model, marks=marks)
     return f"swept in {time.time() - t0:.0f}s"
 
 
@@ -98,7 +163,11 @@ def main():
         if sibling is None:
             say(f"[{vi}/{len(videos)}] {short}: no cam1, skipped")
             continue
-        say(f"[{vi}/{len(videos)}] {short}: {ensure_sweep(video, sibling)}")
+        centres = session_pellet(video)
+        where = ", ".join(f"{c} ({x:.0f},{y:.0f})" for c, (x, y) in sorted(centres.items()))
+        say(f"[{vi}/{len(videos)}] {short}: box {where or 'PROJECT DEFAULT (no labels)'}")
+        place_box(video, centres)
+        say(f"    {ensure_sweep(video, sibling, centres)}")
 
         st = pipeline.windows_for(PROJECT, video)
         if st is None:
