@@ -2,7 +2,7 @@
 
 **Date:** 2026-08-12
 **Card:** `3D Inline Analysis - SAM Model`
-**Status:** approved in brainstorming; tests first
+**Status:** implemented 2026-08-12 (commit 929379a)
 
 Scoring currently runs on cam0 alone. This adds a second button that segments
 **both** cameras, cross-checks the two paws geometrically, triangulates the paw,
@@ -154,12 +154,19 @@ SAM measured at 0.067 s/frame, DINO ~0.02 s/frame batched. Windows now average
 **191 candidates** (was ~1800 before the two-camera pellet gate), so both cameras
 densely is ~26 s SAM + ~8 s DINO ≈ **35 s per trial**. No sampling needed.
 
-## 8. Risk to retire first
+## 8. Risk retired
 
-`choose_reaching_paw` picks by distance-to-pellet and **has never been run on
-cam1**. If it picks the wrong paw there, the epipolar gate will reject good
-frames and it will look like a gate problem. Validate cam1 paw selection on ~20
-known frames and report **before** wiring the gate.
+`choose_reaching_paw` picks by distance-to-pellet and had never run on cam1.
+Measured against labelled joint centroids on 25 frames of banh-mi-1 Jul 2, before
+anything was wired:
+
+| | no paw found | centroid vs labelled joints, p50 | within 30 px | SAM instances |
+|---|---|---|---|---|
+| cam0 | 0/25 | 15.5 px | 84 % | 4.0 |
+| cam1 | 0/25 | 14.3 px | 88 % | 3.5 |
+
+cam1 is **not worse** than cam0. SAM returns 3–4 paw instances per frame, so the
+picker is discriminating rather than defaulting to the only candidate.
 
 ## Tests, first
 
