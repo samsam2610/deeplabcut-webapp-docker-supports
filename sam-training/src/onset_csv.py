@@ -35,7 +35,14 @@ from . import config
 
 COLUMNS = ["timestamp", "frame_number", "frame_line_status", "pellet_ncc",
            "pellet_present", "sensor_edge", "armed", "window_id",
-           "dino_sim", "sam_score", "note"]
+           "dino_sim", "sam_score", "note",
+           # Human placements. The sidecar is the source of truth for both the
+           # per-camera box centre and the pellet labels feeding the template
+           # pool, so the box can never disagree with the labels.
+           "mark_kind", "mark_cam", "mark_x", "mark_y"]
+
+MARK_BOX = "box"
+MARK_PELLET = "pellet"
 
 SUFFIX = "_onset.csv"
 
@@ -57,6 +64,10 @@ class Row:
     dino_sim: float | None = None
     sam_score: float | None = None
     note: str = ""
+    mark_kind: str = ""
+    mark_cam: str = ""
+    mark_x: float | None = None
+    mark_y: float | None = None
 
     def as_csv(self, fps: float) -> dict:
         def num(v, nd):
@@ -73,6 +84,10 @@ class Row:
             "dino_sim": num(self.dino_sim, 4),
             "sam_score": num(self.sam_score, 3),
             "note": self.note,
+            "mark_kind": self.mark_kind,
+            "mark_cam": self.mark_cam,
+            "mark_x": num(self.mark_x, 2),
+            "mark_y": num(self.mark_y, 2),
         }
 
 
@@ -82,6 +97,9 @@ class Build:
     stages merge instead of overwriting each other."""
     fps: float = config.FPS
     rows: dict[int, Row] = field(default_factory=dict)
+    # Marks are keyed separately: several can share one frame_number, which the
+    # frame-keyed `rows` dict cannot represent.
+    _marks: dict = field(default_factory=dict)
 
     def at(self, frame: int) -> Row:
         return self.rows.setdefault(int(frame), Row(frame_number=int(frame)))
@@ -128,8 +146,28 @@ class Build:
     def add_note(self, frame: int, note: str):
         self.at(int(frame)).note = note
 
+    def add_mark(self, frame: int, kind: str, cam: str, x: float, y: float):
+        """Record a human placement.
+
+        A box and a pellet on the same frame are SEPARATE rows even though they
+        describe the same point: collapsing them would drop the pellet from the
+        template pool. Rows are keyed by (frame, kind, cam) so a second click on
+        one frame corrects rather than duplicates.
+        """
+        key = (int(frame), str(kind), str(cam))
+        row = self._marks.get(key)
+        if row is None:
+            row = Row(frame_number=int(frame), mark_kind=str(kind),
+                      mark_cam=str(cam))
+            self._marks[key] = row
+        row.mark_x = float(x)
+        row.mark_y = float(y)
+
     def to_rows(self) -> list[dict]:
-        return [self.rows[f].as_csv(self.fps) for f in sorted(self.rows)]
+        out = [self.rows[f].as_csv(self.fps) for f in sorted(self.rows)]
+        out += [self._marks[k].as_csv(self.fps) for k in sorted(self._marks)]
+        out.sort(key=lambda r: (int(r["frame_number"]), r["mark_kind"], r["mark_cam"]))
+        return out
 
 
 def write(video_path, build: Build, dest: Path | None = None) -> Path:
@@ -167,3 +205,64 @@ def summarise(rows) -> dict:
         "masked": sum(1 for r in rows if str(r.get("sam_score") or "").strip()),
         "notes": sum(1 for r in rows if str(r.get("note") or "").strip()),
     }
+
+
+# ── reading marks back ───────────────────────────────────────────────────────
+
+
+def read_marks_from_rows(rows) -> list[dict]:
+    out = []
+    for r in rows:
+        kind = str(r.get("mark_kind") or "").strip()
+        if not kind:
+            continue
+        try:
+            out.append({"frame": int(float(r["frame_number"])), "kind": kind,
+                        "cam": str(r.get("mark_cam") or "").strip(),
+                        "x": float(r["mark_x"]), "y": float(r["mark_y"])})
+        except (TypeError, ValueError, KeyError):
+            continue
+    return out
+
+
+def read_marks(video_path, dest=None) -> list[dict]:
+    return read_marks_from_rows(read(video_path, dest))
+
+
+def box_centre(marks, cam: str):
+    """(x, y) of this camera's box, or None when it has not been placed.
+
+    None rather than a default: an unplaced camera must block sweeping, and a
+    guessed centre would sweep happily and fill the mask with paws.
+    """
+    for m in marks:
+        if m["kind"] == MARK_BOX and m["cam"] == cam:
+            return (m["x"], m["y"])
+    return None
+
+
+def pellet_marks(marks, cam: str | None = None) -> list[dict]:
+    return [m for m in marks if m["kind"] == MARK_PELLET
+            and (cam is None or m["cam"] == cam)]
+
+
+def row_from_csv(r) -> Row:
+    """Rebuild a Row from a CSV dict, for read-modify-write.
+
+    Without this, saving a placement would rewrite the sidecar from scratch and
+    silently discard the sweep trace, the sensor edges and the tags.
+    """
+    def f(key):
+        v = str(r.get(key) or "").strip()
+        return float(v) if v else None
+
+    def i(key):
+        v = str(r.get(key) or "").strip()
+        return int(float(v)) if v else None
+
+    return Row(frame_number=int(float(r["frame_number"])),
+               frame_line_status=str(r.get("frame_line_status") or ""),
+               pellet_ncc=f("pellet_ncc"), pellet_present=i("pellet_present"),
+               sensor_edge=i("sensor_edge") or 0, armed=i("armed") or 0,
+               window_id=i("window_id"), dino_sim=f("dino_sim"),
+               sam_score=f("sam_score"), note=str(r.get("note") or ""))

@@ -129,3 +129,105 @@ def test_status_reaches_rows_created_by_notes_and_edges():
     b.add_status([(1, 10), (500, 14), (700, 14)])
     got = {int(r["frame_number"]): r["frame_line_status"] for r in b.to_rows()}
     assert got == {1: "10", 500: "14", 700: "14"}
+
+
+# ── marks: the box and pellet labels live in the sidecar ────────────────────
+
+def test_mark_columns_exist():
+    for col in ("mark_kind", "mark_cam", "mark_x", "mark_y"):
+        assert col in onset_csv.COLUMNS
+
+
+def test_box_mark_round_trips(tmp_path):
+    video = tmp_path / "v.avi"; video.write_bytes(b"")
+    b = onset_csv.Build()
+    b.add_mark(120, "box", "cam0", 411.5, 402.25)
+    onset_csv.write(video, b)
+    rows = onset_csv.read(video)
+    assert len(rows) == 1
+    r = rows[0]
+    assert r["mark_kind"] == "box" and r["mark_cam"] == "cam0"
+    assert float(r["mark_x"]) == 411.5 and float(r["mark_y"]) == 402.25
+    assert int(r["frame_number"]) == 120
+
+
+def test_marks_read_back_as_structs(tmp_path):
+    video = tmp_path / "v.avi"; video.write_bytes(b"")
+    b = onset_csv.Build()
+    b.add_mark(100, "box", "cam0", 411, 402)
+    b.add_mark(100, "pellet", "cam0", 411, 402)
+    b.add_mark(250, "pellet", "cam0", 415, 403)
+    onset_csv.write(video, b)
+    marks = onset_csv.read_marks(video)
+    assert len(marks) == 3
+    assert sum(1 for m in marks if m["kind"] == "box") == 1
+    assert {m["frame"] for m in marks} == {100, 250}
+
+
+def test_box_centre_for_camera(tmp_path):
+    video = tmp_path / "v.avi"; video.write_bytes(b"")
+    b = onset_csv.Build()
+    b.add_mark(100, "box", "cam0", 411, 402)
+    onset_csv.write(video, b)
+    marks = onset_csv.read_marks(video)
+    assert onset_csv.box_centre(marks, "cam0") == (411.0, 402.0)
+    # the other camera is unplaced -- None, never a guess
+    assert onset_csv.box_centre(marks, "cam1") is None
+
+
+def test_a_box_and_a_pellet_on_one_frame_stay_separate_rows(tmp_path):
+    # They describe the same point but mean different things; collapsing them
+    # would lose the pellet from the template pool.
+    video = tmp_path / "v.avi"; video.write_bytes(b"")
+    b = onset_csv.Build()
+    b.add_mark(100, "box", "cam0", 411, 402)
+    b.add_mark(100, "pellet", "cam0", 411, 402)
+    assert len(onset_csv.read_marks_from_rows(b.to_rows())) == 2
+
+
+def test_marks_do_not_disturb_the_sweep_columns(tmp_path):
+    video = tmp_path / "v.avi"; video.write_bytes(b"")
+    b = onset_csv.Build()
+    b.add_sweep([0, 5], [0.9, 0.2], threshold=0.5)
+    b.add_mark(100, "box", "cam1", 590, 450)
+    rows = b.to_rows()
+    swept = [r for r in rows if r["pellet_ncc"] != ""]
+    assert len(swept) == 2
+    assert all(r["mark_kind"] == "" for r in swept)
+
+
+def test_row_from_csv_round_trips_a_swept_row(tmp_path):
+    video = tmp_path / "v.avi"; video.write_bytes(b"")
+    b = onset_csv.Build()
+    b.add_sweep([0], [0.87], threshold=0.5)
+    b.add_sensor_edges([1])
+    b.add_note(1, "start-success")
+    onset_csv.write(video, b)
+    back = onset_csv.Build()
+    for r in onset_csv.read(video):
+        back.rows[int(float(r["frame_number"]))] = onset_csv.row_from_csv(r)
+    out = back.to_rows()[0]
+    assert out["pellet_ncc"] == "0.8700" and out["sensor_edge"] == 1
+    assert out["note"] == "start-success"
+
+
+def test_saving_marks_preserves_the_sweep(tmp_path):
+    """A placement must not wipe the trace, the edges or the tags."""
+    video = tmp_path / "v.avi"; video.write_bytes(b"")
+    b = onset_csv.Build()
+    b.add_sweep([0, 5], [0.9, 0.2], threshold=0.5)
+    b.add_note(1, "start-failure")
+    onset_csv.write(video, b)
+
+    merged = onset_csv.Build()
+    for r in onset_csv.read(video):
+        if str(r.get("mark_kind") or "").strip():
+            continue
+        merged.rows[int(float(r["frame_number"]))] = onset_csv.row_from_csv(r)
+    merged.add_mark(100, "box", "cam0", 411, 402)
+    onset_csv.write(video, merged)
+
+    rows = onset_csv.read(video)
+    assert any(r["pellet_ncc"] == "0.9000" for r in rows)
+    assert any(r["note"] == "start-failure" for r in rows)
+    assert len(onset_csv.read_marks(video)) == 1

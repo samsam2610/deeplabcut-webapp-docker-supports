@@ -121,12 +121,17 @@ def api_sweep():
     if not video or not Path(video).is_file():
         return jsonify({"error": "video not found"}), 404
 
-    # A sweep with an unconfirmed box wastes minutes and produces a mask full
-    # of paws, so refuse until a human has checked the yellow box on this pair.
-    from . import pellet_model as _pm
-    _model = _pm.load(PROJECT_PATH)
-    if _model is not None and _model.cameras and not _model.is_confirmed(Path(video).stem):
-        return jsonify({"error": "confirm the pellet box for this pair first"}), 428
+    # A sweep with an unplaced or unconfirmed box wastes minutes and produces a
+    # mask full of paws, so refuse until a human has placed and confirmed it.
+    from . import onset_csv as _oc, pellet_model as _pm
+    _m = _pm.load(PROJECT_PATH)
+    if _m is not None and _m.cameras:
+        _marks = _oc.read_marks(video)
+        _unplaced = [c for c in ("cam0", "cam1")
+                     if _oc.box_centre(_marks, c) is None]
+        if _unplaced or not _m.is_confirmed(Path(video).stem):
+            return jsonify({"error": "place and confirm the pellet box for this "
+                                     "pair first"}), 428
 
     payload = _sweep_payload(video, stride)
     if payload is not None:

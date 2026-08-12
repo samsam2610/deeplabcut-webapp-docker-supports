@@ -56,11 +56,15 @@ def api_windows():
     video = _resolve(request.args.get("video"))
     if not video:
         return jsonify({"error": "video not found"}), 404
-    m = _model()
-    if not m.is_confirmed(Path(video).stem):
-        return jsonify({"error": "confirm the pellet box for this pair first "
-                                 "— drag the yellow box onto the stationary "
-                                 "pellet in each camera, then Confirm"}), 428
+    marks = onset_csv.read_marks(video)
+    unplaced = [c for c in ("cam0", "cam1")
+                if onset_csv.box_centre(marks, c) is None]
+    if unplaced or not _model().is_confirmed(Path(video).stem):
+        return jsonify({"error": "place the pellet box for this pair first — "
+                                 "click the pellet on "
+                                 + (" and ".join(unplaced) if unplaced
+                                    else "each camera")
+                                 + ", then Confirm"}), 428
     calib, wins = _windows_for(video)
     if wins is None:
         return jsonify({"error": "not swept yet — run the sweep in the "
@@ -546,47 +550,62 @@ def api_pellet_template_png():
 # ── per-video box confirmation ───────────────────────────────────────────────
 
 
-@bp.get(f"{PREFIX}/pellet/video-box")
-def api_video_box_get():
+@bp.get(f"{PREFIX}/pellet/marks")
+def api_marks_get():
+    """Human placements for this pair, read from the onset sidecar.
+
+    The sidecar is the source of truth for both the box centre and the pellet
+    labels, so the two cannot drift apart. `confirmed` stays in the project
+    model: it is a decision about the pair, not an observation of it.
+    """
     video = _resolve(request.args.get("video"))
     if not video:
         return jsonify({"error": "video not found"}), 404
-    stem = Path(video).stem
+    marks = onset_csv.read_marks(video)
     m = _model()
-    sib = pm.sibling_video(video)
-    out = {"video": video, "stem": stem, "confirmed": m.is_confirmed(stem),
-           "sibling": str(sib) if sib else None, "cameras": {}}
-    for cam in ("cam0", "cam1"):
-        c = m.camera_for(stem, cam)
-        out["cameras"][cam] = _cam_payload(c)
-    return jsonify(out)
+    return jsonify({
+        "video": video,
+        "marks": marks,
+        "confirmed": m.is_confirmed(Path(video).stem),
+        "unplaced": [c for c in ("cam0", "cam1")
+                     if onset_csv.box_centre(marks, c) is None],
+    })
 
 
-@bp.put(f"{PREFIX}/pellet/video-box")
-def api_video_box_put():
-    """Set (and optionally confirm) this pair's box centres.
+@bp.put(f"{PREFIX}/pellet/marks")
+def api_marks_put():
+    """Write the pair's marks, MERGING into any existing sidecar.
 
-    Confirmation is per video pair on purpose. A wrong box does not fail
-    loudly — it fills the armed mask with paws — and the project default was
-    visibly wrong on banh-mi-1 Jul 7, so nothing should sweep until a human has
-    looked at the yellow box and said yes.
+    Read-modify-write rather than a fresh file: the sidecar also holds the sweep
+    trace, the sensor edges and the tags, and placing a box must not wipe them.
     """
     body = request.get_json(force=True) or {}
     video = _resolve(body.get("video"))
     if not video:
         return jsonify({"error": "video not found"}), 404
-    stem = Path(video).stem
+
+    build = onset_csv.Build()
+    for row in onset_csv.read(video):
+        if str(row.get("mark_kind") or "").strip():
+            continue                       # marks are replaced wholesale
+        build.rows[int(float(row["frame_number"]))] = onset_csv.row_from_csv(row)
+    for mk in (body.get("marks") or []):
+        try:
+            build.add_mark(int(mk["frame"]), str(mk["kind"]), str(mk["cam"]),
+                           float(mk["x"]), float(mk["y"]))
+        except (KeyError, TypeError, ValueError):
+            continue
+    onset_csv.write(video, build)
+
     m = _model()
-    vb = m.videos.get(stem) or pm.VideoBox()
-    cams = body.get("cameras") or {}
-    if "cam0" in cams:
-        vb.cx0 = float(cams["cam0"]["cx"]); vb.cy0 = float(cams["cam0"]["cy"])
-    if "cam1" in cams:
-        vb.cx1 = float(cams["cam1"]["cx"]); vb.cy1 = float(cams["cam1"]["cy"])
     if "confirmed" in body:
+        vb = m.videos.get(Path(video).stem) or pm.VideoBox()
         vb.confirmed = bool(body["confirmed"])
-    m.videos[stem] = vb
-    pm.save(_project(), m)
-    return jsonify({"ok": True, "confirmed": vb.confirmed,
-                    "cameras": {c: _cam_payload(m.camera_for(stem, c))
-                                for c in ("cam0", "cam1")}})
+        m.videos[Path(video).stem] = vb
+        pm.save(_project(), m)
+    saved = onset_csv.read_marks(video)
+    return jsonify({"ok": True, "marks": saved,
+                    "confirmed": m.is_confirmed(Path(video).stem),
+                    "unplaced": [c for c in ("cam0", "cam1")
+                                 if onset_csv.box_centre(saved, c) is None]})
+
