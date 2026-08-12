@@ -384,3 +384,5 @@
   padding: .15rem .25rem; display: flex; justify-content: space-between;
 }
 .ia3ds-sam-note { font-size: .7rem; color: var(--text-dim); margin: .4rem 0 0; font-style: italic; }
+.ia3ds-sw.sensor { background: #ff9f40; }
+#ia3ds-sam-tags { width: 100%; display: block; cursor: crosshair; }

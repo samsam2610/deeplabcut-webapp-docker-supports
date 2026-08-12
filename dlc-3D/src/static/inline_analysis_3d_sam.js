@@ -3867,6 +3867,7 @@ function _samWatchVideo() {
     if (v && v !== _samState.seen) {
       _samState.seen = v;
       _samLoadWindows();
+      _samLoadTags();
     }
   }, 1000);
 }
@@ -4078,6 +4079,132 @@ function _samGoToFrame(frame) {
   _samSay(`frame ${frame} (viewer seek unavailable)`);
 }
 
+// ── pellet sweep + onset CSV ────────────────────────────────────────────────
+
+async function _samRunSweep() {
+  const video = _samCurrentVideo();
+  if (!video) { _samSay("open a video pair first", true); return; }
+  const btn = _samEl("ia3ds-sam-sweep");
+  const bar = _samEl("ia3ds-sam-progress");
+  btn.disabled = true;
+  bar.classList.remove("hidden");
+  try {
+    const started = await _samJSON("/sam-training/api/sweep", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ video }),
+    });
+    if (started.state === "done") {
+      _samSay("already swept");
+    } else {
+      for (;;) {
+        const j = await _samJSON(`${SAMAPI}/job/${started.job}`);
+        bar.firstElementChild.style.width = `${Math.round((j.progress || 0) * 100)}%`;
+        _samSay(`pellet sweep… ${Math.round((j.progress || 0) * 100)}%`);
+        if (j.state === "error") throw new Error(j.message || "sweep failed");
+        if (j.state !== "running") break;
+        await new Promise((r) => setTimeout(r, 2000));
+      }
+      _samSay("sweep complete");
+    }
+    await _samLoadWindows();
+  } catch (e) {
+    _samSay(`sweep: ${e.message}`, true);
+  } finally {
+    btn.disabled = false;
+    bar.classList.add("hidden");
+  }
+}
+
+async function _samBuildCsv() {
+  const video = _samCurrentVideo();
+  if (!video) { _samSay("open a video pair first", true); return; }
+  const btn = _samEl("ia3ds-sam-build-csv");
+  btn.disabled = true;
+  try {
+    const d = await _samJSON(`${SAMAPI}/onset-csv`, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ video }),
+    });
+    const s = d.summary || {};
+    _samEl("ia3ds-sam-csv-status").textContent =
+      `${d.path.split("/").pop()} · ${s.rows} rows · ${s.armed} armed · ` +
+      `${s.sensor_edges} sensor · ${s.notes} tags`;
+    await _samLoadTags();
+  } catch (e) {
+    _samEl("ia3ds-sam-csv-status").textContent = `csv: ${e.message}`;
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+async function _samLoadTags() {
+  const video = _samCurrentVideo();
+  if (!video) return;
+  try {
+    const d = await _samJSON(
+      `${SAMAPI}/onset-csv?video=${encodeURIComponent(video)}`);
+    _samState.tagRows = d.rows || [];
+    _samDrawTags();
+  } catch (e) {
+    _samState.tagRows = null;
+    _samDrawTags();
+  }
+}
+
+// Whole-video timeline of the onset sidecar: the pellet trace as a line, and
+// every tagged row as a tick, so the signals that decide an onset can be read
+// against each other at a glance.
+function _samDrawTags() {
+  const cv = _samEl("ia3ds-sam-tags");
+  if (!cv) return;
+  const w = cv.clientWidth || 800;
+  if (cv.width !== w) cv.width = w;
+  const h = cv.height;
+  const g = cv.getContext("2d");
+  g.clearRect(0, 0, w, h);
+  g.fillStyle = "#14161a"; g.fillRect(0, 0, w, h);
+
+  const rows = _samState.tagRows;
+  if (!rows || !rows.length) {
+    g.fillStyle = "#98a1b0"; g.font = "12px system-ui";
+    g.fillText("Build the onset CSV to see the whole-video tag timeline.", 10, h / 2);
+    return;
+  }
+  const last = Math.max(...rows.map((r) => +r.frame_number)) || 1;
+  const x = (f) => (f / last) * w;
+  const num = (v) => (String(v ?? "").trim() === "" ? null : parseFloat(v));
+
+  // armed band
+  g.fillStyle = "rgba(102,156,53,.40)";
+  rows.forEach((r) => { if (String(r.armed) === "1") g.fillRect(x(+r.frame_number), h - 14, 1.5, 14); });
+
+  // pellet NCC trace
+  g.strokeStyle = "#8ec5ff"; g.lineWidth = 1; g.beginPath();
+  let started = false;
+  rows.forEach((r) => {
+    const v = num(r.pellet_ncc);
+    if (v == null) return;
+    const px = x(+r.frame_number), py = (h - 18) * (1 - Math.max(0, Math.min(1, v)));
+    started ? g.lineTo(px, py) : g.moveTo(px, py);
+    started = true;
+  });
+  g.stroke();
+
+  // ticks: sensor edges, human tags, candidates
+  rows.forEach((r) => {
+    const f = +r.frame_number;
+    const note = String(r.note || "").trim();
+    if (String(r.sensor_edge) === "1") {
+      g.strokeStyle = "#ff9f40";
+      g.beginPath(); g.moveTo(x(f), h - 26); g.lineTo(x(f), h - 14); g.stroke();
+    }
+    if (note) {
+      g.strokeStyle = note.endsWith("-candidate") ? "#ffd23b" : "#ff4d4d";
+      g.beginPath(); g.moveTo(x(f), 0); g.lineTo(x(f), 16); g.stroke();
+    }
+  });
+}
+
 // ── wiring ──────────────────────────────────────────────────────────────────
 
 function _samWirePanel() {
@@ -4085,6 +4212,15 @@ function _samWirePanel() {
   if (!reload) return;                       // card not injected yet
   reload.onclick = _samLoadWindows;
   _samEl("ia3ds-sam-run").onclick = _samRun;
+  _samEl("ia3ds-sam-sweep").onclick = _samRunSweep;
+  _samEl("ia3ds-sam-build-csv").onclick = _samBuildCsv;
+  _samEl("ia3ds-sam-tags").addEventListener("click", (ev) => {
+    const rows = _samState.tagRows;
+    if (!rows || !rows.length) return;
+    const last = Math.max(...rows.map((r) => +r.frame_number)) || 1;
+    const r = ev.currentTarget.getBoundingClientRect();
+    _samGoToFrame(Math.round(((ev.clientX - r.left) / r.width) * last));
+  });
   _samEl("ia3ds-sam-trial").onchange = (e) => _samSelectTrial(parseInt(e.target.value, 10));
   ["ia3ds-sam-show-mask", "ia3ds-sam-show-box", "ia3ds-sam-show-pellet",
    "ia3ds-sam-show-armed", "ia3ds-sam-only-cands"].forEach((id) => {
@@ -4097,10 +4233,12 @@ function _samWirePanel() {
     const r = ev.currentTarget.getBoundingClientRect();
     _samGoToFrame(A.start + Math.round(((ev.clientX - r.left) / r.width) * (A.end - A.start)));
   });
-  window.addEventListener("resize", _samDrawStrip);
+  window.addEventListener("resize", () => { _samDrawStrip(); _samDrawTags(); });
   _samDrawStrip();
+  _samDrawTags();
   _samWatchVideo();
   _samLoadWindows();
+  _samLoadTags();
 }
 
 // ══ SAM BOOTSTRAP ════════════════════════════════════════════════════════════

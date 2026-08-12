@@ -972,6 +972,14 @@
         </div>
 
         <!-- trial picker: windows come from stage 1, anchored on the s/f marker -->
+        <!-- pipeline actions: both are minutes of work, so both are explicit
+             buttons rather than anything that fires on selection -->
+        <div class="ia3ds-sam-row">
+          <button class="btn-sm" id="ia3ds-sam-sweep">Pellet sweep</button>
+          <button class="btn-sm" id="ia3ds-sam-build-csv">Build onset CSV</button>
+          <span class="ia3ds-sam-status" id="ia3ds-sam-csv-status"></span>
+        </div>
+
         <div class="ia3ds-sam-row">
           <label for="ia3ds-sam-trial">Trial</label>
           <select id="ia3ds-sam-trial" style="flex:1;min-width:0"></select>
@@ -1005,6 +1013,18 @@
             <span><i class="ia3ds-sw pick"></i>proposed onset</span>
             <span><i class="ia3ds-sw truth"></i>human tag (if any)</span>
             <span><i class="ia3ds-sw cursor"></i>current frame</span>
+          </div>
+        </div>
+
+        <!-- whole-video tag timeline, read from <video>_onset.csv -->
+        <div class="ia3ds-sam-strip-wrap" style="margin-top:.5rem">
+          <canvas id="ia3ds-sam-tags" height="86"></canvas>
+          <div class="ia3ds-sam-legend">
+            <span><i class="ia3ds-sw sim"></i>pellet NCC</span>
+            <span><i class="ia3ds-sw armed"></i>armed</span>
+            <span><i class="ia3ds-sw sensor"></i>sensor edge</span>
+            <span><i class="ia3ds-sw truth"></i>human tag</span>
+            <span><i class="ia3ds-sw pick"></i>candidate</span>
           </div>
         </div>
 

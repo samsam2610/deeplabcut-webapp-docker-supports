@@ -12,7 +12,8 @@ import cv2
 import numpy as np
 from flask import Blueprint, Response, jsonify, request
 
-from . import config, exemplars, intervals, models, ncc, notes, overlays, rig, store
+from . import (config, exemplars, intervals, models, ncc, notes, onset_csv,
+               overlays, rig, store)
 
 bp = Blueprint("sam_api", __name__)
 PREFIX = "/sam-training/api"
@@ -222,3 +223,124 @@ def api_thumb():
         return jsonify({"error": "encode failed"}), 500
     return Response(buf.tobytes(), mimetype="image/jpeg",
                     headers={"Cache-Control": "public, max-age=300"})
+
+
+# ── onset sidecar ────────────────────────────────────────────────────────────
+
+def _dilate(mask, margin: int):
+    """1-D binary dilation, equivalent to scipy.ndimage.binary_dilation with a
+    (2*margin+1) structure — without pulling scipy into a 7.8 GB image.
+
+    Cumulative-sum window rather than np.convolve(mode="same"): convolve
+    disagrees with scipy at the boundaries once the kernel is longer than the
+    array, which a short CSV would hit.
+    """
+    mask = np.asarray(mask, dtype=bool)
+    n = mask.size
+    if n == 0:
+        return mask
+    cum = np.concatenate(([0], np.cumsum(mask.astype(np.int64))))
+    idx = np.arange(n)
+    lo = np.maximum(0, idx - margin)
+    hi = np.minimum(n, idx + margin + 1)
+    return (cum[hi] - cum[lo]) > 0
+
+
+def _sensor_edges(video, margin: int = 25):
+    """Rising edges of the hardware reach sensor in the companion CSV.
+
+    `frame_line_status == 14` fires roughly once per reach and lands within ±25
+    frames of the human tag on 76-96 % of trials — the cheapest bracketing
+    signal available. Two of ten sessions have a dead sensor, so callers must
+    treat an empty result as normal.
+    """
+    import csv as _csv
+
+    path = notes.csv_path_for(video)
+    if not path.is_file():
+        return np.array([], dtype=int), []
+    frames, status = [], []
+    with open(path, newline="", encoding="utf-8") as fh:
+        for row in _csv.DictReader(fh, skipinitialspace=True):
+            try:
+                frames.append(int(float(row["frame_number"])))
+                status.append(int(float(row["frame_line_status"])))
+            except (TypeError, ValueError, KeyError):
+                continue
+    if not frames:
+        return np.array([], dtype=int), []
+    frames = np.asarray(frames)
+    trig = np.asarray(status) == 14
+    pairs = list(zip(frames.tolist(), status))
+    if trig.sum() < 20:                       # a handful of stray 14s is noise
+        return np.array([], dtype=int), pairs
+    dil = _dilate(trig, margin)
+    rise = np.zeros(len(dil), bool)
+    rise[0] = dil[0]
+    rise[1:] = dil[1:] & ~dil[:-1]
+    return frames[rise], pairs
+
+
+@bp.post(f"{PREFIX}/onset-csv")
+def api_onset_csv():
+    """Write `<video>_onset.csv` from whatever the pipeline currently knows."""
+    body = request.get_json(force=True) or {}
+    video = _resolve(body.get("video"))
+    if not video:
+        return jsonify({"error": "video not found"}), 404
+    cached = store.load_sweep(video, config.SWEEP_STRIDE)
+    if cached is None:
+        return jsonify({"error": "not swept yet — run the pellet sweep first"}), 409
+
+    frames, scores, _n = cached
+    _calib, wins = _windows_for(video)
+    build = onset_csv.Build()
+    build.add_sweep(frames, scores, intervals.PRESENT_THRESHOLD)
+    edges, status_pairs = _sensor_edges(video)
+    build.add_sensor_edges(edges.tolist())
+    if wins:
+        build.add_windows(wins)
+    # Human tags go in for reference so the sidecar can be read on its own.
+    for frame, note in notes.onsets(notes.read_notes(video)):
+        build.add_note(frame, note)
+    # LAST, deliberately: add_status only fills rows that already exist, and
+    # sensor edges and tags create rows off the sweep's stride grid. Running it
+    # earlier left frame_line_status blank on exactly the tagged rows — the ones
+    # where the sensor column matters most.
+    build.add_status(status_pairs)
+    out = onset_csv.write(video, build)
+    rows = build.to_rows()
+    return jsonify({"path": str(out), "summary": onset_csv.summarise(rows)})
+
+
+@bp.get(f"{PREFIX}/onset-csv")
+def api_onset_csv_read():
+    """Rows for the timeline. `max_points` thins the pellet trace only — tagged
+    rows (sensor edges, notes, scored frames) are always kept, because they are
+    the ones the timeline draws as ticks."""
+    video = _resolve(request.args.get("video"))
+    if not video:
+        return jsonify({"error": "video not found"}), 404
+    rows = onset_csv.read(video)
+    if not rows:
+        return jsonify({"error": "no onset csv — build it first"}), 404
+
+    def tagged(r):
+        return (str(r.get("sensor_edge") or "0") != "0"
+                or str(r.get("note") or "").strip()
+                or str(r.get("dino_sim") or "").strip()
+                or str(r.get("sam_score") or "").strip())
+
+    keep = [r for r in rows if tagged(r)]
+    trace = [r for r in rows if not tagged(r)]
+    try:
+        cap = max(200, int(request.args.get("max_points") or 4000))
+    except ValueError:
+        cap = 4000
+    if len(trace) > cap:
+        step = int(np.ceil(len(trace) / cap))
+        trace = trace[::step]
+    merged = sorted(keep + trace, key=lambda r: int(r["frame_number"]))
+    return jsonify({"path": str(onset_csv.path_for(video)),
+                    "summary": onset_csv.summarise(rows),
+                    "columns": onset_csv.COLUMNS, "rows": merged})
