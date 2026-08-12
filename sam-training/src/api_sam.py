@@ -761,7 +761,11 @@ def api_pellet_retrain():
                            f"box at ({cam.cx:.0f}, {cam.cy:.0f})")
 
     try:
-        cal_path = stereo.find_for_video(_project(), video)
+        # The calibration nearest the CLICKED video, not the project's last one:
+        # a 3D reference is only meaningful in the frame that produced it, and
+        # these clicks come from one specific recording.
+        clicked = (by_cam.get("cam0") or by_cam.get("cam1") or [{}])[0].get("video")
+        cal_path = stereo.find_for_video(_project(), clicked) if clicked else None
         if cal_path and "cam0" in by_cam and "cam1" in by_cam:
             cal = stereo.load(cal_path)
             key = lambda l: (Path(l["video"]).stem.replace("_cam0_", "_camX_")
