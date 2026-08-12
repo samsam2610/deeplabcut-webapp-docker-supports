@@ -1081,7 +1081,8 @@
 
         <div class="ia3ds-sam-row">
           <label for="ia3ds-sam-prompt">SAM text prompt</label>
-          <input type="text" id="ia3ds-sam-prompt" value="paw" spellcheck="false"/>
+          <input type="text" id="ia3ds-sam-prompt" value="right paw" spellcheck="false"
+                 title="SAM 3 text prompt. &quot;right paw&quot; segments the reaching paw on 5/5 top candidates against 3/5 for &quot;paw&quot;, which over-detects and lets a small blob at the pellet win. Change it per project — the reaching paw is not the right paw for every animal."/>
           <label for="ia3ds-sam-topk" title="Exemplars averaged per candidate">top-k</label>
           <input type="number" id="ia3ds-sam-topk" value="5" min="1" max="50" style="width:4.5rem"/>
           <button class="btn-sm" id="ia3ds-sam-run">Run SAM + DINO</button>

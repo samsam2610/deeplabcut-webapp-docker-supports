@@ -4278,6 +4278,9 @@ function _samRenderPairs(top, siblingPath) {
   const video = _samCurrentVideo();
   const { cam0, cam1 } = pairCandidates(top);
   const mask = _samEl("ia3ds-sam-show-mask")?.checked ? 1 : 0;
+  // The SAME prompt the run used. Without it the tile re-segments with the
+  // default and can offer a different set of instances than the scorer saw.
+  const prompt = encodeURIComponent((_samEl("ia3ds-sam-prompt")?.value || "paw").trim());
   [[a, cam0, video], [b, cam1, siblingPath || video]].forEach(([host, list, src]) => {
     host.innerHTML = "";
     list.forEach((c) => {
@@ -4285,7 +4288,7 @@ function _samRenderPairs(top, siblingPath) {
       div.className = "ia3ds-sam-cand" + (c.best ? " best" : "");
       div.innerHTML =
         `<img loading="lazy" src="${SAMAPI}/thumb?video=${encodeURIComponent(src)}`
-        + `&n=${c.frame}&cam=${c.cam}&mask=${mask}"/>`
+        + `&n=${c.frame}&cam=${c.cam}&mask=${mask}&prompt=${prompt}"/>`
         + `<div class="meta"><span>${c.cam}</span><span>${c.frame}</span></div>`;
       div.onclick = () => _samGoToFrame(c.frame);
       host.appendChild(div);
@@ -4305,7 +4308,7 @@ function _samRenderCandidates(top) {
     const div = document.createElement("div");
     div.className = "ia3ds-sam-cand" + (i === 0 ? " best" : "");
     div.innerHTML =
-      `<img loading="lazy" src="${SAMAPI}/thumb?video=${encodeURIComponent(video)}&n=${c.frame}&mask=${_samEl("ia3ds-sam-show-mask")?.checked ? 1 : 0}"/>
+      `<img loading="lazy" src="${SAMAPI}/thumb?video=${encodeURIComponent(video)}&n=${c.frame}&mask=${_samEl("ia3ds-sam-show-mask")?.checked ? 1 : 0}&prompt=${encodeURIComponent((_samEl("ia3ds-sam-prompt")?.value || "paw").trim())}"/>
        <div class="meta"><span>${c.frame}</span><span>${c.score.toFixed(3)}</span></div>`;
     div.onclick = () => _samGoToFrame(c.frame);
     box.appendChild(div);
