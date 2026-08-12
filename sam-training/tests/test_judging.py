@@ -239,3 +239,51 @@ def test_a_missing_paw_is_never_accepted():
 def test_a_nan_residual_is_never_accepted():
     import math
     assert judging.paw_pair_ok(math.nan, judging.Judge()) is False
+
+
+# ── choosing the cam1 paw, rather than testing it ───────────────────────────
+#
+# The gate picked each camera's paw independently (nearest that camera's pellet)
+# and then measured agreement. At the ONSET — the frame the whole tool exists to
+# find — the emerging paw is small and cam1's nearest-to-pellet instance is a
+# different paw entirely, so the residual came out at ~189 px and the best
+# candidate was thrown away. Measured on banh-mi-1 Jul 7 trial 8: 113 of 121
+# candidates rejected, including the 2D winner (fused similarity 0.8626, the
+# highest in the window).
+#
+# The correct cam1 instance was in SAM's output the whole time, at rank 2 or 3.
+# Constraining the choice to cam0's epipolar line finds it: 189.0 -> 5.7 px.
+
+def test_the_instance_nearest_the_epipolar_line_wins():
+    assert judging.pick_by_epiline([176.6, 40.2, 5.7], judging.Judge()) == 2
+
+
+def test_it_is_the_line_that_decides_not_the_order():
+    assert judging.pick_by_epiline([3.1, 88.0, 120.0], judging.Judge()) == 0
+
+
+def test_nothing_near_the_line_is_a_real_rejection():
+    """No instance near the line means cam1 genuinely does not see this paw.
+    THAT is evidence of a mismatch; "the nearest-to-pellet instance disagreed"
+    never was."""
+    assert judging.pick_by_epiline([88.0, 120.0, 300.0], judging.Judge()) is None
+
+
+def test_no_instances_at_all_is_a_rejection():
+    assert judging.pick_by_epiline([], judging.Judge()) is None
+
+
+def test_the_tolerance_is_the_judge_field():
+    tight = judging.Judge(max_epi_px=5.0)
+    assert judging.pick_by_epiline([5.7], tight) is None
+    assert judging.pick_by_epiline([5.7], judging.Judge(max_epi_px=20.0)) == 0
+
+
+def test_a_nan_residual_is_not_selectable():
+    import math
+    assert judging.pick_by_epiline([math.nan], judging.Judge()) is None
+    assert judging.pick_by_epiline([math.nan, 4.0], judging.Judge()) == 1
+
+
+def test_exactly_at_the_tolerance_is_kept():
+    assert judging.pick_by_epiline([20.0], judging.Judge(max_epi_px=20.0)) == 0

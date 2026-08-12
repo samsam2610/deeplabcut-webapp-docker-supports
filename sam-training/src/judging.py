@@ -186,6 +186,35 @@ def paw_pair_ok(epi_px, judge: Judge) -> bool:
     return not math.isnan(v) and v <= judge.max_epi_px
 
 
+def pick_by_epiline(residuals, judge: Judge):
+    """Index of the instance nearest cam0's epipolar line, or None.
+
+    Choosing, not testing. Each camera's paw used to be picked independently —
+    nearest that camera's pellet — and the two then compared. At the onset the
+    emerging paw is small, cam1's nearest-to-pellet instance is a different paw,
+    and the residual came out around 189 px, so the best candidate in the window
+    was discarded. The right instance was in SAM's output all along, at rank 2.
+
+    A rejection now means something: NO instance in cam1 lies near the line, so
+    that camera genuinely does not see this paw. "The nearest-to-pellet instance
+    disagreed" was never evidence of anything.
+    """
+    import math
+    best, best_i = None, None
+    for i, r in enumerate(residuals or []):
+        try:
+            v = float(r)
+        except (TypeError, ValueError):
+            continue
+        if math.isnan(v):
+            continue
+        if best is None or v < best:
+            best, best_i = v, i
+    if best is None or best > judge.max_epi_px:
+        return None
+    return best_i
+
+
 def armed_pair(frames, score0, score1, dist3d, judge: Judge):
     return intervals.intervals_from_mask(
         frames, decide_pair(score0, score1, dist3d, judge), judge.min_run)

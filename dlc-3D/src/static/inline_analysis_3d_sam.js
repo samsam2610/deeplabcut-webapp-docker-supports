@@ -44,6 +44,7 @@ import {
   DEFAULT_JUDGE, clampJudge, markersInSpan, intervening, markerStyle,
 } from "./internal/trial_judge.mjs";
 import { pairCandidates } from "./internal/candidate_pairs.mjs";
+import { tryAcquire, release } from "./internal/run_lock.mjs";
 
 // ── Module state ────────────────────────────────────────────────────────────
 
@@ -4061,9 +4062,18 @@ async function _samRunMode(mode) {
   const video = _samCurrentVideo();
   if (!w || !video) { _samSay("pick a trial first"); return; }
   const three = mode === "3d";
+  // Both run buttons are disabled for the duration. Without this a second click
+  // starts a SECOND job on the same window: they compete for the same GPU, both
+  // run to completion, and whichever finishes last overwrites the other's
+  // result. Observed — two POSTs seven seconds apart, 22 polls each.
+  const buttons = ["ia3ds-sam-run", "ia3ds-sam-run3d"].map((id) => _samEl(id));
+  if (!tryAcquire(buttons)) return;                 // a run is already in flight
   const prompt = (_samEl("ia3ds-sam-prompt").value || "paw").trim();
   const topk = parseInt(_samEl("ia3ds-sam-topk").value, 10) || 5;
   const bar = _samEl("ia3ds-sam-progress");
+  // Reset the fill: it keeps the last run's width, so a new run appears to
+  // start at 80% and then jump backwards.
+  if (bar.firstElementChild) bar.firstElementChild.style.width = "0%";
   bar.classList.remove("hidden");
   _samSay(three ? "running SAM 3 + DINOv3 on both cameras…"
                 : "running SAM 3 + DINOv3…");
@@ -4101,6 +4111,7 @@ async function _samRunMode(mode) {
     _samSay(`score: ${e.message}`, true);
   } finally {
     bar.classList.add("hidden");
+    release(buttons);
   }
 }
 

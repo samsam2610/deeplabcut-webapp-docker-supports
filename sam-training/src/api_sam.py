@@ -171,7 +171,7 @@ def _read_candidates(video, candidates, box, job=None, share=0.45, base=0.05,
             crops.append(exemplars.crop_rgb(frame, box))
             kept.append(idx)
             if on_frame is not None:
-                extra[idx] = on_frame(frame)
+                extra[idx] = on_frame(idx, frame)
             if len(raw) < keep_raw:
                 raw[idx] = frame
         idx += 1
@@ -181,6 +181,11 @@ def _read_candidates(video, candidates, box, job=None, share=0.45, base=0.05,
     return crops, kept, raw, extra
 
 
+def _segment(frame_bgr, prompt):
+    return models.segment(cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB),
+                          prompt=prompt)
+
+
 def _paw_point(frame_bgr, camera, prompt):
     """(centroid, score, mask) for the reaching paw, or (None, None, None).
 
@@ -188,15 +193,42 @@ def _paw_point(frame_bgr, camera, prompt):
     more than it moves the mass, and this point is about to be compared across
     two views that see different silhouettes.
     """
-    items = models.segment(cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB),
-                           prompt=prompt)
-    paw = models.choose_reaching_paw(items, (camera.cx, camera.cy))
+    paw = models.choose_reaching_paw(_segment(frame_bgr, prompt),
+                                     (camera.cx, camera.cy))
     if paw is None:
         return None, None, None
     centre = pm.mask_centroid(paw["mask"])
     if centre is None:
         return None, None, None
     return centre, float(paw.get("score") or 0.0), paw["mask"]
+
+
+def _paw_on_epiline(frame_bgr, prompt, p0, cal, judge):
+    """cam1's paw CHOSEN by cam0's epipolar line: (centroid, score, residual).
+
+    Not "pick nearest cam1's pellet, then check". At the onset the emerging paw
+    is small and the nearest-to-pellet instance in cam1 is a different paw, so
+    that comparison rejected the best candidate in the window at ~189 px while
+    the right instance sat at rank 2 in the same SAM output.
+    """
+    if p0 is None or cal is None:
+        return None, None, None
+    items = _segment(frame_bgr, prompt)
+    centres, keep = [], []
+    for it in items:
+        c = pm.mask_centroid(it["mask"])
+        if c is not None:
+            centres.append(c)
+            keep.append(it)
+    if not centres:
+        return None, None, None
+    res = stereo.epipolar_residual(cal, [p0] * len(centres), centres)
+    idx = judging.pick_by_epiline(res.tolist(), judge)
+    if idx is None:
+        # Report the best residual anyway: a rejection with no number attached
+        # cannot be diagnosed from the motion CSV.
+        return None, None, float(min(res))
+    return centres[idx], float(keep[idx].get("score") or 0.0), float(res[idx])
 
 
 def _score_window_3d(job, video, start, end, outcome, prompt, topk):
@@ -237,11 +269,14 @@ def _score_window_3d(job, video, start, end, outcome, prompt, topk):
     c0, kept0, _r0, paw0 = _read_candidates(
         video, candidates, exemplars.crop_for(cams["cam0"]), job,
         share=0.35, base=0.02,
-        on_frame=lambda fr: _paw_point(fr, cams["cam0"], prompt))
+        on_frame=lambda _i, fr: _paw_point(fr, cams["cam0"], prompt))
+    # cam1 is read SECOND and its paw is chosen by cam0's epipolar line for the
+    # same frame — which is why cam0 must be complete before this starts.
     c1, kept1, _r1, paw1 = _read_candidates(
         str(sibling), candidates, exemplars.crop_for(cams["cam1"]), job,
         share=0.35, base=0.37,
-        on_frame=lambda fr: _paw_point(fr, cams["cam1"], prompt))
+        on_frame=lambda i, fr: _paw_on_epiline(
+            fr, prompt, (paw0.get(i) or (None,))[0], stereo_cal, judge))
     common = sorted(set(kept0) & set(kept1))
     if not common:
         raise RuntimeError("no frame could be read from both cameras")
@@ -269,13 +304,10 @@ def _score_window_3d(job, video, start, end, outcome, prompt, topk):
     rows, ok_mask, epi_all, masks = [], [], [], []
     for n, f in enumerate(common):
         p0, s0, m0 = paw0[f]
-        p1, s1, _m1 = paw1[f]
-        epi = None
+        p1, _s1, epi = paw1[f]
         X = None
         if p0 is not None and p1 is not None and stereo_cal is not None:
-            epi = float(stereo.epipolar_residual(stereo_cal, [p0], [p1])[0])
-            if judging.paw_pair_ok(epi, judge):
-                X = stereo_cal.triangulate([p0], [p1])[0]
+            X = stereo_cal.triangulate([p0], [p1])[0]
         keep = X is not None
         ok_mask.append(keep)
         epi_all.append(epi)
