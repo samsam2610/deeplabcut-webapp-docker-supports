@@ -449,3 +449,15 @@
 .ia3ds-cam-show input { width: 12px; height: 12px; accent-color: var(--accent); }
 .ia3ds-overwrite { display: flex; align-items: center; gap: .25rem; font-size: .7rem; color: var(--text-dim); }
 .ia3ds-overwrite input { width: 12px; height: 12px; accent-color: var(--warn); }
+
+/* 3D candidates: cam0 group, a gap, cam1 group. The two groups are laid out
+   side by side and each scrolls with the other's width, so column i stays the
+   same frame in both views. */
+.ia3ds-sam-pairs { display: flex; align-items: flex-start; margin-top: .5rem; }
+.ia3ds-sam-pairs.hidden { display: none; }
+.ia3ds-sam-pairs .ia3ds-sam-cands { margin-top: 0; flex: 1 1 0; min-width: 0; }
+.ia3ds-sam-pairgap { flex: 0 0 1.25rem; }
+.ia3ds-sam-cam-label {
+  font-size: .64rem; font-family: var(--mono); color: var(--text-dim);
+  padding: .1rem .25rem;
+}

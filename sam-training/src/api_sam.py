@@ -12,9 +12,9 @@ import cv2
 import numpy as np
 from flask import Blueprint, Response, jsonify, request
 
-from . import (config, exemplars, intervals, judging, models, ncc, notes,
-               onset_csv, overlays, pellet_model as pm, pipeline, rig, stereo,
-               store, sweep_cache)
+from . import (config, exemplars, intervals, judging, models, motion3d, ncc,
+               notes, onset_csv, overlays, pellet_model as pm, pipeline, rig,
+               stereo, store, sweep_cache)
 
 bp = Blueprint("sam_api", __name__)
 PREFIX = "/sam-training/api"
@@ -141,6 +141,174 @@ def api_judge_put():
     return jsonify(judge.to_dict())
 
 
+def _read_candidates(video, candidates, box, job=None, share=0.45, base=0.05):
+    """Read a video's candidate frames once, sequentially, cropping as we go.
+
+    Sequential rather than seeking per frame: at stride 5 a seek costs more than
+    a decode, and this runs over ~200 frames twice (once per camera).
+    """
+    cap = cv2.VideoCapture(str(video))
+    cap.set(cv2.CAP_PROP_POS_FRAMES, candidates[0])
+    wanted = set(candidates)
+    crops, kept, raw = [], [], {}
+    idx, last = candidates[0], candidates[-1]
+    while idx <= last:
+        ok, frame = cap.read()
+        if not ok:
+            break
+        if idx in wanted:
+            crops.append(exemplars.crop_rgb(frame, box))
+            kept.append(idx)
+            raw[idx] = frame
+        idx += 1
+        if job is not None and len(kept) % 200 == 0:
+            job.progress = base + share * (len(kept) / max(1, len(candidates)))
+    cap.release()
+    return crops, kept, raw
+
+
+def _paw_point(frame_bgr, camera, prompt):
+    """(centroid, score, mask) for the reaching paw, or (None, None, None).
+
+    The mask CENTROID, not the bbox centre: one splayed digit moves a bbox far
+    more than it moves the mass, and this point is about to be compared across
+    two views that see different silhouettes.
+    """
+    items = models.segment(cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB),
+                           prompt=prompt)
+    paw = models.choose_reaching_paw(items, (camera.cx, camera.cy))
+    if paw is None:
+        return None, None, None
+    centre = pm.mask_centroid(paw["mask"])
+    if centre is None:
+        return None, None, None
+    return centre, float(paw.get("score") or 0.0), paw["mask"]
+
+
+def _score_window_3d(job, video, start, end, outcome, prompt, topk):
+    """Stage 2 + 3 over one trial window, using BOTH cameras.
+
+    Geometry vetoes and the learned model chooses: a candidate survives only if
+    the two views' paws are the same paw (epipolar residual within the judge's
+    tolerance), and among survivors the highest fused DINO similarity wins.
+
+    The alternative — folding 3D terms into the score — needs blend weights that
+    only the +-5 frame accuracy could justify, so the 3D evidence gates instead.
+    """
+    sibling = pm.sibling_video(video)
+    if sibling is None:
+        raise RuntimeError("no cam1 file beside this video; 3D scoring needs both")
+    calib, wins = _windows_for(video)
+    if wins is None:
+        raise RuntimeError("video has not been swept")
+    match = [w for w in wins if w.start == start and w.end == end]
+    armed = match[0].armed if match else ()
+    candidates = [f for iv in armed for f in range(iv.start, iv.end + 1)]
+    if not candidates:
+        raise RuntimeError("window has no pellet-stationary frames")
+    if len(candidates) > MAX_CANDIDATES:
+        step = int(np.ceil(len(candidates) / MAX_CANDIDATES))
+        candidates = candidates[::step]
+
+    judge = _judge()
+    model = pipeline.model_for(_project(), video)
+    if model is None or not model.cameras:
+        raise RuntimeError("no pellet model for this project")
+    cams = {"cam0": model.cameras.get("cam0"), "cam1": model.cameras.get("cam1")}
+    if not all(cams.values()):
+        raise RuntimeError("the pellet model needs both cameras for 3D scoring")
+    stereo_cal = stereo.load(stereo.find_for_project(_project()))
+
+    # ── read both cameras ─────────────────────────────────────────────────
+    c0, kept0, raw0 = _read_candidates(video, candidates,
+                                       exemplars.crop_for(cams["cam0"]), job,
+                                       share=0.15, base=0.02)
+    c1, kept1, raw1 = _read_candidates(str(sibling), candidates,
+                                       exemplars.crop_for(cams["cam1"]), job,
+                                       share=0.15, base=0.17)
+    common = sorted(set(kept0) & set(kept1))
+    if not common:
+        raise RuntimeError("no frame could be read from both cameras")
+    i0 = {f: i for i, f in enumerate(kept0)}
+    i1 = {f: i for i, f in enumerate(kept1)}
+
+    # ── stage 3: DINO on both, fused by mean ──────────────────────────────
+    # mean, not min: the paw is transiently occluded in one view on many frames,
+    # and min lets either view veto a frame the other is certain about. A
+    # wrong-paw match is the epipolar gate's job, not the score's.
+    sims = {}
+    for cam, crops, idx, keep in (("cam0", c0, i0, kept0), ("cam1", c1, i1, kept1)):
+        bank = exemplars.get(_project(), cam=cam)
+        ref = bank.for_query(outcome, exclude_video=Path(video).stem)
+        if not len(ref):
+            raise RuntimeError(f"no '{outcome}' exemplars outside this session ({cam})")
+        sims[cam] = models.similarity(models.embed(crops), ref, topk=topk)
+    if job is not None:
+        job.progress = 0.4
+
+    fused = np.array([(float(sims["cam0"][i0[f]]) + float(sims["cam1"][i1[f]])) / 2.0
+                      for f in common])
+
+    # ── stage 2: SAM on both, epipolar gate, triangulate ──────────────────
+    rows, ok_mask, epi_all, masks = [], [], [], []
+    for n, f in enumerate(common):
+        p0, s0, m0 = _paw_point(raw0[f], cams["cam0"], prompt)
+        p1, s1, _m1 = _paw_point(raw1[f], cams["cam1"], prompt)
+        epi = None
+        X = None
+        if p0 is not None and p1 is not None and stereo_cal is not None:
+            epi = float(stereo.epipolar_residual(stereo_cal, [p0], [p1])[0])
+            if judging.paw_pair_ok(epi, judge):
+                X = stereo_cal.triangulate([p0], [p1])[0]
+        keep = X is not None
+        ok_mask.append(keep)
+        epi_all.append(epi)
+        if m0 is not None and keep:
+            masks.append((f, m0, s0))
+        # every candidate is recorded, rejections included: the residual is the
+        # only thing that explains a frame that should have been kept and wasn't
+        rows.append(motion3d.Row(
+            frame=int(f) + 1, source=motion3d.SOURCE_SAM, marker="paw_centroid",
+            cam0_x=None if p0 is None else p0[0], cam0_y=None if p0 is None else p0[1],
+            cam1_x=None if p1 is None else p1[0], cam1_y=None if p1 is None else p1[1],
+            X=None if X is None else float(X[0]),
+            Y=None if X is None else float(X[1]),
+            Z=None if X is None else float(X[2]),
+            epi_px=epi, score=float(fused[n])))
+        if job is not None and n % 25 == 0:
+            job.progress = 0.4 + 0.55 * (n / max(1, len(common)))
+
+    motion3d.merge(video, rows)
+
+    ok = np.array(ok_mask, dtype=bool)
+    if not ok.any():
+        raise RuntimeError(
+            f"every candidate failed the paw check (epipolar tol "
+            f"{judge.max_epi_px:.0f}px) — widen it, or check the paw is visible "
+            f"in both cameras")
+    scored = np.where(ok, fused, -np.inf)
+    pick = common[int(np.argmax(scored))]
+
+    order = [i for i in np.argsort(-scored) if ok[i]][:5]
+    return {
+        "mode": "3d",
+        "frames": [int(f) for f in common],
+        "similarity": [round(float(v), 4) for v in fused],
+        "similarity_cam0": [round(float(sims["cam0"][i0[f]]), 4) for f in common],
+        "similarity_cam1": [round(float(sims["cam1"][i1[f]]), 4) for f in common],
+        "epi_px": [None if e is None else round(e, 2) for e in epi_all],
+        "kept": [bool(v) for v in ok],
+        "armed": [{"start": a.start, "end": a.end} for a in armed],
+        "pick": int(pick),
+        "n_rejected": int((~ok).sum()),
+        "epi_tol": judge.max_epi_px,
+        "sibling": str(sibling),
+        "motion3d": str(motion3d.path_for(video)),
+        "top": [{"frame": int(common[int(i)]), "score": float(fused[int(i)])}
+                for i in order],
+    }
+
+
 def _score_window(job, video, start, end, outcome, prompt, topk):
     """Stage 2 + 3 over one trial window."""
     calib, wins = _windows_for(video)
@@ -239,10 +407,15 @@ def api_score():
     prompt = (body.get("prompt") or "paw").strip()
     topk = int(body.get("topk") or 5)
 
-    def run(job):
-        return _score_window(job, video, start, end, outcome, prompt, topk)
+    # One endpoint, two modes: the 3D path reuses the whole job/poll plumbing
+    # rather than duplicating it under a second route.
+    three_d = str(body.get("mode") or "").lower() in ("3d", "3D")
+    scorer = _score_window_3d if three_d else _score_window
 
-    job = store.registry.start("score", run)
+    def run(job):
+        return scorer(job, video, start, end, outcome, prompt, topk)
+
+    job = store.registry.start("score3d" if three_d else "score", run)
     return jsonify({"job": job.id, "state": "running"})
 
 
@@ -270,24 +443,30 @@ def api_thumb():
         n = int(request.args.get("n") or 0)
     except ValueError:
         return jsonify({"error": "bad frame"}), 400
+    # `cam` says which camera's crop and pellet centre to use. The crop is
+    # anchored on the pellet, and cam1's sits 177px right of cam0's, so serving
+    # a cam1 frame through cam0's rectangle shows the wrong part of the rig.
+    cam = request.args.get("cam") or "cam0"
+    model = pipeline.model_for(_project(), video)
+    camera = (model.cameras.get(cam) if model else None)
+
     got = ncc.read_frames(video, [n])
     if n not in got:
         return jsonify({"error": f"frame {n} unreadable"}), 404
 
-    y0, y1, x0, x1 = exemplars.CROP
+    y0, y1, x0, x1 = exemplars.crop_for(camera) if camera else exemplars.CROP
     tile = got[n][y0:y1, x0:x1].copy()
-    if request.args.get("mask") == "1":
-        calib = rig.load(_project(), Path(video).stem)
-        if calib is not None:
-            items = models.segment(cv2.cvtColor(got[n], cv2.COLOR_BGR2RGB),
-                                   prompt=request.args.get("prompt") or "paw")
-            px = calib.template_box[2] + (calib.template_box[3] - calib.template_box[2]) / 2
-            py = calib.template_box[0] + (calib.template_box[1] - calib.template_box[0]) / 2
-            paw = models.choose_reaching_paw(items, (px, py), calib.aperture_box)
-            if paw is not None:
-                sub = paw["mask"][y0:y1, x0:x1]
-                tile[sub] = (0.55 * np.array([80, 220, 120]) +
-                             0.45 * tile[sub]).astype(np.uint8)
+    if request.args.get("mask") == "1" and camera is not None:
+        items = models.segment(cv2.cvtColor(got[n], cv2.COLOR_BGR2RGB),
+                               prompt=request.args.get("prompt") or "paw")
+        # Nearest THIS camera's pellet. It used to read the pellet out of the
+        # rig calibration's template box, which is cam0 geometry — on a cam1
+        # frame that measured distance to a point in the wrong half of the rig.
+        paw = models.choose_reaching_paw(items, (camera.cx, camera.cy))
+        if paw is not None:
+            sub = paw["mask"][y0:y1, x0:x1]
+            tile[sub] = (0.55 * np.array([80, 220, 120]) +
+                         0.45 * tile[sub]).astype(np.uint8)
     ok, buf = cv2.imencode(".jpg", tile, [int(cv2.IMWRITE_JPEG_QUALITY), 80])
     if not ok:
         return jsonify({"error": "encode failed"}), 500

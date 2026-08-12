@@ -34,6 +34,19 @@ MATCH_THRESHOLD = 0.55
 # reported one — scores 0.55/0.67 and triangulates to 8.29.
 MAX_3D_DIST = 2.0
 
+# How far off cam0's epipolar line the cam1 PAW centroid may sit before the two
+# views are judged to be looking at different paws.
+#
+# Measured over 15 770 labelled cam0/cam1 correspondences: 15 px keeps 97.1% of
+# true paw centroids and rejects 84.4% of wrong-structure matches.
+#
+# The proxy matters more than the percentile. An earlier draft used `Left-Paw`
+# and got 20 px — but Left-Paw is a DECOY, placed randomly to stop DLC labelling
+# that paw's joints, so it measured random placement, not geometry. The honest
+# proxy is the centroid of the real digit joints (MCP/PIP/DIP), each view using
+# only the joints it can see, because that is what a mask centroid is.
+MAX_EPI_PX = 15.0
+
 
 @dataclass(frozen=True)
 class Judge:
@@ -43,6 +56,7 @@ class Judge:
     min_candidates: int = MIN_CANDIDATES
     guard: int = intervals.TRIAL_GUARD
     max_3d_dist: float = MAX_3D_DIST
+    max_epi_px: float = MAX_EPI_PX
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -83,12 +97,14 @@ def from_dict(data) -> Judge:
     base = Judge()
     threshold = min(1.0, max(0.0, _num(d.get("threshold"), base.threshold, float)))
     max_3d = max(0.0, _num(d.get("max_3d_dist"), base.max_3d_dist, float))
+    max_epi = max(0.0, _num(d.get("max_epi_px"), base.max_epi_px, float))
     min_run = max(1, _int(d.get("min_run"), base.min_run))
     lookback = max(1, _int(d.get("lookback"), base.lookback))
     min_candidates = max(0, _int(d.get("min_candidates"), base.min_candidates))
     guard = max(0, _int(d.get("guard"), base.guard))
     return Judge(threshold=threshold, min_run=min_run, lookback=lookback,
                  min_candidates=min_candidates, max_3d_dist=max_3d,
+                 max_epi_px=max_epi,
                  # Reaching further back than the window opens is not a state
                  # the panel should be able to describe.
                  guard=min(guard, lookback))
@@ -142,6 +158,24 @@ def decide_pair(score0, score1, dist3d, judge: Judge):
     from . import sweep2
     return sweep2.decide(score0, score1, dist3d, judge.threshold,
                          judge.max_3d_dist)
+
+
+def paw_pair_ok(epi_px, judge: Judge) -> bool:
+    """Are the two views looking at the same paw?
+
+    None means SAM found no reaching paw in one view — there is no
+    correspondence to check, so it cannot pass. NaN likewise. Both are guarded
+    here rather than at the call sites: `None <= 15` raises, and `nan <= 15` is
+    False by luck rather than by intent.
+    """
+    import math
+    if epi_px is None:
+        return False
+    try:
+        v = float(epi_px)
+    except (TypeError, ValueError):
+        return False
+    return not math.isnan(v) and v <= judge.max_epi_px
 
 
 def armed_pair(frames, score0, score1, dist3d, judge: Judge):

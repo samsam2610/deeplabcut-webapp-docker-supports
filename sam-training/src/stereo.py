@@ -109,6 +109,39 @@ def find_for_project(project_path) -> Path | None:
     return found[-1] if found else None
 
 
+def project(cam, points) -> np.ndarray:
+    """(N,3) world points -> (N,2) pixels in this camera, distortion included.
+
+    The inverse of what ``triangulate`` undoes, so a point pushed through
+    ``project`` then ``epipolar_residual`` comes back at ~0. Without that
+    round-trip the residual has nothing to be checked against.
+    """
+    import cv2
+    X = np.asarray(points, dtype=float).reshape(-1, 3)
+    rvec, _ = cv2.Rodrigues(cam.R)
+    out, _ = cv2.projectPoints(X, rvec, cam.t, cam.K, cam.dist)
+    return out.reshape(-1, 2)
+
+
+def epipolar_residual(cal: "Calibration", p0, p1) -> np.ndarray:
+    """Perpendicular distance, in px, from each cam1 point to the epipolar line
+    of its cam0 partner.
+
+    Both points are undistorted first — ``epiline_in_cam1`` undistorts cam0's,
+    so leaving cam1's distorted would compare two different coordinate frames.
+
+    PERPENDICULAR is the point: displacement ALONG the line is depth, which is
+    exactly what triangulation is for and must not be penalised. Only the
+    off-line component says "these two views are not looking at the same thing".
+    """
+    import cv2
+    lines = cal.epiline_in_cam1(p0)
+    b = np.asarray(p1, dtype=float).reshape(-1, 1, 2)
+    ub = cv2.undistortPoints(b, cal.cam1.K, cal.cam1.dist, P=cal.cam1.K).reshape(-1, 2)
+    num = np.abs(lines[:, 0] * ub[:, 0] + lines[:, 1] * ub[:, 1] + lines[:, 2])
+    return num / np.sqrt(lines[:, 0] ** 2 + lines[:, 1] ** 2)
+
+
 def distance_to(points, reference) -> np.ndarray:
     p = np.asarray(points, dtype=float).reshape(-1, 3)
     r = np.asarray(reference, dtype=float).reshape(1, 3)

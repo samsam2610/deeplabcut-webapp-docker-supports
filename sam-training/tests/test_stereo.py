@@ -93,3 +93,79 @@ def test_find_for_project_locates_a_calibration(tmp_path):
     d.mkdir(parents=True)
     (d / "calibration.toml").write_text(CAL)
     assert stereo.find_for_project(tmp_path).name == "calibration.toml"
+
+
+# ── epipolar residual, the paw gate's measurement ───────────────────────────
+#
+# Measured on 15770 labelled cam0/cam1 pairs to set epi_px = 15. See the
+# 2026-08-12 spec: the proxy has to be a centroid of REAL joints. Left-Paw is a
+# decoy placed randomly to stop DLC labelling that paw, so calibrating on it
+# measured random placement and gave a threshold 5 px too loose.
+
+def _cal():
+    from pathlib import Path
+    from src import stereo as st
+    p = st.find_for_project(
+        "/home/sam/data-disk/Parra-Data/DLC-Projects/DREADD-Ali-2026-01-07")
+    return st.load(p) if p and Path(p).is_file() else None
+
+
+def test_a_true_correspondence_has_a_small_residual():
+    """Round-trip: project a 3D point into both views, then measure. Anything
+    but ~0 means the residual and the triangulation disagree about the geometry."""
+    import numpy as np
+    cal = _cal()
+    if cal is None:
+        import pytest
+        pytest.skip("no calibration in this environment")
+    X = np.array([[1.68, 11.09, 278.81]])
+    p0 = stereo.project(cal.cam0, X)
+    p1 = stereo.project(cal.cam1, X)
+    assert stereo.epipolar_residual(cal, p0, p1)[0] < 1.0
+
+
+def test_a_mismatched_pair_has_a_large_residual():
+    import numpy as np
+    cal = _cal()
+    if cal is None:
+        import pytest
+        pytest.skip("no calibration in this environment")
+    X = np.array([[1.68, 11.09, 278.81]])
+    p0 = stereo.project(cal.cam0, X)
+    p1 = stereo.project(cal.cam1, X) + np.array([[0.0, 120.0]])
+    assert stereo.epipolar_residual(cal, p0, p1)[0] > 15.0
+
+
+def test_depth_along_the_ray_is_not_penalised():
+    """Displacement ALONG the epipolar line is depth, which triangulation is
+    for; only the perpendicular component means "different thing".
+
+    The points must walk cam0's actual back-projected RAY. Varying Z with X and
+    Y fixed does not: it moves off the ray, so cam0's pixel changes too and the
+    residual is measured against the wrong line. That mistake made this look
+    like a 2 px bug in `fundamental()`, which is exact over 400 random points.
+    """
+    import numpy as np
+    cal = _cal()
+    if cal is None:
+        import pytest
+        pytest.skip("no calibration in this environment")
+    X = np.array([1.68, 11.09, 278.81])
+    centre = -cal.cam0.R.T @ cal.cam0.t.reshape(3)      # cam0's centre in world
+    p0 = stereo.project(cal.cam0, X.reshape(1, 3))
+    for s in (0.9, 1.0, 1.1):
+        on_ray = centre + s * (X - centre)
+        q = stereo.project(cal.cam1, on_ray.reshape(1, 3))
+        assert stereo.epipolar_residual(cal, p0, q)[0] < 0.5, f"scale {s}"
+
+
+def test_residual_handles_many_points_at_once():
+    import numpy as np
+    cal = _cal()
+    if cal is None:
+        import pytest
+        pytest.skip("no calibration in this environment")
+    X = np.repeat(np.array([[1.68, 11.09, 278.81]]), 5, axis=0)
+    out = stereo.epipolar_residual(cal, stereo.project(cal.cam0, X),
+                                   stereo.project(cal.cam1, X))
+    assert out.shape == (5,)

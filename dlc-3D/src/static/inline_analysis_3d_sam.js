@@ -43,6 +43,7 @@ import {
 import {
   DEFAULT_JUDGE, clampJudge, markersInSpan, intervening, markerStyle,
 } from "./internal/trial_judge.mjs";
+import { pairCandidates } from "./internal/candidate_pairs.mjs";
 
 // ── Module state ────────────────────────────────────────────────────────────
 
@@ -3945,6 +3946,7 @@ async function _samLoadWindows() {
 const _JUDGE_FIELDS = {
   threshold: "ia3ds-judge-threshold",
   max_3d_dist: "ia3ds-judge-3d",
+  max_epi_px: "ia3ds-judge-epi",
   min_run: "ia3ds-judge-minrun",
   lookback: "ia3ds-judge-lookback",
   min_candidates: "ia3ds-judge-mincand",
@@ -4048,32 +4050,53 @@ function _samSelectTrial(i) {
   _samGoToFrame(w.onset != null ? w.onset : Math.round((w.start + w.end) / 2));
 }
 
-async function _samRun() {
+async function _samRun()   { return _samRunMode("2d"); }
+async function _samRun3d() { return _samRunMode("3d"); }
+
+// One runner for both buttons: the 3D path differs in what the backend does,
+// not in how the panel drives it, so duplicating the poll/render plumbing would
+// only create two places for it to drift.
+async function _samRunMode(mode) {
   const w = _samState.active;
   const video = _samCurrentVideo();
   if (!w || !video) { _samSay("pick a trial first"); return; }
+  const three = mode === "3d";
   const prompt = (_samEl("ia3ds-sam-prompt").value || "paw").trim();
   const topk = parseInt(_samEl("ia3ds-sam-topk").value, 10) || 5;
   const bar = _samEl("ia3ds-sam-progress");
   bar.classList.remove("hidden");
-  _samSay("running SAM 3 + DINOv3…");
+  _samSay(three ? "running SAM 3 + DINOv3 on both cameras…"
+                : "running SAM 3 + DINOv3…");
   try {
     const started = await _samJSON(`${SAMAPI}/score`, {
       method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ video, start: w.start, end: w.end,
-                             outcome: w.outcome, prompt, topk }),
+                             outcome: w.outcome, prompt, topk, mode }),
     });
     const result = started.job ? await _samPoll(started.job, bar) : started;
     w.frames = result.frames || [];
     w.sim = result.similarity || [];
     w.armed = result.armed || w.armed || [];
     w.pick = result.pick == null ? null : result.pick;
+    w.kept = result.kept || null;
     (result.masks || []).forEach((m) => _samState.masks.set(m.frame, m));
     _samDrawStrip();
-    _samRenderCandidates(result.top || []);
+    if (three) _samRenderPairs(result.top || [], result.sibling);
+    else _samRenderCandidates(result.top || []);
     const err = (w.pick != null && w.onset != null) ? w.pick - w.onset : null;
-    _samSay(`proposed frame ${w.pick}` +
-      (err == null ? " (orphan — no tag to compare)" : `  ·  human tag ${w.onset}  ·  err ${err > 0 ? "+" : ""}${err}`));
+    const tail = err == null ? " (orphan — no tag to compare)"
+                             : `  ·  human tag ${w.onset}  ·  err ${err > 0 ? "+" : ""}${err}`;
+    // Say what the gate removed. A silently shrinking candidate set is how a
+    // too-tight tolerance looks exactly like a model that cannot find the paw.
+    const gated = three && result.n_rejected
+      ? `  ·  ${result.n_rejected}/${(result.frames || []).length} rejected by the `
+        + `${result.epi_tol}px epipolar tol`
+      : "";
+    _samSay(`proposed frame ${w.pick}${tail}${gated}`);
+    if (three && result.motion3d) {
+      _samEl("ia3ds-sam-note").textContent =
+        `3D motion written to ${result.motion3d}`;
+    }
   } catch (e) {
     _samSay(`score: ${e.message}`, true);
   } finally {
@@ -4230,7 +4253,39 @@ function _samDrawStrip() {
 
 // ── candidate thumbnails ────────────────────────────────────────────────────
 
+// 3D: the same five frames from both cameras, column-aligned. `cam` is on the
+// thumbnail URL because the crop is anchored on THAT camera's pellet — cam1's
+// sits 177 px right of cam0's, so serving a cam1 frame through cam0's rectangle
+// would show the wrong part of the rig.
+function _samRenderPairs(top, siblingPath) {
+  const wrap = _samEl("ia3ds-sam-pairs");
+  const a = _samEl("ia3ds-sam-cands-cam0");
+  const b = _samEl("ia3ds-sam-cands-cam1");
+  if (!wrap || !a || !b) return;
+  _samEl("ia3ds-sam-cands").innerHTML = "";     // the 2D strip steps aside
+  wrap.classList.remove("hidden");
+  const video = _samCurrentVideo();
+  const { cam0, cam1 } = pairCandidates(top);
+  const mask = _samEl("ia3ds-sam-show-mask")?.checked ? 1 : 0;
+  [[a, cam0, video], [b, cam1, siblingPath || video]].forEach(([host, list, src]) => {
+    host.innerHTML = "";
+    list.forEach((c) => {
+      const div = document.createElement("div");
+      div.className = "ia3ds-sam-cand" + (c.best ? " best" : "");
+      div.innerHTML =
+        `<img loading="lazy" src="${SAMAPI}/thumb?video=${encodeURIComponent(src)}`
+        + `&n=${c.frame}&cam=${c.cam}&mask=${mask}"/>`
+        + `<div class="meta"><span>${c.cam}</span><span>${c.frame}</span></div>`;
+      div.onclick = () => _samGoToFrame(c.frame);
+      host.appendChild(div);
+    });
+  });
+}
+
 function _samRenderCandidates(top) {
+  // Leaving the 3D strip up beside a fresh 2D run would show two different
+  // runs' candidates as though they were one result.
+  _samEl("ia3ds-sam-pairs")?.classList.add("hidden");
   const box = _samEl("ia3ds-sam-cands");
   if (!box) return;
   box.innerHTML = "";
@@ -4748,6 +4803,7 @@ function _samWirePanel() {
   if (!reload) return;                       // card not injected yet
   reload.onclick = _samLoadWindows;
   _samEl("ia3ds-sam-run").onclick = _samRun;
+  on("ia3ds-sam-run3d", "onclick", _samRun3d);
   _samEl("ia3ds-sam-sweep").onclick = _samRunSweep;
   _samEl("ia3ds-sam-build-csv").onclick = _samBuildCsv;
   _samEl("ia3ds-pellet-save").onclick = _pelletSave;

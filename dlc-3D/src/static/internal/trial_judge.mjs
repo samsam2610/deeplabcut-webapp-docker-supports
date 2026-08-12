@@ -14,6 +14,7 @@ export const DEFAULT_JUDGE = {
   min_candidates: 30,   // armed frames below which a trial is skipped
   guard: 0,             // frames a window may reach past the PREVIOUS marker
   max_3d_dist: 2.0,     // how far the triangulated match may sit from the pellet
+  max_epi_px: 15.0,     // how far off the epipolar line the cam1 paw may sit
 };
 
 const OUTCOMES = ["s", "f"];
@@ -75,6 +76,7 @@ export function clampJudge(raw) {
     // A distance in calibration units, not a frame count: real pellets measure
     // <= 1.03, so truncating to an integer would make the gate untunable.
     max_3d_dist: Math.max(0, num(d.max_3d_dist, DEFAULT_JUDGE.max_3d_dist)),
+    max_epi_px: Math.max(0, num(d.max_epi_px, DEFAULT_JUDGE.max_epi_px)),
     // Reaching further back than the window opens is not a describable state.
     guard: Math.min(lookback, Math.max(0, int(d.guard, DEFAULT_JUDGE.guard))),
   };

@@ -334,3 +334,29 @@ def test_a_missing_template_is_not_reported_as_a_bad_box():
     v = pm.placement_verdict(-1.0, threshold=0.55)
     assert v["ok"] is False
     assert "template" in v["message"].lower()
+
+
+# ── mask centroid ───────────────────────────────────────────────────────────
+
+def test_mask_centroid_is_the_pixel_mass_centre():
+    import numpy as np
+    m = np.zeros((10, 10), dtype=bool)
+    m[2:6, 4:8] = True                  # rows 2-5, cols 4-7
+    assert pm.mask_centroid(m) == (5.5, 3.5)
+
+
+def test_mask_centroid_follows_mass_not_the_bounding_box():
+    """The bbox centre moves with the silhouette's extent; a paw with one splayed
+    digit shifts its bbox far more than its mass."""
+    import numpy as np
+    m = np.zeros((20, 20), dtype=bool)
+    m[8:12, 2:6] = True                 # the blob
+    m[9, 18] = True                     # one stray pixel, far right
+    cx, _cy = pm.mask_centroid(m)
+    bbox_cx = (2 + 18) / 2
+    assert cx < bbox_cx - 5
+
+
+def test_an_empty_mask_has_no_centroid():
+    import numpy as np
+    assert pm.mask_centroid(np.zeros((5, 5), dtype=bool)) is None

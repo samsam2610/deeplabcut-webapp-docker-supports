@@ -103,7 +103,7 @@ test("the defaults match the backend's", () => {
   // mirror: it fails the moment one side is retuned without the other.
   assert.deepEqual(DEFAULT_JUDGE, {
     threshold: 0.55, min_run: 6, lookback: 3000, min_candidates: 30, guard: 0,
-    max_3d_dist: 2.0,
+    max_3d_dist: 2.0, max_epi_px: 15.0,
   });
 });
 
@@ -179,4 +179,17 @@ test("max_3d_dist is not truncated to an integer", () => {
   // It is a distance in calibration units; real pellets measured <= 1.03, so
   // rounding to whole numbers would make the gate untunable.
   assert.equal(clampJudge({ max_3d_dist: 2.5 }).max_3d_dist, 2.5);
+});
+
+test("the epipolar tolerance is measured, not guessed", () => {
+  // 15 px from 15770 labelled pairs. Not 20: that came from Left-Paw, a decoy
+  // placed randomly to stop DLC labelling that paw, so it measured random
+  // placement rather than paw geometry.
+  assert.equal(DEFAULT_JUDGE.max_epi_px, 15.0);
+});
+
+test("the epipolar tolerance clamps at zero and keeps fractions", () => {
+  assert.equal(clampJudge({ max_epi_px: -4 }).max_epi_px, 0);
+  assert.equal(clampJudge({ max_epi_px: "12.5" }).max_epi_px, 12.5);
+  assert.equal(clampJudge({ max_epi_px: "" }).max_epi_px, DEFAULT_JUDGE.max_epi_px);
 });

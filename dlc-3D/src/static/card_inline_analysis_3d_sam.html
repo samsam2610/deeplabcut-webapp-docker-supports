@@ -1040,18 +1040,36 @@
             <input type="number" id="ia3ds-judge-guard" step="50" min="0" style="width:5.5rem"/>
             <label for="ia3ds-judge-3d" title="How far the triangulated match may sit from the project's reference pellet point. Real pellets measure under ~1.0.">3D gate</label>
             <input type="number" id="ia3ds-judge-3d" step="0.1" min="0" style="width:5rem"/>
+            <label for="ia3ds-judge-epi" title="How far off cam0's epipolar line the cam1 paw may sit before the two views are judged to be looking at different paws.">epipolar tol</label>
+            <input type="number" id="ia3ds-judge-epi" step="1" min="0" style="width:5rem"/>
             <button class="btn-sm" id="ia3ds-judge-apply">Apply &amp; re-judge</button>
             <button class="btn-sm" id="ia3ds-judge-reset" title="Back to the tuned defaults">Defaults</button>
             <span class="ia3ds-sam-status" id="ia3ds-judge-status"></span>
           </div>
           <p class="ia3ds-sam-note">
-            <b>past prev marker</b> is why trial #11 of banh-mi-1 Jul 7 read as a
+            <b>pellet thr</b> — the NCC each camera must reach for the pellet to
+            count as present.<br/>
+            <b>debounce</b> — how many consecutive samples a change must persist;
+            stops the reload vane and passing paws flicking the mask on and off.<br/>
+            <b>lookback</b> — how far a window reaches back from its outcome
+            marker.<br/>
+            <b>min cand</b> — armed frames below which a trial is skipped as
+            unsearchable.<br/>
+            <b>past prev marker</b> — why trial #11 of banh-mi-1 Jul 7 read as a
             success: its window reached back over the <code>f</code> at 27536 and
             took its label from the <code>s</code> 1379 frames later. At 0 a
             window opens after the previous marker, so the marker that closes it
             is the next one after every candidate in it. Raising it recovers the
             ~1.2 % of onsets the human marked late, at the cost of that guarantee
-            — ambiguous trials are flagged ⚠ in the trial list.
+            — ambiguous trials are flagged ⚠ in the trial list.<br/>
+            <b>3D gate</b> — how far the triangulated <i>pellet</i> may sit from
+            the project's reference point. Frame 27591 passed both cameras at
+            0.55/0.67 and was rejected at 8.29.<br/>
+            <b>epipolar tol</b> — how far off cam0's epipolar line the cam1
+            <i>paw</i> may sit before the two views are judged to be looking at
+            different paws. Used by <b>Run SAM + DINO 3D</b>. 15 px keeps 97.1 %
+            of the project's 15 770 labelled paw pairs and rejects 84.4 % of
+            wrong-structure matches.
           </p>
         </details>
 
@@ -1067,6 +1085,7 @@
           <label for="ia3ds-sam-topk" title="Exemplars averaged per candidate">top-k</label>
           <input type="number" id="ia3ds-sam-topk" value="5" min="1" max="50" style="width:4.5rem"/>
           <button class="btn-sm" id="ia3ds-sam-run">Run SAM + DINO</button>
+          <button class="btn-sm" id="ia3ds-sam-run3d" title="Segment both cameras, cross-check the two paws geometrically, triangulate, and score on both views">Run SAM + DINO 3D</button>
         </div>
 
         <div class="ia3ds-sam-toggles">
@@ -1107,6 +1126,14 @@
 
         <!-- top candidates, click to jump the viewer to that frame -->
         <div class="ia3ds-sam-cands" id="ia3ds-sam-cands"></div>
+
+        <!-- 3D mode: the same five frames from both cameras, column-aligned so
+             column i is one frame seen twice -->
+        <div class="ia3ds-sam-pairs hidden" id="ia3ds-sam-pairs">
+          <div class="ia3ds-sam-cands" id="ia3ds-sam-cands-cam0"></div>
+          <div class="ia3ds-sam-pairgap"></div>
+          <div class="ia3ds-sam-cands" id="ia3ds-sam-cands-cam1"></div>
+        </div>
 
         <p class="ia3ds-sam-note" id="ia3ds-sam-note"></p>
       </div>

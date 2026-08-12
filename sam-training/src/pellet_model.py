@@ -295,6 +295,20 @@ def build_camera(patches, positions) -> CameraModel:
     return cam
 
 
+def mask_centroid(mask):
+    """(x, y) centre of mass of a boolean mask, or None when it is empty.
+
+    Mass, not bounding box: one splayed digit moves a paw's bbox centre far more
+    than its mass, and the epipolar gate compares this point across two views
+    that see different silhouettes — the noisier the point, the worse the gate.
+    """
+    m = np.asarray(mask, dtype=bool)
+    ys, xs = np.nonzero(m)
+    if not len(xs):
+        return None
+    return (float(xs.mean()), float(ys.mean()))
+
+
 def placement_verdict(score: float, threshold: float) -> dict:
     """Does a box at this score stand any chance of finding the pellet?
 

@@ -187,3 +187,50 @@ def test_retuning_the_gate_changes_the_mask_without_a_resweep():
     loose = judging.Judge(threshold=0.55, max_3d_dist=4.0, min_run=1)
     assert not judging.armed_pair(frames, s, s, d, tight)
     assert judging.armed_pair(frames, s, s, d, loose)
+
+
+# ── the paw's epipolar gate ─────────────────────────────────────────────────
+
+def test_the_judge_carries_the_epipolar_tolerance():
+    assert judging.Judge().max_epi_px == judging.MAX_EPI_PX
+
+
+def test_the_default_is_the_measured_one():
+    """15 px, from 15770 labelled cam0/cam1 pairs. Not 20: that came from
+    Left-Paw, which is a decoy placed randomly to stop DLC labelling that paw,
+    so it measured random placement rather than paw geometry."""
+    assert judging.MAX_EPI_PX == 15.0
+
+
+def test_epi_px_clamps_and_round_trips(tmp_path):
+    assert judging.from_dict({"max_epi_px": -4}).max_epi_px == 0.0
+    judging.save(tmp_path, judging.Judge(max_epi_px=12.5))
+    assert judging.load(tmp_path).max_epi_px == 12.5
+
+
+def test_epi_px_is_not_truncated_to_an_integer():
+    assert judging.from_dict({"max_epi_px": "12.5"}).max_epi_px == 12.5
+
+
+def test_a_judge_file_from_before_the_paw_gate_still_loads(tmp_path):
+    import json
+    (tmp_path / judging.FILENAME).write_text(json.dumps({"threshold": 0.62}))
+    j = judging.load(tmp_path)
+    assert j.threshold == 0.62 and j.max_epi_px == judging.MAX_EPI_PX
+
+
+def test_paw_pair_accepts_an_aligned_pair_and_rejects_a_skewed_one():
+    j = judging.Judge(max_epi_px=15.0)
+    assert judging.paw_pair_ok(3.5, j) is True
+    assert judging.paw_pair_ok(40.0, j) is False
+
+
+def test_a_missing_paw_is_never_accepted():
+    """None means SAM found no reaching paw in one view. There is no
+    correspondence to check, so it cannot pass — and `None <= 15` would raise."""
+    assert judging.paw_pair_ok(None, judging.Judge()) is False
+
+
+def test_a_nan_residual_is_never_accepted():
+    import math
+    assert judging.paw_pair_ok(math.nan, judging.Judge()) is False

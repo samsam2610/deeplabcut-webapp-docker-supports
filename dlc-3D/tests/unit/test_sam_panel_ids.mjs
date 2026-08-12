@@ -59,7 +59,8 @@ test("the judging fields the panel reads are all present", () => {
   // default — so a typo here does not throw, it silently ignores the user.
   ["ia3ds-judge-threshold", "ia3ds-judge-minrun", "ia3ds-judge-lookback",
    "ia3ds-judge-mincand", "ia3ds-judge-guard", "ia3ds-judge-3d",
-   "ia3ds-judge-apply", "ia3ds-judge-reset", "ia3ds-judge-status",
+   "ia3ds-judge-epi", "ia3ds-judge-apply", "ia3ds-judge-reset",
+   "ia3ds-judge-status",
   ].forEach((id) => assert.ok(declared.has(id), `card is missing #${id}`));
 });
 
@@ -69,6 +70,12 @@ test("the thresholds are declared in exactly one place", () => {
   assert.equal(declared.has("ia3ds-pellet-thr"), false);
   assert.equal(declared.has("ia3ds-pellet-3d"), false);
   assert.equal(declared.has("ia3ds-judge-3d"), true);
+});
+
+test("the 3D run button and its paired strips exist", () => {
+  ["ia3ds-sam-run3d", "ia3ds-sam-pairs",
+   "ia3ds-sam-cands-cam0", "ia3ds-sam-cands-cam1",
+  ].forEach((id) => assert.ok(declared.has(id), `card is missing #${id}`));
 });
 
 test("no id is declared twice in the card", () => {
