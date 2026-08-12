@@ -229,8 +229,6 @@ def api_trials_batch():
         wins = st.windows
         done = set() if recompute else trials.scored_markers(video)
         todo = [w for w in wins if w.end not in done]
-        sig = judging.signature(_judge())
-        stamp = time.strftime("%Y-%m-%dT%H:%M:%S")
         scorer = _score_window_3d if mode == "3d" else _score_window
         ok, failed = 0, []
         for n, w in enumerate(todo):
@@ -242,23 +240,30 @@ def api_trials_batch():
                 # One bad trial must not abandon the other 128.
                 failed.append({"marker": w.end, "error": f"{type(exc).__name__}: {exc}"[:200]})
                 continue
-            kept = res.get("frames") or []
-            trials.merge(video, [trials.Row(
-                marker=w.end, window_start=w.start, outcome=w.outcome, mode=mode,
-                pick=int(res["pick"]),
-                score=_score_at(res, int(res["pick"])),
-                # The ranking, so browsing to this trial later can redraw the
-                # strip without re-scoring it.
-                top=[int(t["frame"]) for t in (res.get("top") or [])],
-                n_candidates=len(kept),
-                n_kept=len(kept) - int(res.get("n_rejected") or 0),
-                prompt=prompt, judge_sig=sig, scored_at=stamp)])
-            ok += 1
+            ok += 1          # the scorer stored it on the way out
         return {"scored": ok, "skipped": len(wins) - len(todo),
                 "failed": failed, "mode": mode}
 
     job = store.registry.start(f"batch-{mode}", run)
     return jsonify({"job": job.id, "state": "running"})
+
+
+def _store_result(video, start, end, outcome, mode, prompt, res):
+    """Persist one scoring result.
+
+    Called by the scorers themselves, so EVERY run stores — a single run used to
+    vanish the moment you browsed away, which made the stored ranking look
+    broken when it was simply never written.
+    """
+    kept = res.get("frames") or []
+    trials.merge(video, [trials.Row(
+        marker=int(end), window_start=int(start), outcome=outcome, mode=mode,
+        pick=int(res["pick"]), score=_score_at(res, int(res["pick"])),
+        top=[int(t["frame"]) for t in (res.get("top") or [])],
+        n_candidates=len(kept),
+        n_kept=len(kept) - int(res.get("n_rejected") or 0),
+        prompt=prompt, judge_sig=judging.signature(_judge()),
+        scored_at=time.strftime("%Y-%m-%dT%H:%M:%S%z"))])
 
 
 def _score_at(result, frame):
@@ -576,7 +581,7 @@ def _score_window_3d(job, video, start, end, outcome, prompt, topk):
     pick = common[int(np.argmax(scored))]
 
     order = [i for i in np.argsort(-scored) if ok[i]][:5]
-    return {
+    out = {
         "mode": "3d",
         "frames": [int(f) for f in common],
         "similarity": [round(float(v), 4) for v in fused],
@@ -593,6 +598,8 @@ def _score_window_3d(job, video, start, end, outcome, prompt, topk):
         "top": [{"frame": int(common[int(i)]), "score": float(fused[int(i)])}
                 for i in order],
     }
+    _store_result(video, start, end, outcome, "3d", prompt, out)
+    return out
 
 
 def _score_window(job, video, start, end, outcome, prompt, topk):
@@ -658,7 +665,7 @@ def _score_window(job, video, start, end, outcome, prompt, topk):
     if job is not None:
         job.progress = 0.98
 
-    return {
+    out = {
         "frames": [int(f) for f in kept],
         "similarity": [round(float(s), 4) for s in sim],
         "armed": [{"start": a.start, "end": a.end} for a in armed],
@@ -668,6 +675,8 @@ def _score_window(job, video, start, end, outcome, prompt, topk):
         "top": [{"frame": int(kept[int(i)]), "score": float(sim[int(i)])}
                 for i in order],
     }
+    _store_result(video, start, end, outcome, "2d", prompt, out)
+    return out
 
 
 @bp.post(f"{PREFIX}/score")

@@ -54,6 +54,13 @@ export function writableTrials(list, includeTagged = false) {
 export function candidateStrips(trial) {
   const r = trial && trial.result;
   const top = (r && r.top) || [];
-  if (!r || !top.length) return { clear: true, render: null, top: [] };
-  return { clear: true, render: r.mode === "3d" ? "pairs" : "single", top };
+  const strip = r && r.mode === "3d" ? "pairs" : "single";
+  if (top.length) return { clear: true, render: strip, top, partial: false };
+  // Stored before the ranking was kept: the pick is still knowable, so show
+  // that rather than nothing. Flagged partial so the panel can say the ranking
+  // is missing instead of implying one thumbnail was the whole result.
+  if (r && r.pick != null) {
+    return { clear: true, render: strip, top: [r.pick], partial: true };
+  }
+  return { clear: true, render: null, top: [], partial: false };
 }

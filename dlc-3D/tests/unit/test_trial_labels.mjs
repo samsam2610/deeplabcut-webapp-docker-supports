@@ -133,3 +133,24 @@ test("the stored order is preserved, not sorted", () => {
   const plan = candidateStrips({ result: { mode: "3d", top: [24046, 24041, 24045] } });
   assert.deepEqual(plan.top, [24046, 24041, 24045]);
 });
+
+// A result stored before the ranking column existed has a pick but no top. The
+// pick's own frame IS knowable, so show that rather than nothing — and say the
+// ranking is missing rather than implying one thumbnail was the whole result.
+
+test("a result with a pick but no ranking shows the pick alone", () => {
+  const plan = candidateStrips({ result: { mode: "3d", pick: 24045, top: [] } });
+  assert.equal(plan.render, "pairs");
+  assert.deepEqual(plan.top, [24045]);
+  assert.equal(plan.partial, true);
+});
+
+test("a full ranking is not marked partial", () => {
+  const plan = candidateStrips({ result: { mode: "3d", pick: 24045, top: [24045, 24046] } });
+  assert.equal(plan.partial, false);
+  assert.deepEqual(plan.top, [24045, 24046]);
+});
+
+test("no pick and no ranking still renders nothing", () => {
+  assert.equal(candidateStrips({ result: { mode: "3d", top: [] } }).render, null);
+});

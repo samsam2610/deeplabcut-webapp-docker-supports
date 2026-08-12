@@ -2,7 +2,7 @@
 
 **Date:** 2026-08-12
 **Card:** `3D Inline Analysis - SAM Model`
-**Status:** approved in brainstorming; tests first
+**Status:** implemented 2026-08-12
 
 Until now the tool has been read-only with respect to the experimental record.
 This is the change that lets it write back, plus the batch and persistence
@@ -169,3 +169,26 @@ success/failure select defaulting to the marker outcome and staying flippable.
 End-to-end acceptance measurement. It is still unmeasured and still the most
 important gap, but batch-writing candidates is not the same thing as measuring
 them — see `METHODOLOGY.md` §9.
+
+
+## Post-implementation notes
+
+Two things the first real use corrected.
+
+**Every scoring run stores, not only the batch.** The first implementation
+merged a trial row inside the batch loop, so a single Run SAM + DINO left
+nothing behind and its result vanished the moment you browsed away. Storage
+moved into the scorers themselves, which is also the only place that has the
+result in hand — the batch now just counts.
+
+**A stored row has to carry the ranking, not just the pick.** Without it a
+browsed trial had nothing to draw even in principle, so a 129-trial batch
+produced results you could only see by re-scoring each one. The ranking is
+stored space-separated in one cell, and its ORDER is the ranking: column i of
+the thumbnail strip is the i-th best candidate, so sorting it would silently
+re-rank.
+
+Rows written before that column existed have a pick and no ranking. Rather than
+show nothing, the panel draws the pick alone and flags the strip as partial —
+the pick is knowable, the ranking is not, and inventing neighbours around it
+would be fabrication.
