@@ -4030,6 +4030,19 @@ function _samDrawStrip() {
       g.fillRect(x(iv.start), h - 18, Math.max(1, x(iv.end) - x(iv.start)), 18));
   }
 
+  // Pre-run state. Without this the canvas is a black box with a green strip
+  // along the bottom and no indication that a button has to be pressed.
+  if (!A.sim || !A.sim.length) {
+    g.fillStyle = "#98a1b0";
+    g.font = "12px system-ui";
+    const cands = (A.armed || []).reduce((n, iv) => n + (iv.end - iv.start + 1), 0);
+    g.fillText(`${cands} candidate frames (green) — press “Run SAM + DINO” to score them`,
+               10, 20);
+    g.fillText(A.onset != null
+                 ? `human tag at ${A.onset} (red)`
+                 : "orphan trial — no human tag to compare against", 10, 38);
+  }
+
   if (A.sim && A.sim.length) {
     const lo = Math.min(...A.sim), hi = Math.max(...A.sim);
     const rng = hi - lo || 1;
@@ -4039,6 +4052,12 @@ function _samDrawStrip() {
       i ? g.lineTo(px, py) : g.moveTo(px, py);
     });
     g.stroke();
+  }
+
+  if (A.sim && A.sim.length) {
+    const lo = Math.min(...A.sim), hi = Math.max(...A.sim);
+    g.fillStyle = "#98a1b0"; g.font = "11px ui-monospace, monospace";
+    g.fillText(`sim ${lo.toFixed(3)}–${hi.toFixed(3)}`, 10, 14);
   }
 
   if (A.onset != null) {
