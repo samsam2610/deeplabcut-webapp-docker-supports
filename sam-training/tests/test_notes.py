@@ -128,3 +128,46 @@ def test_human_marks_are_sorted_by_frame():
 
 def test_human_marks_of_an_empty_companion_is_empty():
     assert notes.human_marks([]) == []
+
+
+# ── tag state per trial, for the dropdown ───────────────────────────────────
+#
+# Derived from the companion CSV rather than stored, so it reflects a hand-edit
+# made in the main webapp instead of going stale against our own bookkeeping.
+
+def test_a_window_with_a_human_tag_reports_it():
+    rows = [(24041, "start-failure"), (24454, "f")]
+    st = notes.tag_state(rows, 22923, 24454)
+    assert st == {"kind": "human", "note": "start-failure", "frame": 24041}
+
+
+def test_a_window_with_only_our_candidate_reports_candidate():
+    rows = [(24045, "start-failure-candidate"), (24454, "f")]
+    st = notes.tag_state(rows, 22923, 24454)
+    assert st == {"kind": "candidate", "note": "start-failure-candidate",
+                  "frame": 24045}
+
+
+def test_a_human_tag_outranks_a_candidate_in_the_same_window():
+    rows = [(24045, "start-failure-candidate"), (24041, "start-failure")]
+    assert notes.tag_state(rows, 22923, 24454)["kind"] == "human"
+
+
+def test_an_untagged_window_reports_none():
+    rows = [(24454, "f")]
+    assert notes.tag_state(rows, 22923, 24454) is None
+
+
+def test_the_outcome_marker_itself_is_not_a_tag():
+    """`f` closes the window; it is the outcome, not an onset tag."""
+    assert notes.tag_state([(24454, "f")], 22923, 24454) is None
+
+
+def test_a_tag_outside_the_window_is_not_counted():
+    rows = [(20000, "start-failure")]
+    assert notes.tag_state(rows, 22923, 24454) is None
+
+
+def test_the_window_bounds_are_inclusive():
+    assert notes.tag_state([(22923, "start-success")], 22923, 24454) is not None
+    assert notes.tag_state([(24454, "start-success")], 22923, 24454) is not None

@@ -82,6 +82,27 @@ def outcomes(rows) -> list[tuple[int, str]]:
     return [(f, n) for f, n in rows if n in OUTCOMES]
 
 
+def tag_state(rows, start: int, end: int):
+    """Whether this window already carries an onset tag, and which kind.
+
+    Derived from the companion CSV on every load rather than stored anywhere:
+    the tag can be placed, moved or removed in the main webapp, and a cached
+    answer would quietly disagree with the file.
+
+    A human tag outranks our own candidate — if both are present, the human's
+    is the one that matters.
+    """
+    human = candidate = None
+    for frame, note in rows:
+        if not (start <= frame <= end):
+            continue
+        if note in ONSETS and human is None:
+            human = {"kind": "human", "note": note, "frame": frame}
+        elif note.endswith(CANDIDATE_SUFFIX) and candidate is None:
+            candidate = {"kind": "candidate", "note": note, "frame": frame}
+    return human or candidate
+
+
 def human_marks(rows) -> list[tuple[int, str]]:
     """Every note a human keyed: onset tags AND outcome markers.
 

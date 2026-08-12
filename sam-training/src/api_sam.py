@@ -6,6 +6,7 @@ the stage 2/3 scoring independently readable.
 """
 from __future__ import annotations
 
+import time
 from pathlib import Path
 
 import cv2
@@ -14,7 +15,7 @@ from flask import Blueprint, Response, jsonify, request
 
 from . import (config, exemplars, intervals, judging, models, motion3d, ncc,
                notes, onset_csv, overlays, pellet_model as pm, pipeline, rig,
-               stereo, store, sweep_cache)
+               stereo, store, sweep_cache, tagwrite, trials)
 
 bp = Blueprint("sam_api", __name__)
 PREFIX = "/sam-training/api"
@@ -155,6 +156,202 @@ def api_pellet_check():
         out[cam]["centre"] = [camera.cx, camera.cy]
     return jsonify({"frame": frame, "threshold": threshold, "cameras": out,
                     "ok": all(v.get("ok") for v in out.values()) and bool(out)})
+
+
+# ── stored trial results, batch scoring, and writing tags ───────────────────
+
+
+def _trial_rows(video):
+    """Stored results joined to the current windows and the live tag state."""
+    st = pipeline.windows_for(_project(), video)
+    wins = [] if st is None else st.windows
+    stored = {}
+    for r in trials.read(video):
+        try:
+            stored[int(float(r["marker"]))] = r
+        except (TypeError, ValueError):
+            continue
+    rows = notes.read_notes(video)
+    sig = judging.signature(_judge())
+    out = []
+    for i, w in enumerate(wins):
+        got = stored.get(w.end)
+        state = notes.tag_state(rows, w.start, w.end)
+        out.append({
+            "index": i, "marker": w.end, "start": w.start, "end": w.end,
+            "outcome": w.outcome, "n_candidates": w.n_candidates,
+            "onset": w.onset_frame,
+            "result": None if got is None else {
+                "pick": int(float(got["pick"])), "mode": got.get("mode"),
+                "score": float(got["score"]) if str(got.get("score") or "").strip() else None,
+                "judge_sig": got.get("judge_sig"),
+                # Not an error, just visible: this row was scored under a
+                # different gate than the one currently in force.
+                "stale": got.get("judge_sig") not in ("", None, sig),
+                "scored_at": got.get("scored_at"),
+            },
+            "tag": state,
+        })
+    return out
+
+
+@bp.get(f"{PREFIX}/trials")
+def api_trials():
+    video = _resolve(request.args.get("video"))
+    if not video:
+        return jsonify({"error": "video not found"}), 404
+    return jsonify({"video": video, "judge_sig": judging.signature(_judge()),
+                    "trials": _trial_rows(video),
+                    "can_undo": bool(tagwrite.last_batch(notes.csv_path_for(video)))})
+
+
+@bp.post(f"{PREFIX}/trials/batch")
+def api_trials_batch():
+    """Score every trial and store the result. Resumable and cancellable."""
+    body = request.get_json(force=True) or {}
+    video = _resolve(body.get("video"))
+    if not video:
+        return jsonify({"error": "video not found"}), 404
+    mode = "3d" if str(body.get("mode") or "").lower() == "3d" else "2d"
+    recompute = bool(body.get("recompute"))
+    prompt = (body.get("prompt") or "right paw").strip()
+    topk = int(body.get("topk") or 5)
+
+    def run(job):
+        st = pipeline.windows_for(_project(), video)
+        if st is None:
+            raise RuntimeError("not swept yet — run the pellet sweep first")
+        wins = st.windows
+        done = set() if recompute else trials.scored_markers(video)
+        todo = [w for w in wins if w.end not in done]
+        sig = judging.signature(_judge())
+        stamp = time.strftime("%Y-%m-%dT%H:%M:%S")
+        scorer = _score_window_3d if mode == "3d" else _score_window
+        ok, failed = 0, []
+        for n, w in enumerate(todo):
+            job.progress = n / max(1, len(todo))
+            job.message = f"trial {n + 1}/{len(todo)} (marker {w.end})"
+            try:
+                res = scorer(None, video, w.start, w.end, w.outcome, prompt, topk)
+            except Exception as exc:                    # noqa: BLE001
+                # One bad trial must not abandon the other 128.
+                failed.append({"marker": w.end, "error": f"{type(exc).__name__}: {exc}"[:200]})
+                continue
+            kept = res.get("frames") or []
+            trials.merge(video, [trials.Row(
+                marker=w.end, window_start=w.start, outcome=w.outcome, mode=mode,
+                pick=int(res["pick"]),
+                score=_score_at(res, int(res["pick"])),
+                n_candidates=len(kept),
+                n_kept=len(kept) - int(res.get("n_rejected") or 0),
+                prompt=prompt, judge_sig=sig, scored_at=stamp)])
+            ok += 1
+        return {"scored": ok, "skipped": len(wins) - len(todo),
+                "failed": failed, "mode": mode}
+
+    job = store.registry.start(f"batch-{mode}", run)
+    return jsonify({"job": job.id, "state": "running"})
+
+
+def _score_at(result, frame):
+    frames = result.get("frames") or []
+    sims = result.get("similarity") or []
+    if frame in frames and len(sims) == len(frames):
+        return float(sims[frames.index(frame)])
+    return None
+
+
+def _write_tags(video, requests_):
+    """Place and commit ``[(marker, start, frame, note)]``. Returns a report."""
+    csv_path = notes.csv_path_for(video)
+    existing = tagwrite.notes_by_frame(csv_path)
+    pairs, spans, placed, refused = [], {}, [], []
+    for marker, start, frame, note in requests_:
+        at, blocked = tagwrite.place(existing, frame)
+        if at is None:
+            refused.append({"marker": marker, "frame": frame,
+                            "blocked": [{"frame": f, "note": v} for f, v in blocked]})
+            continue
+        pairs.append((at, note))
+        spans[at] = (start, marker)
+        existing[at] = note              # so two tags cannot claim one row
+        placed.append({"marker": marker, "frame": at, "note": note,
+                       "shifted": at - frame})
+    batch = tagwrite.commit(csv_path, pairs, spans=spans, backup=True) if pairs else None
+    return {"written": len(pairs), "batch": batch,
+            "placed": placed, "refused": refused}
+
+
+@bp.post(f"{PREFIX}/tag")
+def api_tag():
+    """Write ONE reviewed tag: a real start-success / start-failure.
+
+    Real, not `-candidate`: a human is looking at the frame when they press it.
+    """
+    body = request.get_json(force=True) or {}
+    video = _resolve(body.get("video"))
+    if not video:
+        return jsonify({"error": "video not found"}), 404
+    try:
+        marker = int(body["marker"])
+        frame = int(body["frame"])
+    except (KeyError, TypeError, ValueError):
+        return jsonify({"error": "marker and frame required"}), 400
+    outcome = str(body.get("outcome") or "s")
+    if outcome not in notes.OUTCOMES:
+        return jsonify({"error": "outcome must be s or f"}), 400
+    note = (notes.ONSET_SUCCESS if outcome == notes.OUTCOME_SUCCESS
+            else notes.ONSET_FAILURE)
+    start = int(body.get("start") or 0)
+    report = _write_tags(video, [(marker, start, frame, note)])
+    if report["refused"]:
+        blocked = report["refused"][0]["blocked"]
+        near = ", ".join(f"{b['frame']}:{b['note']}" for b in blocked[:4])
+        return jsonify({"error": f"every frame within ±{tagwrite.RADIUS} of {frame} "
+                                 f"already has a note ({near}) — nothing written",
+                        **report}), 409
+    return jsonify(report)
+
+
+@bp.post(f"{PREFIX}/tag/batch")
+def api_tag_batch():
+    """Write every stored result as a `-candidate`.
+
+    `-candidate`, not the real tag: nobody has looked at these. The suffix is
+    also what keeps them out of the exemplar bank, since notes.onsets() matches
+    exactly — so unreviewed output can never become training data.
+    """
+    body = request.get_json(force=True) or {}
+    video = _resolve(body.get("video"))
+    if not video:
+        return jsonify({"error": "video not found"}), 404
+    include_tagged = bool(body.get("include_tagged"))
+    rows = notes.read_notes(video)
+    todo, skipped = [], 0
+    for t in _trial_rows(video):
+        if not t["result"]:
+            continue
+        if t["tag"] and t["tag"]["kind"] == "human" and not include_tagged:
+            skipped += 1
+            continue
+        base = (notes.ONSET_SUCCESS if t["outcome"] == notes.OUTCOME_SUCCESS
+                else notes.ONSET_FAILURE)
+        todo.append((t["marker"], t["start"], t["result"]["pick"],
+                     base + notes.CANDIDATE_SUFFIX))
+    report = _write_tags(video, todo)
+    report["skipped_tagged"] = skipped
+    return jsonify(report)
+
+
+@bp.post(f"{PREFIX}/tag/undo")
+def api_tag_undo():
+    body = request.get_json(force=True) or {}
+    video = _resolve(body.get("video"))
+    if not video:
+        return jsonify({"error": "video not found"}), 404
+    n = tagwrite.undo(notes.csv_path_for(video))
+    return jsonify({"reverted": n,
+                    "can_undo": bool(tagwrite.last_batch(notes.csv_path_for(video)))})
 
 
 @bp.get(f"{PREFIX}/judge")

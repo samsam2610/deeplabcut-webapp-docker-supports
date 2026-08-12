@@ -1089,6 +1089,40 @@
           <button class="btn-sm" id="ia3ds-sam-run3d" title="Segment both cameras, cross-check the two paws geometrically, triangulate, and score on both views">Run SAM + DINO 3D</button>
         </div>
 
+        <!-- ── batch scoring: stores one result per trial, resumable ──────── -->
+        <div class="ia3ds-sam-row">
+          <button class="btn-sm" id="ia3ds-batch-2d" title="Score every trial with the single-camera scorer (~32 min for 129 trials)">Batch 2D</button>
+          <button class="btn-sm" id="ia3ds-batch-3d" title="Score every trial with both cameras and write a 3D paw track for each (~75 min for 129 trials)">Batch 3D</button>
+          <label class="ia3ds-overwrite" title="Re-score trials that already have a stored result">
+            <input type="checkbox" id="ia3ds-batch-recompute"/> recompute
+          </label>
+          <span class="ia3ds-sam-status" id="ia3ds-batch-status"></span>
+        </div>
+
+        <!-- ── writing into the companion CSV ─────────────────────────────── -->
+        <div class="ia3ds-sam-row">
+          <label for="ia3ds-tag-outcome" title="Read from this trial's s/f marker. Flip it if you disagree.">tag as</label>
+          <select id="ia3ds-tag-outcome">
+            <option value="s">start-success</option>
+            <option value="f">start-failure</option>
+          </select>
+          <button class="btn-sm" id="ia3ds-tag-add" title="Write this trial's proposed frame into the companion CSV as a real onset tag">Add tag</button>
+          <button class="btn-sm" id="ia3ds-tag-batch" title="Write every stored result as start-*-candidate">Add all as candidates</button>
+          <label class="ia3ds-overwrite" title="Also write beside trials that already carry a human tag — how you measure ±5 agreement">
+            <input type="checkbox" id="ia3ds-tag-include"/> include tagged
+          </label>
+          <button class="btn-sm" id="ia3ds-tag-undo" title="Revert the last batch of writes, restoring what each cell held before">Undo last write</button>
+        </div>
+        <p class="ia3ds-sam-note" id="ia3ds-tag-note">
+          <b>Add tag</b> writes a real <code>start-success</code>/<code>start-failure</code>
+          — you are looking at the frame, so it counts as yours, and it will be
+          used as a training exemplar. <b>Add all as candidates</b> writes
+          <code>start-*-candidate</code>, which the exemplar builder ignores by
+          exact match, so unreviewed proposals never become training data.
+          A tag never displaces an existing note: it shifts to the nearest free
+          frame within ±5, or refuses and tells you what is in the way.
+        </p>
+
         <div class="ia3ds-sam-toggles">
           <label><input type="checkbox" id="ia3ds-sam-show-mask" checked/> SAM mask</label>
           <label><input type="checkbox" id="ia3ds-sam-show-box" checked/> mask bbox</label>

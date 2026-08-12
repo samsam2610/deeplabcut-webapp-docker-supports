@@ -45,6 +45,9 @@ import {
 } from "./internal/trial_judge.mjs";
 import { pairCandidates } from "./internal/candidate_pairs.mjs";
 import { tryAcquire, release } from "./internal/run_lock.mjs";
+import {
+  trialLabel, defaultOutcome, writableTrials,
+} from "./internal/trial_labels.mjs";
 
 // ── Module state ────────────────────────────────────────────────────────────
 
@@ -3844,6 +3847,8 @@ const _samState = {
   windows: [],
   active: null,      // {start, end, outcome, onset, frames[], sim[], armed[], pick}
   masks: new Map(),  // frame -> {rle,w,h}
+  trials: [],        // stored results + derived tag state, from /trials
+  canUndo: false,
   // Every human s/f marker and start tag in the video. The strip drew only the
   // start tags, and a tag-pending video has none — so on the video where this
   // panel is actually used, no human mark was ever on screen.
@@ -3908,23 +3913,31 @@ async function _samLoadWindows() {
     _samState.windows = d.windows || [];
     _samState.markers = d.markers || [];
     if (d.judge) { _samState.judge = clampJudge(d.judge); _samJudgeRender(); }
+    // Stored results and live tag state, so the dropdown says what has been
+    // scored and what is already tagged. Best-effort: a panel that cannot show
+    // the extras must still let you pick a trial.
+    try {
+      const t = await _samJSON(`${SAMAPI}/trials?video=${encodeURIComponent(video)}`);
+      _samState.trials = t.trials || [];
+      _samState.canUndo = !!t.can_undo;
+    } catch (e) { _samState.trials = []; }
     const sel = _samEl("ia3ds-sam-trial");
     sel.innerHTML = "";
     let ambiguous = 0;
     _samState.windows.forEach((w, i) => {
       const o = document.createElement("option");
       o.value = String(i);
-      const truth = w.onset == null ? "orphan" : `tag ${w.onset}`;
+      const t = _samState.trials[i] || { ...w, result: null, tag: null };
       // A marker inside the window means some of its candidates are followed
       // by THAT marker, not this one, so their outcome is a different trial's.
       // Only reachable with guard > 0, and never silent when it is.
       const inside = intervening(_samState.markers, w.start, w.end);
       if (inside.length) ambiguous += 1;
-      o.textContent = `#${i + 1}  ${w.outcome}  [${w.start}–${w.end}]  `
-        + `${w.n_candidates} cand  ${truth}`
+      o.textContent = trialLabel({ ...t, ...w, result: t.result, tag: t.tag }, i)
         + (inside.length ? `  ⚠ ${inside.length} marker(s) inside` : "");
       sel.appendChild(o);
     });
+    _samTagRender();
     _samSay(`${_samState.windows.length} trial windows`
             + (ambiguous ? ` · ${ambiguous} ambiguous (guard ${_samState.judge.guard})` : ""));
     if (_samState.windows.length) _samSelectTrial(0);
@@ -3987,6 +4000,134 @@ async function _samJudgeApply(next) {
   } catch (e) {
     if (status) status.textContent = `judge: ${e.message}`;
   }
+}
+
+// ── batch scoring and writing tags ──────────────────────────────────────────
+
+function _samBatchButtons() {
+  return ["ia3ds-sam-run", "ia3ds-sam-run3d", "ia3ds-batch-2d",
+          "ia3ds-batch-3d"].map((id) => _samEl(id));
+}
+
+function _samTagRender() {
+  const i = parseInt(_samEl("ia3ds-sam-trial")?.value ?? "-1", 10);
+  const t = _samState.trials[i];
+  const sel = _samEl("ia3ds-tag-outcome");
+  // Pre-set from the trial's OWN marker — the label is read, never predicted —
+  // and left flippable, because the human is looking at the frame.
+  if (sel && t) sel.value = defaultOutcome(t);
+  const undo = _samEl("ia3ds-tag-undo");
+  if (undo) undo.disabled = !_samState.canUndo;
+  const add = _samEl("ia3ds-tag-add");
+  if (add) add.disabled = !(t && t.result) && _samState.active?.pick == null;
+  const n = writableTrials(_samState.trials,
+                           !!_samEl("ia3ds-tag-include")?.checked).length;
+  const batch = _samEl("ia3ds-tag-batch");
+  if (batch) {
+    batch.disabled = n === 0;
+    batch.textContent = n ? `Add all ${n} as candidates` : "Add all as candidates";
+  }
+}
+
+async function _samBatch(mode) {
+  const video = _samCurrentVideo();
+  if (!video) { _samSay("open a video pair first", true); return; }
+  const buttons = _samBatchButtons();
+  if (!tryAcquire(buttons)) return;
+  const bar = _samEl("ia3ds-sam-progress");
+  if (bar.firstElementChild) bar.firstElementChild.style.width = "0%";
+  bar.classList.remove("hidden");
+  const status = _samEl("ia3ds-batch-status");
+  try {
+    const started = await _samJSON(`${SAMAPI}/trials/batch`, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        video, mode,
+        recompute: !!_samEl("ia3ds-batch-recompute")?.checked,
+        prompt: (_samEl("ia3ds-sam-prompt").value || "right paw").trim(),
+        topk: parseInt(_samEl("ia3ds-sam-topk").value, 10) || 5,
+      }),
+    });
+    const r = await _samPoll(started.job, bar, (j) => {
+      if (status) status.textContent = j.message || "";
+    });
+    const failed = (r.failed || []).length;
+    if (status) {
+      status.textContent = `scored ${r.scored}, skipped ${r.skipped}`
+        + (failed ? `, ${failed} failed` : "");
+      status.classList.toggle("err", failed > 0);
+    }
+    // Say which ones failed rather than only how many: a batch that quietly
+    // drops trials looks the same as one that had nothing to do.
+    if (failed) {
+      console.warn("[sam] batch failures", r.failed);
+      _samSay(`${failed} trial(s) failed — see the console`, true);
+    }
+    await _samLoadWindows();
+  } catch (e) {
+    if (status) { status.textContent = e.message; status.classList.add("err"); }
+  } finally {
+    bar.classList.add("hidden");
+    release(buttons);
+  }
+}
+
+function _samTagReport(r) {
+  const bits = [];
+  if (r.written) bits.push(`wrote ${r.written}`);
+  const shifted = (r.placed || []).filter((p) => p.shifted);
+  if (shifted.length) {
+    bits.push(`${shifted.length} shifted to a free frame `
+      + `(${shifted.slice(0, 3).map((p) => `${p.frame}${p.shifted > 0 ? "+" : ""}${p.shifted}`).join(", ")})`);
+  }
+  if (r.skipped_tagged) bits.push(`${r.skipped_tagged} already tagged, skipped`);
+  if ((r.refused || []).length) bits.push(`${r.refused.length} refused (±5 full)`);
+  return bits.join("  ·  ") || "nothing to write";
+}
+
+async function _samAddTag() {
+  const video = _samCurrentVideo();
+  const i = parseInt(_samEl("ia3ds-sam-trial")?.value ?? "-1", 10);
+  const t = _samState.trials[i];
+  const pick = _samState.active?.pick ?? t?.result?.pick;
+  if (!video || !t || pick == null) { _samSay("score this trial first", true); return; }
+  try {
+    const r = await _samJSON(`${SAMAPI}/tag`, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ video, marker: t.marker, start: t.start,
+                             frame: pick,
+                             outcome: _samEl("ia3ds-tag-outcome").value }),
+    });
+    _samSay(_samTagReport(r));
+    await _samLoadWindows();
+  } catch (e) { _samSay(`tag: ${e.message}`, true); }
+}
+
+async function _samAddAllCandidates() {
+  const video = _samCurrentVideo();
+  if (!video) return;
+  try {
+    const r = await _samJSON(`${SAMAPI}/tag/batch`, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ video,
+        include_tagged: !!_samEl("ia3ds-tag-include")?.checked }),
+    });
+    _samSay(_samTagReport(r));
+    await _samLoadWindows();
+  } catch (e) { _samSay(`tag: ${e.message}`, true); }
+}
+
+async function _samUndoTags() {
+  const video = _samCurrentVideo();
+  if (!video) return;
+  try {
+    const r = await _samJSON(`${SAMAPI}/tag/undo`, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ video }),
+    });
+    _samSay(r.reverted ? `reverted ${r.reverted} tag(s)` : "nothing to undo");
+    await _samLoadWindows();
+  } catch (e) { _samSay(`undo: ${e.message}`, true); }
 }
 
 // A sweep is ~3.5 min of CPU, so it is offered rather than triggered: the panel
@@ -4066,7 +4207,7 @@ async function _samRunMode(mode) {
   // starts a SECOND job on the same window: they compete for the same GPU, both
   // run to completion, and whichever finishes last overwrites the other's
   // result. Observed — two POSTs seven seconds apart, 22 polls each.
-  const buttons = ["ia3ds-sam-run", "ia3ds-sam-run3d"].map((id) => _samEl(id));
+  const buttons = _samBatchButtons();
   if (!tryAcquire(buttons)) return;                 // a run is already in flight
   const prompt = (_samEl("ia3ds-sam-prompt").value || "paw").trim();
   const topk = parseInt(_samEl("ia3ds-sam-topk").value, 10) || 5;
@@ -4115,9 +4256,10 @@ async function _samRunMode(mode) {
   }
 }
 
-async function _samPoll(jobId, bar) {
+async function _samPoll(jobId, bar, onTick) {
   for (;;) {
     const j = await _samJSON(`${SAMAPI}/job/${jobId}`);
+    if (onTick) onTick(j);
     bar.firstElementChild.style.width = `${Math.round((j.progress || 0) * 100)}%`;
     if (j.state === "running") { await new Promise((r) => setTimeout(r, 1200)); continue; }
     if (j.state === "error") throw new Error(j.message || "job failed");
@@ -4818,6 +4960,12 @@ function _samWirePanel() {
   reload.onclick = _samLoadWindows;
   _samEl("ia3ds-sam-run").onclick = _samRun;
   on("ia3ds-sam-run3d", "onclick", _samRun3d);
+  on("ia3ds-batch-2d", "onclick", () => _samBatch("2d"));
+  on("ia3ds-batch-3d", "onclick", () => _samBatch("3d"));
+  on("ia3ds-tag-add", "onclick", _samAddTag);
+  on("ia3ds-tag-batch", "onclick", _samAddAllCandidates);
+  on("ia3ds-tag-undo", "onclick", _samUndoTags);
+  on("ia3ds-tag-include", "onchange", _samTagRender);
   _samEl("ia3ds-sam-sweep").onclick = _samRunSweep;
   _samEl("ia3ds-sam-build-csv").onclick = _samBuildCsv;
   _samEl("ia3ds-pellet-save").onclick = _pelletSave;
@@ -4867,7 +5015,10 @@ function _samWirePanel() {
     const r = ev.currentTarget.getBoundingClientRect();
     _samGoToFrame(Math.round(((ev.clientX - r.left) / r.width) * last));
   });
-  _samEl("ia3ds-sam-trial").onchange = (e) => _samSelectTrial(parseInt(e.target.value, 10));
+  _samEl("ia3ds-sam-trial").onchange = (e) => {
+    _samSelectTrial(parseInt(e.target.value, 10));
+    _samTagRender();
+  };
   ["ia3ds-sam-show-mask", "ia3ds-sam-show-box", "ia3ds-sam-show-pellet",
    "ia3ds-sam-show-armed", "ia3ds-sam-only-cands"].forEach((id) => {
     const el = _samEl(id);

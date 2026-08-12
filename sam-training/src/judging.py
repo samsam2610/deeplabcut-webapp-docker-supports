@@ -118,6 +118,19 @@ def from_dict(data) -> Judge:
                  guard=min(guard, lookback))
 
 
+def signature(judge: Judge) -> str:
+    """Short, stable hash of the judging parameters.
+
+    Stored alongside a scoring result so a row produced under a different gate
+    can be SEEN. It deliberately invalidates nothing — silently discarding an
+    hour of batch scoring because a threshold moved would be worse than showing
+    that it is stale.
+    """
+    import hashlib
+    raw = "|".join(f"{k}={v}" for k, v in sorted(judge.to_dict().items()))
+    return hashlib.sha1(raw.encode()).hexdigest()[:8]
+
+
 def path_for(project_path) -> Path:
     return Path(project_path) / FILENAME
 
