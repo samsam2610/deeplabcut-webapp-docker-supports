@@ -39,3 +39,21 @@ export function writableTrials(list, includeTagged = false) {
   return (list || []).filter((t) => t.result
     && !(t.tag && t.tag.kind === "human" && !includeTagged));
 }
+
+/**
+ * What the thumbnail strips should show for a trial.
+ *
+ * Always `{clear: true, …}`: every trial change empties BOTH strips first.
+ * Clearing only the 2D one left the previous trial's paired thumbnails on
+ * screen while browsing, which is indistinguishable from the new trial having
+ * those candidates.
+ *
+ * `render` is null when the trial has no stored result — nothing to draw, and
+ * drawing the last run's frames would be a lie about this trial.
+ */
+export function candidateStrips(trial) {
+  const r = trial && trial.result;
+  const top = (r && r.top) || [];
+  if (!r || !top.length) return { clear: true, render: null, top: [] };
+  return { clear: true, render: r.mode === "3d" ? "pairs" : "single", top };
+}

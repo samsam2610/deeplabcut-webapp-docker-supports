@@ -183,6 +183,7 @@ def _trial_rows(video):
             "onset": w.onset_frame,
             "result": None if got is None else {
                 "pick": int(float(got["pick"])), "mode": got.get("mode"),
+                "top": trials.parse_top(got.get("top")),
                 "score": float(got["score"]) if str(got.get("score") or "").strip() else None,
                 "judge_sig": got.get("judge_sig"),
                 # Not an error, just visible: this row was scored under a
@@ -200,7 +201,11 @@ def api_trials():
     video = _resolve(request.args.get("video"))
     if not video:
         return jsonify({"error": "video not found"}), 404
+    sib = pm.sibling_video(video)
     return jsonify({"video": video, "judge_sig": judging.signature(_judge()),
+                    # cam1 thumbnails need it, and it is the same for every
+                    # trial in the video, so it is sent once.
+                    "sibling": None if sib is None else str(sib),
                     "trials": _trial_rows(video),
                     "can_undo": bool(tagwrite.last_batch(notes.csv_path_for(video)))})
 
@@ -242,6 +247,9 @@ def api_trials_batch():
                 marker=w.end, window_start=w.start, outcome=w.outcome, mode=mode,
                 pick=int(res["pick"]),
                 score=_score_at(res, int(res["pick"])),
+                # The ranking, so browsing to this trial later can redraw the
+                # strip without re-scoring it.
+                top=[int(t["frame"]) for t in (res.get("top") or [])],
                 n_candidates=len(kept),
                 n_kept=len(kept) - int(res.get("n_rejected") or 0),
                 prompt=prompt, judge_sig=sig, scored_at=stamp)])

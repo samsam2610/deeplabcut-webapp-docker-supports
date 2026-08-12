@@ -46,7 +46,7 @@ import {
 import { pairCandidates } from "./internal/candidate_pairs.mjs";
 import { tryAcquire, release } from "./internal/run_lock.mjs";
 import {
-  trialLabel, defaultOutcome, writableTrials,
+  trialLabel, defaultOutcome, writableTrials, candidateStrips,
 } from "./internal/trial_labels.mjs";
 
 // ── Module state ────────────────────────────────────────────────────────────
@@ -3848,6 +3848,7 @@ const _samState = {
   active: null,      // {start, end, outcome, onset, frames[], sim[], armed[], pick}
   masks: new Map(),  // frame -> {rle,w,h}
   trials: [],        // stored results + derived tag state, from /trials
+  sibling: null,     // cam1 path, for cam1 thumbnails of a stored result
   canUndo: false,
   // Every human s/f marker and start tag in the video. The strip drew only the
   // start tags, and a tag-pending video has none — so on the video where this
@@ -3919,6 +3920,7 @@ async function _samLoadWindows() {
     try {
       const t = await _samJSON(`${SAMAPI}/trials?video=${encodeURIComponent(video)}`);
       _samState.trials = t.trials || [];
+      _samState.sibling = t.sibling || null;
       _samState.canUndo = !!t.can_undo;
     } catch (e) { _samState.trials = []; }
     const sel = _samEl("ia3ds-sam-trial");
@@ -4174,10 +4176,23 @@ function _samOfferSweep() {
 function _samSelectTrial(i) {
   const w = _samState.windows[i];
   if (!w) return;
-  _samState.active = { ...w, frames: [], sim: [], pick: null };
+  const stored = _samState.trials[i]?.result || null;
+  // Seed from the stored result so a browsed trial shows what the batch found:
+  // the pick on the strip and its ranked frames in the thumbnails. Without this
+  // a batch produced 129 results you could only see by re-scoring each one.
+  _samState.active = { ...w, frames: [], sim: [],
+                       pick: stored ? stored.pick : null };
   _samState.masks.clear();
   _samDrawStrip();
-  _samEl("ia3ds-sam-cands").innerHTML = "";
+  // BOTH strips, every time. Clearing only the 2D one left the previous
+  // trial's paired thumbnails on screen while browsing — the reported bug.
+  const plan = candidateStrips(_samState.trials[i]);
+  _samClearCandidates();
+  if (plan.render) {
+    const top = plan.top.map((f) => ({ frame: f, score: NaN }));
+    if (plan.render === "pairs") _samRenderPairs(top, _samState.sibling);
+    else _samRenderCandidates(top);
+  }
   const inside = intervening(_samState.markers, w.start, w.end);
   _samEl("ia3ds-sam-note").textContent = inside.length
     ? `⚠ this window spans ${inside.length} earlier marker(s) `
@@ -4438,6 +4453,17 @@ function _samRenderPairs(top, siblingPath) {
   });
 }
 
+/** Empty both thumbnail strips. Anything that changes trial must call this. */
+function _samClearCandidates() {
+  const one = _samEl("ia3ds-sam-cands");
+  if (one) one.innerHTML = "";
+  _samEl("ia3ds-sam-pairs")?.classList.add("hidden");
+  ["ia3ds-sam-cands-cam0", "ia3ds-sam-cands-cam1"].forEach((id) => {
+    const el = _samEl(id);
+    if (el) el.innerHTML = "";
+  });
+}
+
 function _samRenderCandidates(top) {
   // Leaving the 3D strip up beside a fresh 2D run would show two different
   // runs' candidates as though they were one result.
@@ -4451,7 +4477,8 @@ function _samRenderCandidates(top) {
     div.className = "ia3ds-sam-cand" + (i === 0 ? " best" : "");
     div.innerHTML =
       `<img loading="lazy" src="${SAMAPI}/thumb?video=${encodeURIComponent(video)}&n=${c.frame}&mask=${_samEl("ia3ds-sam-show-mask")?.checked ? 1 : 0}&prompt=${encodeURIComponent((_samEl("ia3ds-sam-prompt")?.value || "paw").trim())}"/>
-       <div class="meta"><span>${c.frame}</span><span>${c.score.toFixed(3)}</span></div>`;
+       <div class="meta"><span>${c.frame}</span><span>${
+         Number.isFinite(c.score) ? c.score.toFixed(3) : "·"}</span></div>`;
     div.onclick = () => _samGoToFrame(c.frame);
     box.appendChild(div);
   });

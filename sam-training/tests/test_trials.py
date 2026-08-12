@@ -103,3 +103,46 @@ def test_the_signature_is_stable_for_the_same_parameters():
 
 def test_the_signature_is_short_enough_to_read_in_a_csv():
     assert len(judging.signature(judging.Judge())) <= 12
+
+
+# ── the frames a stored result surfaced ─────────────────────────────────────
+#
+# Reported after the first batch: browsing to another trial did not update the
+# candidate thumbnails. Two causes; this is the storage half. A stored row held
+# only the pick, so a browsed trial had nothing to render even in principle —
+# the top frames existed only in the live response of the run that produced them.
+
+def test_the_top_frames_round_trip(tmp_path):
+    dest = tmp_path / "v_trials.csv"
+    trials.merge("/v/v.avi", [_row(top=[24045, 24046, 24044])], dest=dest)
+    got = trials.read("/v/v.avi", dest)[0]
+    assert trials.parse_top(got["top"]) == [24045, 24046, 24044]
+
+
+def test_the_stored_order_is_the_ranking(tmp_path):
+    """Column i of the thumbnail strip is the i-th best candidate; sorting the
+    frames would silently re-rank them."""
+    dest = tmp_path / "v_trials.csv"
+    trials.merge("/v/v.avi", [_row(top=[24046, 24041, 24045])], dest=dest)
+    got = trials.read("/v/v.avi", dest)[0]
+    assert trials.parse_top(got["top"]) == [24046, 24041, 24045]
+
+
+def test_a_row_without_top_frames_parses_to_empty(tmp_path):
+    dest = tmp_path / "v_trials.csv"
+    trials.merge("/v/v.avi", [_row()], dest=dest)
+    assert trials.parse_top(trials.read("/v/v.avi", dest)[0]["top"]) == []
+
+
+def test_parse_top_tolerates_junk():
+    assert trials.parse_top("") == []
+    assert trials.parse_top(None) == []
+    assert trials.parse_top("12 x 14") == [12, 14]
+
+
+def test_top_does_not_collide_with_the_csv_separator(tmp_path):
+    """Space-separated inside one cell — a comma would need quoting and the
+    file is read by eye as often as by code."""
+    dest = tmp_path / "v_trials.csv"
+    trials.merge("/v/v.avi", [_row(top=[1, 2, 3])], dest=dest)
+    assert "," not in dest.read_text().splitlines()[1].split(",")[-2]

@@ -17,6 +17,12 @@ from dataclasses import dataclass
 from pathlib import Path
 
 COLUMNS = ["marker", "window_start", "outcome", "mode", "pick", "score",
+           # The ranked frames the run surfaced, space-separated in one cell.
+           # Without them a browsed trial has nothing to show: the pick alone
+           # cannot reconstruct the thumbnail strip. Space, not comma, so the
+           # cell needs no quoting — this file is read by eye as often as by
+           # code.
+           "top",
            "n_candidates", "n_kept", "prompt", "judge_sig", "scored_at"]
 
 SUFFIX = "_trials.csv"
@@ -35,6 +41,7 @@ class Row:
     mode: str
     pick: int
     score: float | None = None
+    top: list | None = None
     n_candidates: int | None = None
     n_kept: int | None = None
     prompt: str = ""
@@ -47,6 +54,7 @@ class Row:
         return {"marker": int(self.marker), "window_start": int(self.window_start),
                 "outcome": self.outcome, "mode": self.mode, "pick": int(self.pick),
                 "score": num(self.score),
+                "top": " ".join(str(int(f)) for f in (self.top or [])),
                 "n_candidates": "" if self.n_candidates is None else int(self.n_candidates),
                 "n_kept": "" if self.n_kept is None else int(self.n_kept),
                 "prompt": self.prompt, "judge_sig": self.judge_sig,
@@ -84,6 +92,17 @@ def merge(video_path, rows, dest=None) -> Path:
         for k in sorted(existing):
             w.writerow(existing[k])
     tmp.replace(out)                    # atomic: a killed batch leaves no stub
+    return out
+
+
+def parse_top(raw) -> list[int]:
+    """The stored ranking, in order. Order IS the ranking — never sorted."""
+    out = []
+    for part in str(raw or "").split():
+        try:
+            out.append(int(float(part)))
+        except (TypeError, ValueError):
+            continue
     return out
 
 

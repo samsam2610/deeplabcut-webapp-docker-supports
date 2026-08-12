@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
-  trialLabel, defaultOutcome, tagNote, writableTrials,
+  trialLabel, defaultOutcome, tagNote, writableTrials, candidateStrips,
 } from "../../src/static/internal/trial_labels.mjs";
 
 const base = {
@@ -90,4 +90,46 @@ test("a trial already carrying OUR candidate is still writable", () => {
 test("an empty list is not an error", () => {
   assert.deepEqual(writableTrials([]), []);
   assert.deepEqual(writableTrials(undefined), []);
+});
+
+// ── what the thumbnail strips show when you browse ──────────────────────────
+//
+// Reported after the first batch: the candidate frames and their segmentations
+// did not update when switching trials. Two causes — the batch stored only the
+// pick, and the trial-change handler cleared the 2D strip but not the 3D one,
+// so the previous trial's paired thumbnails stayed on screen.
+
+test("changing trial always clears both strips", () => {
+  // Not "clear if there is something new to draw": a trial with no result must
+  // not inherit the last one's thumbnails.
+  assert.equal(candidateStrips(null).clear, true);
+  assert.equal(candidateStrips({ result: null }).clear, true);
+  assert.equal(candidateStrips({ result: { mode: "3d", top: [1] } }).clear, true);
+});
+
+test("a trial with no stored result renders nothing", () => {
+  const plan = candidateStrips({ result: null });
+  assert.equal(plan.render, null);
+  assert.deepEqual(plan.top, []);
+});
+
+test("a stored 3D result renders the paired strip", () => {
+  const plan = candidateStrips({ result: { mode: "3d", top: [24045, 24046] } });
+  assert.equal(plan.render, "pairs");
+  assert.deepEqual(plan.top, [24045, 24046]);
+});
+
+test("a stored 2D result renders the single strip", () => {
+  assert.equal(candidateStrips({ result: { mode: "2d", top: [1, 2] } }).render, "single");
+});
+
+test("a result with an empty ranking renders nothing", () => {
+  // A batch row written before the ranking was stored; better blank than the
+  // previous trial's frames.
+  assert.equal(candidateStrips({ result: { mode: "3d", top: [] } }).render, null);
+});
+
+test("the stored order is preserved, not sorted", () => {
+  const plan = candidateStrips({ result: { mode: "3d", top: [24046, 24041, 24045] } });
+  assert.deepEqual(plan.top, [24046, 24041, 24045]);
 });
