@@ -1019,6 +1019,39 @@
           <span class="ia3ds-sam-status" id="ia3ds-sam-csv-status"></span>
         </div>
 
+        <!-- ── what counts as a candidate ─────────────────────────────────
+             Applied to the sweep's raw NCC trace, so changing them re-judges
+             instantly and never triggers a re-sweep. -->
+        <details class="ia3ds-pellet" id="ia3ds-judge">
+          <summary>Candidate judging</summary>
+          <div class="ia3ds-sam-row" style="margin-top:.45rem;flex-wrap:wrap">
+            <label for="ia3ds-judge-threshold" title="NCC above which the pellet counts as present">pellet thr</label>
+            <input type="number" id="ia3ds-judge-threshold" step="0.01" min="0" max="1" style="width:5rem"/>
+            <label for="ia3ds-judge-minrun" title="Samples a state flip must persist (debounce), at the sweep stride">debounce</label>
+            <input type="number" id="ia3ds-judge-minrun" step="1" min="1" style="width:4.5rem"/>
+            <label for="ia3ds-judge-lookback" title="How far a window reaches back from its outcome marker">lookback</label>
+            <input type="number" id="ia3ds-judge-lookback" step="50" min="1" style="width:5.5rem"/>
+          </div>
+          <div class="ia3ds-sam-row" style="flex-wrap:wrap">
+            <label for="ia3ds-judge-mincand" title="Armed frames below which a trial is skipped entirely">min cand</label>
+            <input type="number" id="ia3ds-judge-mincand" step="1" min="0" style="width:4.5rem"/>
+            <label for="ia3ds-judge-guard" title="Frames a window may reach back PAST the previous s/f marker. 0 keeps every candidate's outcome unambiguous.">past prev marker</label>
+            <input type="number" id="ia3ds-judge-guard" step="50" min="0" style="width:5.5rem"/>
+            <button class="btn-sm" id="ia3ds-judge-apply">Apply &amp; re-judge</button>
+            <button class="btn-sm" id="ia3ds-judge-reset" title="Back to the tuned defaults">Defaults</button>
+            <span class="ia3ds-sam-status" id="ia3ds-judge-status"></span>
+          </div>
+          <p class="ia3ds-sam-note">
+            <b>past prev marker</b> is why trial #11 of banh-mi-1 Jul 7 read as a
+            success: its window reached back over the <code>f</code> at 27536 and
+            took its label from the <code>s</code> 1379 frames later. At 0 a
+            window opens after the previous marker, so the marker that closes it
+            is the next one after every candidate in it. Raising it recovers the
+            ~1.2 % of onsets the human marked late, at the cost of that guarantee
+            — ambiguous trials are flagged ⚠ in the trial list.
+          </p>
+        </details>
+
         <div class="ia3ds-sam-row">
           <label for="ia3ds-sam-trial">Trial</label>
           <select id="ia3ds-sam-trial" style="flex:1;min-width:0"></select>
@@ -1051,6 +1084,8 @@
             <span><i class="ia3ds-sw armed"></i>pellet stationary</span>
             <span><i class="ia3ds-sw pick"></i>proposed onset</span>
             <span><i class="ia3ds-sw truth"></i>human tag (if any)</span>
+            <span><i class="ia3ds-sw mark-s"></i>human <code>s</code></span>
+            <span><i class="ia3ds-sw mark-f"></i>human <code>f</code></span>
             <span><i class="ia3ds-sw cursor"></i>current frame</span>
           </div>
         </div>
@@ -1062,7 +1097,7 @@
             <span><i class="ia3ds-sw sim"></i>pellet NCC</span>
             <span><i class="ia3ds-sw armed"></i>armed</span>
             <span><i class="ia3ds-sw sensor"></i>sensor edge</span>
-            <span><i class="ia3ds-sw truth"></i>human tag</span>
+            <span><i class="ia3ds-sw truth"></i>human tag / s-f marker</span>
             <span><i class="ia3ds-sw pick"></i>candidate</span>
           </div>
         </div>

@@ -206,3 +206,115 @@ def test_intervals_from_mask_rejects_mismatched_lengths():
 
 def test_intervals_from_mask_handles_empty():
     assert intervals.intervals_from_mask([], []) == []
+
+
+# ── trial boundaries ────────────────────────────────────────────────────────
+#
+# A window closes at its outcome marker and must not reach back past the
+# PREVIOUS one. It did, on 92.8% of trials, and the consequence was silent: on
+# banh-mi-1 Jul 7, 40% of all candidate frames sat on the far side of a nearer
+# marker and would be labelled from the wrong outcome. That is how trial #11 —
+# a failed reach with an `f` at 27536 — came out as start-success-candidate
+# from the `s` at 28915.
+
+def _long_armed(a, b, step=5):
+    """An armed interval dense enough to clear min_candidates."""
+    return intervals.Interval(a, b)
+
+
+def test_window_never_opens_at_or_before_the_previous_marker():
+    trials = [Trial(outcome_frame=10_000, outcome="f"),
+              Trial(outcome_frame=11_000, outcome="s")]
+    ivs = [_long_armed(7_000, 11_000)]
+    wins = intervals.build_windows(trials, ivs)
+    second = [w for w in wins if w.end == 11_000][0]
+    assert second.start == 10_001
+    assert all(a.start > 10_000 for a in second.armed)
+
+
+def test_the_marker_that_closes_a_window_is_the_next_one_after_every_frame():
+    """The invariant, stated directly: for any candidate, the window's own
+    marker is the first marker that follows it."""
+    markers = [5_000, 6_400, 7_100, 9_000]
+    trials = [Trial(outcome_frame=m, outcome="s") for m in markers]
+    ivs = [_long_armed(1_000, 9_000)]
+    for w in intervals.build_windows(trials, ivs):
+        nearer = [m for m in markers if w.start <= m < w.end]
+        assert not nearer, f"window {w.start}-{w.end} swallows {nearer}"
+
+
+def test_guard_reaches_exactly_that_far_past_the_previous_marker():
+    trials = [Trial(outcome_frame=10_000, outcome="f"),
+              Trial(outcome_frame=11_000, outcome="s")]
+    ivs = [_long_armed(7_000, 11_000)]
+    wins = intervals.build_windows(trials, ivs, guard=300)
+    second = [w for w in wins if w.end == 11_000][0]
+    assert second.start == 9_701
+
+
+def test_guard_cannot_reach_further_back_than_the_lookback():
+    trials = [Trial(outcome_frame=10_000, outcome="f"),
+              Trial(outcome_frame=11_000, outcome="s")]
+    ivs = [_long_armed(1_000, 11_000)]
+    wins = intervals.build_windows(trials, ivs, max_lookback=500, guard=100_000)
+    second = [w for w in wins if w.end == 11_000][0]
+    assert second.start == 10_500
+
+
+def test_the_first_trial_keeps_its_whole_lookback():
+    trials = [Trial(outcome_frame=5_000, outcome="s")]
+    ivs = [_long_armed(1_000, 5_000)]
+    win = intervals.build_windows(trials, ivs, max_lookback=3_000)[0]
+    assert win.start == 2_000
+
+
+def test_a_window_clipped_to_nothing_is_dropped_not_emitted_empty():
+    # Two markers 3 frames apart: the second window has no room for candidates.
+    trials = [Trial(outcome_frame=10_000, outcome="f"),
+              Trial(outcome_frame=10_003, outcome="s")]
+    ivs = [_long_armed(7_000, 10_003)]
+    wins = intervals.build_windows(trials, ivs)
+    assert [w.end for w in wins] == [10_000]
+
+
+def test_clipping_does_not_depend_on_the_order_trials_arrive_in():
+    ordered = [Trial(outcome_frame=10_000, outcome="f"),
+               Trial(outcome_frame=11_000, outcome="s")]
+    ivs = [_long_armed(7_000, 11_000)]
+    a = intervals.build_windows(ordered, ivs)
+    b = intervals.build_windows(list(reversed(ordered)), ivs)
+    assert [(w.start, w.end) for w in a] == [(w.start, w.end) for w in b]
+
+
+def test_trial_11_regression_banh_mi_jul_7():
+    """The reported case, with its real frame numbers.
+
+    Window [25915, 28915] closes on `s` at 28915 while `f` sits at 27536. Its
+    armed stretches at 26030-27370 are the FAILED reach; labelling them from
+    the later `s` is the bug.
+    """
+    trials = [Trial(outcome_frame=27_536, outcome="f"),
+              Trial(outcome_frame=28_915, outcome="s")]
+    armed = [intervals.Interval(26_030, 26_055), intervals.Interval(26_465, 26_580),
+             intervals.Interval(26_875, 27_250), intervals.Interval(27_325, 27_370),
+             intervals.Interval(27_420, 27_625), intervals.Interval(27_775, 27_820),
+             intervals.Interval(28_365, 28_595), intervals.Interval(28_865, 28_915)]
+    win = [w for w in intervals.build_windows(trials, armed) if w.end == 28_915][0]
+    assert win.start == 27_537
+    assert min(win.candidate_frames()) > 27_536
+    # and the failed reach still belongs to the `f` trial
+    fwin = [w for w in intervals.build_windows(trials, armed) if w.end == 27_536][0]
+    assert fwin.is_candidate(26_900)
+
+
+def test_a_paired_onset_behind_an_intervening_marker_needs_a_guard():
+    """1.24% of paired trials (16/1304) have their onset before the previous
+    marker — the human keyed it late. Documented, not silently lost."""
+    trials = [Trial(outcome_frame=10_000, outcome="f"),
+              Trial(outcome_frame=11_000, outcome="s", onset_frame=9_800)]
+    ivs = [_long_armed(9_000, 11_000)]
+    strict = [w for w in intervals.build_windows(trials, ivs) if w.end == 11_000][0]
+    assert not strict.is_candidate(9_800)
+    loose = [w for w in intervals.build_windows(trials, ivs, guard=500)
+             if w.end == 11_000][0]
+    assert loose.is_candidate(9_800)

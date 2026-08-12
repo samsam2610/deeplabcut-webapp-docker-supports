@@ -82,6 +82,17 @@ def outcomes(rows) -> list[tuple[int, str]]:
     return [(f, n) for f, n in rows if n in OUTCOMES]
 
 
+def human_marks(rows) -> list[tuple[int, str]]:
+    """Every note a human keyed: onset tags AND outcome markers.
+
+    On a tag-pending video the markers are the only human information there is
+    — banh-mi-1 Jul 7 carries 131 of them and zero start tags — so a timeline
+    that draws onsets alone draws nothing at all on exactly the videos this
+    tool exists for.
+    """
+    return sorted((f, n) for f, n in rows if n in ONSETS or n in OUTCOMES)
+
+
 @dataclass(frozen=True)
 class Trial:
     """One reach, bounded by its outcome marker.

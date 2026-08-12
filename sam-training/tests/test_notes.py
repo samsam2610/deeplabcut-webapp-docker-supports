@@ -100,3 +100,31 @@ def test_candidate_note_is_derived_from_the_marker(outcome, expected):
     # The label is read off the human marker, never predicted.
     trial = notes.Trial(outcome_frame=500, outcome=outcome)
     assert trial.candidate_note == expected
+
+
+# ── what the sidecar and the timeline must show ─────────────────────────────
+
+def test_human_marks_include_the_outcome_markers():
+    """On a tag-pending video the s/f markers are the ONLY human information.
+
+    The sidecar recorded `onsets()` alone, so banh-mi-1 Jul 7 — 131 markers,
+    zero start tags — produced a timeline with no human line anywhere, and the
+    `f` sitting inside a mislabelled success window was invisible.
+    """
+    rows = [(100, "s"), (250, "start-failure"), (400, "f"), (500, "junk")]
+    marks = notes.human_marks(rows)
+    assert marks == [(100, "s"), (250, "start-failure"), (400, "f")]
+
+
+def test_human_marks_exclude_our_own_proposals():
+    rows = [(100, "start-success-candidate"), (200, "f")]
+    assert notes.human_marks(rows) == [(200, "f")]
+
+
+def test_human_marks_are_sorted_by_frame():
+    rows = [(400, "f"), (100, "s"), (250, "start-failure")]
+    assert [f for f, _ in notes.human_marks(rows)] == [100, 250, 400]
+
+
+def test_human_marks_of_an_empty_companion_is_empty():
+    assert notes.human_marks([]) == []

@@ -385,6 +385,10 @@
 }
 .ia3ds-sam-note { font-size: .7rem; color: var(--text-dim); margin: .4rem 0 0; font-style: italic; }
 .ia3ds-sw.sensor { background: #ff9f40; }
+/* Human outcome markers, coloured by outcome so a mislabelled trial reads at a
+   glance: the marker that closes a window is the one its label comes from. */
+.ia3ds-sw.mark-s { background: #4ade80; }
+.ia3ds-sw.mark-f { background: #ff4d4d; }
 #ia3ds-sam-tags { width: 100%; display: block; cursor: crosshair; }
 
 .ia3ds-pellet {

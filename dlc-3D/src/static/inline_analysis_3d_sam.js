@@ -39,6 +39,9 @@ import {
   OVERLAY_PREFIX, selectTiles, placeClick, nudge, centreFor,
   unplacedCameras, isNudgeKey, newVisibility, isVisible, setVisible,
 } from "./internal/pellet_box.mjs";
+import {
+  DEFAULT_JUDGE, clampJudge, markersInSpan, intervening, markerStyle,
+} from "./internal/trial_judge.mjs";
 
 // ── Module state ────────────────────────────────────────────────────────────
 
@@ -3838,6 +3841,11 @@ const _samState = {
   windows: [],
   active: null,      // {start, end, outcome, onset, frames[], sim[], armed[], pick}
   masks: new Map(),  // frame -> {rle,w,h}
+  // Every human s/f marker and start tag in the video. The strip drew only the
+  // start tags, and a tag-pending video has none — so on the video where this
+  // panel is actually used, no human mark was ever on screen.
+  markers: [],
+  judge: { ...DEFAULT_JUDGE },
 };
 
 function _samEl(id) { return document.getElementById(id); }
@@ -3895,16 +3903,27 @@ async function _samLoadWindows() {
     const d = await _samJSON(
       `${SAMAPI}/windows?video=${encodeURIComponent(video)}`);
     _samState.windows = d.windows || [];
+    _samState.markers = d.markers || [];
+    if (d.judge) { _samState.judge = clampJudge(d.judge); _samJudgeRender(); }
     const sel = _samEl("ia3ds-sam-trial");
     sel.innerHTML = "";
+    let ambiguous = 0;
     _samState.windows.forEach((w, i) => {
       const o = document.createElement("option");
       o.value = String(i);
       const truth = w.onset == null ? "orphan" : `tag ${w.onset}`;
-      o.textContent = `#${i + 1}  ${w.outcome}  [${w.start}–${w.end}]  ${w.n_candidates} cand  ${truth}`;
+      // A marker inside the window means some of its candidates are followed
+      // by THAT marker, not this one, so their outcome is a different trial's.
+      // Only reachable with guard > 0, and never silent when it is.
+      const inside = intervening(_samState.markers, w.start, w.end);
+      if (inside.length) ambiguous += 1;
+      o.textContent = `#${i + 1}  ${w.outcome}  [${w.start}–${w.end}]  `
+        + `${w.n_candidates} cand  ${truth}`
+        + (inside.length ? `  ⚠ ${inside.length} marker(s) inside` : "");
       sel.appendChild(o);
     });
-    _samSay(`${_samState.windows.length} trial windows`);
+    _samSay(`${_samState.windows.length} trial windows`
+            + (ambiguous ? ` · ${ambiguous} ambiguous (guard ${_samState.judge.guard})` : ""));
     if (_samState.windows.length) _samSelectTrial(0);
   } catch (e) {
     if (/not swept/i.test(e.message)) {
@@ -3913,6 +3932,55 @@ async function _samLoadWindows() {
     } else {
       _samSay(`windows: ${e.message}`, true);
     }
+  }
+}
+
+// ── candidate judging ───────────────────────────────────────────────────────
+//
+// Five parameters applied to the sweep's raw NCC trace. They are NOT part of
+// the sweep cache key, so applying them re-judges in milliseconds; a field that
+// cost four minutes to try would never get tried.
+
+const _JUDGE_FIELDS = {
+  threshold: "ia3ds-judge-threshold",
+  min_run: "ia3ds-judge-minrun",
+  lookback: "ia3ds-judge-lookback",
+  min_candidates: "ia3ds-judge-mincand",
+  guard: "ia3ds-judge-guard",
+};
+
+function _samJudgeRender() {
+  Object.entries(_JUDGE_FIELDS).forEach(([key, id]) => {
+    const el = _samEl(id);
+    if (el) el.value = _samState.judge[key];
+  });
+}
+
+function _samJudgeRead() {
+  const raw = {};
+  Object.entries(_JUDGE_FIELDS).forEach(([key, id]) => {
+    raw[key] = _samEl(id)?.value;
+  });
+  return clampJudge(raw);
+}
+
+async function _samJudgeApply(next) {
+  const status = _samEl("ia3ds-judge-status");
+  try {
+    // Render from the RESPONSE, not from what was sent: the backend clamps, and
+    // a field showing a value the backend rejected is the whole failure mode
+    // these mirrored clamps exist to prevent.
+    const saved = await _samJSON(`${SAMAPI}/judge`, {
+      method: "PUT", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(next),
+    });
+    _samState.judge = clampJudge(saved);
+    _samJudgeRender();
+    if (status) status.textContent = "applied — re-judging";
+    await _samLoadWindows();
+    if (status) status.textContent = "applied";
+  } catch (e) {
+    if (status) status.textContent = `judge: ${e.message}`;
   }
 }
 
@@ -3964,8 +4032,15 @@ function _samSelectTrial(i) {
   _samState.masks.clear();
   _samDrawStrip();
   _samEl("ia3ds-sam-cands").innerHTML = "";
-  _samEl("ia3ds-sam-note").textContent =
-    `window opens at the aperture crossing, closes at the human ${w.outcome} marker`;
+  const inside = intervening(_samState.markers, w.start, w.end);
+  _samEl("ia3ds-sam-note").textContent = inside.length
+    ? `⚠ this window spans ${inside.length} earlier marker(s) `
+      + `(${inside.map((m) => `${m.note}@${m.frame}`).join(", ")}) — candidates `
+      + `before them belong to those trials, not to this ${w.outcome}. `
+      + `Lower “past prev marker” to 0 to exclude them.`
+    : `window closes at the human ${w.outcome} marker at ${w.end}; `
+      + `it opens after the previous marker, so every candidate in it is `
+      + `followed by this one.`;
   // Jump the card's player to this trial so the tiles, the card's own timeline
   // and both panel canvases are all talking about the same moment.
   _samGoToFrame(w.onset != null ? w.onset : Math.round((w.start + w.end) / 2));
@@ -4086,7 +4161,8 @@ function _samDrawStrip() {
                10, 20);
     g.fillText(A.onset != null
                  ? `human tag at ${A.onset} (red)`
-                 : "orphan trial — no human tag to compare against", 10, 38);
+                 : `orphan trial — outcome read from the human ${A.outcome} at ${A.end}`,
+               10, 38);
   }
 
   if (A.sim && A.sim.length) {
@@ -4105,6 +4181,27 @@ function _samDrawStrip() {
     g.fillStyle = "#98a1b0"; g.font = "11px ui-monospace, monospace";
     g.fillText(`sim ${lo.toFixed(3)}–${hi.toFixed(3)}`, 10, 14);
   }
+
+  // Human marks, drawn from the companion CSV rather than from the window's
+  // own fields. The window carries only `onset`, and a tag-pending video has
+  // none — which is why banh-mi-1 Jul 7 showed no human line at all while an
+  // `f` sat in the middle of a window labelled `s`.
+  markersInSpan(_samState.markers, A.start, A.end).forEach((m) => {
+    const { colour, label } = markerStyle(m.note);
+    const px = x(m.frame);
+    const closing = m.frame === A.end;
+    g.strokeStyle = colour;
+    g.lineWidth = closing ? 2 : 3;
+    if (!closing) g.setLineDash([4, 3]);       // inside the window = ambiguous
+    g.beginPath(); g.moveTo(px, 0); g.lineTo(px, h); g.stroke();
+    g.setLineDash([]);
+    g.fillStyle = colour;
+    g.font = "11px ui-monospace, monospace";
+    const text = closing ? `${label} ${m.frame}` : `⚠ ${label} ${m.frame}`;
+    // Keep the closing marker's label inside the canvas: it sits on the right
+    // edge by definition, so a left-anchored label would be clipped away.
+    g.fillText(text, Math.min(px + 4, w - g.measureText(text).width - 2), h - 20);
+  });
 
   if (A.onset != null) {
     g.strokeStyle = "#ff4d4d"; g.lineWidth = 2;
@@ -4295,7 +4392,10 @@ function _samDrawTags() {
       g.beginPath(); g.moveTo(x(f), h - 26); g.lineTo(x(f), h - 14); g.stroke();
     }
     if (note) {
-      g.strokeStyle = note.endsWith("-candidate") ? "#ffd23b" : "#ff4d4d";
+      // s/f markers are coloured by outcome; our own proposals stay yellow, so
+      // a human mark and a machine proposal can never be confused.
+      g.strokeStyle = note.endsWith("-candidate") ? "#ffd23b"
+                                                  : markerStyle(note).colour;
       g.beginPath(); g.moveTo(x(f), 0); g.lineTo(x(f), 16); g.stroke();
     }
   });
@@ -4649,6 +4749,9 @@ function _samWirePanel() {
       _samSay("box confirmed for this pair");
     } catch (e) { _samSay(`confirm: ${e.message}`, true); }
   };
+  on("ia3ds-judge-apply", "onclick", () => _samJudgeApply(_samJudgeRead()));
+  on("ia3ds-judge-reset", "onclick", () => _samJudgeApply({ ...DEFAULT_JUDGE }));
+  _samJudgeRender();                 // show the defaults before any load
   document.addEventListener("keydown", _pelletKey);
   _pelletLoad();
   // Tiles are created when the card opens a pair, so keep looking for them.

@@ -231,3 +231,51 @@ def test_saving_marks_preserves_the_sweep(tmp_path):
     assert any(r["pellet_ncc"] == "0.9000" for r in rows)
     assert any(r["note"] == "start-failure" for r in rows)
     assert len(onset_csv.read_marks(video)) == 1
+
+
+# ── rebuilding must not destroy what a human placed ─────────────────────────
+
+def test_rebuilding_the_sidecar_preserves_existing_marks(tmp_path):
+    """"Build onset CSV" rewrites the file from the pipeline's signals, none of
+    which include the box. Without carrying the marks over it deletes the
+    placement, and sweeping blocks again with "place the pellet box first".
+
+    Latent until 2026-08-12: the endpoint had been answering 409 for an
+    unrelated reason, so nobody could reach the rewrite.
+    """
+    dest = tmp_path / "vid_onset.csv"
+    first = onset_csv.Build()
+    first.add_mark(1, onset_csv.MARK_BOX, "cam0", 369.5, 339.94)
+    first.add_mark(1, onset_csv.MARK_PELLET, "cam0", 369.5, 339.94)
+    first.add_mark(1, onset_csv.MARK_BOX, "cam1", 522.0, 396.94)
+    onset_csv.write("/v/vid.avi", first, dest=dest)
+
+    rebuilt = onset_csv.Build()
+    rebuilt.add_note(500, "s")
+    onset_csv.carry_marks(rebuilt, onset_csv.read_marks("/v/vid.avi", dest))
+    onset_csv.write("/v/vid.avi", rebuilt, dest=dest)
+
+    marks = onset_csv.read_marks("/v/vid.avi", dest)
+    assert len(marks) == 3
+    assert onset_csv.box_centre(marks, "cam0") == (369.5, 339.94)
+    assert onset_csv.box_centre(marks, "cam1") == (522.0, 396.94)
+    assert len(onset_csv.pellet_marks(marks, "cam0")) == 1
+
+
+def test_carrying_marks_into_an_empty_build_is_a_no_op(tmp_path):
+    build = onset_csv.Build()
+    onset_csv.carry_marks(build, [])
+    assert build.to_rows() == []
+
+
+def test_carried_marks_survive_alongside_a_full_trace(tmp_path):
+    """The marks must not be dropped by rows keyed on the same frame."""
+    dest = tmp_path / "v_onset.csv"
+    build = onset_csv.Build()
+    build.add_sweep([0, 5, 10], [0.9, 0.8, 0.2], 0.5)     # rows at frames 1,6,11
+    onset_csv.carry_marks(build, [{"frame": 1, "kind": "box", "cam": "cam0",
+                                   "x": 10.0, "y": 20.0}])
+    onset_csv.write("/v/v.avi", build, dest=dest)
+    rows = onset_csv.read("/v/v.avi", dest)
+    assert onset_csv.box_centre(onset_csv.read_marks_from_rows(rows), "cam0") == (10.0, 20.0)
+    assert any(str(r.get("pellet_ncc") or "").strip() for r in rows)

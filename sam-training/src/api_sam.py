@@ -12,8 +12,9 @@ import cv2
 import numpy as np
 from flask import Blueprint, Response, jsonify, request
 
-from . import (config, exemplars, intervals, models, ncc, notes, onset_csv,
-               overlays, pellet_model as pm, rig, stereo, store)
+from . import (config, exemplars, intervals, judging, models, ncc, notes,
+               onset_csv, overlays, pellet_model as pm, rig, stereo, store,
+               sweep_cache)
 
 bp = Blueprint("sam_api", __name__)
 PREFIX = "/sam-training/api"
@@ -36,22 +37,24 @@ def _resolve(video: str) -> str | None:
     return local if local and Path(local).is_file() else None
 
 
+def _judge():
+    return judging.load(_project())
+
+
 def _windows_for(video: str):
     """Stage 0+1 for one video, from cache. None when it has not been swept."""
     calib = rig.load(_project(), Path(video).stem)
     if calib is None:
         calib = rig.calibrate(video)
         rig.save(_project(), Path(video).stem, calib)
-    cached = store.load_sweep(
-        video, config.SWEEP_STRIDE,
-        sig=store.model_signature(_model(), Path(video).stem,
-                                  marks=onset_csv.read_marks(video)))
+    cached = sweep_cache.load(video, _model(), onset_csv.read_marks(video))
     if cached is None:
         return calib, None
     frames, scores, _n = cached
-    ivs = intervals.present_intervals(frames, scores)
+    judge = _judge()
+    ivs = judging.armed(frames, scores, judge)
     trials = notes.pair_trials(notes.read_notes(video))
-    return calib, intervals.build_windows(trials, ivs)
+    return calib, judging.build(trials, ivs, judge)
 
 
 @bp.get(f"{PREFIX}/windows")
@@ -76,11 +79,34 @@ def api_windows():
         "video": video,
         "calibration": {"source": calib.source, "score": round(calib.score, 3),
                         "trustworthy": calib.trustworthy},
+        "judge": _judge().to_dict(),
+        # Every human note, so the strip can draw the marker that closes each
+        # window — and any that a raised guard has let inside one. On a
+        # tag-pending video these are the only human marks that exist.
+        "markers": [{"frame": f, "note": n}
+                    for f, n in notes.human_marks(notes.read_notes(video))],
         "windows": [{"start": w.start, "end": w.end, "outcome": w.outcome,
                      "onset": w.onset_frame, "n_candidates": w.n_candidates,
                      "armed": [{"start": a.start, "end": a.end} for a in w.armed]}
                     for w in wins],
     })
+
+
+@bp.get(f"{PREFIX}/judge")
+def api_judge_get():
+    return jsonify(_judge().to_dict())
+
+
+@bp.put(f"{PREFIX}/judge")
+def api_judge_put():
+    """Store the judging parameters, clamped.
+
+    Returns what was STORED, not what was sent: the panel re-renders from the
+    response, so a clamped value is visible rather than silently applied.
+    """
+    judge = judging.from_dict(request.get_json(force=True) or {})
+    judging.save(_project(), judge)
+    return jsonify(judge.to_dict())
 
 
 def _score_window(job, video, start, end, outcome, prompt, topk):
@@ -300,20 +326,26 @@ def api_onset_csv():
     video = _resolve(body.get("video"))
     if not video:
         return jsonify({"error": "video not found"}), 404
-    cached = store.load_sweep(video, config.SWEEP_STRIDE)
+    cached = sweep_cache.load(video, _model(), onset_csv.read_marks(video))
     if cached is None:
         return jsonify({"error": "not swept yet — run the pellet sweep first"}), 409
 
     frames, scores, _n = cached
     _calib, wins = _windows_for(video)
     build = onset_csv.Build()
-    build.add_sweep(frames, scores, intervals.PRESENT_THRESHOLD)
+    # FIRST: the human's box and pellet clicks. Everything else in this file is
+    # derived and can be recomputed; these cannot, and rewriting without them
+    # deletes the placement and re-blocks sweeping.
+    onset_csv.carry_marks(build, onset_csv.read_marks(video))
+    build.add_sweep(frames, scores, _judge().threshold)
     edges, status_pairs = _sensor_edges(video)
     build.add_sensor_edges(edges.tolist())
     if wins:
         build.add_windows(wins)
-    # Human tags go in for reference so the sidecar can be read on its own.
-    for frame, note in notes.onsets(notes.read_notes(video)):
+    # Human notes go in for reference so the sidecar can be read on its own —
+    # the s/f MARKERS as well as the start tags, because a tag-pending video
+    # has only the former and drawing onsets alone left its timeline blank.
+    for frame, note in notes.human_marks(notes.read_notes(video)):
         build.add_note(frame, note)
     # LAST, deliberately: add_status only fills rows that already exist, and
     # sensor edges and tags create rows off the sweep's stride grid. Running it

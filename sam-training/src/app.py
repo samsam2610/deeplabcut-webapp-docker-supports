@@ -16,7 +16,8 @@ import cv2
 import numpy as np
 from flask import Flask, Response, jsonify, render_template, request
 
-from . import config, intervals, ncc, notes, overlays, rig, store, tracked
+from . import (config, judging, ncc, notes, overlays, rig, store,
+               sweep_cache, tracked)
 
 app = Flask(__name__, template_folder="templates", static_folder="static",
             static_url_path="/sam-training/static")
@@ -85,33 +86,35 @@ def api_calibrate():
     })
 
 
-def _sweep_sig(video):
-    """Detector identity for this video, so a moved box misses the cache.
+def _cache_args(video):
+    """The model and marks that identify this video's sweep.
 
     Reads the box from the onset sidecar — the same place the sweep gate reads
     it — so the key can never describe a box the detector is not using.
     """
     from . import onset_csv as _oc, pellet_model as _pm
-    return store.model_signature(_pm.load(PROJECT_PATH), Path(video).stem,
-                                 marks=_oc.read_marks(video))
+    return _pm.load(PROJECT_PATH), _oc.read_marks(video)
 
 
 def _sweep_payload(video, stride):
-    cached = store.load_sweep(video, stride, sig=_sweep_sig(video))
+    model, marks = _cache_args(video)
+    cached = sweep_cache.load(video, model, marks, stride=stride)
     if cached is None:
         return None
     frames, scores, n_frames = cached
-    ivs = intervals.present_intervals(frames, scores)
+    judge = judging.load(PROJECT_PATH)
+    ivs = judging.armed(frames, scores, judge)
     rows = notes.read_notes(video)
     trials = notes.pair_trials(rows)
-    wins = intervals.build_windows(trials, ivs)
+    wins = judging.build(trials, ivs, judge)
     known = [w for w in wins if w.onset_frame is not None]
     hit = sum(1 for w in known if w.is_candidate(w.onset_frame))
     return {
         "n_frames": n_frames,
         "stride": stride,
         "trace": overlays.downsample_trace(frames, scores),
-        "threshold": intervals.PRESENT_THRESHOLD,
+        "threshold": judge.threshold,
+        "judge": judge.to_dict(),
         "armed": [{"start": iv.start, "end": iv.end} for iv in ivs],
         "onsets": [{"frame": f, "note": n} for f, n in notes.onsets(rows)],
         "outcomes": [{"frame": f, "note": n} for f, n in notes.outcomes(rows)],
@@ -163,8 +166,9 @@ def api_sweep():
 
         sw = ncc.sweep_video(video, template, calib.search_box, stride=stride,
                              progress=progress)
-        store.save_sweep(video, stride, sw.frames, sw.scores, sw.n_frames,
-                         sig=_sweep_sig(video))
+        model, marks = _cache_args(video)
+        sweep_cache.save(video, sw.frames, sw.scores, sw.n_frames,
+                         model=model, marks=marks, stride=stride)
         return True
 
     job = store.registry.start("sweep", run)
@@ -235,7 +239,11 @@ def api_layers():
     ]
     return jsonify({
         "frame": n,
-        "pellet_present": bool(score > intervals.PRESENT_THRESHOLD),
+        # The judge's threshold, not the compiled-in one: this endpoint answers
+        # "is there a pellet on THIS frame", and it disagreeing with the armed
+        # mask on the timeline would be a debugging trap in the one panel whose
+        # whole job is showing what each stage decided.
+        "pellet_present": bool(score > judging.load(PROJECT_PATH).threshold),
         "layers": layers,
         "pending": ["sam-mask", "dino-similarity"],
     })

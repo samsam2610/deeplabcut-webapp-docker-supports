@@ -229,6 +229,19 @@ def read_marks(video_path, dest=None) -> list[dict]:
     return read_marks_from_rows(read(video_path, dest))
 
 
+def carry_marks(build: Build, marks) -> Build:
+    """Re-add human placements to a Build that is rewriting the sidecar.
+
+    Rebuilding the file regenerates every pipeline signal but knows nothing
+    about the box, so without this "Build onset CSV" deletes the placement and
+    sweeping blocks again on "place the pellet box first". The signals are
+    derived and can be recomputed; a human's click cannot.
+    """
+    for m in marks or []:
+        build.add_mark(m["frame"], m["kind"], m["cam"], m["x"], m["y"])
+    return build
+
+
 def box_centre(marks, cam: str):
     """(x, y) of this camera's box, or None when it has not been placed.
 

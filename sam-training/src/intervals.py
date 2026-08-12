@@ -36,6 +36,16 @@ MIN_RUN_SAMPLES = 6
 # 93.3% overall but only ~45% of the two slow sessions; 3000 covers 100%.
 MAX_LOOKBACK = 3000
 
+# How far a window may reach back PAST the previous outcome marker. Zero means
+# it may not: for every frame in a window, the window's own marker is then the
+# next marker, which is what makes its outcome the right label.
+#
+# The cost is measured: 16 of 1304 paired trials (1.24%) have their onset before
+# the previous marker, because the human keyed that marker after the next reach
+# had begun. Raising this recovers them at the price of ambiguity, so it is a
+# panel field rather than a decision baked in here.
+TRIAL_GUARD = 0
+
 
 @dataclass(frozen=True)
 class Interval:
@@ -184,17 +194,30 @@ class SearchWindow:
 
 
 def build_windows(trials, intervals, max_lookback: int = MAX_LOOKBACK,
-                  min_candidates: int = 30) -> list[SearchWindow]:
+                  min_candidates: int = 30,
+                  guard: int = TRIAL_GUARD) -> list[SearchWindow]:
     """One search window per trial that has any armed frame to search.
 
     See ``MAX_LOOKBACK`` for why the default is what it is — tuning it down to
     save stage-2 work silently drops onsets on the slow sessions, and stage 1 is
     the recall gate: anything it drops, nothing downstream can recover.
+
+    ``trials`` must be EVERY trial in the video, not a filtered subset: the
+    previous marker is read from the list, and a missing one would let a window
+    reach back over it. ``pair_trials`` already returns one trial per marker.
     """
     out: list[SearchWindow] = []
-    for trial in trials:
+    ordered = sorted(trials, key=lambda t: t.outcome_frame)
+    for i, trial in enumerate(ordered):
         marker = trial.outcome_frame
         start = max(0, marker - max_lookback)
+        if i:
+            # The window may not span the previous marker: a frame before it is
+            # followed by THAT marker, so its outcome is that trial's, not this
+            # one's. See the 2026-08-12 spec — without this, 92.8% of windows
+            # swallowed the previous trial and 40% of candidate frames on
+            # banh-mi-1 Jul 7 would have been labelled from the wrong outcome.
+            start = max(start, ordered[i - 1].outcome_frame + 1 - max(0, guard))
         armed = tuple(
             Interval(max(iv.start, start), min(iv.end, marker))
             for iv in intervals
