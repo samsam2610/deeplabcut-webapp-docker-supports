@@ -236,3 +236,24 @@ box**, which is already required before sweeping and is by definition the
 stationary pellet in both views. It is therefore always in the same frame as the
 calibration, and cannot go stale. Verified on Jul 7: frames with a pellet land
 0.20-1.02 from it, frames without 2.31-9.81.
+
+### Result after the corrections
+
+Same window (2486 candidates), same session, before and after fixing the
+calibration:
+
+| | real pairs | accepted | median epi_px |
+|---|---|---|---|
+| khoai-lang calibration, tol 15 | 193 | 66 (34 %) | 17.4 |
+| own calibration, tol 20 | 193 | **116 (60 %)** | **13.2** |
+
+The remaining rejections are not borderline. Pass rates at 15/20/25/30 px are
+55/60/63/66 %, and the real pairs' p90 is 63 px — so the threshold sits on a
+flat part of the distribution, with the rejected group far outside it. Those are
+frames where the two cameras locked onto genuinely different paws, which is what
+the gate is for. Raising the tolerance to 30 would buy 6 pp of recall and admit
+mismatches.
+
+Of 2486 candidates only 193 have a paw in both views at all; on the rest SAM
+finds no reaching paw near the pellet in cam0, which is expected — most of a
+window is the animal not reaching.
