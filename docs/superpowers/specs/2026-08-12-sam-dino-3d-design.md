@@ -52,45 +52,50 @@ still never scored against its own tags.
 
 ## 3. `epi_px`, measured
 
-Set from the project's own labelled cam0/cam1 pairs — **15 770 correspondences
-across 16 sessions** — the way `max_3d_dist = 2.0` was set.
-
-Positives are the same landmark in both views. Negatives are the failure the gate
-exists to catch: cam1's picker locking onto a different structure, and onto the
-paw in a different frame.
+Set from the project's own labelled cam0/cam1 pairs, the way `max_3d_dist = 2.0`
+was set. Positives are the paw centroid in both views; negatives are the failure
+the gate exists to catch — cam1's picker locking onto a different structure, and
+onto the paw in a different frame.
 
 Undistorting barely moves the residual (p50 2.27 vs 2.17 raw); it is done anyway,
 for consistency with `triangulate`.
 
-**The landmark changes the answer fourfold**, and this is the trap:
+### The proxy has to be a real paw centroid
 
-| landmark | p50 | p95 |
-|---|---|---|
-| digit joints (MCP/PIP/DIP) | ~2.2 | ~5–9 |
-| `Pellet` | 1.50 | 6.85 |
-| **`Left-Paw`** (whole paw) | **4.24** | **18.20** |
-| `Wrist` | 6.68 | 37.73 |
+**`Left-Paw` is not a landmark.** It is a decoy, placed randomly to stop DLC
+labelling that paw's joints. An earlier draft used it as the whole-paw proxy and
+derived `epi_px = 20` from it; that number measured random placement, not
+geometry, and was 5 px too loose.
 
-A mask centroid is a *whole-paw* quantity: each view sees a different silhouette,
-so the centroids are genuinely not the same 3D point. Tuning on the crisp joints
-would have looked rigorous and rejected roughly one in five true paws. `Wrist` is
-worst because it is an interior, occluded point — the occlusion noted at the
-start of this project.
+The honest proxy is the centroid of the **real** digit joints (MCP/PIP/DIP-1..4).
+`Wrist` is excluded too — it is an interior, occluded point (p95 37.7), the
+occlusion noted at the start of this project.
 
-Against `Left-Paw`:
+| proxy for the mask centroid | p50 | p95 | p99 |
+|---|---|---|---|
+| joint centroid, matched subset in both views | 2.08 | 6.71 | 9.66 |
+| **joint centroid, each view's own visible joints** | **3.53** | **12.85** | **17.89** |
+
+The gap between those rows *is* the mask-centroid effect. When each camera
+averages only the joints it can see, the two centroids stop being the same 3D
+point and the residual roughly doubles. A SAM mask centroid has precisely that
+property, so the second row is what the gate faces. (Averaging by mean rather
+than median gives p95 12.03 — a pixel-mass centroid is mean-like, so the true
+figure sits just inside this.)
 
 | threshold | keeps true | rejects wrong structure | rejects wrong instance |
 |---|---|---|---|
-| 12 px | 84.9 % | 96.3 % | 76.3 % |
-| 18 px | 94.8 % | 94.8 % | 66.1 % |
-| **20 px** | **96.8 %** | **93.6 %** | 63.0 % |
-| 25 px | 98.4 % | 92.1 % | 56.2 % |
+| 12 px | 93.6 % | 87.3 % | 75.2 % |
+| **15 px** | **97.1 %** | **84.4 %** | 71.4 % |
+| 18 px | 99.0 % | 81.9 % | 67.3 % |
+| 20 px | 99.3 % | 80.5 % | 64.8 % |
 
-**`epi_px = 20`.** Roughly 3 % of true paws for roughly 94 % of cross-view
+**`epi_px = 15`.** Roughly 3 % of true paws for roughly 84 % of cross-view
 mismatches. Not tighter: stage-1 recall cannot be recovered downstream.
 
-It joins the Judge, so it re-judges instantly and is tunable per project like
-every other candidate parameter.
+Per-session spread is real — banh-mi-1 Jul 2 reaches p95 17.97, above the
+default — which is another reason it is a Judge field and tunable per project
+rather than a constant.
 
 ## 4. `<video>_motion3d.csv`
 
@@ -140,8 +145,8 @@ Rewritten so every parameter is named and bolded:
 > reference point. Frame 27591 passed both cameras at 0.55/0.67 and was rejected
 > at 8.29.
 > **epipolar tol** — how far off cam0's epipolar line the cam1 *paw* may sit
-> before the two views are judged to be looking at different paws. 20 px keeps
-> 96.8 % of the project's labelled paw pairs.
+> before the two views are judged to be looking at different paws. 15 px keeps
+> 97.1 % of the project's labelled paw centroids.
 
 ## 7. Cost
 
