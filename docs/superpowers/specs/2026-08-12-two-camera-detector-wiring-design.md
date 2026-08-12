@@ -113,8 +113,20 @@ the 3D gate in the judge, 1 asserting the thresholds exist in exactly one place.
 Re-measuring acceptance. The detector changed, so every recall/precision figure
 for this pipeline is now void and must be re-run.
 
-## Follow-up
+## Follow-up — RESOLVED 2026-08-12 (commit 24d44a1)
 
-`intervals.build_windows` compares outcome markers (1-based, from the companion
-CSV) against armed intervals (0-based, from the sweep). A one-frame offset,
-inside the ±5 tolerance, but the two index bases should be unified.
+`intervals.build_windows` compared outcome markers (1-based, from the companion
+CSV) against armed intervals (0-based, from the sweep), so every armed interval
+sat a frame adrift of the trial it belonged to.
+
+It surfaced properly during deployment verification of the 3D scorer: a run
+reported frames 172185–174665 in its JSON while writing 172186–174666 to its
+motion3d sidecar. Same payload, same order, same length — only the label
+differed, so every 3D point in the durable record disagreed with the result that
+produced it.
+
+The sidecar was the correct one. The conversion now happens ONCE, at the pipeline
+boundary; everything the pipeline hands out is a 1-based `frame_number`, and only
+the cv2 seek and `/thumb` convert back. The panel needed no change and becomes
+correct by it — `_samGoToFrame` already assumed 1-based, so it had been seeking a
+frame early.
