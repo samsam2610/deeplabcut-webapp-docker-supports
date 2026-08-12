@@ -27,6 +27,11 @@ from pathlib import Path
 # costs nothing that matters.
 RADIUS = 5
 
+# How many pre-write snapshots to keep. Each is a full copy of a ~6 MB file;
+# deployment verification produced 74 MB from twelve writes and nothing pruned
+# them, so a 129-trial batch would have left ~825 MB beside the video.
+MAX_BACKUPS = 3
+
 JOURNAL_SUFFIX = "_tagwrites.csv"
 JOURNAL_COLUMNS = ["written_at", "batch_id", "frame", "note", "previous_note",
                    "window_start", "marker"]
@@ -94,6 +99,35 @@ def _replace(tmp: Path, dest: Path):
     tmp.replace(dest)
 
 
+def _backups(path: Path):
+    return sorted(path.parent.glob(path.name + ".bak-*"))
+
+
+def _snapshot(path: Path):
+    """One pre-write copy per session, pruned to the newest MAX_BACKUPS.
+
+    The session marker is the journal: a non-empty one means writes of ours are
+    already outstanding, so the current file is NOT the pre-session state and
+    copying it again would preserve the wrong thing as well as waste 6 MB.
+
+    copy2 keeps the mtime, which is what lets a full undo put it back.
+    """
+    if journal_read(path):
+        return None
+    # Microseconds: a second-resolution stamp collides when two sessions land
+    # in the same second, and the second copy then silently overwrites the
+    # first — losing the older pre-write state that was the point of keeping it.
+    # Lexicographic order stays chronological, which is what the pruning relies
+    # on (copy2 gives every backup the SOURCE mtime, so mtime cannot order them).
+    from datetime import datetime
+    stamp = datetime.now().strftime("%Y%m%dT%H%M%S%f")
+    dest = path.with_name(path.name + f".bak-{stamp}")
+    shutil.copy2(path, dest)
+    for old in _backups(path)[:-MAX_BACKUPS]:
+        old.unlink(missing_ok=True)
+    return dest
+
+
 def write(path, pairs, backup: bool = False) -> dict:
     """Set ``note`` on each ``(frame, note)``. Returns ``{frame: previous}``.
 
@@ -105,8 +139,7 @@ def write(path, pairs, backup: bool = False) -> dict:
     previous = {}
 
     if backup:
-        stamp = time.strftime("%Y%m%dT%H%M%S")
-        shutil.copy2(path, path.with_name(path.name + f".bak-{stamp}"))
+        _snapshot(path)
 
     for r in rows:
         try:
@@ -144,6 +177,11 @@ def journal_read(csv_path) -> list[dict]:
 
 def _journal_write(csv_path, entries):
     p = journal_path(csv_path)
+    if not entries:
+        # Removed, not left as a bare header: "undo everything" should return
+        # the directory to its prior state, not leave a husk behind.
+        p.unlink(missing_ok=True)
+        return
     tmp = p.with_suffix(p.suffix + ".tmp")
     with open(tmp, "w", newline="", encoding="utf-8") as fh:
         w = csv.DictWriter(fh, fieldnames=JOURNAL_COLUMNS, extrasaction="ignore")
@@ -163,7 +201,9 @@ def commit(csv_path, pairs, batch: str | None = None, spans=None,
     batch = batch or uuid.uuid4().hex[:12]
     spans = spans or {}
     previous = write(csv_path, pairs, backup=backup)
-    stamp = time.strftime("%Y-%m-%dT%H:%M:%S")
+    # With an offset: the container runs UTC and the host does not, so a bare
+    # local time is four hours out from the mtimes anyone would compare it to.
+    stamp = time.strftime("%Y-%m-%dT%H:%M:%S%z")
     entries = journal_read(csv_path)
     for frame, note in pairs:
         start, marker = spans.get(int(frame), ("", ""))
@@ -206,5 +246,15 @@ def undo(csv_path) -> int:
         restore.append((frame, e.get("previous_note") or ""))
     if restore:
         write(csv_path, restore)
-    _journal_write(csv_path, [e for e in entries if e["batch_id"] != batch])
+    remaining = [e for e in entries if e["batch_id"] != batch]
+    _journal_write(csv_path, remaining)
+    if not remaining:
+        # Nothing of ours is outstanding, so the file should stop claiming it
+        # was modified. The newest snapshot carries the pre-session mtime
+        # (copy2 preserves it), which is exactly what to put back.
+        snaps = _backups(csv_path)
+        if snaps:
+            import os
+            st = os.stat(snaps[-1])
+            os.utime(csv_path, (st.st_atime, st.st_mtime))
     return len(restore)

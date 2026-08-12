@@ -207,3 +207,93 @@ def test_a_batch_of_many_undoes_as_one(companion):
 
 def test_the_journal_survives_being_read_when_absent(tmp_path):
     assert tagwrite.journal_read(tmp_path / "nope.csv") == []
+
+
+# ── backup growth, mtime, and journal hygiene ───────────────────────────────
+#
+# Found in deployment verification. Data integrity held — the CSV came back
+# byte-identical after undo — but the surrounding behaviour did not:
+#
+#   * 12 single writes produced 12 full 6.4 MB copies, 74 MB, never pruned.
+#     A 129-trial batch would have left ~825 MB beside the video, growing
+#     without bound across sessions.
+#   * undo restored the content but left the mtime moved, which breaks any
+#     "untouched since acquisition" check on a raw experimental record.
+#   * "undo everything" left a header-only journal behind, so the directory
+#     never returned to its prior state.
+
+def test_a_run_of_writes_takes_one_backup_not_one_each(companion):
+    for f in (11, 12, 13, 14):
+        tagwrite.commit(companion, [(f, "x")], backup=True)
+    assert len(list(companion.parent.glob("vid.csv.bak-*"))) == 1
+
+
+def test_the_one_backup_is_the_state_before_the_first_write(companion):
+    before = companion.read_bytes()
+    tagwrite.commit(companion, [(11, "a")], backup=True)
+    tagwrite.commit(companion, [(12, "b")], backup=True)
+    bak = list(companion.parent.glob("vid.csv.bak-*"))[0]
+    assert bak.read_bytes() == before
+
+
+def test_a_fresh_session_after_a_full_undo_backs_up_again(companion):
+    """The journal is the session marker: empty means nothing of ours is
+    outstanding, so the next write starts a new one."""
+    tagwrite.commit(companion, [(11, "a")], backup=True)
+    tagwrite.undo(companion)
+    tagwrite.commit(companion, [(12, "b")], backup=True)
+    assert len(list(companion.parent.glob("vid.csv.bak-*"))) == 2
+
+
+def test_backups_are_capped(companion):
+    for i in range(tagwrite.MAX_BACKUPS + 3):
+        tagwrite.commit(companion, [(11 + i, "x")], backup=True)
+        tagwrite.undo(companion)                      # each is its own session
+    assert len(list(companion.parent.glob("vid.csv.bak-*"))) == tagwrite.MAX_BACKUPS
+
+
+def test_the_oldest_backups_are_the_ones_pruned(companion):
+    keep = []
+    for i in range(tagwrite.MAX_BACKUPS + 2):
+        tagwrite.commit(companion, [(11 + i, "x")], backup=True)
+        keep.append(sorted(companion.parent.glob("vid.csv.bak-*"))[-1].name)
+        tagwrite.undo(companion)
+    left = sorted(p.name for p in companion.parent.glob("vid.csv.bak-*"))
+    assert left == sorted(keep[-tagwrite.MAX_BACKUPS:])
+
+
+def test_a_full_undo_restores_the_file_mtime(companion):
+    """A moved mtime on a raw experimental record breaks any
+    has-this-been-touched check, even when every byte is back."""
+    import os
+    original = os.stat(companion).st_mtime
+    os.utime(companion, (original - 86400, original - 86400))
+    was = os.stat(companion).st_mtime
+    tagwrite.commit(companion, [(11, "a")], backup=True)
+    assert os.stat(companion).st_mtime != was
+    tagwrite.undo(companion)
+    assert abs(os.stat(companion).st_mtime - was) < 2
+
+
+def test_a_partial_undo_does_not_restore_the_mtime(companion):
+    """Only when nothing of ours is outstanding does the file claim to be
+    untouched."""
+    import os
+    tagwrite.commit(companion, [(11, "a")], backup=True)
+    tagwrite.commit(companion, [(12, "b")], backup=True)
+    tagwrite.undo(companion)                          # one batch still applied
+    assert tagwrite.journal_read(companion) != []
+
+
+def test_an_emptied_journal_is_removed_not_left_as_a_header(companion):
+    tagwrite.commit(companion, [(11, "a")], backup=True)
+    tagwrite.undo(companion)
+    assert not tagwrite.journal_path(companion).exists()
+
+
+def test_journal_timestamps_carry_a_timezone(companion):
+    """The container runs UTC and the host does not. A bare local time is four
+    hours out from the mtimes anyone would correlate it against."""
+    tagwrite.commit(companion, [(11, "a")])
+    stamp = tagwrite.journal_read(companion)[0]["written_at"]
+    assert stamp[-5] in "+-" or stamp.endswith("Z"), stamp
