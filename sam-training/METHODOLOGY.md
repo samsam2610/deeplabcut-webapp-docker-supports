@@ -360,13 +360,39 @@ to, and a run's JSON disagreed with its own sidecar about which frame was which.
   the labelled joint centroid, 88 % within 30 px — not worse than cam0
 - SAM 0.067 s/frame, DINOv3 ~0.02 s/frame batched
 
-**Not measured — the important gap**
+**Measured end to end, 2026-08-12** — leave-one-session-out over all ten
+Tag=Done sessions, 40 trials each (400 of 1304), ground truth being the human
+`start-*` tags. Holding a session out is automatic: `exclude_video` drops it and
+DINOv3 is frozen.
 
-**End-to-end acceptance is unknown.** An early figure of 98.9 % was recall-only,
-which rewards over-admitting, and is void regardless: the detector has changed
-several times since. No recall or precision number for the current pipeline
-should be quoted until a leave-one-session-out run over the tag-done videos has
-been done.
+The chain, because a single number hides where the loss happens:
+
+| step | rate |
+|---|---|
+| paired trial produced a window | 1255 / 1304 — **96.2 %** |
+| onset armed inside that window | 380 / 400 — **95.0 %** |
+| pick within ±5 of the human tag | 276 / 400 — **69.0 %** |
+| **end to end** | **66.4 %** of all paired trials |
+
+95 % CI on the ±5 rate: 64.3–73.3 % (n = 400). Excluding the one session with no
+same-animal exemplars left after hold-out: 72.2 % within ±5, **69.2 %** end to
+end. Both are quoted; dropping the inconvenient session and reporting only what
+remains would flatter the result.
+
+Per session, `within ±5` ranges 40–90 %. The spread is not explained by
+exemplar count — khoai-lang-1 has 80 same-animal exemplars and spans 62–90 %.
+The one clear outlier is the session left with **zero** (40 %): starvation hurts
+at zero and does not predict anything above it.
+
+**The error distribution matters more than the headline.** Median 3 frames,
+43 % within ±2, 69 % within ±5 — then it jumps, p90 67 and a maximum of 2100.
+Failures are not near misses; they are the scorer landing somewhere else in the
+window entirely. Practically that is the better outcome: a wrong answer is
+usually visibly wrong rather than plausibly wrong.
+
+**What this justifies.** Reviewing proposals one at a time is worthwhile —
+roughly seven in ten land within ±5 and most of the rest are obvious on sight.
+Batch-writing candidates without review is not: a third of them would be wrong.
 
 ---
 

@@ -30,7 +30,7 @@ from pathlib import Path
 
 sys.path.insert(0, "/app")
 
-from src import (api_sam, config, onset_csv, pellet_model as pm,  # noqa: E402
+from src import (api_sam, config, ncc, onset_csv, pellet_model as pm,  # noqa: E402
                  pipeline, stereo, sweep2, sweep_cache, tracked)
 
 PROJECT = "/user-data/Parra-Data/Disk/DLC-Projects/DREADD-Ali-2026-01-07"
@@ -123,6 +123,47 @@ def session_pellet(video):
             for cam, v in seen.items() if v}
 
 
+def derive_box(video, sibling, start):
+    """Find THIS session's pellet by matching, when it has no labels of its own.
+
+    eggtart-1 Jul 5 has no labeled-data, so the harness borrowed Jul 1's pellet
+    position. The 40 px search margin still found the real pellet — both cameras
+    cleared threshold on 30 % of samples — but the REFERENCE derived from that
+    stale box sat 2.62 away, so the 3D gate rejected all but 360 of 15 519 hits
+    and the session scored 2 % end-to-end. The detections were clustered tightly
+    (interquartile spread 0.41), which is what says "wrong reference" rather
+    than "unreliable detector".
+
+    A human placing the box on this video would never hit that. This is the
+    harness doing the same thing for itself: sample frames, keep the confident
+    matches, take their median position.
+    """
+    import cv2
+    import numpy as np
+    model = pm.with_centres(pm.load(PROJECT), start)
+    out = {}
+    for cam, path in (("cam0", video), ("cam1", str(sibling))):
+        camera = model.cameras.get(cam)
+        if camera is None:
+            continue
+        cap = cv2.VideoCapture(str(path))
+        total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0)
+        pts = []
+        for i in range(60):
+            cap.set(cv2.CAP_PROP_POS_FRAMES, int(total * (i + 0.5) / 60))
+            ok, fr = cap.read()
+            if not ok:
+                continue
+            score, pt = pm.match(ncc.to_gray(fr), camera)
+            if score >= 0.75:
+                pts.append(pt)
+        cap.release()
+        if len(pts) >= 5:
+            a = np.asarray(pts, dtype=float)
+            out[cam] = (float(np.median(a[:, 0])), float(np.median(a[:, 1])))
+    return out or start
+
+
 def ensure_sweep(video, sibling, centres):
     """Sweep the pair if it is not already cached, with THIS video's geometry."""
     model = pm.load(PROJECT)
@@ -164,6 +205,15 @@ def main():
             say(f"[{vi}/{len(videos)}] {short}: no cam1, skipped")
             continue
         centres = session_pellet(video)
+        # Labels from a DIFFERENT session place the search box well enough but
+        # put the 3D reference in the wrong place; find this one's pellet.
+        own = Path(stereo.find_for_video(PROJECT, video) or "").parent.name
+        if own and not Path(video).stem.startswith(own.rsplit("_", 1)[0] + "_cam0_" + own.rsplit("_", 1)[1]):
+            found = derive_box(video, pm.sibling_video(video), centres)
+            if found != centres:
+                say(f"    borrowed box from {own}; matched this session at "
+                    + ", ".join(f"{c} ({x:.0f},{y:.0f})" for c, (x, y) in sorted(found.items())))
+                centres = found
         where = ", ".join(f"{c} ({x:.0f},{y:.0f})" for c, (x, y) in sorted(centres.items()))
         say(f"[{vi}/{len(videos)}] {short}: box {where or 'PROJECT DEFAULT (no labels)'}")
         place_box(video, centres)
