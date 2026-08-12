@@ -13,7 +13,7 @@ import numpy as np
 from flask import Blueprint, Response, jsonify, request
 
 from . import (config, exemplars, intervals, models, ncc, notes, onset_csv,
-               overlays, rig, store)
+               overlays, pellet_model as pm, rig, stereo, store)
 
 bp = Blueprint("sam_api", __name__)
 PREFIX = "/sam-training/api"
@@ -344,3 +344,177 @@ def api_onset_csv_read():
     return jsonify({"path": str(onset_csv.path_for(video)),
                     "summary": onset_csv.summarise(rows),
                     "columns": onset_csv.COLUMNS, "rows": merged})
+
+
+# ── pellet model: geometry, labels, retraining ───────────────────────────────
+#
+# The click-to-label flow mirrors DeepLabCut's: the user clicks the pellet on a
+# frame, repeats on however many frames they like, then retrains. Labels are
+# kept rather than folded straight into the template so a bad click can be
+# removed and the template rebuilt without it — clip-cutter's
+# remove_frame_from_template makes the same choice for the same reason.
+
+
+def _model():
+    return pm.load(_project()) or pm.PelletModel()
+
+
+def _cam_payload(cam: pm.CameraModel | None):
+    if cam is None:
+        return None
+    return {"cx": cam.cx, "cy": cam.cy, "half": cam.half, "margin": cam.margin,
+            "n_samples": cam.n_samples,
+            "template_box": list(cam.template_box),
+            "search_box": list(cam.search_box),
+            "has_template": bool(cam.template_b64)}
+
+
+@bp.get(f"{PREFIX}/pellet/model")
+def api_pellet_model():
+    m = _model()
+    return jsonify({
+        "cameras": {k: _cam_payload(v) for k, v in m.cameras.items()},
+        "threshold": m.threshold,
+        "max_3d_dist": m.max_3d_dist,
+        "ref_3d": m.ref_3d,
+        "labels": m.corrections,
+        "path": str(pm.model_path(_project())),
+    })
+
+
+@bp.put(f"{PREFIX}/pellet/model")
+def api_pellet_model_put():
+    """Set the box geometry. One set of fields per camera."""
+    body = request.get_json(force=True) or {}
+    m = _model()
+    for cam_name, vals in (body.get("cameras") or {}).items():
+        cam = m.cameras.get(cam_name) or pm.CameraModel(cx=0, cy=0)
+        for key in ("cx", "cy"):
+            if key in vals:
+                setattr(cam, key, float(vals[key]))
+        for key in ("half", "margin"):
+            if key in vals:
+                setattr(cam, key, max(4, int(vals[key])))
+        m.cameras[cam_name] = cam
+    if "threshold" in body:
+        m.threshold = float(body["threshold"])
+    if "max_3d_dist" in body:
+        m.max_3d_dist = float(body["max_3d_dist"])
+    pm.save(_project(), m)
+    return jsonify({"ok": True, "cameras": {k: _cam_payload(v) for k, v in m.cameras.items()}})
+
+
+@bp.post(f"{PREFIX}/pellet/label")
+def api_pellet_label():
+    """Record one clicked pellet position."""
+    body = request.get_json(force=True) or {}
+    video = _resolve(body.get("video"))
+    try:
+        frame = int(body["frame"]); x = float(body["x"]); y = float(body["y"])
+    except (KeyError, TypeError, ValueError):
+        return jsonify({"error": "frame, x and y required"}), 400
+    cam = body.get("cam") or "cam0"
+    if not video:
+        return jsonify({"error": "video not found"}), 404
+    m = _model()
+    m.corrections.append({"video": str(video), "frame": frame, "cam": cam,
+                          "x": x, "y": y})
+    pm.save(_project(), m)
+    return jsonify({"ok": True, "n_labels": len(m.corrections)})
+
+
+@bp.delete(f"{PREFIX}/pellet/label/<int:index>")
+def api_pellet_label_delete(index):
+    m = _model()
+    if not (0 <= index < len(m.corrections)):
+        return jsonify({"error": "no such label"}), 404
+    m.corrections.pop(index)
+    pm.save(_project(), m)
+    return jsonify({"ok": True, "n_labels": len(m.corrections)})
+
+
+@bp.post(f"{PREFIX}/pellet/retrain")
+def api_pellet_retrain():
+    """Rebuild each camera's template from the user's clicked labels.
+
+    User labels REPLACE the DLC-derived template for a camera once there are
+    enough of them: they are ground truth for this rig as it is now, whereas the
+    DLC pool is predictions pooled over sessions in which the pedestal sat
+    elsewhere. Below the minimum the existing template is kept, so one stray
+    click cannot wipe a working model.
+    """
+    body = request.get_json(force=True) or {}
+    min_labels = int(body.get("min_labels") or 3)
+    m = _model()
+    by_cam: dict[str, list] = {}
+    for lab in m.corrections:
+        by_cam.setdefault(lab.get("cam") or "cam0", []).append(lab)
+
+    built = {}
+    for cam_name, labels in by_cam.items():
+        if len(labels) < min_labels:
+            built[cam_name] = f"skipped: {len(labels)} label(s), need {min_labels}"
+            continue
+        half = (m.cameras[cam_name].half if cam_name in m.cameras else pm.PATCH_HALF)
+        patches, positions = [], []
+        for lab in labels:
+            frames = ncc.read_frames(lab["video"], [int(lab["frame"]) - 1])
+            key = int(lab["frame"]) - 1
+            if key not in frames:
+                continue
+            gray = ncc.to_gray(frames[key])
+            xi, yi = int(round(lab["x"])), int(round(lab["y"]))
+            if (yi - half < 0 or yi + half > gray.shape[0]
+                    or xi - half < 0 or xi + half > gray.shape[1]):
+                continue
+            patches.append(gray[yi - half:yi + half, xi - half:xi + half])
+            positions.append((lab["x"], lab["y"]))
+        if len(patches) < min_labels:
+            built[cam_name] = f"skipped: only {len(patches)} readable"
+            continue
+        margin = m.cameras[cam_name].margin if cam_name in m.cameras else pm.DEFAULT_MARGIN
+        cam = pm.build_camera(patches, positions)
+        cam.margin = margin
+        m.cameras[cam_name] = cam
+        built[cam_name] = f"rebuilt from {len(patches)} labels"
+
+    # Re-derive the 3D reference when both cameras were rebuilt and the two
+    # label sets pair up by (video, frame) — otherwise leave the old one.
+    try:
+        cal_path = stereo.find_for_project(_project())
+        if cal_path and "cam0" in m.cameras and "cam1" in m.cameras:
+            cal = stereo.load(cal_path)
+            key = lambda l: (Path(l["video"]).stem.replace("_cam0_", "_camX_")
+                             .replace("_cam1_", "_camX_"), l["frame"])
+            c0 = {key(l): l for l in by_cam.get("cam0", [])}
+            c1 = {key(l): l for l in by_cam.get("cam1", [])}
+            both = sorted(set(c0) & set(c1))
+            if both:
+                X = cal.triangulate([(c0[k]["x"], c0[k]["y"]) for k in both],
+                                    [(c1[k]["x"], c1[k]["y"]) for k in both])
+                m.ref_3d = [float(v) for v in np.median(X, axis=0)]
+                built["ref_3d"] = f"re-derived from {len(both)} paired labels"
+    except Exception as exc:                    # noqa: BLE001 - surfaced to the UI
+        built["ref_3d"] = f"not updated: {exc}"
+
+    pm.save(_project(), m)
+    return jsonify({"ok": True, "built": built,
+                    "cameras": {k: _cam_payload(v) for k, v in m.cameras.items()},
+                    "ref_3d": m.ref_3d})
+
+
+@bp.get(f"{PREFIX}/pellet/template.png")
+def api_pellet_template_png():
+    """The current template, for the panel to display."""
+    m = _model()
+    cam = m.cameras.get(request.args.get("cam") or "cam0")
+    t = cam.template() if cam else None
+    if t is None:
+        return jsonify({"error": "no template"}), 404
+    big = cv2.resize(t, (t.shape[1] * 3, t.shape[0] * 3),
+                     interpolation=cv2.INTER_NEAREST)
+    ok, buf = cv2.imencode(".png", big)
+    if not ok:
+        return jsonify({"error": "encode failed"}), 500
+    return Response(buf.tobytes(), mimetype="image/png",
+                    headers={"Cache-Control": "no-store"})

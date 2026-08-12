@@ -4296,6 +4296,193 @@ function _samDrawTags() {
   _samDrawCursor(g, w, h, last);
 }
 
+// ── pellet model: box fields, click-to-label, retrain ───────────────────────
+//
+// Click-to-label follows DeepLabCut's flow: click the pellet on a frame, repeat
+// on as many frames as you like, then retrain. Labels are kept as a list rather
+// than folded straight into the template, so a stray click can be removed and
+// the template rebuilt without it.
+
+const _pellet = { model: null, clicking: false, showBox: false, bound: new WeakSet() };
+
+async function _pelletLoad() {
+  try {
+    _pellet.model = await _samJSON(`${SAMAPI}/pellet/model`);
+    _pelletRenderCams();
+    _pelletRenderLabels();
+    _pelletStatus();
+  } catch (e) {
+    _samEl("ia3ds-pellet-status").textContent = `model: ${e.message}`;
+  }
+}
+
+function _pelletStatus() {
+  const m = _pellet.model;
+  if (!m) return;
+  const cams = Object.keys(m.cameras || {}).length;
+  const ref = m.ref_3d ? `ref3d (${m.ref_3d.map((v) => v.toFixed(1)).join(", ")})` : "no ref3d";
+  _samEl("ia3ds-pellet-status").textContent =
+    `${cams} camera(s) · ${(m.labels || []).length} labels · ${ref}`;
+  _samEl("ia3ds-pellet-thr").value = m.threshold ?? 0.55;
+  _samEl("ia3ds-pellet-3d").value = m.max_3d_dist ?? 3.0;
+}
+
+// One field set per camera: the parameters that dictate the box's location and
+// size. cx/cy place it, half sizes the template, margin sizes the search area
+// around it (margin is what allows drift without allowing the slide that let
+// the old detector lock onto a paw).
+function _pelletRenderCams() {
+  const grid = _samEl("ia3ds-cam-grid");
+  if (!grid || !_pellet.model) return;
+  const cams = _pellet.model.cameras || {};
+  const names = Object.keys(cams).length ? Object.keys(cams).sort() : ["cam0", "cam1"];
+  grid.innerHTML = "";
+  names.forEach((name) => {
+    const c = cams[name] || { cx: 0, cy: 0, half: 22, margin: 40, n_samples: 0 };
+    const card = document.createElement("div");
+    card.className = "ia3ds-cam-card";
+    card.innerHTML = `
+      <h4>${c.has_template ? `<img alt="" src="${SAMAPI}/pellet/template.png?cam=${name}&t=${Date.now()}"/>` : ""}
+        ${name} <span style="margin-left:auto">${c.n_samples || 0} samples</span></h4>
+      <div class="ia3ds-cam-fields">
+        <label>cx<input type="number" step="1" data-cam="${name}" data-k="cx" value="${Math.round(c.cx)}"/></label>
+        <label>cy<input type="number" step="1" data-cam="${name}" data-k="cy" value="${Math.round(c.cy)}"/></label>
+        <label>half<input type="number" step="1" min="4" data-cam="${name}" data-k="half" value="${c.half}"/></label>
+        <label>margin<input type="number" step="1" min="0" data-cam="${name}" data-k="margin" value="${c.margin}"/></label>
+      </div>`;
+    grid.appendChild(card);
+  });
+  grid.querySelectorAll("input").forEach((el) => {
+    el.onchange = () => { _samDrawTags(); _pelletDrawBox(); };
+  });
+}
+
+function _pelletCollect() {
+  const out = {};
+  document.querySelectorAll("#ia3ds-cam-grid input").forEach((el) => {
+    const cam = el.dataset.cam;
+    (out[cam] = out[cam] || {})[el.dataset.k] = parseFloat(el.value);
+  });
+  return out;
+}
+
+async function _pelletSave() {
+  try {
+    await _samJSON(`${SAMAPI}/pellet/model`, {
+      method: "PUT", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        cameras: _pelletCollect(),
+        threshold: parseFloat(_samEl("ia3ds-pellet-thr").value),
+        max_3d_dist: parseFloat(_samEl("ia3ds-pellet-3d").value),
+      }),
+    });
+    await _pelletLoad();
+    _samSay("pellet box saved");
+  } catch (e) {
+    _samEl("ia3ds-pellet-status").textContent = `save: ${e.message}`;
+  }
+}
+
+function _pelletRenderLabels() {
+  const box = _samEl("ia3ds-label-list");
+  if (!box || !_pellet.model) return;
+  const labels = _pellet.model.labels || [];
+  box.innerHTML = labels.length ? "" : `<div class="ia3ds-label-row">no labels yet — tick “click to place pellet label”</div>`;
+  labels.forEach((l, i) => {
+    const row = document.createElement("div");
+    row.className = "ia3ds-label-row";
+    row.innerHTML = `<span>${l.cam}</span><span>f${l.frame}</span>
+                     <span>(${Math.round(l.x)}, ${Math.round(l.y)})</span>
+                     <button title="Remove">✕</button>`;
+    row.querySelector("button").onclick = async () => {
+      await _samJSON(`${SAMAPI}/pellet/label/${i}`, { method: "DELETE" });
+      await _pelletLoad();
+    };
+    row.onclick = (ev) => { if (ev.target.tagName !== "BUTTON") _samGoToFrame(l.frame); };
+    box.appendChild(row);
+  });
+}
+
+async function _pelletRetrain() {
+  const btn = _samEl("ia3ds-pellet-retrain");
+  btn.disabled = true;
+  _samEl("ia3ds-pellet-status").textContent = "retraining…";
+  try {
+    const d = await _samJSON(`${SAMAPI}/pellet/retrain`, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({}),
+    });
+    await _pelletLoad();
+    _samEl("ia3ds-pellet-status").textContent =
+      Object.entries(d.built || {}).map(([k, v]) => `${k}: ${v}`).join(" · ");
+    await _samLoadWindows();          // rerun with the new template
+  } catch (e) {
+    _samEl("ia3ds-pellet-status").textContent = `retrain: ${e.message}`;
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+// ── click-to-label + box overlay on the card's tiles ────────────────────────
+//
+// Uses the same canvas->image mapping as frame_labeler_3d.js: the tile canvas
+// is CSS-scaled, so a click must be divided by that scale to land in image
+// pixels. Getting this wrong puts every label tens of pixels off.
+function _pelletCanvasToImage(canvas, ev) {
+  const rect = canvas.getBoundingClientRect();
+  const sx = rect.width > 0 ? canvas.width / rect.width : 1;
+  const sy = rect.height > 0 ? canvas.height / rect.height : 1;
+  return { x: (ev.clientX - rect.left) * sx, y: (ev.clientY - rect.top) * sy };
+}
+
+function _pelletTiles() {
+  const host = document.getElementById("inline-analysis-3d-sam-card");
+  return host ? Array.from(host.querySelectorAll("canvas")).filter(
+    (c) => c.id !== "ia3ds-sam-strip" && c.id !== "ia3ds-sam-tags") : [];
+}
+
+function _pelletBindTiles() {
+  _pelletTiles().forEach((canvas, i) => {
+    if (_pellet.bound.has(canvas)) return;
+    _pellet.bound.add(canvas);
+    canvas.addEventListener("click", async (ev) => {
+      if (!_pellet.clicking) return;
+      const video = _samCurrentVideo();
+      if (!video) { _samSay("open a pair first", true); return; }
+      const { x, y } = _pelletCanvasToImage(canvas, ev);
+      const cam = i === 0 ? "cam0" : "cam1";
+      try {
+        await _samJSON(`${SAMAPI}/pellet/label`, {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ video, cam, frame: _samState.frame + 1, x, y }),
+        });
+        await _pelletLoad();
+        _samSay(`labelled ${cam} f${_samState.frame + 1} at (${Math.round(x)}, ${Math.round(y)})`);
+      } catch (e) {
+        _samSay(`label: ${e.message}`, true);
+      }
+    });
+  });
+}
+
+// Draw the template + search box straight onto the tile canvases. Off by
+// default: it is a diagnostic, not something to leave covering the frame.
+function _pelletDrawBox() {
+  if (!_pellet.showBox || !_pellet.model) return;
+  const cams = _pellet.model.cameras || {};
+  _pelletTiles().forEach((canvas, i) => {
+    const c = cams[i === 0 ? "cam0" : "cam1"];
+    if (!c) return;
+    const g = canvas.getContext("2d");
+    const [ty0, ty1, tx0, tx1] = c.template_box;
+    const [sy0, sy1, sx0, sx1] = c.search_box;
+    g.strokeStyle = "#3ba7ff"; g.lineWidth = 1;
+    g.strokeRect(sx0, sy0, sx1 - sx0, sy1 - sy0);
+    g.strokeStyle = "#ffd23b"; g.lineWidth = 2;
+    g.strokeRect(tx0, ty0, tx1 - tx0, ty1 - ty0);
+  });
+}
+
 // ── wiring ──────────────────────────────────────────────────────────────────
 
 function _samWirePanel() {
@@ -4305,6 +4492,20 @@ function _samWirePanel() {
   _samEl("ia3ds-sam-run").onclick = _samRun;
   _samEl("ia3ds-sam-sweep").onclick = _samRunSweep;
   _samEl("ia3ds-sam-build-csv").onclick = _samBuildCsv;
+  _samEl("ia3ds-pellet-save").onclick = _pelletSave;
+  _samEl("ia3ds-pellet-retrain").onclick = _pelletRetrain;
+  _samEl("ia3ds-pellet-show").onchange = (e) => {
+    _pellet.showBox = e.target.checked;
+    if (_pellet.showBox) _pelletDrawBox();
+  };
+  _samEl("ia3ds-pellet-click").onchange = (e) => {
+    _pellet.clicking = e.target.checked;
+    _pelletBindTiles();
+    _samSay(_pellet.clicking ? "click the pellet on a tile to label it" : "");
+  };
+  _pelletLoad();
+  // Tiles are created when the card opens a pair, so keep looking for them.
+  setInterval(() => { _pelletBindTiles(); _pelletDrawBox(); }, 1000);
   _samEl("ia3ds-sam-tags").addEventListener("click", (ev) => {
     const rows = _samState.tagRows;
     if (!rows || !rows.length) return;

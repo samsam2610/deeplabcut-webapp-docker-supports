@@ -974,6 +974,33 @@
         <!-- trial picker: windows come from stage 1, anchored on the s/f marker -->
         <!-- pipeline actions: both are minutes of work, so both are explicit
              buttons rather than anything that fires on selection -->
+        <!-- ── pellet model: geometry, click-to-label, retrain ───────────── -->
+        <details class="ia3ds-pellet" id="ia3ds-pellet">
+          <summary>Pellet template &amp; box</summary>
+
+          <div class="ia3ds-sam-toggles" style="margin-top:.45rem">
+            <label><input type="checkbox" id="ia3ds-pellet-show"/> show template box on frame</label>
+            <label><input type="checkbox" id="ia3ds-pellet-click"/> click to place pellet label</label>
+          </div>
+
+          <div class="ia3ds-cam-grid" id="ia3ds-cam-grid"><!-- one field set per camera --></div>
+
+          <div class="ia3ds-sam-row" style="margin-top:.45rem">
+            <label for="ia3ds-pellet-thr">match thr</label>
+            <input type="number" id="ia3ds-pellet-thr" step="0.01" min="0" max="1" style="width:5rem"/>
+            <label for="ia3ds-pellet-3d" title="Max distance from the reference 3D pellet point">3D dist</label>
+            <input type="number" id="ia3ds-pellet-3d" step="0.1" min="0" style="width:5rem"/>
+            <button class="btn-sm" id="ia3ds-pellet-save">Save box</button>
+          </div>
+
+          <div class="ia3ds-sam-row">
+            <span class="ia3ds-sam-status" id="ia3ds-pellet-status"></span>
+            <button class="btn-sm" id="ia3ds-pellet-retrain">Retrain template + rerun</button>
+          </div>
+
+          <div class="ia3ds-label-list" id="ia3ds-label-list"></div>
+        </details>
+
         <div class="ia3ds-sam-row">
           <button class="btn-sm" id="ia3ds-sam-sweep">Pellet sweep</button>
           <button class="btn-sm" id="ia3ds-sam-build-csv">Build onset CSV</button>
