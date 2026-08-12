@@ -55,14 +55,50 @@ DEFAULT_MAX_3D_DIST = 3.0
 
 
 @dataclass
+class Exemplar:
+    """One pellet patch contributed by a user click."""
+    b64: str
+    video: str = ""
+    frame: int = 0
+    x: float = 0.0
+    y: float = 0.0
+
+    def patch(self):
+        import cv2
+        buf = np.frombuffer(base64.b64decode(self.b64), dtype=np.uint8)
+        return cv2.imdecode(buf, cv2.IMREAD_GRAYSCALE)
+
+
+@dataclass
 class CameraModel:
-    """Template and search geometry for one camera."""
+    """Template POOL and search geometry for one camera.
+
+    The template is the mean of a pool, not a fixed image:
+
+      * ``seed_b64`` / ``seed_n`` — the mean of the DLC-derived pellet positions
+        at `start-*` tags. This is the starting point and never changes.
+      * ``exemplars`` — patches the user added by clicking stationary pellets on
+        a new video. Individually removable, so a bad click is undone rather
+        than baked in.
+
+    ``template()`` re-averages the two. Growing the pool is the iteration
+    mechanism: if a new video misses a lot, add clicks until it does not.
+    Earlier versions either REPLACED the seed with the clicks (three clicks wiped
+    a 261-sample template) or ignored the clicks for appearance entirely; both
+    were wrong.
+    """
     cx: float                       # expected pellet centre, full-frame pixels
     cy: float
     half: int = PATCH_HALF          # template is (2*half) square
     margin: int = DEFAULT_MARGIN    # search box extends this far around (cx, cy)
-    template_b64: str = ""          # PNG bytes, base64 — keeps the model one file
-    n_samples: int = 0              # how many positions it was averaged from
+    seed_b64: str = ""              # mean of the DLC-derived pool, PNG+base64
+    seed_n: int = 0
+    seed_weight: float = 1.0        # <1 lets clicks outvote a large seed pool
+    exemplars: list = field(default_factory=list)
+
+    @property
+    def n_samples(self) -> int:
+        return int(self.seed_n) + len(self.exemplars)
 
     @property
     def template_box(self) -> tuple[int, int, int, int]:
@@ -76,19 +112,53 @@ class CameraModel:
         return (max(0, int(self.cy - h)), int(self.cy + h),
                 max(0, int(self.cx - h)), int(self.cx + h))
 
-    def template(self) -> np.ndarray | None:
-        if not self.template_b64:
+    def seed(self):
+        if not self.seed_b64:
             return None
         import cv2
-        buf = np.frombuffer(base64.b64decode(self.template_b64), dtype=np.uint8)
+        buf = np.frombuffer(base64.b64decode(self.seed_b64), dtype=np.uint8)
         return cv2.imdecode(buf, cv2.IMREAD_GRAYSCALE)
 
-    def set_template(self, patch) -> None:
-        import cv2
-        ok, buf = cv2.imencode(".png", patch)
-        if not ok:
-            raise ValueError("could not encode template")
-        self.template_b64 = base64.b64encode(buf.tobytes()).decode("ascii")
+    def set_seed(self, patch, n: int) -> None:
+        self.seed_b64 = _encode(patch)
+        self.seed_n = int(n)
+
+    def add_exemplar(self, patch, video="", frame=0, x=0.0, y=0.0) -> None:
+        self.exemplars.append(Exemplar(b64=_encode(patch), video=str(video),
+                                       frame=int(frame), x=float(x), y=float(y)))
+
+    def template(self):
+        """Weighted mean of the seed and every user exemplar."""
+        parts, weights = [], []
+        seed = self.seed()
+        if seed is not None and self.seed_n:
+            parts.append(seed.astype(np.float32))
+            weights.append(float(self.seed_n) * float(self.seed_weight))
+        for ex in self.exemplars:
+            patch = ex.patch()
+            if patch is None:
+                continue
+            if parts and patch.shape != parts[0].shape:
+                continue                        # size changed; skip rather than crash
+            parts.append(patch.astype(np.float32))
+            weights.append(1.0)
+        if not parts:
+            return None
+        w = np.asarray(weights, dtype=np.float32)
+        stack = np.stack(parts)
+        return (stack * w[:, None, None]).sum(axis=0) / w.sum()
+
+    def template_u8(self):
+        t = self.template()
+        return None if t is None else t.astype(np.uint8)
+
+
+def _encode(patch) -> str:
+    import cv2
+    ok, buf = cv2.imencode(".png", np.asarray(patch).astype(np.uint8))
+    if not ok:
+        raise ValueError("could not encode patch")
+    return base64.b64encode(buf.tobytes()).decode("ascii")
 
 
 @dataclass
@@ -114,7 +184,11 @@ class PelletModel:
     @classmethod
     def from_json(cls, text: str) -> "PelletModel":
         d = json.loads(text)
-        cams = {k: CameraModel(**v) for k, v in (d.get("cameras") or {}).items()}
+        cams = {}
+        for k, v in (d.get("cameras") or {}).items():
+            v = dict(v)
+            v["exemplars"] = [Exemplar(**e) for e in (v.get("exemplars") or [])]
+            cams[k] = CameraModel(**v)
         return cls(cameras=cams,
                    threshold=float(d.get("threshold", DEFAULT_THRESHOLD)),
                    max_3d_dist=float(d.get("max_3d_dist", DEFAULT_MAX_3D_DIST)),
@@ -144,15 +218,14 @@ def save(project_path, model: PelletModel) -> None:
 
 
 def build_camera(patches, positions) -> CameraModel:
-    """Average aligned patches into one template centred on the median position."""
+    """Seed a camera from DLC-derived patches. Clicks are added later."""
     if not len(patches):
         raise ValueError("no patches to build from")
     stack = np.stack(patches).astype(np.float32)
-    mean = stack.mean(axis=0)
     pos = np.asarray(positions, dtype=float)
     cam = CameraModel(cx=float(np.median(pos[:, 0])), cy=float(np.median(pos[:, 1])),
-                      half=stack.shape[1] // 2, n_samples=len(patches))
-    cam.set_template(mean.astype(np.uint8))
+                      half=stack.shape[1] // 2)
+    cam.set_seed(stack.mean(axis=0).astype(np.uint8), len(patches))
     return cam
 
 
@@ -164,7 +237,7 @@ def match(gray, cam: CameraModel):
     patch's corner landed.
     """
     import cv2
-    template = cam.template()
+    template = cam.template_u8()
     if template is None:
         return -1.0, (0.0, 0.0)
     y0, y1, x0, x1 = cam.search_box

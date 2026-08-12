@@ -32,11 +32,12 @@ def test_search_box_is_clamped_at_the_frame_edge():
     assert y0 == 0 and x0 == 0
 
 
-def test_template_round_trips_through_base64():
+def test_seed_round_trips_through_base64():
     cam = pm.CameraModel(cx=1, cy=1)
     p = patch()
-    cam.set_template(p)
-    assert np.array_equal(cam.template(), p)
+    cam.set_seed(p, 10)
+    assert np.array_equal(cam.seed(), p)
+    assert cam.n_samples == 10
 
 
 def test_camera_without_a_template_scores_sentinel():
@@ -88,7 +89,7 @@ def test_model_json_round_trip(tmp_path):
     back = pm.load(tmp_path)
     assert back is not None
     assert back.ref_3d == [1.6, 10.0, 261.7]
-    assert np.array_equal(back.cameras["cam0"].template(), cam.template())
+    assert np.array_equal(back.cameras["cam0"].template_u8(), cam.template_u8())
 
 
 def test_corrupt_model_is_a_miss_not_a_crash(tmp_path):
@@ -133,3 +134,69 @@ def test_sibling_ignores_a_different_animal(tmp_path):
     (tmp_path / "rat_cam0_20260707_110532_5.avi").write_bytes(b"")
     (tmp_path / "mouse_cam1_20260707_110542_5.avi").write_bytes(b"")
     assert pm.sibling_video(tmp_path / "rat_cam0_20260707_110532_5.avi") is None
+
+
+# ── the pool: clicks ADD to the seed, they do not replace it ────────────────
+
+def test_clicks_add_to_the_pool_rather_than_replacing_the_seed():
+    """Three clicks once wiped a 261-sample template. The seed is the DLC-derived
+    starting point; clicks grow the pool."""
+    cam = pm.build_camera([patch() for _ in range(261)], [(400, 380)] * 261)
+    before = cam.template_u8().copy()
+    cam.add_exemplar(patch(bright=False))
+    assert cam.seed_n == 261 and len(cam.exemplars) == 1
+    assert cam.n_samples == 262
+    # one click against 261 seed samples must barely move the template
+    assert np.abs(cam.template_u8().astype(int) - before.astype(int)).max() < 6
+
+
+def test_enough_clicks_do_move_the_template():
+    # Otherwise "add more to the pool until it stops missing" would never work.
+    cam = pm.build_camera([patch() for _ in range(10)], [(400, 380)] * 10)
+    before = cam.template_u8().copy()
+    for _ in range(40):
+        cam.add_exemplar(patch(bright=False))
+    assert np.abs(cam.template_u8().astype(int) - before.astype(int)).max() > 40
+
+
+def test_seed_weight_lets_clicks_outvote_a_large_seed():
+    cam = pm.build_camera([patch() for _ in range(261)], [(400, 380)] * 261)
+    cam.seed_weight = 0.01
+    before = cam.template_u8().copy()
+    for _ in range(5):
+        cam.add_exemplar(patch(bright=False))
+    assert np.abs(cam.template_u8().astype(int) - before.astype(int)).max() > 40
+
+
+def test_removing_an_exemplar_restores_the_template():
+    cam = pm.build_camera([patch() for _ in range(5)], [(400, 380)] * 5)
+    before = cam.template_u8().copy()
+    cam.add_exemplar(patch(bright=False))
+    cam.exemplars.pop()
+    assert np.array_equal(cam.template_u8(), before)
+
+
+def test_exemplars_survive_a_json_round_trip(tmp_path):
+    m = pm.PelletModel()
+    cam = pm.build_camera([patch() for _ in range(3)], [(400, 380)] * 3)
+    cam.add_exemplar(patch(), video="v.avi", frame=42, x=411, y=388)
+    m.cameras["cam0"] = cam
+    pm.save(tmp_path, m)
+    back = pm.load(tmp_path).cameras["cam0"]
+    assert back.seed_n == 3 and len(back.exemplars) == 1
+    assert back.exemplars[0].frame == 42
+    assert np.array_equal(back.template_u8(), cam.template_u8())
+
+
+def test_a_camera_with_only_clicks_still_has_a_template():
+    cam = pm.CameraModel(cx=400, cy=380)
+    assert cam.template() is None
+    cam.add_exemplar(patch())
+    assert cam.template_u8() is not None
+
+
+def test_exemplar_carries_its_source_so_deletion_can_find_it():
+    cam = pm.build_camera([patch() for _ in range(3)], [(400, 380)] * 3)
+    cam.add_exemplar(patch(), video="/v/a.avi", frame=99, x=400, y=380)
+    ex = cam.exemplars[0]
+    assert ex.video == "/v/a.avi" and ex.frame == 99

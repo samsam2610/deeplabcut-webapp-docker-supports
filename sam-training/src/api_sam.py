@@ -363,10 +363,11 @@ def _cam_payload(cam: pm.CameraModel | None):
     if cam is None:
         return None
     return {"cx": cam.cx, "cy": cam.cy, "half": cam.half, "margin": cam.margin,
-            "n_samples": cam.n_samples,
+            "n_samples": cam.n_samples, "seed_n": cam.seed_n,
+            "n_clicks": len(cam.exemplars), "seed_weight": cam.seed_weight,
             "template_box": list(cam.template_box),
             "search_box": list(cam.search_box),
-            "has_template": bool(cam.template_b64)}
+            "has_template": cam.template() is not None}
 
 
 @bp.get(f"{PREFIX}/pellet/model")
@@ -395,6 +396,8 @@ def api_pellet_model_put():
         for key in ("half", "margin"):
             if key in vals:
                 setattr(cam, key, max(4, int(vals[key])))
+        if "seed_weight" in vals:
+            cam.seed_weight = max(0.0, float(vals["seed_weight"]))
         m.cameras[cam_name] = cam
     if "threshold" in body:
         m.threshold = float(body["threshold"])
@@ -428,72 +431,87 @@ def api_pellet_label_delete(index):
     m = _model()
     if not (0 <= index < len(m.corrections)):
         return jsonify({"error": "no such label"}), 404
-    m.corrections.pop(index)
+    gone = m.corrections.pop(index)
+    # Drop the exemplar this click contributed, so the pool never disagrees with
+    # the label list. Without this a removed click keeps influencing the template
+    # until someone happens to retrain — a stale state with no visible cause.
+    cam = m.cameras.get(gone.get("cam") or "cam0")
+    if cam is not None:
+        cam.exemplars = [e for e in cam.exemplars
+                         if not (e.video == gone.get("video")
+                                 and e.frame == gone.get("frame"))]
     pm.save(_project(), m)
-    return jsonify({"ok": True, "n_labels": len(m.corrections)})
+    return jsonify({"ok": True, "n_labels": len(m.corrections),
+                    "n_clicks_in_pool": len(cam.exemplars) if cam else 0})
 
 
 @bp.post(f"{PREFIX}/pellet/retrain")
 def api_pellet_retrain():
-    """Rebuild each camera's template from the user's clicked labels.
+    """Fold the user's clicks into the template pool and re-aim the box.
 
-    User labels REPLACE the DLC-derived template for a camera once there are
-    enough of them: they are ground truth for this rig as it is now, whereas the
-    DLC pool is predictions pooled over sessions in which the pedestal sat
-    elsewhere. Below the minimum the existing template is kept, so one stray
-    click cannot wipe a working model.
+    The workflow this serves: verify the box on a new video, sweep it, and if
+    the pellet is being missed, click stationary pellets until it is not. So a
+    click must ADD to the pool — the DLC-derived seed is the starting point, not
+    the whole story, and it came from sessions whose pedestal sat elsewhere.
+
+    Two earlier versions of this were wrong: one replaced the seed outright
+    (three clicks wiped 261 samples), the other used clicks only to move the box
+    and threw the appearance information away.
     """
     body = request.get_json(force=True) or {}
-    min_labels = int(body.get("min_labels") or 3)
     m = _model()
     by_cam: dict[str, list] = {}
     for lab in m.corrections:
         by_cam.setdefault(lab.get("cam") or "cam0", []).append(lab)
+    if not by_cam:
+        return jsonify({"error": "no clicks yet"}), 400
 
     built = {}
     for cam_name, labels in by_cam.items():
-        if len(labels) < min_labels:
-            built[cam_name] = f"skipped: {len(labels)} label(s), need {min_labels}"
-            continue
-        half = (m.cameras[cam_name].half if cam_name in m.cameras else pm.PATCH_HALF)
-        patches, positions = [], []
+        cam = m.cameras.get(cam_name)
+        if cam is None:
+            cam = pm.CameraModel(cx=float(labels[0]["x"]), cy=float(labels[0]["y"]))
+            m.cameras[cam_name] = cam
+        # Re-cut every click's patch from scratch so the pool always reflects the
+        # current list — removing a click actually removes its influence.
+        cam.exemplars = []
+        added = 0
         for lab in labels:
-            frames = ncc.read_frames(lab["video"], [int(lab["frame"]) - 1])
             key = int(lab["frame"]) - 1
+            frames = ncc.read_frames(lab["video"], [key])
             if key not in frames:
                 continue
             gray = ncc.to_gray(frames[key])
-            xi, yi = int(round(lab["x"])), int(round(lab["y"]))
-            if (yi - half < 0 or yi + half > gray.shape[0]
-                    or xi - half < 0 or xi + half > gray.shape[1]):
+            xi, yi, h = int(round(lab["x"])), int(round(lab["y"])), cam.half
+            if (yi - h < 0 or yi + h > gray.shape[0]
+                    or xi - h < 0 or xi + h > gray.shape[1]):
                 continue
-            patches.append(gray[yi - half:yi + half, xi - half:xi + half])
-            positions.append((lab["x"], lab["y"]))
-        if len(patches) < min_labels:
-            built[cam_name] = f"skipped: only {len(patches)} readable"
-            continue
-        margin = m.cameras[cam_name].margin if cam_name in m.cameras else pm.DEFAULT_MARGIN
-        cam = pm.build_camera(patches, positions)
-        cam.margin = margin
-        m.cameras[cam_name] = cam
-        built[cam_name] = f"rebuilt from {len(patches)} labels"
+            cam.add_exemplar(gray[yi - h:yi + h, xi - h:xi + h],
+                             video=lab["video"], frame=lab["frame"],
+                             x=lab["x"], y=lab["y"])
+            added += 1
+        # Re-aim on the clicks: on a new video they are the only evidence of
+        # where this rig's pedestal actually is.
+        if added:
+            cam.cx = float(np.median([float(l["x"]) for l in labels]))
+            cam.cy = float(np.median([float(l["y"]) for l in labels]))
+        built[cam_name] = (f"pool = {cam.seed_n} seed + {added} click(s); "
+                           f"box at ({cam.cx:.0f}, {cam.cy:.0f})")
 
-    # Re-derive the 3D reference when both cameras were rebuilt and the two
-    # label sets pair up by (video, frame) — otherwise leave the old one.
     try:
         cal_path = stereo.find_for_project(_project())
-        if cal_path and "cam0" in m.cameras and "cam1" in m.cameras:
+        if cal_path and "cam0" in by_cam and "cam1" in by_cam:
             cal = stereo.load(cal_path)
             key = lambda l: (Path(l["video"]).stem.replace("_cam0_", "_camX_")
                              .replace("_cam1_", "_camX_"), l["frame"])
-            c0 = {key(l): l for l in by_cam.get("cam0", [])}
-            c1 = {key(l): l for l in by_cam.get("cam1", [])}
+            c0 = {key(l): l for l in by_cam["cam0"]}
+            c1 = {key(l): l for l in by_cam["cam1"]}
             both = sorted(set(c0) & set(c1))
             if both:
                 X = cal.triangulate([(c0[k]["x"], c0[k]["y"]) for k in both],
                                     [(c1[k]["x"], c1[k]["y"]) for k in both])
                 m.ref_3d = [float(v) for v in np.median(X, axis=0)]
-                built["ref_3d"] = f"re-derived from {len(both)} paired labels"
+                built["ref_3d"] = f"re-derived from {len(both)} paired click(s)"
     except Exception as exc:                    # noqa: BLE001 - surfaced to the UI
         built["ref_3d"] = f"not updated: {exc}"
 
@@ -508,7 +526,7 @@ def api_pellet_template_png():
     """The current template, for the panel to display."""
     m = _model()
     cam = m.cameras.get(request.args.get("cam") or "cam0")
-    t = cam.template() if cam else None
+    t = cam.template_u8() if cam else None
     if t is None:
         return jsonify({"error": "no template"}), 404
     big = cv2.resize(t, (t.shape[1] * 3, t.shape[0] * 3),
