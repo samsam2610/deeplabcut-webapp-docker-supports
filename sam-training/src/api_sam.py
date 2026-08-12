@@ -113,9 +113,6 @@ def api_windows():
         # tag-pending video these are the only human marks that exist.
         "markers": [{"frame": f, "note": n}
                     for f, n in notes.human_marks(notes.read_notes(video))],
-        # EVERY note frame, including our own candidates: note navigation steps
-        # through all of them, and the panel follows it to the containing trial.
-        "note_frames": [f for f, _n in notes.read_notes(video)],
         "windows": [{"start": w.start, "end": w.end, "outcome": w.outcome,
                      "onset": w.onset_frame, "n_candidates": w.n_candidates,
                      "armed": [{"start": a.start, "end": a.end} for a in w.armed]}

@@ -82,6 +82,7 @@ test("the batch and tag controls exist", () => {
   ["ia3ds-batch-2d", "ia3ds-batch-3d", "ia3ds-batch-recompute",
    "ia3ds-batch-status", "ia3ds-tag-outcome", "ia3ds-tag-add",
    "ia3ds-tag-batch", "ia3ds-tag-include", "ia3ds-tag-undo",
+   "ia3ds-trial-lock",
   ].forEach((id) => assert.ok(declared.has(id), `card is missing #${id}`));
 });
 

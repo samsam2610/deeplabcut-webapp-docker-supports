@@ -3849,7 +3849,6 @@ const _samState = {
   masks: new Map(),  // frame -> {rle,w,h}
   trials: [],        // stored results + derived tag state, from /trials
   sibling: null,     // cam1 path, for cam1 thumbnails of a stored result
-  noteFrames: new Set(),   // every frame carrying a note, for follow-on-nav
   canUndo: false,
   // Every human s/f marker and start tag in the video. The strip drew only the
   // start tags, and a tag-pending video has none — so on the video where this
@@ -3914,7 +3913,6 @@ async function _samLoadWindows() {
       `${SAMAPI}/windows?video=${encodeURIComponent(video)}`);
     _samState.windows = d.windows || [];
     _samState.markers = d.markers || [];
-    _samState.noteFrames = new Set(d.note_frames || []);
     if (d.judge) { _samState.judge = clampJudge(d.judge); _samJudgeRender(); }
     // Stored results and live tag state, so the dropdown says what has been
     // scored and what is already tagged. Best-effort: a panel that cannot show
@@ -4303,13 +4301,13 @@ function _samHookViewer() {
   _samState.hooked = true;
   _viewer.on("frameChange", (n) => {
     _samState.frame = Number(n) || 0;
-    // Note navigation lands the playhead exactly on a note; follow it to the
-    // trial that contains it. Only on a note, so scrubbing and playback do not
-    // keep yanking the dropdown elsewhere — and silently when there is no such
-    // trial, as asked.
+    // Locked, the panel follows the cursor into whichever trial contains it —
+    // note navigation, scrubbing and playback alike — and shows that trial's
+    // stored candidates. Unlocked, nothing moves on its own.
     const sel = _samEl("ia3ds-sam-trial");
     const here = sel ? parseInt(sel.value, 10) : -1;
-    const go = followTarget(_samState.windows, _samState.noteFrames,
+    const go = followTarget(_samState.windows,
+                            !!_samEl("ia3ds-trial-lock")?.checked,
                             _samState.frame + 1, here);
     if (go >= 0 && sel) {
       sel.value = String(go);
@@ -5017,6 +5015,14 @@ function _samWirePanel() {
   on("ia3ds-tag-batch", "onclick", _samAddAllCandidates);
   on("ia3ds-tag-undo", "onclick", _samUndoTags);
   on("ia3ds-tag-include", "onchange", _samTagRender);
+  // Ticking the lock should act at once, not wait for the next cursor move.
+  on("ia3ds-trial-lock", "onchange", () => {
+    if (!_samEl("ia3ds-trial-lock")?.checked) return;
+    const sel = _samEl("ia3ds-sam-trial");
+    const here = sel ? parseInt(sel.value, 10) : -1;
+    const go = followTarget(_samState.windows, true, _samState.frame + 1, here);
+    if (go >= 0 && sel) { sel.value = String(go); _samSelectTrialQuiet(go); }
+  });
   _samEl("ia3ds-sam-sweep").onclick = _samRunSweep;
   _samEl("ia3ds-sam-build-csv").onclick = _samBuildCsv;
   _samEl("ia3ds-pellet-save").onclick = _pelletSave;

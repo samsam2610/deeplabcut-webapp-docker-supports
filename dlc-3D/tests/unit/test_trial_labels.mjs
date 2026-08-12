@@ -189,24 +189,26 @@ test("overlapping windows resolve to the first deterministically", () => {
   assert.equal(trialContaining(overlapping, 250), 0);
 });
 
-test("it follows only when the playhead is on a note", () => {
-  // Otherwise ordinary scrubbing would keep yanking the dropdown elsewhere.
-  const notes = new Set([25000]);
-  assert.equal(followTarget(LIST, notes, 25000, 0), 1);
-  assert.equal(followTarget(LIST, notes, 25001, 0), -1);
+test("locked, any cursor movement follows the playhead", () => {
+  assert.equal(followTarget(LIST, true, 25000, 0), 1);
+  assert.equal(followTarget(LIST, true, 26000, 0), 2);
 });
 
-test("landing on a note already in the current trial does nothing", () => {
-  const notes = new Set([23000]);
-  assert.equal(followTarget(LIST, notes, 23000, 0), -1);
+test("unlocked, nothing follows — that is the default", () => {
+  assert.equal(followTarget(LIST, false, 25000, 0), -1);
+  assert.equal(followTarget(LIST, undefined, 25000, 0), -1);
 });
 
-test("a note outside every window does nothing — silently", () => {
-  const notes = new Set([5]);
-  assert.equal(followTarget(LIST, notes, 5, 0), -1);
+test("locked but already on that trial does nothing", () => {
+  // Otherwise every frame of playback would re-render the same thumbnails.
+  assert.equal(followTarget(LIST, true, 23000, 0), -1);
 });
 
-test("no note set at all does nothing", () => {
-  assert.equal(followTarget(LIST, null, 25000, 0), -1);
-  assert.equal(followTarget(LIST, new Set(), 25000, 0), -1);
+test("locked over a gap between windows does nothing, silently", () => {
+  assert.equal(followTarget(LIST, true, 5, 0), -1);
+  assert.equal(followTarget(LIST, true, 999999, 0), -1);
+});
+
+test("locked with a non-numeric frame does nothing", () => {
+  assert.equal(followTarget(LIST, true, undefined, 0), -1);
 });

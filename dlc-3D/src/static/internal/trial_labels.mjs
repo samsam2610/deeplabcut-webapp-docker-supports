@@ -81,15 +81,21 @@ export function trialContaining(list, frame) {
 /**
  * Should the panel follow the playhead to another trial?
  *
- * Only when it has landed exactly on a NOTE — which is what note navigation
- * produces. Following every frame change would fight the user: scrubbing or
- * playing back would keep yanking the dropdown to a different trial.
+ * Governed by an explicit lock, off by default. Locked, ANY cursor movement
+ * follows — note navigation, scrubbing, playback alike; unlocked, nothing
+ * moves on its own.
  *
- * Returns -1 for "stay", which covers no note, no containing trial, and
- * already being there. The caller does nothing on -1: silent, as asked.
+ * The first attempt at this followed only when the playhead landed exactly on a
+ * note, inferring the user's intent from where they stopped. It did not work,
+ * and it could not be predicted from the outside: the same drag either moved
+ * the trial or did not, depending on what happened to be under the cursor at
+ * the end. A switch the user owns beats a heuristic that guesses.
+ *
+ * -1 means "stay": unlocked, no containing trial, or already there. The caller
+ * does nothing on -1 — silent, as asked.
  */
-export function followTarget(list, noteFrames, frame, currentIndex) {
-  if (!noteFrames || !noteFrames.has(Number(frame))) return -1;
+export function followTarget(list, locked, frame, currentIndex) {
+  if (!locked) return -1;
   const idx = trialContaining(list, frame);
   return idx === currentIndex ? -1 : idx;
 }
