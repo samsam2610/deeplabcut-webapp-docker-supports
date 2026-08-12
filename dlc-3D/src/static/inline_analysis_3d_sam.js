@@ -3829,6 +3829,8 @@ const SAMAPI = "/sam-training/api";
 
 const _samState = {
   video: null,
+  frame: 0,          // viewer's current frame, 0-based like _viewer.currentFrame()
+  hooked: false,
   windows: [],
   active: null,      // {start, end, outcome, onset, frames[], sim[], armed[], pick}
   masks: new Map(),  // frame -> {rle,w,h}
@@ -3863,6 +3865,7 @@ function _samCurrentVideo() {
 function _samWatchVideo() {
   if (_samState._watch) return;
   _samState._watch = setInterval(() => {
+    _samHookViewer();
     const v = _samCurrentVideo();
     if (v && v !== _samState.seen) {
       _samState.seen = v;
@@ -3958,6 +3961,9 @@ function _samSelectTrial(i) {
   _samEl("ia3ds-sam-cands").innerHTML = "";
   _samEl("ia3ds-sam-note").textContent =
     `window opens at the aperture crossing, closes at the human ${w.outcome} marker`;
+  // Jump the card's player to this trial so the tiles, the card's own timeline
+  // and both panel canvases are all talking about the same moment.
+  _samGoToFrame(w.onset != null ? w.onset : Math.round((w.start + w.end) / 2));
 }
 
 async function _samRun() {
@@ -4001,6 +4007,41 @@ async function _samPoll(jobId, bar) {
     if (j.state === "error") throw new Error(j.message || "job failed");
     return j.result || {};
   }
+}
+
+// The card broadcasts position via _viewer.on("frameChange"); the original card
+// uses exactly this to drive its own timeline. Without it the panel's canvases
+// had no idea where the player was, so a successful seek left no visible trace
+// and the panel looked unclickable.
+function _samHookViewer() {
+  if (_samState.hooked || !_viewer || typeof _viewer.on !== "function") return;
+  _samState.hooked = true;
+  _viewer.on("frameChange", (n) => {
+    _samState.frame = Number(n) || 0;
+    _samDrawStrip();
+    _samDrawTags();
+  });
+}
+
+// Total frames as the VIEWER counts them — the denominator the card's own
+// timeline uses. Falling back to the last CSV row (what this used to do) put
+// the panel on a different scale, so its ticks never lined up with anything.
+function _samFrameCount() {
+  try {
+    if (_viewer && typeof _viewer.frameCount === "function") {
+      const fc = _viewer.frameCount();
+      if (fc > 1) return fc;
+    }
+  } catch (e) { /* viewer not ready */ }
+  return null;
+}
+
+// Cursor in the same place the original card puts it: currentFrame / (fc - 1).
+function _samDrawCursor(g, w, h, total) {
+  if (!total || total < 2) return;
+  const x = Math.round((_samState.frame / Math.max(total - 1, 1)) * w);
+  g.strokeStyle = "#ffffff"; g.lineWidth = 1;
+  g.beginPath(); g.moveTo(x, 0); g.lineTo(x, h); g.stroke();
 }
 
 // ── similarity strip ────────────────────────────────────────────────────────
@@ -4068,6 +4109,19 @@ function _samDrawStrip() {
     g.strokeStyle = "#ffd23b"; g.lineWidth = 2;
     g.beginPath(); g.moveTo(x(A.pick), 0); g.lineTo(x(A.pick), h); g.stroke();
   }
+
+  // The strip is a ZOOM on one trial, so the cursor only exists while the
+  // playhead is inside it. Outside, an arrow shows which way the trial lies.
+  const cur = _samState.frame + 1;              // viewer 0-based -> CSV 1-based
+  if (cur >= A.start && cur <= A.end) {
+    g.strokeStyle = "#ffffff"; g.lineWidth = 1;
+    g.beginPath(); g.moveTo(x(cur), 0); g.lineTo(x(cur), h); g.stroke();
+  } else {
+    g.fillStyle = "#98a1b0"; g.font = "11px system-ui";
+    g.fillText(cur < A.start ? "◀ playhead before this trial"
+                             : "playhead after this trial ▶",
+               cur < A.start ? 10 : w - 150, h - 6);
+  }
 }
 
 // ── candidate thumbnails ────────────────────────────────────────────────────
@@ -4091,11 +4145,26 @@ function _samRenderCandidates(top) {
 // Drive the cloned card's own viewer to a frame, so the SAM panel and the
 // stereo tiles always agree about what is on screen.
 function _samGoToFrame(frame) {
+  // `frame` is a CSV frame_number (1-based); the viewer counts from 0.
+  const target = Math.max(0, Math.round(frame) - 1);
+  if (!_viewer) {
+    // Say so rather than no-op: _cam0Path() can resolve from the file list
+    // while the card's player has never been opened, and a silent failure here
+    // is indistinguishable from a broken panel.
+    _samSay("open the pair in this card's player to enable seeking", true);
+    return;
+  }
   try {
-    if (_viewer && typeof _viewer.seek === "function") { _viewer.seek(frame); return; }
-    if (_viewer && typeof _viewer.goToFrame === "function") { _viewer.goToFrame(frame); return; }
+    if (typeof _viewer.seek === "function") {
+      _viewer.seek(target);
+      _samState.frame = target;
+      _samHookViewer();
+      _samDrawStrip();
+      _samDrawTags();
+      return;
+    }
   } catch (e) { console.warn("[sam] seek", e); }
-  _samSay(`frame ${frame} (viewer seek unavailable)`);
+  _samSay(`frame ${frame}: viewer has no seek()`, true);
 }
 
 // ── pellet sweep + onset CSV ────────────────────────────────────────────────
@@ -4189,8 +4258,9 @@ function _samDrawTags() {
     g.fillText("Build the onset CSV to see the whole-video tag timeline.", 10, h / 2);
     return;
   }
-  const last = Math.max(...rows.map((r) => +r.frame_number)) || 1;
-  const x = (f) => (f / last) * w;
+  const last = _samFrameCount() || (Math.max(...rows.map((r) => +r.frame_number)) || 1);
+  // CSV frame_number is 1-based; the viewer counts from 0.
+  const x = (f) => ((f - 1) / Math.max(last - 1, 1)) * w;
   const num = (v) => (String(v ?? "").trim() === "" ? null : parseFloat(v));
 
   // armed band
@@ -4222,6 +4292,8 @@ function _samDrawTags() {
       g.beginPath(); g.moveTo(x(f), 0); g.lineTo(x(f), 16); g.stroke();
     }
   });
+
+  _samDrawCursor(g, w, h, last);
 }
 
 // ── wiring ──────────────────────────────────────────────────────────────────
@@ -4255,6 +4327,7 @@ function _samWirePanel() {
   window.addEventListener("resize", () => { _samDrawStrip(); _samDrawTags(); });
   _samDrawStrip();
   _samDrawTags();
+  _samHookViewer();
   _samWatchVideo();
   _samLoadWindows();
   _samLoadTags();
