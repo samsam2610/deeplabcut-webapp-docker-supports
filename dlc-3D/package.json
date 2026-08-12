@@ -1,7 +1,7 @@
 {
   "name": "dlc-3d-tests",
   "version": "1.0.0",
-  "description": "Dev-only: jsdom for the frame-labeler module-load smoke test. The module itself ships as plain browser ES modules with no build step and no runtime dependencies.",
+  "description": "Dev-only: jsdom for the module-load smoke tests. The modules ship as plain browser ES modules with no build step and no runtime dependencies. \"type\": \"module\" tells Node the same thing about .js files here \u2014 the browser already treats them as ESM via <script type=module>, and without it Node reads them as CommonJS and every named import fails. Verified: no file under src/static uses require() or module.exports.",
   "directories": {
     "doc": "docs",
     "test": "tests"
@@ -14,5 +14,6 @@
     "acorn-walk": "^8.3.5",
     "jsdom": "^22.1.0"
   },
-  "private": true
+  "private": true,
+  "type": "module"
 }
