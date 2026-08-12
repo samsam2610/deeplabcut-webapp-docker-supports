@@ -90,6 +90,37 @@ def read(video_path, dest=None) -> list[dict]:
             and str(r.get("source") or "").strip()]
 
 
+def top_for_window(video_path, start: int, end: int, n: int = 5, dest=None):
+    """The best ``n`` accepted frames in a window, best first.
+
+    Reconstructs a ranking that was scored but not stored — same rule the
+    scorer used: accepted frames only, ordered by score. Exact, not an
+    approximation, so a trial scored before the ranking was kept can still show
+    its strip without a re-run.
+
+    Ties break on the earlier frame, so the answer is stable between calls.
+    """
+    picked = []
+    for r in read(video_path, dest):
+        try:
+            frame = int(float(r["frame"]))
+        except (TypeError, ValueError):
+            continue
+        if not (start <= frame <= end):
+            continue
+        if r.get("source") != SOURCE_SAM or r.get("marker") != "paw_centroid":
+            continue
+        if not str(r.get("X") or "").strip():
+            continue            # rejected by the gate; never a candidate
+        try:
+            score = float(r["score"])
+        except (TypeError, ValueError, KeyError):
+            continue
+        picked.append((-score, frame))
+    picked.sort()
+    return [f for _s, f in picked[:max(0, int(n))]]
+
+
 def _write_rows(dest: Path, rows) -> Path:
     dest.parent.mkdir(parents=True, exist_ok=True)
     tmp = dest.with_suffix(".tmp")

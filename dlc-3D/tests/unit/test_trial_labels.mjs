@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   trialLabel, defaultOutcome, tagNote, writableTrials, candidateStrips,
+  trialContaining, followTarget,
 } from "../../src/static/internal/trial_labels.mjs";
 
 const base = {
@@ -153,4 +154,59 @@ test("a full ranking is not marked partial", () => {
 
 test("no pick and no ranking still renders nothing", () => {
   assert.equal(candidateStrips({ result: { mode: "3d", top: [] } }).render, null);
+});
+
+// ── following note navigation to the containing trial ───────────────────────
+
+const LIST = [
+  { start: 22923, end: 24454 },
+  { start: 24455, end: 25847 },
+  { start: 25848, end: 27536 },
+];
+
+test("a frame inside a window finds its trial", () => {
+  assert.equal(trialContaining(LIST, 25000), 1);
+});
+
+test("window bounds are inclusive", () => {
+  assert.equal(trialContaining(LIST, 22923), 0);
+  assert.equal(trialContaining(LIST, 24454), 0);
+});
+
+test("a frame in no window is -1", () => {
+  assert.equal(trialContaining(LIST, 1), -1);
+  assert.equal(trialContaining(LIST, 999999), -1);
+});
+
+test("a non-numeric frame is -1, not a crash", () => {
+  assert.equal(trialContaining(LIST, undefined), -1);
+  assert.equal(trialContaining(LIST, "x"), -1);
+});
+
+test("overlapping windows resolve to the first deterministically", () => {
+  // Reachable once `past prev marker` is raised above 0.
+  const overlapping = [{ start: 100, end: 300 }, { start: 200, end: 400 }];
+  assert.equal(trialContaining(overlapping, 250), 0);
+});
+
+test("it follows only when the playhead is on a note", () => {
+  // Otherwise ordinary scrubbing would keep yanking the dropdown elsewhere.
+  const notes = new Set([25000]);
+  assert.equal(followTarget(LIST, notes, 25000, 0), 1);
+  assert.equal(followTarget(LIST, notes, 25001, 0), -1);
+});
+
+test("landing on a note already in the current trial does nothing", () => {
+  const notes = new Set([23000]);
+  assert.equal(followTarget(LIST, notes, 23000, 0), -1);
+});
+
+test("a note outside every window does nothing — silently", () => {
+  const notes = new Set([5]);
+  assert.equal(followTarget(LIST, notes, 5, 0), -1);
+});
+
+test("no note set at all does nothing", () => {
+  assert.equal(followTarget(LIST, null, 25000, 0), -1);
+  assert.equal(followTarget(LIST, new Set(), 25000, 0), -1);
 });

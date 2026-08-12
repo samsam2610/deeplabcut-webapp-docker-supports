@@ -113,6 +113,9 @@ def api_windows():
         # tag-pending video these are the only human marks that exist.
         "markers": [{"frame": f, "note": n}
                     for f, n in notes.human_marks(notes.read_notes(video))],
+        # EVERY note frame, including our own candidates: note navigation steps
+        # through all of them, and the panel follows it to the containing trial.
+        "note_frames": [f for f, _n in notes.read_notes(video)],
         "windows": [{"start": w.start, "end": w.end, "outcome": w.outcome,
                      "onset": w.onset_frame, "n_candidates": w.n_candidates,
                      "armed": [{"start": a.start, "end": a.end} for a in w.armed]}
@@ -183,7 +186,11 @@ def _trial_rows(video):
             "onset": w.onset_frame,
             "result": None if got is None else {
                 "pick": int(float(got["pick"])), "mode": got.get("mode"),
-                "top": trials.parse_top(got.get("top")),
+                # Reconstructed from the per-frame scores when the row predates
+                # the ranking column — exact, by the rule the scorer used, not
+                # frames guessed around the pick.
+                "top": (trials.parse_top(got.get("top"))
+                        or motion3d.top_for_window(video, w.start, w.end)),
                 "score": float(got["score"]) if str(got.get("score") or "").strip() else None,
                 "judge_sig": got.get("judge_sig"),
                 # Not an error, just visible: this row was scored under a

@@ -64,3 +64,32 @@ export function candidateStrips(trial) {
   }
   return { clear: true, render: null, top: [], partial: false };
 }
+
+/**
+ * Index of the trial whose window contains `frame`, or -1.
+ *
+ * Windows do not overlap once `past prev marker` is 0, but they can when it is
+ * raised, so the FIRST match wins — deterministic, and the earlier trial is the
+ * one whose marker follows the frame soonest.
+ */
+export function trialContaining(list, frame) {
+  const f = Number(frame);
+  if (!Number.isFinite(f)) return -1;
+  return (list || []).findIndex((t) => t && f >= t.start && f <= t.end);
+}
+
+/**
+ * Should the panel follow the playhead to another trial?
+ *
+ * Only when it has landed exactly on a NOTE — which is what note navigation
+ * produces. Following every frame change would fight the user: scrubbing or
+ * playing back would keep yanking the dropdown to a different trial.
+ *
+ * Returns -1 for "stay", which covers no note, no containing trial, and
+ * already being there. The caller does nothing on -1: silent, as asked.
+ */
+export function followTarget(list, noteFrames, frame, currentIndex) {
+  if (!noteFrames || !noteFrames.has(Number(frame))) return -1;
+  const idx = trialContaining(list, frame);
+  return idx === currentIndex ? -1 : idx;
+}

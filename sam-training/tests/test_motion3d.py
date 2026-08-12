@@ -110,3 +110,67 @@ def test_a_corrupt_file_does_not_take_the_new_rows_down_with_it(tmp_path):
     m3.merge("/v/v.avi", [_row(100)], dest=dest)
     got = m3.read("/v/v.avi", dest)
     assert len(got) == 1 and int(float(got[0]["frame"])) == 100
+
+
+# ── reconstructing a ranking ────────────────────────────────────────────────
+#
+# Rows stored before the trial sidecar kept a ranking have a pick and nothing
+# else. But the 3D scorer wrote a per-frame score for every candidate it saw, so
+# the ranking is RECOVERABLE — exactly, by the same rule the scorer used —
+# rather than approximated by showing frames near the pick.
+
+def _cand(frame, score, accepted=True):
+    return m3.Row(frame=frame, source=m3.SOURCE_SAM, marker="paw_centroid",
+                  score=score, epi_px=3.0,
+                  X=1.0 if accepted else None,
+                  Y=2.0 if accepted else None, Z=3.0 if accepted else None)
+
+
+def test_the_ranking_is_by_score_descending(tmp_path):
+    dest = tmp_path / "v_motion3d.csv"
+    m3.merge("/v/v.avi", [_cand(10, 0.5), _cand(11, 0.9), _cand(12, 0.7)], dest=dest)
+    assert m3.top_for_window("/v/v.avi", 1, 100, dest=dest) == [11, 12, 10]
+
+
+def test_only_accepted_frames_are_ranked(tmp_path):
+    """A frame the epipolar gate rejected was never a candidate for the pick,
+    so it cannot appear in the strip either."""
+    dest = tmp_path / "v_motion3d.csv"
+    m3.merge("/v/v.avi", [_cand(10, 0.99, accepted=False), _cand(11, 0.5)], dest=dest)
+    assert m3.top_for_window("/v/v.avi", 1, 100, dest=dest) == [11]
+
+
+def test_it_is_confined_to_the_window(tmp_path):
+    dest = tmp_path / "v_motion3d.csv"
+    m3.merge("/v/v.avi", [_cand(10, 0.9), _cand(500, 0.99)], dest=dest)
+    assert m3.top_for_window("/v/v.avi", 1, 100, dest=dest) == [10]
+
+
+def test_the_window_bounds_are_inclusive(tmp_path):
+    dest = tmp_path / "v_motion3d.csv"
+    m3.merge("/v/v.avi", [_cand(1, 0.9), _cand(100, 0.8)], dest=dest)
+    assert m3.top_for_window("/v/v.avi", 1, 100, dest=dest) == [1, 100]
+
+
+def test_it_returns_at_most_n(tmp_path):
+    dest = tmp_path / "v_motion3d.csv"
+    m3.merge("/v/v.avi", [_cand(i, i / 100) for i in range(10, 30)], dest=dest)
+    assert len(m3.top_for_window("/v/v.avi", 1, 100, n=5, dest=dest)) == 5
+
+
+def test_no_coverage_is_empty_not_an_error(tmp_path):
+    assert m3.top_for_window("/v/v.avi", 1, 100,
+                             dest=tmp_path / "none_motion3d.csv") == []
+
+
+def test_a_window_with_only_rejected_frames_is_empty(tmp_path):
+    dest = tmp_path / "v_motion3d.csv"
+    m3.merge("/v/v.avi", [_cand(10, 0.9, accepted=False)], dest=dest)
+    assert m3.top_for_window("/v/v.avi", 1, 100, dest=dest) == []
+
+
+def test_ties_are_broken_deterministically(tmp_path):
+    dest = tmp_path / "v_motion3d.csv"
+    m3.merge("/v/v.avi", [_cand(12, 0.5), _cand(10, 0.5), _cand(11, 0.5)], dest=dest)
+    twice = [m3.top_for_window("/v/v.avi", 1, 100, dest=dest) for _ in range(2)]
+    assert twice[0] == twice[1] == [10, 11, 12]     # earliest frame first
