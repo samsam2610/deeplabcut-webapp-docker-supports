@@ -427,3 +427,12 @@
   margin-left: auto; background: none; border: none; color: #ff6a6a;
   cursor: pointer; font-size: .8rem; line-height: 1;
 }
+
+.ia3ds-confirm {
+  display: flex; align-items: center; gap: .5rem; margin-top: .5rem;
+  padding: .35rem .5rem; border-radius: 5px;
+  border: 1px solid var(--warn); background: rgba(255,106,0,.08);
+  font-size: .74rem; color: var(--text-dim);
+}
+.ia3ds-confirm.ok { border-color: var(--ok); background: rgba(102,156,53,.10); }
+.ia3ds-confirm button { margin-left: auto; }

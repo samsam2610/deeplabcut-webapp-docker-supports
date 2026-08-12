@@ -200,3 +200,50 @@ def test_exemplar_carries_its_source_so_deletion_can_find_it():
     cam.add_exemplar(patch(), video="/v/a.avi", frame=99, x=400, y=380)
     ex = cam.exemplars[0]
     assert ex.video == "/v/a.avi" and ex.frame == 99
+
+
+# ── per-video box + confirmation ────────────────────────────────────────────
+
+def test_video_box_overrides_the_project_default():
+    m = pm.PelletModel()
+    m.cameras["cam0"] = pm.build_camera([patch()] * 3, [(400, 380)] * 3)
+    assert m.box_for("vid", "cam0") == (400, 380)
+    m.videos["vid"] = pm.VideoBox(cx0=411, cy0=402)
+    assert m.box_for("vid", "cam0") == (411, 402)
+
+
+def test_video_override_does_not_mutate_the_project_default():
+    """Otherwise setting one video's box silently moves every other video's."""
+    m = pm.PelletModel()
+    m.cameras["cam0"] = pm.build_camera([patch()] * 3, [(400, 380)] * 3)
+    m.videos["vid"] = pm.VideoBox(cx0=411, cy0=402)
+    cam = m.camera_for("vid", "cam0")
+    assert (cam.cx, cam.cy) == (411, 402)
+    assert (m.cameras["cam0"].cx, m.cameras["cam0"].cy) == (400, 380)
+    assert m.box_for("other", "cam0") == (400, 380)
+
+
+def test_camera_for_keeps_the_shared_template():
+    m = pm.PelletModel()
+    m.cameras["cam0"] = pm.build_camera([patch()] * 3, [(400, 380)] * 3)
+    m.videos["vid"] = pm.VideoBox(cx0=411, cy0=402)
+    moved = m.camera_for("vid", "cam0")
+    assert np.array_equal(moved.template_u8(), m.cameras["cam0"].template_u8())
+
+
+def test_unconfirmed_by_default():
+    m = pm.PelletModel()
+    assert not m.is_confirmed("vid")
+    m.videos["vid"] = pm.VideoBox(cx0=1, cy0=2)
+    assert not m.is_confirmed("vid")
+    m.videos["vid"].confirmed = True
+    assert m.is_confirmed("vid")
+
+
+def test_video_boxes_round_trip(tmp_path):
+    m = pm.PelletModel()
+    m.videos["vid"] = pm.VideoBox(cx0=411, cy0=402, cx1=590, cy1=451, confirmed=True)
+    pm.save(tmp_path, m)
+    back = pm.load(tmp_path)
+    assert back.is_confirmed("vid")
+    assert back.box_for("vid", "cam1") is None or back.videos["vid"].cx1 == 590

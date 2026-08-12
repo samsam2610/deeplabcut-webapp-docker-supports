@@ -29,7 +29,7 @@ from __future__ import annotations
 
 import base64
 import json
-from dataclasses import dataclass, asdict, field
+from dataclasses import dataclass, asdict, field, replace
 from pathlib import Path
 
 import numpy as np
@@ -178,8 +178,27 @@ def _encode(patch) -> str:
 
 
 @dataclass
+class VideoBox:
+    """Per-video box position, confirmed by eye.
+
+    The TEMPLATE is per project — the pellet looks the same everywhere. The
+    POSITION is not: the pedestal drifts between sessions (hand-labelled y went
+    354 in May to 399 in July), and on banh-mi-1 Jul 7 the project default lands
+    somewhere useless. So each video pair carries its own centres and must be
+    confirmed before it can be swept: a wrong box does not fail loudly, it
+    quietly fills the mask with paws.
+    """
+    cx0: float | None = None
+    cy0: float | None = None
+    cx1: float | None = None
+    cy1: float | None = None
+    confirmed: bool = False
+
+
+@dataclass
 class PelletModel:
     cameras: dict[str, CameraModel] = field(default_factory=dict)
+    videos: dict[str, VideoBox] = field(default_factory=dict)
     threshold: float = DEFAULT_THRESHOLD
     max_3d_dist: float = DEFAULT_MAX_3D_DIST
     ref_3d: list[float] | None = None      # reference pellet position, or None
@@ -188,6 +207,35 @@ class PelletModel:
     def camera(self, cam: str) -> CameraModel | None:
         return self.cameras.get(cam)
 
+    def box_for(self, video_stem: str, cam: str) -> tuple[float, float] | None:
+        """Centre to use for this video: its own if set, else the project default."""
+        base = self.cameras.get(cam)
+        vb = self.videos.get(video_stem)
+        if vb is not None:
+            cx = vb.cx0 if cam == "cam0" else vb.cx1
+            cy = vb.cy0 if cam == "cam0" else vb.cy1
+            if cx is not None and cy is not None:
+                return float(cx), float(cy)
+        return (base.cx, base.cy) if base else None
+
+    def is_confirmed(self, video_stem: str) -> bool:
+        vb = self.videos.get(video_stem)
+        return bool(vb and vb.confirmed)
+
+    def camera_for(self, video_stem: str, cam: str) -> CameraModel | None:
+        """The camera model with this video's box position applied.
+
+        Returns a copy so the project default is never mutated by a per-video
+        override — that bug would silently move every other video's box.
+        """
+        base = self.cameras.get(cam)
+        if base is None:
+            return None
+        pos = self.box_for(video_stem, cam)
+        if pos is None or (pos[0] == base.cx and pos[1] == base.cy):
+            return base
+        return replace(base, cx=pos[0], cy=pos[1])
+
     def to_json(self) -> str:
         return json.dumps({
             "cameras": {k: asdict(v) for k, v in self.cameras.items()},
@@ -195,6 +243,7 @@ class PelletModel:
             "max_3d_dist": self.max_3d_dist,
             "ref_3d": self.ref_3d,
             "corrections": self.corrections,
+            "videos": {k: asdict(v) for k, v in self.videos.items()},
         }, indent=2)
 
     @classmethod
@@ -205,7 +254,8 @@ class PelletModel:
             v = dict(v)
             v["exemplars"] = [Exemplar(**e) for e in (v.get("exemplars") or [])]
             cams[k] = CameraModel(**v)
-        return cls(cameras=cams,
+        vids = {k: VideoBox(**v) for k, v in (d.get("videos") or {}).items()}
+        return cls(cameras=cams, videos=vids,
                    threshold=float(d.get("threshold", DEFAULT_THRESHOLD)),
                    max_3d_dist=float(d.get("max_3d_dist", DEFAULT_MAX_3D_DIST)),
                    ref_3d=d.get("ref_3d"),

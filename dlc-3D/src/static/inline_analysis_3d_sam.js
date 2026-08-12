@@ -3871,6 +3871,7 @@ function _samWatchVideo() {
       _samState.seen = v;
       _samLoadWindows();
       _samLoadTags();
+      _pelletLoadVideoBox();
     }
   }, 1000);
 }
@@ -4483,6 +4484,115 @@ function _pelletDrawBox() {
   });
 }
 
+// ── drag the template box, confirm per pair ─────────────────────────────────
+//
+// Number fields are fine for nudging but useless for "is the yellow box on the
+// pellet" — that is a visual question, so the box is draggable on the frame.
+// The project default was visibly wrong on banh-mi-1 Jul 7, which is why the
+// pair must be confirmed before it can be swept.
+
+const _drag = { cam: null, canvas: null, dx: 0, dy: 0 };
+
+function _camNameFor(index) { return index === 0 ? "cam0" : "cam1"; }
+
+function _boxHit(c, x, y) {
+  const [ty0, ty1, tx0, tx1] = c.template_box;
+  return x >= tx0 && x <= tx1 && y >= ty0 && y <= ty1;
+}
+
+function _pelletBindDrag() {
+  _pelletTiles().forEach((canvas, i) => {
+    if (canvas._samDragBound) return;
+    canvas._samDragBound = true;
+    const camName = _camNameFor(i);
+
+    canvas.addEventListener("mousedown", (ev) => {
+      if (!_pellet.showBox || !_pellet.model) return;
+      const c = (_pellet.model.cameras || {})[camName];
+      if (!c) return;
+      const { x, y } = _pelletCanvasToImage(canvas, ev);
+      if (!_boxHit(c, x, y)) return;
+      _drag.cam = camName; _drag.canvas = canvas;
+      _drag.dx = x - c.cx; _drag.dy = y - c.cy;
+      ev.preventDefault(); ev.stopPropagation();
+    });
+
+    canvas.addEventListener("mousemove", (ev) => {
+      if (_drag.cam !== camName) return;
+      const c = _pellet.model.cameras[camName];
+      const { x, y } = _pelletCanvasToImage(canvas, ev);
+      c.cx = x - _drag.dx; c.cy = y - _drag.dy;
+      // Recompute the boxes locally so the drag is smooth; the server
+      // recomputes them authoritatively on save.
+      c.template_box = [c.cy - c.half, c.cy + c.half, c.cx - c.half, c.cx + c.half];
+      const h = c.half + c.margin;
+      c.search_box = [c.cy - h, c.cy + h, c.cx - h, c.cx + h];
+      _pelletDrawBox();
+      ev.preventDefault();
+    });
+  });
+
+  if (!_pellet.dragUp) {
+    _pellet.dragUp = true;
+    window.addEventListener("mouseup", async () => {
+      if (!_drag.cam) return;
+      const cam = _drag.cam;
+      _drag.cam = null; _drag.canvas = null;
+      const c = _pellet.model.cameras[cam];
+      // Dragging invalidates a previous confirmation: the box moved, so nobody
+      // has looked at where it is NOW.
+      await _pelletSaveVideoBox({ [cam]: { cx: c.cx, cy: c.cy } }, false);
+      _samSay(`${cam} box moved to (${Math.round(c.cx)}, ${Math.round(c.cy)}) — confirm when both look right`);
+    });
+  }
+}
+
+async function _pelletSaveVideoBox(cameras, confirmed) {
+  const video = _samCurrentVideo();
+  if (!video) return;
+  try {
+    const d = await _samJSON(`${SAMAPI}/pellet/video-box`, {
+      method: "PUT", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ video, cameras, confirmed }),
+    });
+    _pellet.confirmed = d.confirmed;
+    _pelletRenderConfirm();
+  } catch (e) {
+    _samSay(`box: ${e.message}`, true);
+  }
+}
+
+async function _pelletLoadVideoBox() {
+  const video = _samCurrentVideo();
+  if (!video || !_pellet.model) return;
+  try {
+    const d = await _samJSON(
+      `${SAMAPI}/pellet/video-box?video=${encodeURIComponent(video)}`);
+    _pellet.confirmed = d.confirmed;
+    // Per-video centres win over the project default for display and drag.
+    Object.entries(d.cameras || {}).forEach(([k, v]) => {
+      if (v) _pellet.model.cameras[k] = { ..._pellet.model.cameras[k], ...v };
+    });
+    _pelletRenderCams();
+    _pelletRenderConfirm();
+    _pelletDrawBox();
+  } catch (e) {
+    /* no model yet */
+  }
+}
+
+function _pelletRenderConfirm() {
+  const wrap = _samEl("ia3ds-confirm");
+  const label = _samEl("ia3ds-confirm-state");
+  if (!wrap || !label) return;
+  wrap.classList.toggle("ok", !!_pellet.confirmed);
+  label.textContent = _pellet.confirmed
+    ? "box confirmed for this pair — sweeping enabled"
+    : "box NOT confirmed for this pair — sweeping blocked";
+  const sweep = _samEl("ia3ds-sam-sweep");
+  if (sweep) sweep.disabled = !_pellet.confirmed;
+}
+
 // ── wiring ──────────────────────────────────────────────────────────────────
 
 function _samWirePanel() {
@@ -4496,7 +4606,15 @@ function _samWirePanel() {
   _samEl("ia3ds-pellet-retrain").onclick = _pelletRetrain;
   _samEl("ia3ds-pellet-show").onchange = (e) => {
     _pellet.showBox = e.target.checked;
-    if (_pellet.showBox) _pelletDrawBox();
+    if (_pellet.showBox) { _pelletBindDrag(); _pelletDrawBox(); }
+  };
+  _samEl("ia3ds-confirm-btn").onclick = async () => {
+    const cams = {};
+    Object.entries(_pellet.model?.cameras || {}).forEach(([k, v]) => {
+      cams[k] = { cx: v.cx, cy: v.cy };
+    });
+    await _pelletSaveVideoBox(cams, true);
+    _samSay("box confirmed for this pair");
   };
   _samEl("ia3ds-pellet-click").onchange = (e) => {
     _pellet.clicking = e.target.checked;
@@ -4505,7 +4623,7 @@ function _samWirePanel() {
   };
   _pelletLoad();
   // Tiles are created when the card opens a pair, so keep looking for them.
-  setInterval(() => { _pelletBindTiles(); _pelletDrawBox(); }, 1000);
+  setInterval(() => { _pelletBindTiles(); _pelletBindDrag(); _pelletDrawBox(); }, 1000);
   _samEl("ia3ds-sam-tags").addEventListener("click", (ev) => {
     const rows = _samState.tagRows;
     if (!rows || !rows.length) return;

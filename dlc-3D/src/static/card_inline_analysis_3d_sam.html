@@ -985,6 +985,16 @@
 
           <div class="ia3ds-cam-grid" id="ia3ds-cam-grid"><!-- one field set per camera --></div>
 
+          <div class="ia3ds-confirm" id="ia3ds-confirm">
+            <span id="ia3ds-confirm-state">box not confirmed for this pair</span>
+            <button class="btn-sm" id="ia3ds-confirm-btn">Confirm box for this pair</button>
+          </div>
+          <p class="ia3ds-sam-note">
+            Drag the yellow box onto the stationary pellet in <b>each</b> camera,
+            then confirm. Sweeping is blocked until you do — a wrong box does not
+            fail loudly, it fills the mask with paws.
+          </p>
+
           <div class="ia3ds-sam-row" style="margin-top:.45rem">
             <label for="ia3ds-pellet-thr">match thr</label>
             <input type="number" id="ia3ds-pellet-thr" step="0.01" min="0" max="1" style="width:5rem"/>

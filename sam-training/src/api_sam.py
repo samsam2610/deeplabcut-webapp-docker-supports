@@ -56,6 +56,11 @@ def api_windows():
     video = _resolve(request.args.get("video"))
     if not video:
         return jsonify({"error": "video not found"}), 404
+    m = _model()
+    if not m.is_confirmed(Path(video).stem):
+        return jsonify({"error": "confirm the pellet box for this pair first "
+                                 "— drag the yellow box onto the stationary "
+                                 "pellet in each camera, then Confirm"}), 428
     calib, wins = _windows_for(video)
     if wins is None:
         return jsonify({"error": "not swept yet — run the sweep in the "
@@ -536,3 +541,52 @@ def api_pellet_template_png():
         return jsonify({"error": "encode failed"}), 500
     return Response(buf.tobytes(), mimetype="image/png",
                     headers={"Cache-Control": "no-store"})
+
+
+# ── per-video box confirmation ───────────────────────────────────────────────
+
+
+@bp.get(f"{PREFIX}/pellet/video-box")
+def api_video_box_get():
+    video = _resolve(request.args.get("video"))
+    if not video:
+        return jsonify({"error": "video not found"}), 404
+    stem = Path(video).stem
+    m = _model()
+    sib = pm.sibling_video(video)
+    out = {"video": video, "stem": stem, "confirmed": m.is_confirmed(stem),
+           "sibling": str(sib) if sib else None, "cameras": {}}
+    for cam in ("cam0", "cam1"):
+        c = m.camera_for(stem, cam)
+        out["cameras"][cam] = _cam_payload(c)
+    return jsonify(out)
+
+
+@bp.put(f"{PREFIX}/pellet/video-box")
+def api_video_box_put():
+    """Set (and optionally confirm) this pair's box centres.
+
+    Confirmation is per video pair on purpose. A wrong box does not fail
+    loudly — it fills the armed mask with paws — and the project default was
+    visibly wrong on banh-mi-1 Jul 7, so nothing should sweep until a human has
+    looked at the yellow box and said yes.
+    """
+    body = request.get_json(force=True) or {}
+    video = _resolve(body.get("video"))
+    if not video:
+        return jsonify({"error": "video not found"}), 404
+    stem = Path(video).stem
+    m = _model()
+    vb = m.videos.get(stem) or pm.VideoBox()
+    cams = body.get("cameras") or {}
+    if "cam0" in cams:
+        vb.cx0 = float(cams["cam0"]["cx"]); vb.cy0 = float(cams["cam0"]["cy"])
+    if "cam1" in cams:
+        vb.cx1 = float(cams["cam1"]["cx"]); vb.cy1 = float(cams["cam1"]["cy"])
+    if "confirmed" in body:
+        vb.confirmed = bool(body["confirmed"])
+    m.videos[stem] = vb
+    pm.save(_project(), m)
+    return jsonify({"ok": True, "confirmed": vb.confirmed,
+                    "cameras": {c: _cam_payload(m.camera_for(stem, c))
+                                for c in ("cam0", "cam1")}})
