@@ -130,6 +130,12 @@ def build(project_path, per_session: int = 40, progress=None,
 
     model = pm.load(project_path)
     camera = (model.cameras.get(cam) if model else None)
+    if camera is None and cam != "cam0":
+        # crop_rgb falls back to the cam0 rectangle when given no box. For cam0
+        # that IS the tuned crop; for any other camera it would embed cam0's
+        # region of a different view — every exemplar background, the bank
+        # looking perfectly healthy, and that camera's similarity pure noise.
+        raise ValueError(f"no {cam} in the pellet model, so its crop is unknown")
     box = crop_for(camera) if camera else None
 
     videos = [config.to_local(p) for p in sorted(tracked.tag_done_videos(project_path))]

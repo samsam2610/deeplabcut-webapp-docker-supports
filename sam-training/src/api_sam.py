@@ -147,13 +147,15 @@ def _read_candidates(video, candidates, box, job=None, share=0.45, base=0.05):
     Sequential rather than seeking per frame: at stride 5 a seek costs more than
     a decode, and this runs over ~200 frames twice (once per camera).
     """
+    # `candidates` are 1-based frame_numbers; cv2 counts from 0. This is the
+    # only place the conversion happens on the way in.
     cap = cv2.VideoCapture(str(video))
-    cap.set(cv2.CAP_PROP_POS_FRAMES, candidates[0])
+    cap.set(cv2.CAP_PROP_POS_FRAMES, candidates[0] - 1)
     wanted = set(candidates)
     crops, kept, raw = [], [], {}
     idx, last = candidates[0], candidates[-1]
     while idx <= last:
-        ok, frame = cap.read()
+        ok, frame = cap.read()          # idx is the frame_number just read
         if not ok:
             break
         if idx in wanted:
@@ -268,7 +270,7 @@ def _score_window_3d(job, video, start, end, outcome, prompt, topk):
         # every candidate is recorded, rejections included: the residual is the
         # only thing that explains a frame that should have been kept and wasn't
         rows.append(motion3d.Row(
-            frame=int(f) + 1, source=motion3d.SOURCE_SAM, marker="paw_centroid",
+            frame=int(f), source=motion3d.SOURCE_SAM, marker="paw_centroid",
             cam0_x=None if p0 is None else p0[0], cam0_y=None if p0 is None else p0[1],
             cam1_x=None if p1 is None else p1[0], cam1_y=None if p1 is None else p1[1],
             X=None if X is None else float(X[0]),
@@ -368,7 +370,10 @@ def _score_window(job, video, start, end, outcome, prompt, topk):
     py = calib.template_box[0] + (calib.template_box[1] - calib.template_box[0]) / 2
     masks = []
     for f in top_frames:
-        frame = raw.get(f) or ncc.read_frames(video, [f]).get(f)
+        # f is a 1-based frame_number; ncc.read_frames indexes from 0.
+        frame = raw.get(f)
+        if frame is None:
+            frame = ncc.read_frames(video, [f - 1]).get(f - 1)
         if frame is None:
             continue
         items = models.segment(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB), prompt=prompt)
@@ -450,14 +455,15 @@ def api_thumb():
     model = pipeline.model_for(_project(), video)
     camera = (model.cameras.get(cam) if model else None)
 
-    got = ncc.read_frames(video, [n])
-    if n not in got:
+    # `n` is a 1-based frame_number, like every other frame the API exchanges.
+    got = ncc.read_frames(video, [n - 1])
+    if (n - 1) not in got:
         return jsonify({"error": f"frame {n} unreadable"}), 404
 
     y0, y1, x0, x1 = exemplars.crop_for(camera) if camera else exemplars.CROP
-    tile = got[n][y0:y1, x0:x1].copy()
+    tile = got[n - 1][y0:y1, x0:x1].copy()
     if request.args.get("mask") == "1" and camera is not None:
-        items = models.segment(cv2.cvtColor(got[n], cv2.COLOR_BGR2RGB),
+        items = models.segment(cv2.cvtColor(got[n - 1], cv2.COLOR_BGR2RGB),
                                prompt=request.args.get("prompt") or "paw")
         # Nearest THIS camera's pellet. It used to read the pellet out of the
         # rig calibration's template box, which is cam0 geometry — on a cam1

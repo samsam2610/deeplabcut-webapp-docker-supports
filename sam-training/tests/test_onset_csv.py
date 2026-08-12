@@ -292,7 +292,9 @@ def test_pair_sweep_records_both_cameras_and_the_distance(tmp_path):
     import numpy as np
     dest = tmp_path / "v_onset.csv"
     build = onset_csv.Build()
-    build.add_pair_sweep([0, 5], np.array([0.90, 0.55]), np.array([0.88, 0.67]),
+    # 1-based frame_numbers, as the pipeline now hands out: the sweep's 0-based
+    # video indices are converted once, at the pipeline boundary.
+    build.add_pair_sweep([1, 6], np.array([0.90, 0.55]), np.array([0.88, 0.67]),
                          np.array([0.48, 8.29]), np.array([True, False]))
     onset_csv.write("/v/v.avi", build, dest=dest)
     rows = {int(float(r["frame_number"])): r for r in onset_csv.read("/v/v.avi", dest)}
@@ -311,7 +313,7 @@ def test_a_nan_distance_is_written_blank_not_as_a_number(tmp_path):
     import numpy as np
     dest = tmp_path / "v_onset.csv"
     build = onset_csv.Build()
-    build.add_pair_sweep([0], np.array([0.1]), np.array([0.1]),
+    build.add_pair_sweep([1], np.array([0.1]), np.array([0.1]),
                          np.array([np.nan]), np.array([False]))
     onset_csv.write("/v/v.avi", build, dest=dest)
     row = onset_csv.read("/v/v.avi", dest)[0]

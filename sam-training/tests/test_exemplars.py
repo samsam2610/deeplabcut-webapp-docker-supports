@@ -101,3 +101,28 @@ def test_the_crop_is_still_part_of_the_cache_key(tmp_path):
         assert exemplars.cache_file("/p", 40, tmp_path, cam="cam0") != before
     finally:
         exemplars.CROP_OFFSETS = original
+
+
+def test_building_cam1_without_a_camera_model_refuses(monkeypatch, tmp_path):
+    """A missing camera must not fall back to cam0's rectangle.
+
+    crop_rgb defaults to CROP when given no box, which is right for a caller
+    that has no model at all — but for cam1 it would embed cam0's region of a
+    cam1 frame. Every exemplar would be background, the bank would look fine,
+    and cam1 similarity would be noise.
+    """
+    from src import pellet_model as pm
+    monkeypatch.setattr(pm, "load", lambda _p: pm.PelletModel())   # no cameras
+    with pytest.raises(ValueError, match="cam1"):
+        exemplars.build(tmp_path, per_session=1, cam="cam1")
+
+
+def test_building_cam0_without_a_model_still_uses_the_tuned_rectangle(monkeypatch, tmp_path):
+    """cam0's default IS the tuned rectangle, so this stays a working path."""
+    from src import pellet_model as pm, tracked
+    monkeypatch.setattr(pm, "load", lambda _p: pm.PelletModel())
+    monkeypatch.setattr(tracked, "tag_done_videos", lambda _p: [])
+    import src.models as models
+    monkeypatch.setattr(models, "embed", lambda imgs: np.zeros((0, 8), dtype=np.float32))
+    bank = exemplars.build(tmp_path, per_session=1, cam="cam0")
+    assert len(bank) == 0

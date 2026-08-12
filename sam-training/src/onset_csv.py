@@ -119,8 +119,16 @@ class Build:
         return self.rows.setdefault(int(frame), Row(frame_number=int(frame)))
 
     def add_sweep(self, frames, scores, threshold: float):
+        """SUPERSEDED single-camera path — and the ONLY thing here that still
+        takes 0-based sweep indices. Everything else in this class takes 1-based
+        frame_numbers, because the pipeline converts once at its boundary.
+
+        Kept for reading an old trace by hand. Do not wire it back in: two index
+        bases in one class is precisely how the armed mask ended up a frame
+        adrift of the trials it belonged to.
+        """
         for f, s in zip(np.asarray(frames).tolist(), np.asarray(scores).tolist()):
-            row = self.at(int(f) + 1)            # sweep frames are 0-based
+            row = self.at(int(f) + 1)            # 0-based in, 1-based out
             row.pellet_ncc = float(s)
             row.pellet_present = int(s > threshold)
 
@@ -137,7 +145,7 @@ class Build:
                                  np.asarray(score1).tolist(),
                                  np.asarray(dist3d).tolist(),
                                  np.asarray(present).tolist()):
-            row = self.at(int(f) + 1)            # sweep frames are 0-based
+            row = self.at(int(f))                # already 1-based, see pipeline
             row.pellet_ncc = float(a)
             row.pellet_ncc_cam1 = float(b)
             row.pellet_dist3d = None if (d is None or math.isnan(d)) else float(d)
@@ -160,7 +168,7 @@ class Build:
                 # writing all ~1800 armed frames per window would multiply the
                 # file size with nothing new to say about the gaps.
                 for f in range(iv.start, iv.end + 1):
-                    key = f + 1
+                    key = f                      # already 1-based, see pipeline
                     if key in self.rows:
                         self.rows[key].armed = 1
                         self.rows[key].window_id = i

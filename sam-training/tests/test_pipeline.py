@@ -117,3 +117,50 @@ def test_the_trace_reports_the_weaker_camera(tmp_path, project, video):
                           np.full(n, 0.5), 100, model=model, root=tmp_path)
     out = pipeline.windows_for(project, video, root=tmp_path)
     assert out.score.max() == pytest.approx(0.3, abs=1e-6)
+
+
+# ── one index base ──────────────────────────────────────────────────────────
+#
+# The sweep counts video frames from 0; the companion CSV, the tags, the onset
+# sidecar and motion3d all count from 1. build_windows was comparing armed
+# intervals in the first base against outcome markers in the second, and a 3D
+# run reported 0-based frames in its JSON while writing 1-based ones to its
+# sidecar — two artefacts of one run disagreeing about which frame is which.
+#
+# Everything the pipeline hands out is now 1-based CSV frame_number. Only the
+# cv2 seek converts back.
+
+def test_the_pipeline_reports_one_based_frames(tmp_path, project, video):
+    """The first sampled frame is video index 0, which is frame_number 1."""
+    _cache_a_pair(video, project, tmp_path, armed_from=1000, armed_to=1900)
+    out = pipeline.windows_for(project, video, root=tmp_path)
+    assert int(out.frames[0]) == 1
+
+
+def test_armed_intervals_and_the_outcome_marker_share_a_base(tmp_path, project, video):
+    """A pellet present right up to the marker must arm THROUGH the marker.
+
+    With the sweep 0-based and the marker 1-based it stopped one frame short,
+    and every armed interval was silently a frame adrift of the trial it
+    belonged to.
+    """
+    import numpy as np
+    model = pm.load(project)
+    frames = np.arange(0, 5000, 5)
+    hot = frames >= 1000                      # present from 1000 to the end
+    sweep_cache.save_pair(video, frames, np.where(hot, 0.9, 0.1),
+                          np.where(hot, 0.9, 0.1),
+                          np.where(hot, 0.5, np.nan), 5000, model=model,
+                          root=tmp_path)
+    w = [x for x in pipeline.windows_for(project, video, root=tmp_path).windows
+         if x.end == 2000][0]
+    assert max(iv.end for iv in w.armed) == 2000, \
+        "armed must reach the marker, not stop a frame short"
+
+
+def test_a_candidate_frame_is_a_companion_csv_frame_number(tmp_path, project, video):
+    """The onset at companion frame N must be findable as candidate N."""
+    _cache_a_pair(video, project, tmp_path, armed_from=1000, armed_to=1900)
+    out = pipeline.windows_for(project, video, root=tmp_path)
+    cands = out.windows[0].candidate_frames()
+    assert min(cands) >= 1, "frame_number is 1-based, so 0 is not a frame"

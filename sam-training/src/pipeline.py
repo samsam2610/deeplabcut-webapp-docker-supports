@@ -66,6 +66,13 @@ def windows_for(project_path, video, stride: int = config.SWEEP_STRIDE,
     if cached is None:
         return None
     frames, s0, s1, dist, n_frames = cached
+    # THE conversion. The sweep counts video frames from 0; the companion CSV,
+    # the tags, the onset sidecar and motion3d all count from 1. Converting once
+    # here means build_windows compares armed intervals against outcome markers
+    # in the SAME base — it did not, so every armed interval sat a frame adrift
+    # of the trial it belonged to — and everything downstream of this line is a
+    # companion-CSV frame_number. Only the cv2 seek converts back.
+    frames = np.asarray(frames) + 1
     judge = judging.load(project_path)
     armed = judging.armed_pair(frames, s0, s1, dist, judge)
     trials = notes.pair_trials(notes.read_notes(video))
