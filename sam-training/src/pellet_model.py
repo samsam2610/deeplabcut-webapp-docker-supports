@@ -50,8 +50,24 @@ DEFAULT_MARGIN = 40
 DEFAULT_THRESHOLD = 0.55
 
 # Max distance from the reference 3D point for a two-camera match to be accepted.
-# Measured spread is max 1.03 over 138 tags, so 3.0 is ~3x the worst observed.
-DEFAULT_MAX_3D_DIST = 3.0
+#
+# Tuned on banh-mi-1 Jul 6 (143 tagged onsets) against BOTH sides, because this
+# threshold trades recall for precision and the curve has a sharp knee:
+#
+#     max3d   armed   recall   precision
+#       1.0    6.1%    60.1%     96.8%
+#       1.2    8.0%    75.0%     96.1%
+#       1.5   14.3%    92.3%     95.3%
+#     > 2.0   16.0%    97.9%     94.2%   <- knee
+#       3.0   16.8%    97.9%     92.6%
+#       inf   22.4%    99.3%     78.2%   <- no 3D gate at all
+#
+# 3.0 bought no extra recall and cost precision; 1.2 (which the distance
+# histogram of an UNTAGGED video suggested on its own) would have cost 23 points
+# of recall. Never tune this on a video with no tags to measure the cost.
+#
+# The gate as a whole is worth +16 points of precision for -1.4 of recall.
+DEFAULT_MAX_3D_DIST = 2.0
 
 
 @dataclass
