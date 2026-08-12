@@ -169,3 +169,62 @@ def test_residual_handles_many_points_at_once():
     out = stereo.epipolar_residual(cal, stereo.project(cal.cam0, X),
                                    stereo.project(cal.cam1, X))
     assert out.shape == (5,)
+
+
+# ── which calibration ───────────────────────────────────────────────────────
+#
+# find_for_project took the LAST path alphabetically while its docstring claimed
+# "the most recent". For banh-mi-1 Jul 7 that selected khoai-lang-2's May 12
+# calibration — a different animal, two months earlier — and cost ~27 px of
+# epipolar error on every pair. Measured on banh-mi-1 Jul 2's own labelled
+# frames: the same verified-correct paw pairs score p50 0.78 px under that
+# session's own calibration and p50 27.8 px under khoai-lang's.
+
+def _mk(root, names):
+    for n in names:
+        d = root / "labeled-data" / n
+        d.mkdir(parents=True)
+        (d / "calibration.toml").write_text("")
+    return root
+
+
+def test_the_same_session_wins(tmp_path):
+    _mk(tmp_path, ["banh-mi-1_20260702", "khoai-lang-2_20260512"])
+    got = stereo.find_for_video(tmp_path, "banh-mi-1_cam0_20260702_104728_5_trig1.avi")
+    assert got.parent.name == "banh-mi-1_20260702"
+
+
+def test_the_same_animal_on_the_nearest_date_wins(tmp_path):
+    """banh-mi-1 Jul 7 is tag-pending, so it has no labelled session of its own.
+    Its nearest is Jul 5 — two days and the same rig — not khoai-lang in May."""
+    _mk(tmp_path, ["banh-mi-1_20260702", "banh-mi-1_20260705",
+                   "khoai-lang-2_20260512"])
+    got = stereo.find_for_video(tmp_path, "banh-mi-1_cam0_20260707_110532_5.avi")
+    assert got.parent.name == "banh-mi-1_20260705"
+
+
+def test_a_later_session_of_the_same_animal_beats_an_earlier_one_further_away(tmp_path):
+    _mk(tmp_path, ["banh-mi-1_20260601", "banh-mi-1_20260710"])
+    got = stereo.find_for_video(tmp_path, "banh-mi-1_cam0_20260707_110532_5.avi")
+    assert got.parent.name == "banh-mi-1_20260710"
+
+
+def test_another_animal_is_used_only_when_there_is_no_alternative(tmp_path):
+    _mk(tmp_path, ["khoai-lang-2_20260512", "eggtart-1_20260701"])
+    got = stereo.find_for_video(tmp_path, "banh-mi-1_cam0_20260707_110532_5.avi")
+    assert got.parent.name == "eggtart-1_20260701", "nearest by date"
+
+
+def test_no_calibration_at_all_is_none_not_a_crash(tmp_path):
+    (tmp_path / "labeled-data").mkdir()
+    assert stereo.find_for_video(tmp_path, "banh-mi-1_cam0_20260707_1.avi") is None
+
+
+def test_an_unparsable_video_name_still_gets_a_calibration(tmp_path):
+    _mk(tmp_path, ["banh-mi-1_20260702"])
+    assert stereo.find_for_video(tmp_path, "whatever.avi") is not None
+
+
+def test_find_for_project_still_answers_for_callers_with_no_video(tmp_path):
+    _mk(tmp_path, ["banh-mi-1_20260702", "khoai-lang-2_20260512"])
+    assert stereo.find_for_project(tmp_path) is not None

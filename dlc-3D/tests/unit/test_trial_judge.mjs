@@ -103,7 +103,7 @@ test("the defaults match the backend's", () => {
   // mirror: it fails the moment one side is retuned without the other.
   assert.deepEqual(DEFAULT_JUDGE, {
     threshold: 0.55, min_run: 6, lookback: 3000, min_candidates: 30, guard: 0,
-    max_3d_dist: 2.0, max_epi_px: 15.0,
+    max_3d_dist: 2.0, max_epi_px: 20.0,
   });
 });
 
@@ -182,10 +182,10 @@ test("max_3d_dist is not truncated to an integer", () => {
 });
 
 test("the epipolar tolerance is measured, not guessed", () => {
-  // 15 px from 15770 labelled pairs. Not 20: that came from Left-Paw, a decoy
-  // placed randomly to stop DLC labelling that paw, so it measured random
-  // placement rather than paw geometry.
-  assert.equal(DEFAULT_JUDGE.max_epi_px, 15.0);
+  // 20 px, from SAM mask centroids on 55 frames where both views verifiably
+  // picked the correct paw, under that session's own calibration (p95 17.8).
+  // Measured on the real quantity after two stand-ins gave the wrong answer.
+  assert.equal(DEFAULT_JUDGE.max_epi_px, 20.0);
 });
 
 test("the epipolar tolerance clamps at zero and keeps fractions", () => {

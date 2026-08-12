@@ -164,3 +164,54 @@ def test_a_candidate_frame_is_a_companion_csv_frame_number(tmp_path, project, vi
     out = pipeline.windows_for(project, video, root=tmp_path)
     cands = out.windows[0].candidate_frames()
     assert min(cands) >= 1, "frame_number is 1-based, so 0 is not a frame"
+
+
+# ── the 3D reference point ──────────────────────────────────────────────────
+#
+# ref_3d was a project-level constant, but a 3D coordinate only means anything
+# in the frame of the calibration that produced it. Switching banh-mi-1 Jul 7
+# from khoai-lang's calibration to its own moved the triangulated pellet from
+# 0.48 to 29.30 away from the stored ref — every pellet would have been rejected
+# by a 2.0 gate.
+#
+# The human already places the box on the stationary pellet in both cameras.
+# Triangulating THAT with the video's own calibration gives the reference in the
+# right frame for free, and it cannot go stale.
+
+class _Cal:
+    def triangulate(self, p0, p1):
+        import numpy as np
+        a = np.asarray(p0, float).reshape(-1, 2)
+        b = np.asarray(p1, float).reshape(-1, 2)
+        return np.column_stack([a[:, 0], a[:, 1], b[:, 0]])   # deterministic stand-in
+
+
+def test_the_reference_comes_from_the_placed_box(tmp_path, project, video):
+    build = onset_csv.Build()
+    build.add_mark(1, onset_csv.MARK_BOX, "cam0", 419.0, 385.5)
+    build.add_mark(1, onset_csv.MARK_BOX, "cam1", 591.9, 450.1)
+    onset_csv.write(video, build)
+    m = pipeline.with_reference(pm.load(project), _Cal(),
+                                onset_csv.read_marks(video))
+    assert [round(v, 1) for v in m.ref_3d] == [419.0, 385.5, 591.9]
+
+
+def test_without_a_placed_box_the_stored_reference_is_kept(tmp_path, project, video):
+    """Sweeping is gated on a placed box, so this is a belt-and-braces path —
+    but inventing a reference from nothing would be far worse than keeping one."""
+    m = pipeline.with_reference(pm.load(project), _Cal(), [])
+    assert m.ref_3d == [1.68, 11.09, 278.81]
+
+
+def test_one_camera_placed_is_not_enough(tmp_path, project, video):
+    marks = [{"frame": 1, "kind": "box", "cam": "cam0", "x": 419.0, "y": 385.5}]
+    m = pipeline.with_reference(pm.load(project), _Cal(), marks)
+    assert m.ref_3d == [1.68, 11.09, 278.81]
+
+
+def test_deriving_the_reference_does_not_mutate_the_project_model(tmp_path, project, video):
+    base = pm.load(project)
+    marks = [{"frame": 1, "kind": "box", "cam": "cam0", "x": 419.0, "y": 385.5},
+             {"frame": 1, "kind": "box", "cam": "cam1", "x": 591.9, "y": 450.1}]
+    pipeline.with_reference(base, _Cal(), marks)
+    assert base.ref_3d == [1.68, 11.09, 278.81]

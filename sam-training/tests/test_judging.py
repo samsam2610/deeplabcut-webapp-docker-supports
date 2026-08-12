@@ -196,10 +196,15 @@ def test_the_judge_carries_the_epipolar_tolerance():
 
 
 def test_the_default_is_the_measured_one():
-    """15 px, from 15770 labelled cam0/cam1 pairs. Not 20: that came from
-    Left-Paw, which is a decoy placed randomly to stop DLC labelling that paw,
-    so it measured random placement rather than paw geometry."""
-    assert judging.MAX_EPI_PX == 15.0
+    """20 px, measured on the REAL quantity: SAM mask centroids on 55 frames
+    where both views verifiably picked the correct paw, under that session's own
+    calibration (p95 17.80, so 20 keeps 98.2%).
+
+    Two stand-ins got this wrong first — Left-Paw (a randomly placed decoy) and
+    the digit-joint centroid (anatomically corresponding, but a mask includes
+    the forearm and each view sees a different amount of it). Both were dwarfed
+    by using another session's calibration, which alone costs ~27 px."""
+    assert judging.MAX_EPI_PX == 20.0
 
 
 def test_epi_px_clamps_and_round_trips(tmp_path):

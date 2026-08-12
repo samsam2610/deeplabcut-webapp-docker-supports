@@ -47,6 +47,31 @@ def model_for(project_path, video):
     return pm.with_centres(model, pm.centres_from_marks(onset_csv.read_marks(video)))
 
 
+def with_reference(model, calibration, marks):
+    """A copy of ``model`` whose ``ref_3d`` is THIS pair's placed pellet.
+
+    A 3D coordinate only means something in the frame of the calibration that
+    produced it. ref_3d was a project-level constant, so moving banh-mi-1 Jul 7
+    onto its own calibration pushed the triangulated pellet from 0.48 to 29.30
+    away from it — every pellet would have failed a 2.0 gate.
+
+    The human already places the box on the stationary pellet in both cameras.
+    Triangulating that with this video's own calibration puts the reference in
+    the right frame by construction, and it cannot go stale.
+    """
+    from dataclasses import replace
+    if model is None or calibration is None:
+        return model
+    centres = pm.centres_from_marks(marks)
+    p0, p1 = centres.get("cam0"), centres.get("cam1")
+    if p0 is None or p1 is None:
+        # Sweeping is gated on a placed box, so this is belt and braces — but
+        # inventing a reference from nothing is worse than keeping the old one.
+        return model
+    X = calibration.triangulate([p0], [p1])[0]
+    return replace(model, ref_3d=[float(X[0]), float(X[1]), float(X[2])])
+
+
 def pair_sweep(project_path, video, stride: int = config.SWEEP_STRIDE,
                root=None):
     """The cached two-camera sweep, or None when the pair has not been swept."""

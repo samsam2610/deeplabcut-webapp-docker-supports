@@ -31,7 +31,27 @@ PAIR = "p2"
 
 
 def signature(model, video, marks=None, kind: str = SINGLE) -> str:
-    return f"{kind}:{store.model_signature(model, Path(video).stem, marks=marks or [])}"
+    # The calibration is part of the detector for a pair sweep: dist3d is
+    # triangulated with it during the sweep, so switching calibrations must MISS
+    # rather than silently reuse distances computed from the old one.
+    from . import stereo
+    cal = stereo.find_for_video(_project_of(video), video) if kind == PAIR else None
+    tail = f"|cal={Path(cal).parent.name}" if cal else ""
+    base = store.model_signature(model, Path(video).stem, marks=marks or [])
+    return f"{kind}:{base}{tail}"
+
+
+def _project_of(video):
+    """The project a video belongs to, for calibration lookup.
+
+    Read from the environment rather than threaded through every caller: the
+    service serves one project, and the alternative is a parameter on six
+    functions that would all pass the same value.
+    """
+    import os
+    return os.environ.get(
+        "SAM_TRAINING_PROJECT",
+        "/user-data/Parra-Data/Disk/DLC-Projects/DREADD-Ali-2026-01-07")
 
 
 # SUPERSEDED. `save`/`load` below are the single-camera cache; the pipeline uses

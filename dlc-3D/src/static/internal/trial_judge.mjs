@@ -14,7 +14,7 @@ export const DEFAULT_JUDGE = {
   min_candidates: 30,   // armed frames below which a trial is skipped
   guard: 0,             // frames a window may reach past the PREVIOUS marker
   max_3d_dist: 2.0,     // how far the triangulated match may sit from the pellet
-  max_epi_px: 15.0,     // how far off the epipolar line the cam1 paw may sit
+  max_epi_px: 20.0,     // how far off the epipolar line the cam1 paw may sit
 };
 
 const OUTCOMES = ["s", "f"];

@@ -37,15 +37,23 @@ MAX_3D_DIST = 2.0
 # How far off cam0's epipolar line the cam1 PAW centroid may sit before the two
 # views are judged to be looking at different paws.
 #
-# Measured over 15 770 labelled cam0/cam1 correspondences: 15 px keeps 97.1% of
-# true paw centroids and rejects 84.4% of wrong-structure matches.
+# Measured on the REAL quantity: SAM mask centroids over 55 banh-mi-1 Jul 2
+# frames where both views verifiably picked the correct paw (checked against the
+# labels). With that session's own calibration, p50 3.39 px and p95 17.80 px, so
+# 20 px keeps 98.2%.
 #
-# The proxy matters more than the percentile. An earlier draft used `Left-Paw`
-# and got 20 px — but Left-Paw is a DECOY, placed randomly to stop DLC labelling
-# that paw's joints, so it measured random placement, not geometry. The honest
-# proxy is the centroid of the real digit joints (MCP/PIP/DIP), each view using
-# only the joints it can see, because that is what a mask centroid is.
-MAX_EPI_PX = 15.0
+# Two earlier attempts got this wrong, both by measuring a stand-in:
+#
+#   * `Left-Paw` gave 20 px, but it is a DECOY placed randomly to stop DLC
+#     labelling that paw, so it measured random placement rather than geometry.
+#   * the centroid of the real digit joints gave 15 px — anatomically
+#     corresponding, but a SAM mask includes the forearm and each view sees a
+#     different amount of it, which costs about 2x (p95 8.83 -> 17.80).
+#
+# Dwarfing both: the WRONG CALIBRATION. The same verified-correct pairs score
+# p50 27.8 px under another session's calibration against 0.78 px under their
+# own. See stereo.find_for_video.
+MAX_EPI_PX = 20.0
 
 
 @dataclass(frozen=True)

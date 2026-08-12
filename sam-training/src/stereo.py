@@ -97,13 +97,50 @@ def load(path) -> Calibration:
     return Calibration(cam0=cam(d["cam_0"]), cam1=cam(d["cam_1"]), source=str(path))
 
 
-def find_for_project(project_path) -> Path | None:
-    """Any calibration in the project's labeled-data.
+def _session_key(name: str):
+    """(animal, YYYYMMDD) from a labeled-data dir or a video stem."""
+    import re
+    m = re.match(r"^(.+?)_(?:cam\d+_)?(\d{8})", name)
+    return (m.group(1), m.group(2)) if m else (None, None)
 
-    They are per session, but the rig is one rig: the point of gating on 3D is
-    that the pedestal does not move, so the most recent calibration is a fine
-    default and the caller may override.
+
+def find_for_video(project_path, video) -> Path | None:
+    """The calibration nearest to THIS recording.
+
+    Same session if it has one; else the same animal on the nearest date; else
+    the nearest date from any animal.
+
+    This used to be "the last path alphabetically", under a docstring claiming
+    "the most recent". For banh-mi-1 Jul 7 that picked khoai-lang-2's May 12
+    calibration — a different animal, two months earlier. Measured on banh-mi-1
+    Jul 2's own labelled frames, the same verified-correct paw pairs score
+    p50 0.78 px under that session's own calibration and p50 27.8 px under
+    khoai-lang's. Every 3D gate in the pipeline was paying that.
     """
+    root = Path(project_path) / "labeled-data"
+    found = sorted(root.glob("*/calibration.toml"))
+    if not found:
+        return None
+    animal, date = _session_key(Path(video).stem if video else "")
+    if animal is None:
+        return found[-1]
+
+    def rank(path):
+        a, d = _session_key(path.parent.name)
+        if a is None or d is None:
+            return (2, 10 ** 9, path.parent.name)
+        gap = abs(int(d) - int(date))
+        # same animal first, then nearest in time: the rig is one rig, but a
+        # nudged camera between animals is exactly what a stale calibration
+        # cannot see.
+        return (0 if a == animal else 1, gap, path.parent.name)
+
+    return min(found, key=rank)
+
+
+def find_for_project(project_path) -> Path | None:
+    """Any calibration in the project. Prefer `find_for_video` — a calibration
+    from the wrong session is the single largest error in the 3D gates."""
     root = Path(project_path) / "labeled-data"
     found = sorted(root.glob("*/calibration.toml"))
     return found[-1] if found else None

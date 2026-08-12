@@ -219,7 +219,7 @@ def _score_window_3d(job, video, start, end, outcome, prompt, topk):
     cams = {"cam0": model.cameras.get("cam0"), "cam1": model.cameras.get("cam1")}
     if not all(cams.values()):
         raise RuntimeError("the pellet model needs both cameras for 3D scoring")
-    stereo_cal = stereo.load(stereo.find_for_project(_project()))
+    stereo_cal = stereo.load(stereo.find_for_video(_project(), video))
 
     # ── read both cameras ─────────────────────────────────────────────────
     c0, kept0, raw0 = _read_candidates(video, candidates,
@@ -761,7 +761,7 @@ def api_pellet_retrain():
                            f"box at ({cam.cx:.0f}, {cam.cy:.0f})")
 
     try:
-        cal_path = stereo.find_for_project(_project())
+        cal_path = stereo.find_for_video(_project(), video)
         if cal_path and "cam0" in by_cam and "cam1" in by_cam:
             cal = stereo.load(cal_path)
             key = lambda l: (Path(l["video"]).stem.replace("_cam0_", "_camX_")

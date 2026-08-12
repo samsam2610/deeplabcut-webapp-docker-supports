@@ -167,7 +167,11 @@ def api_sweep():
         if resolved.ref_3d is None:
             raise RuntimeError("the project has no reference 3D pellet point, "
                                "so the 3D gate cannot run")
-        calib = stereo.load(stereo.find_for_project(PROJECT_PATH))
+        calib = stereo.load(stereo.find_for_video(PROJECT_PATH, video))
+        # The reference pellet point must live in THIS calibration's frame, so
+        # it is derived from the placed box rather than read from the project.
+        from . import onset_csv as _oc
+        resolved = pipeline.with_reference(resolved, calib, _oc.read_marks(video))
 
         def progress(idx, last):
             job.progress = min(0.99, idx / max(1, last))
