@@ -7,6 +7,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+import numpy as np
+
 # NCC above this = the pellet template matches = pellet sitting on the pedestal.
 # Measured separation across 3 animals and 2 months: present ~0.76-0.82,
 # absent ~0.34-0.50. Set at the low end of the gap on purpose — at the onset the
@@ -113,6 +115,35 @@ def present_intervals(frames, scores,
         prev = frame
     if start is not None:
         out.append(Interval(start, frames[-1]))
+    return out
+
+
+def intervals_from_mask(frames, present, min_run: int = MIN_RUN_SAMPLES) -> list[Interval]:
+    """Armed intervals from an already-decided boolean mask.
+
+    The two-camera detector decides presence from three signals (both cameras
+    plus a 3D gate), so it cannot be expressed as one score against one
+    threshold. Debouncing is identical either way, so it lives here once.
+    """
+    frames = np.asarray(frames)
+    present = np.asarray(present, dtype=bool)
+    if len(frames) != len(present):
+        raise ValueError("frames and present must be the same length")
+    if not len(frames):
+        return []
+    flags = debounce(present.tolist(), min_run)
+    out: list[Interval] = []
+    start = None
+    prev = int(frames[0])
+    for frame, flag in zip(frames.tolist(), flags):
+        if flag and start is None:
+            start = frame
+        elif not flag and start is not None:
+            out.append(Interval(start, prev))
+            start = None
+        prev = frame
+    if start is not None:
+        out.append(Interval(start, int(frames[-1])))
     return out
 
 

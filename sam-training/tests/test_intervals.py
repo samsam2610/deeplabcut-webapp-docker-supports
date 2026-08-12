@@ -178,3 +178,31 @@ def test_window_serialises_to_json():
     import json
     json.dumps({"start": w.start, "end": w.end, "n": w.n_candidates,
                 "armed": [{"start": a.start, "end": a.end} for a in w.armed]})
+
+
+# ── mask-based intervals (the two-camera detector) ──────────────────────────
+
+def test_intervals_from_mask_matches_the_score_path():
+    frames = np.arange(0, 300, 5)
+    scores = np.where((frames >= 50) & (frames < 200), 0.9, 0.2)
+    by_score = intervals.present_intervals(frames, scores)
+    by_mask = intervals.intervals_from_mask(frames, scores > 0.5)
+    assert by_score == by_mask
+
+
+def test_intervals_from_mask_debounces():
+    frames = np.arange(0, 400, 5)
+    mask = (frames >= 100) & (frames < 300)
+    mask[(frames >= 190) & (frames < 200)] = False     # 2-sample dropout
+    ivs = intervals.intervals_from_mask(frames, mask)
+    assert len(ivs) == 1
+
+
+def test_intervals_from_mask_rejects_mismatched_lengths():
+    import pytest
+    with pytest.raises(ValueError):
+        intervals.intervals_from_mask([1, 2, 3], [True, False])
+
+
+def test_intervals_from_mask_handles_empty():
+    assert intervals.intervals_from_mask([], []) == []
