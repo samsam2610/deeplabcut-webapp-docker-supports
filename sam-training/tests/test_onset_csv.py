@@ -279,3 +279,47 @@ def test_carried_marks_survive_alongside_a_full_trace(tmp_path):
     rows = onset_csv.read("/v/v.avi", dest)
     assert onset_csv.box_centre(onset_csv.read_marks_from_rows(rows), "cam0") == (10.0, 20.0)
     assert any(str(r.get("pellet_ncc") or "").strip() for r in rows)
+
+
+# ── two-camera signals ──────────────────────────────────────────────────────
+#
+# The sidecar documents every signal used to decide an onset. It carried one
+# camera's NCC, so a wrong armed decision could not be diagnosed from the file:
+# frame 27591 read "pellet_ncc 0.64, present 1" with no way to see that cam1
+# disagreed and the 3D point was 8.29 away.
+
+def test_pair_sweep_records_both_cameras_and_the_distance(tmp_path):
+    import numpy as np
+    dest = tmp_path / "v_onset.csv"
+    build = onset_csv.Build()
+    build.add_pair_sweep([0, 5], np.array([0.90, 0.55]), np.array([0.88, 0.67]),
+                         np.array([0.48, 8.29]), np.array([True, False]))
+    onset_csv.write("/v/v.avi", build, dest=dest)
+    rows = {int(float(r["frame_number"])): r for r in onset_csv.read("/v/v.avi", dest)}
+    assert float(rows[1]["pellet_ncc"]) == 0.90
+    assert float(rows[1]["pellet_ncc_cam1"]) == 0.88
+    assert float(rows[1]["pellet_dist3d"]) == 0.48
+    assert rows[1]["pellet_present"] == "1"
+    # the rejected sample keeps its evidence rather than being dropped
+    assert float(rows[6]["pellet_dist3d"]) == 8.29
+    assert rows[6]["pellet_present"] == "0"
+
+
+def test_a_nan_distance_is_written_blank_not_as_a_number(tmp_path):
+    """NaN means the cameras never agreed so nothing was triangulated. Writing
+    it as 0.0 would read as a perfect 3D match."""
+    import numpy as np
+    dest = tmp_path / "v_onset.csv"
+    build = onset_csv.Build()
+    build.add_pair_sweep([0], np.array([0.1]), np.array([0.1]),
+                         np.array([np.nan]), np.array([False]))
+    onset_csv.write("/v/v.avi", build, dest=dest)
+    row = onset_csv.read("/v/v.avi", dest)[0]
+    assert str(row["pellet_dist3d"]).strip() == ""
+
+
+def test_the_new_columns_are_in_the_header(tmp_path):
+    dest = tmp_path / "v_onset.csv"
+    onset_csv.write("/v/v.avi", onset_csv.Build(), dest=dest)
+    header = dest.read_text().splitlines()[0]
+    assert "pellet_ncc_cam1" in header and "pellet_dist3d" in header

@@ -38,6 +38,7 @@ import { state } from "/static/js/state.js";
 import {
   OVERLAY_PREFIX, selectTiles, placeClick, nudge, centreFor,
   unplacedCameras, isNudgeKey, newVisibility, isVisible, setVisible,
+  toImage, scaleFor,
 } from "./internal/pellet_box.mjs";
 import {
   DEFAULT_JUDGE, clampJudge, markersInSpan, intervening, markerStyle,
@@ -3943,6 +3944,7 @@ async function _samLoadWindows() {
 
 const _JUDGE_FIELDS = {
   threshold: "ia3ds-judge-threshold",
+  max_3d_dist: "ia3ds-judge-3d",
   min_run: "ia3ds-judge-minrun",
   lookback: "ia3ds-judge-lookback",
   min_candidates: "ia3ds-judge-mincand",
@@ -4431,8 +4433,6 @@ function _pelletStatus() {
   const ref = m.ref_3d ? `ref3d (${m.ref_3d.map((v) => v.toFixed(1)).join(", ")})` : "no ref3d";
   _samEl("ia3ds-pellet-status").textContent =
     `${cams} camera(s) · ${(m.labels || []).length} labels · ${ref}`;
-  _samEl("ia3ds-pellet-thr").value = m.threshold ?? 0.55;
-  _samEl("ia3ds-pellet-3d").value = m.max_3d_dist ?? 3.0;
 }
 
 // One field set per camera: the parameters that dictate the box's location and
@@ -4488,11 +4488,9 @@ async function _pelletSave() {
   try {
     await _samJSON(`${SAMAPI}/pellet/model`, {
       method: "PUT", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        cameras: _pelletCollect(),
-        threshold: parseFloat(_samEl("ia3ds-pellet-thr").value),
-        max_3d_dist: parseFloat(_samEl("ia3ds-pellet-3d").value),
-      }),
+      // Geometry only. The thresholds moved to the judge — sending them from
+      // here too would restore the two-places-decide-one-thing split.
+      body: JSON.stringify({ cameras: _pelletCollect() }),
     });
     await _pelletLoad();
     _samSay("pellet box saved");
@@ -4597,11 +4595,19 @@ function _overlayFor(canvas, camName) {
   return ov;
 }
 
+// The video's own pixel size for a tile. The tile canvas's backing store is
+// NOT it — VideoViewer sizes that to the displayed size — so ask the <img> the
+// player is drawing, which is where naturalWidth actually lives.
+function _pelletNatural(canvas) {
+  const img = canvas.parentElement && canvas.parentElement.querySelector("img");
+  if (img && img.naturalWidth && img.naturalHeight) {
+    return { width: img.naturalWidth, height: img.naturalHeight };
+  }
+  return null;      // toImage/scaleFor then stay 1:1 rather than guessing
+}
+
 function _pelletCanvasToImage(canvas, ev) {
-  const rect = canvas.getBoundingClientRect();
-  const sx = rect.width > 0 ? canvas.width / rect.width : 1;
-  const sy = rect.height > 0 ? canvas.height / rect.height : 1;
-  return { x: (ev.clientX - rect.left) * sx, y: (ev.clientY - rect.top) * sy };
+  return toImage(ev, canvas.getBoundingClientRect(), _pelletNatural(canvas));
 }
 
 function _bindOverlay(ov, camName) {
@@ -4630,18 +4636,25 @@ function _pelletDrawBox() {
     if (!centre) return;
     const half = (def && def.half) || 22;
     const margin = (def && def.margin) || 40;
+    // Marks are stored in IMAGE pixels; this canvas is the displayed size. The
+    // box must be drawn where the sweep will actually look, not where the raw
+    // number happens to land on a shrunken tile — that mirrored assumption is
+    // what made a wrong box look right under the cursor.
+    const { sx, sy } = scaleFor(_pelletNatural(canvas),
+                                { width: ov.width, height: ov.height });
+    const X = (v) => v * sx, Y = (v) => v * sy;
     g.strokeStyle = "#3ba7ff"; g.lineWidth = 1;
-    g.strokeRect(centre.cx - half - margin, centre.cy - half - margin,
-                 2 * (half + margin), 2 * (half + margin));
+    g.strokeRect(X(centre.cx - half - margin), Y(centre.cy - half - margin),
+                 X(2 * (half + margin)), Y(2 * (half + margin)));
     g.strokeStyle = "#ffd23b"; g.lineWidth = 2;
-    g.strokeRect(centre.cx - half, centre.cy - half, 2 * half, 2 * half);
-    g.beginPath(); g.arc(centre.cx, centre.cy, 2.5, 0, 6.283); g.fill();
+    g.strokeRect(X(centre.cx - half), Y(centre.cy - half), X(2 * half), Y(2 * half));
+    g.beginPath(); g.arc(X(centre.cx), Y(centre.cy), 2.5, 0, 6.283); g.fill();
     // pellet labels on this frame, so repeated clicks are visible
     g.fillStyle = "#8ef58e";
     (_pellet.state.marks || []).forEach((m) => {
       if (m.kind !== "pellet" || m.cam !== camName) return;
       if (m.frame !== _samState.frame + 1) return;
-      g.beginPath(); g.arc(m.x, m.y, 3, 0, 6.283); g.fill();
+      g.beginPath(); g.arc(X(m.x), Y(m.y), 3, 0, 6.283); g.fill();
     });
   });
 }
@@ -4685,8 +4698,11 @@ function _pelletKey(ev) {
   if (!_pellet.state.last) return;
   const card = document.getElementById("inline-analysis-3d-sam-card");
   if (!card || card.classList.contains("hidden")) return;
+  // Clamp to the real frame, not a hard-coded 800x600: a differently sized
+  // video would clamp a valid mark back inside a box that is not the frame.
+  const _tile = _pelletTiles()[0];
   _pellet.state = nudge(_pellet.state, ev.key, ev.shiftKey ? 10 : 1,
-                        { width: 800, height: 600 });
+                        (_tile && _pelletNatural(_tile)) || { width: 800, height: 600 });
   _pelletDrawBox();
   ev.preventDefault();
   clearTimeout(_pellet.saveTimer);
@@ -4746,7 +4762,25 @@ function _samWirePanel() {
       });
       _pellet.confirmed = true;
       _pelletRenderConfirm();
-      _samSay("box confirmed for this pair");
+      // Score the template where the box now sits. A box that cannot clear the
+      // threshold arms nothing, and without this the first sign of that is a
+      // seven-minute sweep returning candidates with no pellet on them.
+      try {
+        const chk = await _samJSON(
+          `${SAMAPI}/pellet/check?video=${encodeURIComponent(video)}`
+          + `&frame=${_samState.frame + 1}`);
+        const bad = Object.entries(chk.cameras || {}).filter(([, v]) => !v.ok);
+        if (bad.length) {
+          _samSay(bad.map(([cam, v]) => `${cam}: ${v.message}`).join("  ·  "), true);
+        } else {
+          const how = Object.entries(chk.cameras || {})
+            .map(([cam, v]) => `${cam} ${v.score.toFixed(2)}`).join(", ");
+          _samSay(`box confirmed — template matches (${how})`);
+        }
+      } catch (err) {
+        // The check is advice, not a gate: never block confirming on it.
+        _samSay(`box confirmed (check unavailable: ${err.message})`);
+      }
     } catch (e) { _samSay(`confirm: ${e.message}`, true); }
   };
   on("ia3ds-judge-apply", "onclick", () => _samJudgeApply(_samJudgeRead()));

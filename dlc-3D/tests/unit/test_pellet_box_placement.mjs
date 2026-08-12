@@ -23,6 +23,9 @@ import {
   isVisible,
   setVisible,
   canPlace,
+  toImage,
+  toCanvas,
+  scaleFor,
 } from "../../src/static/internal/pellet_box.mjs";
 
 // ── tile selection ──────────────────────────────────────────────────────────
@@ -219,4 +222,102 @@ test("visibility does not gate placement", () => {
   const v = newVisibility();
   assert.equal(canPlace(v, "cam1"), true);
   assert.equal(canPlace(setVisible(v, "cam1", true), "cam1"), true);
+});
+
+// ── click → image coordinates ───────────────────────────────────────────────
+//
+// Reported 2026-08-12: frame 27591 had no pellet but was armed. Investigating
+// it showed the stored box was ~12% up-and-left of where the user clicked —
+// every stored mark was a uniform 0.88 x the true image coordinate, on both
+// cameras and both axes.
+//
+// Cause: the code scaled the click by `canvas.width / rect.width`, assuming the
+// backing store is the video's native size. VideoViewer sizes the tile's
+// backing store to the DISPLAYED size, so that ratio is 1 and the click was
+// stored in display pixels.
+//
+// The draw path had the mirrored error, so the box was painted at the stored
+// (display) coordinate and appeared exactly under the cursor. Self-consistent
+// on screen, wrong in the file — which is why it survived visual checking, and
+// why these tests convert BOTH directions.
+
+test("a click maps to image pixels, not display pixels", () => {
+  // 800x600 video shown at 706x530 — the case that shipped.
+  const rect = { left: 0, top: 0, width: 706, height: 530 };
+  const natural = { width: 800, height: 600 };
+  const p = toImage({ clientX: 326, clientY: 300 }, rect, natural);
+  assert.equal(Math.round(p.x), 369);
+  assert.equal(Math.round(p.y), 340);
+});
+
+test("the tile's offset is subtracted before scaling", () => {
+  const rect = { left: 100, top: 50, width: 800, height: 600 };
+  const p = toImage({ clientX: 500, clientY: 350 }, rect, { width: 800, height: 600 });
+  assert.deepEqual([p.x, p.y], [400, 300]);
+});
+
+// Scaling is a float division, so compare within a pixel-thousandth rather
+// than exactly: 388/600*600 is 387.99999999999994.
+const near = (got, want, what) =>
+  assert.ok(Math.abs(got - want) < 1e-6, `${what}: ${got} != ${want}`);
+
+test("a 1:1 tile is unchanged", () => {
+  const rect = { left: 0, top: 0, width: 800, height: 600 };
+  const p = toImage({ clientX: 416, clientY: 388 }, rect, { width: 800, height: 600 });
+  near(p.x, 416, "x"); near(p.y, 388, "y");
+});
+
+test("an enlarged tile scales down", () => {
+  const rect = { left: 0, top: 0, width: 1600, height: 1200 };
+  const p = toImage({ clientX: 832, clientY: 776 }, rect, { width: 800, height: 600 });
+  near(p.x, 416, "x"); near(p.y, 388, "y");
+});
+
+test("a zero-sized tile does not divide by zero", () => {
+  // Happens while the card is hidden: getBoundingClientRect() is all zeros.
+  const p = toImage({ clientX: 10, clientY: 10 },
+                    { left: 0, top: 0, width: 0, height: 0 },
+                    { width: 800, height: 600 });
+  assert.ok(Number.isFinite(p.x) && Number.isFinite(p.y));
+});
+
+test("an unknown natural size falls back to the tile's own pixels", () => {
+  // Better than inventing a scale: the mark is then wrong by the zoom only,
+  // not by an arbitrary factor.
+  const p = toImage({ clientX: 300, clientY: 200 },
+                    { left: 0, top: 0, width: 706, height: 530 }, null);
+  assert.deepEqual([p.x, p.y], [300, 200]);
+});
+
+// ── image → canvas, for drawing ─────────────────────────────────────────────
+
+test("drawing scales image coordinates onto the displayed canvas", () => {
+  const s = toCanvas({ x: 416, y: 388 }, { width: 800, height: 600 },
+                     { width: 706, height: 530 });
+  assert.equal(Math.round(s.x), 367);
+  assert.equal(Math.round(s.y), 343);
+});
+
+test("a round trip through both conversions is the identity", () => {
+  // The property that actually matters: what is drawn sits where the user
+  // clicked AND what is stored is the true image coordinate.
+  const rect = { left: 37, top: 11, width: 706, height: 530 };
+  const natural = { width: 800, height: 600 };
+  const click = { clientX: 400, clientY: 300 };
+  const img = toImage(click, rect, natural);
+  const back = toCanvas(img, natural, { width: rect.width, height: rect.height });
+  assert.ok(Math.abs(back.x - (click.clientX - rect.left)) < 1e-9);
+  assert.ok(Math.abs(back.y - (click.clientY - rect.top)) < 1e-9);
+});
+
+test("lengths scale too, so the box is the right SIZE on screen", () => {
+  // half=22 in image pixels must not be drawn as 22 display pixels on a
+  // shrunken tile, or the drawn box misrepresents what is swept.
+  const s = scaleFor({ width: 800, height: 600 }, { width: 400, height: 300 });
+  assert.equal(s.sx, 0.5);
+  assert.equal(s.sy, 0.5);
+});
+
+test("scaleFor is 1 when the natural size is unknown", () => {
+  assert.deepEqual(scaleFor(null, { width: 400, height: 300 }), { sx: 1, sy: 1 });
 });

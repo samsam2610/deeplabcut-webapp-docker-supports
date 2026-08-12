@@ -13,8 +13,8 @@ import numpy as np
 from flask import Blueprint, Response, jsonify, request
 
 from . import (config, exemplars, intervals, judging, models, ncc, notes,
-               onset_csv, overlays, pellet_model as pm, rig, stereo, store,
-               sweep_cache)
+               onset_csv, overlays, pellet_model as pm, pipeline, rig, stereo,
+               store, sweep_cache)
 
 bp = Blueprint("sam_api", __name__)
 PREFIX = "/sam-training/api"
@@ -47,14 +47,8 @@ def _windows_for(video: str):
     if calib is None:
         calib = rig.calibrate(video)
         rig.save(_project(), Path(video).stem, calib)
-    cached = sweep_cache.load(video, _model(), onset_csv.read_marks(video))
-    if cached is None:
-        return calib, None
-    frames, scores, _n = cached
-    judge = _judge()
-    ivs = judging.armed(frames, scores, judge)
-    trials = notes.pair_trials(notes.read_notes(video))
-    return calib, judging.build(trials, ivs, judge)
+    st = pipeline.windows_for(_project(), video)
+    return calib, (None if st is None else st.windows)
 
 
 @bp.get(f"{PREFIX}/windows")
@@ -90,6 +84,44 @@ def api_windows():
                      "armed": [{"start": a.start, "end": a.end} for a in w.armed]}
                     for w in wins],
     })
+
+
+@bp.get(f"{PREFIX}/pellet/check")
+def api_pellet_check():
+    """Score the pooled template at each camera's PLACED box on one frame.
+
+    A wrong box is otherwise silent: it costs a seven-minute sweep and comes
+    back with a mask full of paws. Two template matches on one frame is
+    milliseconds, so there is no reason not to say so before the sweep.
+    """
+    video = _resolve(request.args.get("video"))
+    if not video:
+        return jsonify({"error": "video not found"}), 404
+    sibling = pm.sibling_video(video)
+    if sibling is None:
+        return jsonify({"error": "no cam1 file found beside this video"}), 404
+    frame = int(float(request.args.get("frame") or 1))
+    model = pipeline.model_for(_project(), video)
+    if model is None:
+        return jsonify({"error": "no pellet model for this project"}), 404
+    threshold = _judge().threshold
+
+    out = {}
+    for cam, path in (("cam0", video), ("cam1", str(sibling))):
+        camera = model.cameras.get(cam)
+        if camera is None:
+            continue
+        frames = ncc.read_frames(path, [max(0, frame - 1)])   # 1-based -> 0-based
+        img = frames.get(max(0, frame - 1))
+        if img is None:
+            out[cam] = {"ok": False, "score": None,
+                        "message": f"frame {frame} unreadable on {cam}"}
+            continue
+        score, _pt = pm.match(ncc.to_gray(img), camera)
+        out[cam] = pm.placement_verdict(score, threshold)
+        out[cam]["centre"] = [camera.cx, camera.cy]
+    return jsonify({"frame": frame, "threshold": threshold, "cameras": out,
+                    "ok": all(v.get("ok") for v in out.values()) and bool(out)})
 
 
 @bp.get(f"{PREFIX}/judge")
@@ -326,18 +358,19 @@ def api_onset_csv():
     video = _resolve(body.get("video"))
     if not video:
         return jsonify({"error": "video not found"}), 404
-    cached = sweep_cache.load(video, _model(), onset_csv.read_marks(video))
-    if cached is None:
+    st = pipeline.windows_for(_project(), video)
+    if st is None:
         return jsonify({"error": "not swept yet — run the pellet sweep first"}), 409
 
-    frames, scores, _n = cached
-    _calib, wins = _windows_for(video)
+    wins = st.windows
     build = onset_csv.Build()
     # FIRST: the human's box and pellet clicks. Everything else in this file is
     # derived and can be recomputed; these cannot, and rewriting without them
     # deletes the placement and re-blocks sweeping.
     onset_csv.carry_marks(build, onset_csv.read_marks(video))
-    build.add_sweep(frames, scores, _judge().threshold)
+    build.add_pair_sweep(st.frames, st.score0, st.score1, st.dist3d,
+                         judging.decide_pair(st.score0, st.score1, st.dist3d,
+                                             st.judge))
     edges, status_pairs = _sensor_edges(video)
     build.add_sensor_edges(edges.tolist())
     if wins:

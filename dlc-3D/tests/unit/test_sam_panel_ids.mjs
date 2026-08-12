@@ -58,9 +58,17 @@ test("the judging fields the panel reads are all present", () => {
   // Reading a missing field yields undefined, which clampJudge turns into the
   // default — so a typo here does not throw, it silently ignores the user.
   ["ia3ds-judge-threshold", "ia3ds-judge-minrun", "ia3ds-judge-lookback",
-   "ia3ds-judge-mincand", "ia3ds-judge-guard", "ia3ds-judge-apply",
-   "ia3ds-judge-reset", "ia3ds-judge-status",
+   "ia3ds-judge-mincand", "ia3ds-judge-guard", "ia3ds-judge-3d",
+   "ia3ds-judge-apply", "ia3ds-judge-reset", "ia3ds-judge-status",
   ].forEach((id) => assert.ok(declared.has(id), `card is missing #${id}`));
+});
+
+test("the thresholds are declared in exactly one place", () => {
+  // They lived on the pellet model AND in the judge, edited from two panel
+  // sections. Whichever was saved last won, silently.
+  assert.equal(declared.has("ia3ds-pellet-thr"), false);
+  assert.equal(declared.has("ia3ds-pellet-3d"), false);
+  assert.equal(declared.has("ia3ds-judge-3d"), true);
 });
 
 test("no id is declared twice in the card", () => {

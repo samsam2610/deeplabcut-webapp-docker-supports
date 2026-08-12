@@ -247,3 +247,90 @@ def test_video_boxes_round_trip(tmp_path):
     back = pm.load(tmp_path)
     assert back.is_confirmed("vid")
     assert back.box_for("vid", "cam1") is None or back.videos["vid"].cx1 == 590
+
+
+# ── resolving the box for one video ─────────────────────────────────────────
+#
+# The sweep must look where the human placed the box, not at the project
+# default. sweep_pair read model.cameras directly, so the placement gate — which
+# blocks sweeping until a box is confirmed — guarded a value nothing used.
+
+def test_with_centres_applies_the_per_video_box():
+    m = pm.PelletModel()
+    m.cameras["cam0"] = pm.CameraModel(cx=416, cy=388, half=22, margin=40)
+    m.cameras["cam1"] = pm.CameraModel(cx=593, cy=450, half=22, margin=40)
+    out = pm.with_centres(m, {"cam0": (369.5, 339.9)})
+    assert (out.cameras["cam0"].cx, out.cameras["cam0"].cy) == (369.5, 339.9)
+    assert (out.cameras["cam1"].cx, out.cameras["cam1"].cy) == (593, 450)
+
+
+def test_with_centres_does_not_mutate_the_project_default():
+    m = pm.PelletModel()
+    m.cameras["cam0"] = pm.CameraModel(cx=416, cy=388)
+    pm.with_centres(m, {"cam0": (100, 100)})
+    assert (m.cameras["cam0"].cx, m.cameras["cam0"].cy) == (416, 388)
+
+
+def test_with_centres_keeps_the_template():
+    m = pm.PelletModel()
+    m.cameras["cam0"] = pm.CameraModel(cx=416, cy=388, seed_b64="x", seed_n=261)
+    out = pm.with_centres(m, {"cam0": (300, 300)})
+    assert out.cameras["cam0"].seed_b64 == "x"
+    assert out.cameras["cam0"].seed_n == 261
+
+
+def test_with_centres_ignores_a_camera_that_has_no_model():
+    m = pm.PelletModel()
+    m.cameras["cam0"] = pm.CameraModel(cx=416, cy=388)
+    out = pm.with_centres(m, {"cam9": (1, 2)})
+    assert set(out.cameras) == {"cam0"}
+
+
+def test_with_centres_from_sidecar_marks():
+    """The sidecar is the source of truth for the box, so the resolution takes
+    marks directly rather than a second copy of the coordinates."""
+    from src import onset_csv
+    m = pm.PelletModel()
+    m.cameras["cam0"] = pm.CameraModel(cx=416, cy=388)
+    m.cameras["cam1"] = pm.CameraModel(cx=593, cy=450)
+    marks = [{"frame": 1, "kind": onset_csv.MARK_BOX, "cam": "cam0",
+              "x": 370.0, "y": 340.0},
+             {"frame": 1, "kind": onset_csv.MARK_PELLET, "cam": "cam0",
+              "x": 999.0, "y": 999.0}]      # a pellet label is NOT the box
+    out = pm.with_centres(m, pm.centres_from_marks(marks))
+    assert (out.cameras["cam0"].cx, out.cameras["cam0"].cy) == (370.0, 340.0)
+    assert (out.cameras["cam1"].cx, out.cameras["cam1"].cy) == (593, 450)
+
+
+# ── is the placed box actually on the pellet? ───────────────────────────────
+#
+# A wrong box does not fail loudly. It costs a seven-minute sweep and comes back
+# with a mask full of paws. The box placed on banh-mi-1 Jul 7 scored 0.44 and
+# 0.36 against the pooled template — below any workable threshold, so it could
+# never have detected the pellet — and nothing said so.
+
+def test_placement_verdict_passes_a_good_box():
+    v = pm.placement_verdict(0.89, threshold=0.55)
+    assert v["ok"] is True
+
+
+def test_placement_verdict_fails_a_box_that_cannot_reach_threshold():
+    v = pm.placement_verdict(0.44, threshold=0.55)
+    assert v["ok"] is False
+    assert "0.44" in v["message"] and "0.55" in v["message"]
+
+
+def test_a_score_just_under_threshold_is_still_a_failure():
+    """No grace band: the sweep uses the threshold, so anything below it arms
+    nothing. A "close enough" verdict would promise detections that cannot
+    happen."""
+    assert pm.placement_verdict(0.549, threshold=0.55)["ok"] is False
+    assert pm.placement_verdict(0.55, threshold=0.55)["ok"] is True
+
+
+def test_a_missing_template_is_not_reported_as_a_bad_box():
+    """match() returns -1.0 when the camera has no template. Blaming the user's
+    click for that would send them clicking forever."""
+    v = pm.placement_verdict(-1.0, threshold=0.55)
+    assert v["ok"] is False
+    assert "template" in v["message"].lower()

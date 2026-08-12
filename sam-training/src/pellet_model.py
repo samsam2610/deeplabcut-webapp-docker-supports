@@ -295,6 +295,63 @@ def build_camera(patches, positions) -> CameraModel:
     return cam
 
 
+def placement_verdict(score: float, threshold: float) -> dict:
+    """Does a box at this score stand any chance of finding the pellet?
+
+    A wrong box is silent: it costs a seven-minute sweep and returns a mask full
+    of paws. The box placed on banh-mi-1 Jul 7 scored 0.44/0.36 against the
+    pooled template — it could never have cleared any workable threshold — and
+    nothing in the panel said so.
+
+    No grace band. The sweep uses ``threshold`` verbatim, so a "close enough"
+    verdict would promise detections that cannot happen.
+    """
+    if score < 0:
+        return {"ok": False, "score": float(score),
+                "message": "this camera has no pellet template yet, so the box "
+                           "cannot be checked"}
+    if score >= threshold:
+        return {"ok": True, "score": float(score),
+                "message": f"template matches at {score:.2f} — box looks right"}
+    return {"ok": False, "score": float(score),
+            "message": (f"the template only scores {score:.2f} here, under the "
+                        f"{threshold:.2f} threshold — this box would arm nothing. "
+                        "Click the stationary pellet itself.")}
+
+
+def centres_from_marks(marks) -> dict:
+    """``{cam: (x, y)}`` for the BOX marks in the onset sidecar.
+
+    Pellet marks are excluded: they are template-pool labels scattered over many
+    frames, and treating one as the box would move the search area to wherever
+    the last click happened to be.
+    """
+    out = {}
+    for m in marks or []:
+        if str(m.get("kind")) == "box":
+            out[str(m.get("cam"))] = (float(m["x"]), float(m["y"]))
+    return out
+
+
+def with_centres(model: PelletModel, centres: dict) -> PelletModel:
+    """A copy of ``model`` whose cameras sit at this video's placed centres.
+
+    A copy, because the project default must survive: mutating it would move the
+    box for every other video in the project.
+
+    Without this the sweep read ``model.cameras`` straight through, so the
+    placement gate — which blocks sweeping until a box is confirmed — was
+    guarding a number that nothing downstream ever used.
+    """
+    out = replace(model, cameras=dict(model.cameras))
+    for cam, (cx, cy) in (centres or {}).items():
+        base = out.cameras.get(cam)
+        if base is None:
+            continue
+        out.cameras[cam] = replace(base, cx=float(cx), cy=float(cy))
+    return out
+
+
 def match(gray, cam: CameraModel):
     """Best NCC inside the camera's search box.
 

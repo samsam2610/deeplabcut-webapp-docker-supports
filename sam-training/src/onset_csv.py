@@ -14,8 +14,11 @@ Columns:
     timestamp           seconds, from frame_number / fps
     frame_number        1-based, as the companion CSV
     frame_line_status   copied from the companion CSV — carries the reach sensor
-    pellet_ncc          normalised cross-correlation against the pellet template
-    pellet_present      1 when NCC clears the threshold
+    pellet_ncc          cam0's normalised cross-correlation against the template
+    pellet_ncc_cam1     cam1's, from the frame-synced sibling video
+    pellet_dist3d       distance from the triangulated match to the reference
+                        pellet point; blank when the cameras never agreed
+    pellet_present      1 when both cameras match AND the 3D gate passes
     sensor_edge         1 at a dilated rising edge of the hardware sensor
     armed               1 when the frame is a candidate (pellet stationary)
     window_id           index of the trial window this frame belongs to, else ""
@@ -34,6 +37,11 @@ import numpy as np
 from . import config
 
 COLUMNS = ["timestamp", "frame_number", "frame_line_status", "pellet_ncc",
+           # The two-camera detector's other two signals. Without them a wrong
+           # armed decision cannot be diagnosed from the file: frame 27591 read
+           # "ncc 0.64, present 1" with no way to see that cam1 disagreed and
+           # the triangulated point was 8.29 from the pellet.
+           "pellet_ncc_cam1", "pellet_dist3d",
            "pellet_present", "sensor_edge", "armed", "window_id",
            "dino_sim", "sam_score", "note",
            # Human placements. The sidecar is the source of truth for both the
@@ -57,6 +65,8 @@ class Row:
     frame_number: int
     frame_line_status: str = ""
     pellet_ncc: float | None = None
+    pellet_ncc_cam1: float | None = None
+    pellet_dist3d: float | None = None
     pellet_present: int | None = None
     sensor_edge: int = 0
     armed: int = 0
@@ -77,6 +87,10 @@ class Row:
             "frame_number": self.frame_number,
             "frame_line_status": self.frame_line_status,
             "pellet_ncc": num(self.pellet_ncc, 4),
+            "pellet_ncc_cam1": num(self.pellet_ncc_cam1, 4),
+            # NaN is written blank: it means the cameras never agreed, so
+            # nothing was triangulated. A 0.0 would read as a perfect match.
+            "pellet_dist3d": num(self.pellet_dist3d, 3),
             "pellet_present": "" if self.pellet_present is None else int(self.pellet_present),
             "sensor_edge": int(self.sensor_edge),
             "armed": int(self.armed),
@@ -109,6 +123,25 @@ class Build:
             row = self.at(int(f) + 1)            # sweep frames are 0-based
             row.pellet_ncc = float(s)
             row.pellet_present = int(s > threshold)
+
+    def add_pair_sweep(self, frames, score0, score1, dist3d, present):
+        """The two-camera sweep: both scores, the 3D distance, and the verdict.
+
+        Every sampled frame is written, rejected ones included — the evidence
+        for a rejection is exactly what you need when a frame that should have
+        been armed was not.
+        """
+        import math
+        for f, a, b, d, p in zip(np.asarray(frames).tolist(),
+                                 np.asarray(score0).tolist(),
+                                 np.asarray(score1).tolist(),
+                                 np.asarray(dist3d).tolist(),
+                                 np.asarray(present).tolist()):
+            row = self.at(int(f) + 1)            # sweep frames are 0-based
+            row.pellet_ncc = float(a)
+            row.pellet_ncc_cam1 = float(b)
+            row.pellet_dist3d = None if (d is None or math.isnan(d)) else float(d)
+            row.pellet_present = int(bool(p))
 
     def add_status(self, notes_rows):
         """`notes_rows` is [(frame_number, frame_line_status)] from the companion."""
@@ -275,7 +308,10 @@ def row_from_csv(r) -> Row:
 
     return Row(frame_number=int(float(r["frame_number"])),
                frame_line_status=str(r.get("frame_line_status") or ""),
-               pellet_ncc=f("pellet_ncc"), pellet_present=i("pellet_present"),
+               pellet_ncc=f("pellet_ncc"),
+               pellet_ncc_cam1=f("pellet_ncc_cam1"),
+               pellet_dist3d=f("pellet_dist3d"),
+               pellet_present=i("pellet_present"),
                sensor_edge=i("sensor_edge") or 0, armed=i("armed") or 0,
                window_id=i("window_id"), dino_sim=f("dino_sim"),
                sam_score=f("sam_score"), note=str(r.get("note") or ""))

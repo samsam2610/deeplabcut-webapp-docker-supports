@@ -12,10 +12,10 @@ from src import intervals, judging
 
 
 def test_defaults_match_the_tuned_constants():
-    """The default judge must be a no-op against the shipped behaviour,
-    otherwise adding the field quietly retunes the pipeline."""
+    """The panel mirrors these in trial_judge.mjs and asserts the same numbers,
+    so retuning one side fails on the other."""
     j = judging.Judge()
-    assert j.threshold == intervals.PRESENT_THRESHOLD
+    assert j.threshold == judging.MATCH_THRESHOLD
     assert j.min_run == intervals.MIN_RUN_SAMPLES
     assert j.lookback == intervals.MAX_LOOKBACK
     assert j.guard == intervals.TRIAL_GUARD
@@ -118,3 +118,72 @@ def test_a_fractional_integer_field_truncates_rather_than_resetting():
 def test_clamping_is_idempotent():
     once = judging.from_dict({"threshold": 9, "guard": -4})
     assert judging.from_dict(once.to_dict()) == once
+
+
+# ── the two-camera decision ─────────────────────────────────────────────────
+#
+# `threshold` and `max_3d_dist` lived on PelletModel and were edited in the
+# pellet section while the Judge owned every other candidate parameter. Two
+# places deciding one thing is the divergence this module exists to end.
+
+def test_the_judge_carries_the_3d_gate():
+    assert judging.Judge().max_3d_dist == judging.MAX_3D_DIST
+
+
+def test_max_3d_dist_clamps_and_round_trips(tmp_path):
+    assert judging.from_dict({"max_3d_dist": -1}).max_3d_dist == 0.0
+    j = judging.Judge(max_3d_dist=1.5)
+    judging.save(tmp_path, j)
+    assert judging.load(tmp_path).max_3d_dist == 1.5
+
+
+def test_a_judge_file_from_before_the_3d_gate_still_loads(tmp_path):
+    """Existing sam_training_judge.json has no max_3d_dist. Refusing to load it
+    would blank every other tuned value."""
+    import json
+    (tmp_path / judging.FILENAME).write_text(json.dumps(
+        {"threshold": 0.62, "min_run": 9, "lookback": 2200,
+         "min_candidates": 50, "guard": 0}))
+    j = judging.load(tmp_path)
+    assert j.threshold == 0.62 and j.max_3d_dist == judging.MAX_3D_DIST
+
+
+def test_armed_pair_needs_both_cameras_and_the_3d_gate():
+    import numpy as np
+    frames = np.arange(0, 100, 5)
+    n = len(frames)
+    ones = np.ones(n)
+    j = judging.Judge(threshold=0.55, max_3d_dist=2.0, min_run=1)
+    # both cameras high and close in 3D -> armed
+    assert judging.armed_pair(frames, ones * 0.9, ones * 0.9, ones * 0.5, j)
+    # cam1 fails -> nothing
+    assert not judging.armed_pair(frames, ones * 0.9, ones * 0.2, ones * 0.5, j)
+    # both cameras high but the 3D point is wrong -> nothing.
+    # This is the case the gate earns its keep on: the reported frame 27591
+    # scored 0.55/0.67 with a 3D distance of 8.29.
+    assert not judging.armed_pair(frames, ones * 0.9, ones * 0.9, ones * 8.29, j)
+
+
+def test_a_nan_distance_is_never_armed():
+    """NaN means the cameras never agreed, so triangulation was skipped.
+    `nan <= max` is False in numpy but a hand-rolled comparison could invert."""
+    import numpy as np
+    frames = np.arange(0, 50, 5)
+    n = len(frames)
+    j = judging.Judge(threshold=0.55, max_3d_dist=2.0, min_run=1)
+    assert not judging.armed_pair(frames, np.ones(n) * 0.9, np.ones(n) * 0.9,
+                                  np.full(n, np.nan), j)
+
+
+def test_retuning_the_gate_changes_the_mask_without_a_resweep():
+    """The point of judging at judge time: the stored sweep is raw scores, so
+    a new gate is applied to it instantly."""
+    import numpy as np
+    frames = np.arange(0, 100, 5)
+    n = len(frames)
+    s = np.ones(n) * 0.9
+    d = np.ones(n) * 3.0
+    tight = judging.Judge(threshold=0.55, max_3d_dist=2.0, min_run=1)
+    loose = judging.Judge(threshold=0.55, max_3d_dist=4.0, min_run=1)
+    assert not judging.armed_pair(frames, s, s, d, tight)
+    assert judging.armed_pair(frames, s, s, d, loose)

@@ -158,3 +158,50 @@ export function setVisible(vis, cam, on) {
 export function canPlace() {
   return true;
 }
+
+// ── coordinate conversion ───────────────────────────────────────────────────
+//
+// The tile's canvas backing store is sized to what it is DISPLAYED at, not to
+// the video's native resolution (VideoViewer, and marker_editor which does the
+// same and converts explicitly). Treating the backing store as the image size
+// meant `canvas.width / rect.width` was 1, so clicks were stored in display
+// pixels: every mark came out a uniform 0.88x its true image coordinate on the
+// reported 800x600-shown-at-706 layout.
+//
+// The draw path made the mirrored assumption, painting the stored coordinate
+// straight onto the display canvas — so the box appeared exactly under the
+// cursor while being wrong in the file. Visual checking could not catch it.
+// Both directions live here, together, so they cannot drift apart again.
+
+/** Scale from image pixels to displayed pixels. */
+export function scaleFor(natural, displayed) {
+  if (!natural || !natural.width || !natural.height) return { sx: 1, sy: 1 };
+  return {
+    sx: (displayed?.width || natural.width) / natural.width,
+    sy: (displayed?.height || natural.height) / natural.height,
+  };
+}
+
+/**
+ * A click event -> full-frame image coordinates.
+ *
+ * `rect` is the tile's getBoundingClientRect(); `natural` is the video's own
+ * width/height. Goes straight from the rect fraction to the natural size, so
+ * the canvas backing store — the thing that was misleading — is not consulted.
+ */
+export function toImage(ev, rect, natural) {
+  const w = rect && rect.width ? rect.width : 0;
+  const h = rect && rect.height ? rect.height : 0;
+  const dx = (ev.clientX || 0) - ((rect && rect.left) || 0);
+  const dy = (ev.clientY || 0) - ((rect && rect.top) || 0);
+  if (!natural || !natural.width || !natural.height) return { x: dx, y: dy };
+  // A hidden card reports a zero-sized rect; scaling by it would be Infinity.
+  if (!w || !h) return { x: dx, y: dy };
+  return { x: (dx / w) * natural.width, y: (dy / h) * natural.height };
+}
+
+/** Image coordinates -> the displayed canvas, for drawing. */
+export function toCanvas(point, natural, displayed) {
+  const { sx, sy } = scaleFor(natural, displayed);
+  return { x: point.x * sx, y: point.y * sy };
+}

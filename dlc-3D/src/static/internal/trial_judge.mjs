@@ -8,11 +8,12 @@
 // silently replaced.
 
 export const DEFAULT_JUDGE = {
-  threshold: 0.5,       // NCC above which the pellet is present
+  threshold: 0.55,      // per-camera NCC a match must reach
   min_run: 6,           // samples a state flip must persist (debounce)
   lookback: 3000,       // how far a window reaches back from its marker
   min_candidates: 30,   // armed frames below which a trial is skipped
   guard: 0,             // frames a window may reach past the PREVIOUS marker
+  max_3d_dist: 2.0,     // how far the triangulated match may sit from the pellet
 };
 
 const OUTCOMES = ["s", "f"];
@@ -71,6 +72,9 @@ export function clampJudge(raw) {
     min_run: Math.max(1, int(d.min_run, DEFAULT_JUDGE.min_run)),
     lookback,
     min_candidates: Math.max(0, int(d.min_candidates, DEFAULT_JUDGE.min_candidates)),
+    // A distance in calibration units, not a frame count: real pellets measure
+    // <= 1.03, so truncating to an integer would make the gate untunable.
+    max_3d_dist: Math.max(0, num(d.max_3d_dist, DEFAULT_JUDGE.max_3d_dist)),
     // Reaching further back than the window opens is not a describable state.
     guard: Math.min(lookback, Math.max(0, int(d.guard, DEFAULT_JUDGE.guard))),
   };

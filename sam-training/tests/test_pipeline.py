@@ -1,0 +1,119 @@
+"""Stage 0+1 end to end, from a cached sweep to trial windows.
+
+Three endpoints needed this — the debug panel, /windows and /onset-csv — and
+each grew its own copy. The last time they diverged, one forgot the cache
+signature and "Build onset CSV" answered 409 on a freshly swept video. This
+module is the single path; these tests cover the composition, not the pieces.
+"""
+import csv
+
+import numpy as np
+import pytest
+
+from src import judging, onset_csv, pellet_model as pm, pipeline, sweep_cache
+
+
+@pytest.fixture
+def project(tmp_path):
+    root = tmp_path / "proj"
+    root.mkdir()
+    m = pm.PelletModel()
+    m.cameras["cam0"] = pm.CameraModel(cx=416, cy=388, half=22, margin=40,
+                                       seed_b64="x", seed_n=261)
+    m.cameras["cam1"] = pm.CameraModel(cx=593, cy=450, half=22, margin=40,
+                                       seed_b64="x", seed_n=261)
+    m.ref_3d = [1.68, 11.09, 278.81]
+    pm.save(root, m)
+    return root
+
+
+@pytest.fixture
+def video(tmp_path):
+    vid = tmp_path / "banh_cam0_20260707_110532.avi"
+    vid.write_bytes(b"not really a video")
+    with open(vid.with_suffix(".csv"), "w", newline="") as fh:
+        w = csv.writer(fh)
+        w.writerow(["timestamp", "frame_number", "frame_line_status", "note"])
+        for frame, note in [(2000, "f"), (4000, "s")]:
+            w.writerow([frame / 200.0, frame, "0", note])
+    return vid
+
+
+def _cache_a_pair(video, project, root, *, armed_from, armed_to,
+                  score=0.9, dist=0.5, n=5000):
+    """A sweep where one stretch looks like a pellet and the rest does not."""
+    model = pm.load(project)
+    frames = np.arange(0, n, 5)
+    s0 = np.where((frames >= armed_from) & (frames < armed_to), score, 0.1)
+    s1 = np.where((frames >= armed_from) & (frames < armed_to), score, 0.1)
+    d = np.where((frames >= armed_from) & (frames < armed_to), dist, np.nan)
+    sweep_cache.save_pair(video, frames, s0, s1, d, n, model=model,
+                          marks=onset_csv.read_marks(video), root=root)
+    return frames
+
+
+def test_windows_come_back_from_a_cached_pair_sweep(tmp_path, project, video):
+    _cache_a_pair(video, project, tmp_path, armed_from=1000, armed_to=1900)
+    out = pipeline.windows_for(project, video, root=tmp_path)
+    assert out is not None
+    assert [w.outcome for w in out.windows] == ["f"]
+    assert out.windows[0].end == 2000
+
+
+def test_not_swept_yet_is_none_not_an_empty_result(tmp_path, project, video):
+    """An empty window list and "never swept" mean different things to the
+    panel: one offers a sweep, the other says the video has no trials."""
+    assert pipeline.windows_for(project, video, root=tmp_path) is None
+
+
+def test_the_3d_gate_removes_frames_both_cameras_liked(tmp_path, project, video):
+    """The reported failure: frame 27591 scored 0.55/0.67 — both cameras above
+    threshold — and triangulated 8.29 away from the pellet."""
+    _cache_a_pair(video, project, tmp_path, armed_from=1000, armed_to=1900,
+                  score=0.9, dist=8.29)
+    out = pipeline.windows_for(project, video, root=tmp_path)
+    assert out.windows == []
+
+
+def test_retuning_the_gate_re_judges_without_touching_the_cache(tmp_path, project, video):
+    _cache_a_pair(video, project, tmp_path, armed_from=1000, armed_to=1900,
+                  score=0.9, dist=3.0)
+    assert pipeline.windows_for(project, video, root=tmp_path).windows == []
+    judging.save(project, judging.Judge(max_3d_dist=4.0))
+    assert pipeline.windows_for(project, video, root=tmp_path).windows != []
+
+
+def test_a_camera_that_disagrees_arms_nothing(tmp_path, project, video):
+    model = pm.load(project)
+    frames = np.arange(0, 5000, 5)
+    hot = (frames >= 1000) & (frames < 1900)
+    sweep_cache.save_pair(video, frames, np.where(hot, 0.9, 0.1),
+                          np.full(len(frames), 0.1),      # cam1 never agrees
+                          np.where(hot, 0.5, np.nan), 5000, model=model,
+                          root=tmp_path)
+    assert pipeline.windows_for(project, video, root=tmp_path).windows == []
+
+
+def test_the_placed_box_reaches_the_detector(tmp_path, project, video):
+    """The gate blocks sweeping until a box is placed; that box must be the one
+    the sweep uses. sweep_pair read model.cameras straight through, so the
+    placement guarded a value nothing consumed."""
+    build = onset_csv.Build()
+    build.add_mark(1, onset_csv.MARK_BOX, "cam0", 370.0, 340.0)
+    build.add_mark(1, onset_csv.MARK_BOX, "cam1", 522.0, 396.0)
+    onset_csv.write(video, build)
+    resolved = pipeline.model_for(project, video)
+    assert (resolved.cameras["cam0"].cx, resolved.cameras["cam0"].cy) == (370.0, 340.0)
+    assert (resolved.cameras["cam1"].cx, resolved.cameras["cam1"].cy) == (522.0, 396.0)
+
+
+def test_the_trace_reports_the_weaker_camera(tmp_path, project, video):
+    """min(s0, s1) is the quantity that has to clear the threshold. Showing
+    cam0 alone would draw a confident line for a frame cam1 rejected."""
+    model = pm.load(project)
+    frames = np.arange(0, 100, 5)
+    n = len(frames)
+    sweep_cache.save_pair(video, frames, np.full(n, 0.9), np.full(n, 0.3),
+                          np.full(n, 0.5), 100, model=model, root=tmp_path)
+    out = pipeline.windows_for(project, video, root=tmp_path)
+    assert out.score.max() == pytest.approx(0.3, abs=1e-6)

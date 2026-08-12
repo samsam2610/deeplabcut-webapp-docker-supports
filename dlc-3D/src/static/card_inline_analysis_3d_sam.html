@@ -989,17 +989,18 @@
             <button class="btn-sm" id="ia3ds-confirm-btn">Confirm box for this pair</button>
           </div>
           <p class="ia3ds-sam-note">
-            Drag the yellow box onto the stationary pellet in <b>each</b> camera,
-            then confirm. Sweeping is blocked until you do — a wrong box does not
-            fail loudly, it fills the mask with paws.
+            Click the stationary pellet in <b>each</b> camera, then confirm.
+            Sweeping is blocked until you do — a wrong box does not fail loudly,
+            it fills the mask with paws.
           </p>
 
           <div class="ia3ds-sam-row" style="margin-top:.45rem">
-            <label for="ia3ds-pellet-thr">match thr</label>
-            <input type="number" id="ia3ds-pellet-thr" step="0.01" min="0" max="1" style="width:5rem"/>
-            <label for="ia3ds-pellet-3d" title="Max distance from the reference 3D pellet point">3D dist</label>
-            <input type="number" id="ia3ds-pellet-3d" step="0.1" min="0" style="width:5rem"/>
             <button class="btn-sm" id="ia3ds-pellet-save">Save box</button>
+            <span style="font-size:.7rem;color:var(--text-dim)">
+              match threshold and the 3D gate now live in <b>Candidate judging</b> —
+              they decide candidates, not geometry, and having them in two places
+              meant the sweep and the panel could disagree.
+            </span>
           </div>
 
           <div class="ia3ds-sam-row">
@@ -1037,6 +1038,8 @@
             <input type="number" id="ia3ds-judge-mincand" step="1" min="0" style="width:4.5rem"/>
             <label for="ia3ds-judge-guard" title="Frames a window may reach back PAST the previous s/f marker. 0 keeps every candidate's outcome unambiguous.">past prev marker</label>
             <input type="number" id="ia3ds-judge-guard" step="50" min="0" style="width:5.5rem"/>
+            <label for="ia3ds-judge-3d" title="How far the triangulated match may sit from the project's reference pellet point. Real pellets measure under ~1.0.">3D gate</label>
+            <input type="number" id="ia3ds-judge-3d" step="0.1" min="0" style="width:5rem"/>
             <button class="btn-sm" id="ia3ds-judge-apply">Apply &amp; re-judge</button>
             <button class="btn-sm" id="ia3ds-judge-reset" title="Back to the tuned defaults">Defaults</button>
             <span class="ia3ds-sam-status" id="ia3ds-judge-status"></span>

@@ -22,14 +22,27 @@ FILENAME = "sam_training_judge.json"
 # is 150 frames of video — less than that and there is nothing to rank.
 MIN_CANDIDATES = 30
 
+# Per-camera NCC a match must reach. 0.55 rather than the single-camera path's
+# 0.50: with two cameras and a 3D gate behind it, this no longer has to be the
+# only defence, so it can sit where the pooled template actually separates.
+MATCH_THRESHOLD = 0.55
+
+# Max distance, in the calibration's units, from the project's reference pellet
+# point. Real pellets measured <= 1.03; the frame that exposed the original
+# single-camera bug scored 0.79/0.74 in the two views and triangulated to 3.85,
+# so this is the gate that rejected it. Frame 27591 of banh-mi-1 Jul 7 — the
+# reported one — scores 0.55/0.67 and triangulates to 8.29.
+MAX_3D_DIST = 2.0
+
 
 @dataclass(frozen=True)
 class Judge:
-    threshold: float = intervals.PRESENT_THRESHOLD
+    threshold: float = MATCH_THRESHOLD
     min_run: int = intervals.MIN_RUN_SAMPLES
     lookback: int = intervals.MAX_LOOKBACK
     min_candidates: int = MIN_CANDIDATES
     guard: int = intervals.TRIAL_GUARD
+    max_3d_dist: float = MAX_3D_DIST
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -69,12 +82,13 @@ def from_dict(data) -> Judge:
     d = dict(data or {})
     base = Judge()
     threshold = min(1.0, max(0.0, _num(d.get("threshold"), base.threshold, float)))
+    max_3d = max(0.0, _num(d.get("max_3d_dist"), base.max_3d_dist, float))
     min_run = max(1, _int(d.get("min_run"), base.min_run))
     lookback = max(1, _int(d.get("lookback"), base.lookback))
     min_candidates = max(0, _int(d.get("min_candidates"), base.min_candidates))
     guard = max(0, _int(d.get("guard"), base.guard))
     return Judge(threshold=threshold, min_run=min_run, lookback=lookback,
-                 min_candidates=min_candidates,
+                 min_candidates=min_candidates, max_3d_dist=max_3d,
                  # Reaching further back than the window opens is not a state
                  # the panel should be able to describe.
                  guard=min(guard, lookback))
@@ -110,9 +124,29 @@ def save(project_path, judge: Judge) -> Path:
 
 
 def armed(frames, scores, judge: Judge):
+    """Single-camera path. Kept for the legacy trace only — it decides presence
+    from the best correlation anywhere in one band, which is what let a paw
+    score 0.85 with no pellet on the frame."""
     return intervals.present_intervals(frames, scores,
                                        threshold=judge.threshold,
                                        min_run=judge.min_run)
+
+
+def decide_pair(score0, score1, dist3d, judge: Judge):
+    """The three-way test, as a per-sample mask.
+
+    Applied HERE rather than during the sweep so the stored sweep stays raw
+    scores: retuning either threshold re-judges instantly instead of costing
+    another seven-minute pass over both videos.
+    """
+    from . import sweep2
+    return sweep2.decide(score0, score1, dist3d, judge.threshold,
+                         judge.max_3d_dist)
+
+
+def armed_pair(frames, score0, score1, dist3d, judge: Judge):
+    return intervals.intervals_from_mask(
+        frames, decide_pair(score0, score1, dist3d, judge), judge.min_run)
 
 
 def build(trials, ivs, judge: Judge):

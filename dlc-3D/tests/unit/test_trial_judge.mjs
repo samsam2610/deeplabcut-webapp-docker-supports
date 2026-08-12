@@ -99,8 +99,11 @@ test("outcome markers are styled by outcome, not by position", () => {
 // ── judging parameters ──────────────────────────────────────────────────────
 
 test("the defaults match the backend's", () => {
+  // Mirrored from judging.Judge(). This assertion is the whole point of the
+  // mirror: it fails the moment one side is retuned without the other.
   assert.deepEqual(DEFAULT_JUDGE, {
-    threshold: 0.5, min_run: 6, lookback: 3000, min_candidates: 30, guard: 0,
+    threshold: 0.55, min_run: 6, lookback: 3000, min_candidates: 30, guard: 0,
+    max_3d_dist: 2.0,
   });
 });
 
@@ -148,4 +151,32 @@ test("integer fields never come back fractional", () => {
 test("clamping is idempotent", () => {
   const once = clampJudge({ threshold: 9, guard: -4 });
   assert.deepEqual(clampJudge(once), once);
+});
+
+// ── the 3D gate joins the judge ─────────────────────────────────────────────
+//
+// `threshold` and `max_3d_dist` were on the pellet model, edited in a different
+// panel section, while the judge owned everything else that decides a
+// candidate. Two places deciding one thing.
+
+test("max_3d_dist is part of the judge", () => {
+  assert.equal(DEFAULT_JUDGE.max_3d_dist, 2.0);
+});
+
+test("the default threshold is the two-camera one", () => {
+  // 0.55, not the single-camera path's 0.50: with two cameras and a 3D gate
+  // behind it this no longer has to be the only defence.
+  assert.equal(DEFAULT_JUDGE.threshold, 0.55);
+});
+
+test("max_3d_dist clamps at zero and accepts fractions", () => {
+  assert.equal(clampJudge({ max_3d_dist: -1 }).max_3d_dist, 0);
+  assert.equal(clampJudge({ max_3d_dist: "1.5" }).max_3d_dist, 1.5);
+  assert.equal(clampJudge({ max_3d_dist: "" }).max_3d_dist, DEFAULT_JUDGE.max_3d_dist);
+});
+
+test("max_3d_dist is not truncated to an integer", () => {
+  // It is a distance in calibration units; real pellets measured <= 1.03, so
+  // rounding to whole numbers would make the gate untunable.
+  assert.equal(clampJudge({ max_3d_dist: 2.5 }).max_3d_dist, 2.5);
 });

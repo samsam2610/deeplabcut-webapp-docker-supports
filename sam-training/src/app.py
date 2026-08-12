@@ -16,8 +16,8 @@ import cv2
 import numpy as np
 from flask import Flask, Response, jsonify, render_template, request
 
-from . import (config, judging, ncc, notes, overlays, rig, store,
-               sweep_cache, tracked)
+from . import (config, judging, ncc, notes, overlays, pellet_model, pipeline,
+               rig, stereo, store, sweep2, sweep_cache, tracked)
 
 app = Flask(__name__, template_folder="templates", static_folder="static",
             static_url_path="/sam-training/static")
@@ -97,25 +97,22 @@ def _cache_args(video):
 
 
 def _sweep_payload(video, stride):
-    model, marks = _cache_args(video)
-    cached = sweep_cache.load(video, model, marks, stride=stride)
-    if cached is None:
+    st = pipeline.windows_for(PROJECT_PATH, video, stride)
+    if st is None:
         return None
-    frames, scores, n_frames = cached
-    judge = judging.load(PROJECT_PATH)
-    ivs = judging.armed(frames, scores, judge)
     rows = notes.read_notes(video)
-    trials = notes.pair_trials(rows)
-    wins = judging.build(trials, ivs, judge)
+    wins = st.windows
+    judge = st.judge
     known = [w for w in wins if w.onset_frame is not None]
     hit = sum(1 for w in known if w.is_candidate(w.onset_frame))
     return {
-        "n_frames": n_frames,
+        "n_frames": st.n_frames,
         "stride": stride,
-        "trace": overlays.downsample_trace(frames, scores),
+        # The weaker camera: the quantity that has to clear the threshold.
+        "trace": overlays.downsample_trace(st.frames, st.score),
         "threshold": judge.threshold,
         "judge": judge.to_dict(),
-        "armed": [{"start": iv.start, "end": iv.end} for iv in ivs],
+        "armed": [{"start": iv.start, "end": iv.end} for iv in st.armed],
         "onsets": [{"frame": f, "note": n} for f, n in notes.onsets(rows)],
         "outcomes": [{"frame": f, "note": n} for f, n in notes.outcomes(rows)],
         "windows": [{"start": w.start, "end": w.end, "outcome": w.outcome,
@@ -157,18 +154,30 @@ def api_sweep():
         return jsonify({"state": "done", "cached": True, **payload})
 
     def run(job):
-        calib = rig.load(PROJECT_PATH, Path(video).stem) or rig.calibrate(video)
-        rig.save(PROJECT_PATH, Path(video).stem, calib)
-        template = rig.load_template(calib)
+        # Two cameras, not one. The single-camera sweep decided presence from
+        # the best correlation anywhere in one band, and a white paw resting on
+        # the pedestal clears that: 0.85 on a frame with no pellet.
+        sibling = pellet_model.sibling_video(video)
+        if sibling is None:
+            raise RuntimeError("no cam1 file found beside this video — the "
+                               "two-camera detector needs both")
+        resolved = pipeline.model_for(PROJECT_PATH, video)
+        if resolved is None or not resolved.cameras:
+            raise RuntimeError("no pellet model for this project")
+        if resolved.ref_3d is None:
+            raise RuntimeError("the project has no reference 3D pellet point, "
+                               "so the 3D gate cannot run")
+        calib = stereo.load(stereo.find_for_project(PROJECT_PATH))
 
         def progress(idx, last):
             job.progress = min(0.99, idx / max(1, last))
 
-        sw = ncc.sweep_video(video, template, calib.search_box, stride=stride,
-                             progress=progress)
+        sw = sweep2.sweep_pair(video, str(sibling), resolved, calib,
+                               stride=stride, progress=progress)
         model, marks = _cache_args(video)
-        sweep_cache.save(video, sw.frames, sw.scores, sw.n_frames,
-                         model=model, marks=marks, stride=stride)
+        sweep_cache.save_pair(video, sw.frames, sw.score0, sw.score1, sw.dist3d,
+                              sw.n_frames, model=model, marks=marks,
+                              stride=stride)
         return True
 
     job = store.registry.start("sweep", run)

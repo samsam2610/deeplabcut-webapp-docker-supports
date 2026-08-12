@@ -82,3 +82,61 @@ def test_no_model_still_round_trips(tmp_path):
     sweep_cache.save("/v/a.avi", frames, frames * 0.0, 100, model=None,
                      root=tmp_path)
     assert sweep_cache.load("/v/a.avi", model=None, root=tmp_path) is not None
+
+
+# ── the two-camera sweep ────────────────────────────────────────────────────
+
+def test_pair_sweep_round_trips(tmp_path):
+    frames = np.arange(0, 100, 5)
+    n = len(frames)
+    sweep_cache.save_pair("/v/a.avi", frames, np.full(n, 0.9), np.full(n, 0.8),
+                          np.full(n, 0.5), 100, model=_Model(), root=tmp_path)
+    got = sweep_cache.load_pair("/v/a.avi", model=_Model(), root=tmp_path)
+    assert got is not None
+    f, s0, s1, d, total = got
+    assert np.array_equal(f, frames) and total == 100
+    assert s0[0] == np.float32(0.9) and s1[0] == np.float32(0.8) and d[0] == np.float32(0.5)
+
+
+def test_nan_distances_survive_the_round_trip(tmp_path):
+    """NaN marks "the cameras never agreed, so this was never triangulated".
+    If it came back as 0.0 every disagreement would read as a perfect match."""
+    frames = np.arange(0, 20, 5)
+    n = len(frames)
+    sweep_cache.save_pair("/v/a.avi", frames, np.full(n, 0.1), np.full(n, 0.1),
+                          np.full(n, np.nan), 20, model=_Model(), root=tmp_path)
+    _f, _s0, _s1, d, _n = sweep_cache.load_pair("/v/a.avi", model=_Model(),
+                                                root=tmp_path)
+    assert np.isnan(d).all()
+
+
+def test_a_single_camera_sweep_is_not_readable_as_a_pair(tmp_path):
+    """The old cache holds one score array. Reading it as a pair would either
+    crash or, worse, silently reuse cam0's scores as cam1's — the exact
+    agreement the two-camera gate is supposed to prove."""
+    frames = np.arange(0, 100, 5)
+    sweep_cache.save("/v/a.avi", frames, frames * 0.0, 100, model=_Model(),
+                     root=tmp_path)
+    assert sweep_cache.load_pair("/v/a.avi", model=_Model(), root=tmp_path) is None
+
+
+def test_a_pair_sweep_is_not_readable_as_a_single(tmp_path):
+    frames = np.arange(0, 100, 5)
+    n = len(frames)
+    sweep_cache.save_pair("/v/a.avi", frames, np.full(n, 0.9), np.full(n, 0.9),
+                          np.full(n, 0.5), 100, model=_Model(), root=tmp_path)
+    assert sweep_cache.load("/v/a.avi", model=_Model(), root=tmp_path) is None
+
+
+def test_moving_the_box_misses_the_pair_cache_too(tmp_path):
+    frames = np.arange(0, 20, 5)
+    n = len(frames)
+    marks = [{"kind": "box", "cam": "cam0", "x": 416, "y": 388}]
+    moved = [{"kind": "box", "cam": "cam0", "x": 370, "y": 340}]
+    sweep_cache.save_pair("/v/a.avi", frames, np.ones(n), np.ones(n),
+                          np.zeros(n), 20, model=_Model(), marks=marks,
+                          root=tmp_path)
+    assert sweep_cache.load_pair("/v/a.avi", model=_Model(), marks=moved,
+                                 root=tmp_path) is None
+    assert sweep_cache.load_pair("/v/a.avi", model=_Model(), marks=marks,
+                                 root=tmp_path) is not None
