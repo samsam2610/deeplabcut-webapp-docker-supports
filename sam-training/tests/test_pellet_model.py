@@ -360,3 +360,41 @@ def test_mask_centroid_follows_mass_not_the_bounding_box():
 def test_an_empty_mask_has_no_centroid():
     import numpy as np
     assert pm.mask_centroid(np.zeros((5, 5), dtype=bool)) is None
+
+
+# ── drawing the instance the scorer used ────────────────────────────────────
+#
+# /thumb re-segmented and re-chose the paw independently, so the thumbnail could
+# show a DIFFERENT instance from the one that produced the 3D point. Measured on
+# trial 9 of banh-mi-1 Jul 7: the cam1 thumbnail disagreed with the scorer on
+# 5 frames out of 5. When the independently-chosen instance also fell outside
+# the pellet-centred crop, the tile rendered with no mask at all — which looks
+# exactly like "SAM found nothing".
+
+def test_nearest_to_the_reference_wins():
+    pts = [(100.0, 100.0), (405.0, 380.0), (600.0, 200.0)]
+    assert pm.pick_nearest(pts, (400.0, 385.0), 20.0) == 1
+
+
+def test_nothing_within_tolerance_is_none():
+    """Better no mask than a confidently wrong one: if the recorded point has
+    no instance near it, this frame's segmentation is not reproducible and
+    drawing the nearest blob would misrepresent what was scored."""
+    assert pm.pick_nearest([(0.0, 0.0)], (400.0, 385.0), 20.0) is None
+
+
+def test_no_candidates_is_none():
+    assert pm.pick_nearest([], (400.0, 385.0), 20.0) is None
+
+
+def test_a_missing_reference_is_none():
+    assert pm.pick_nearest([(1.0, 2.0)], None, 20.0) is None
+
+
+def test_exactly_at_the_tolerance_is_accepted():
+    assert pm.pick_nearest([(410.0, 385.0)], (400.0, 385.0), 10.0) == 0
+
+
+def test_none_centroids_are_skipped_not_fatal():
+    # mask_centroid returns None for an empty mask.
+    assert pm.pick_nearest([None, (401.0, 385.0)], (400.0, 385.0), 20.0) == 1

@@ -309,6 +309,31 @@ def mask_centroid(mask):
     return (float(xs.mean()), float(ys.mean()))
 
 
+def pick_nearest(centroids, target, max_px: float):
+    """Index of the centroid nearest ``target``, or None if none is close.
+
+    Lets a consumer redraw the instance that was already chosen, instead of
+    re-deciding. /thumb re-chose independently and disagreed with the scorer on
+    every frame of the trial that was reported.
+
+    None rather than a fallback: if no instance sits near the recorded point,
+    this frame's segmentation is not reproducible, and drawing the nearest blob
+    would show something that was never scored.
+    """
+    if target is None:
+        return None
+    best, best_i = None, None
+    for i, c in enumerate(centroids or []):
+        if c is None:
+            continue
+        d = float(np.hypot(c[0] - target[0], c[1] - target[1]))
+        if best is None or d < best:
+            best, best_i = d, i
+    if best is None or best > max_px:
+        return None
+    return best_i
+
+
 def placement_verdict(score: float, threshold: float) -> dict:
     """Does a box at this score stand any chance of finding the pellet?
 

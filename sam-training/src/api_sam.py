@@ -24,6 +24,39 @@ PREFIX = "/sam-training/api"
 # stops a pathological window from pinning the GPU for a minute.
 MAX_CANDIDATES = 2500
 
+# How close a SAM instance must sit to the centroid the scorer recorded for the
+# thumbnail to accept it as the same instance. Generous: SAM is re-run here and
+# a mask can shift a little, but the wrong paw is hundreds of px away.
+THUMB_MATCH_PX = 30.0
+
+
+def _recorded_paw(video, frame: int, cam: str):
+    """The paw centroid the scorer stored for this (frame, camera), or None.
+
+    The motion sidecar belongs to the pair's cam0 member, so a cam1 thumbnail
+    has to look across to its sibling for it.
+    """
+    src = video
+    if "_cam0_" not in Path(video).name:
+        sib = pm.sibling_video(video)
+        if sib is None:
+            return None
+        src = str(sib)
+    key = "cam0" if cam == "cam0" else "cam1"
+    for r in motion3d.read(src):
+        try:
+            if (int(float(r["frame"])) != int(frame)
+                    or r.get("source") != motion3d.SOURCE_SAM
+                    or r.get("marker") != "paw_centroid"):
+                continue
+            x, y = r.get(f"{key}_x", ""), r.get(f"{key}_y", "")
+            if not str(x).strip() or not str(y).strip():
+                return None
+            return (float(x), float(y))
+        except (TypeError, ValueError):
+            continue
+    return None
+
 
 def _project():
     import os
@@ -499,14 +532,33 @@ def api_thumb():
     if request.args.get("mask") == "1" and camera is not None:
         items = models.segment(cv2.cvtColor(got[n - 1], cv2.COLOR_BGR2RGB),
                                prompt=request.args.get("prompt") or "paw")
-        # Nearest THIS camera's pellet. It used to read the pellet out of the
-        # rig calibration's template box, which is cam0 geometry — on a cam1
-        # frame that measured distance to a point in the wrong half of the rig.
-        paw = models.choose_reaching_paw(items, (camera.cx, camera.cy))
-        if paw is not None:
-            sub = paw["mask"][y0:y1, x0:x1]
-            tile[sub] = (0.55 * np.array([80, 220, 120]) +
-                         0.45 * tile[sub]).astype(np.uint8)
+        centroids = [pm.mask_centroid(it["mask"]) for it in items]
+        # Draw the instance the SCORER used, recorded in the motion sidecar.
+        # Re-choosing here disagreed with the scorer on every frame of the trial
+        # that was reported: cam1's paw is picked by cam0's epipolar line, and
+        # nearest-this-camera's-pellet finds a different paw.
+        ref = _recorded_paw(video, n, cam)
+        idx = pm.pick_nearest(centroids, ref, THUMB_MATCH_PX)
+        if idx is None and ref is None:
+            # No record for this frame (a 2D run, or a stale sidecar): fall back
+            # to the old rule rather than showing nothing.
+            paw = models.choose_reaching_paw(items, (camera.cx, camera.cy))
+            idx = items.index(paw) if paw is not None else None
+        if idx is not None:
+            mask = items[idx]["mask"]
+            sub = mask[y0:y1, x0:x1]
+            if sub.any():
+                tile[sub] = (0.55 * np.array([80, 220, 120]) +
+                             0.45 * tile[sub]).astype(np.uint8)
+            else:
+                # Found, but entirely outside the crop. Without this marker the
+                # tile is indistinguishable from "SAM found nothing", which is
+                # how a working detector reads as a broken one.
+                c = centroids[idx]
+                px = int(np.clip(c[0] - x0, 2, (x1 - x0) - 3))
+                py = int(np.clip(c[1] - y0, 2, (y1 - y0) - 3))
+                cv2.drawMarker(tile, (px, py), (60, 220, 255),
+                               cv2.MARKER_TRIANGLE_UP, 12, 2)
     ok, buf = cv2.imencode(".jpg", tile, [int(cv2.IMWRITE_JPEG_QUALITY), 80])
     if not ok:
         return jsonify({"error": "encode failed"}), 500
