@@ -2,7 +2,7 @@
 
 **Date:** 2026-08-12
 **Card:** `3D Inline Analysis - SAM Model`
-**Status:** implemented 2026-08-12 (commit 929379a)
+**Status:** implemented 2026-08-12 (929379a, 24d44a1, f742cd4)
 
 Scoring currently runs on cam0 alone. This adds a second button that segments
 **both** cameras, cross-checks the two paws geometrically, triangulates the paw,
@@ -184,3 +184,55 @@ one fails on the other.
 Folding 3D kinematics into the score. The columns are written, so their value can
 be measured against the human tags and only then earned. Re-measuring acceptance
 also stays out: the detector changed again, so those figures are void regardless.
+
+
+## Post-implementation: what verification changed
+
+Deployment verification ran the scorer end to end and found it rejecting 127 of
+the 193 frames where both cameras actually found a paw. Three corrections came
+out of that, in order of size.
+
+### The calibration was from the wrong session
+
+`find_for_project` returned the last path alphabetically while its docstring
+claimed "the most recent". banh-mi-1 Jul 7 was therefore triangulated with
+khoai-lang-2's **May 12** calibration — a different animal, two months earlier —
+while banh-mi's own Jul 5 calibration sat unused. Measured on banh-mi-1 Jul 2's
+labelled frames, over verified-correct paw pairs:
+
+| | p50 | p95 |
+|---|---|---|
+| joint centroid + own calibration | 0.78 | 8.83 |
+| joint centroid + khoai-lang | 27.80 | 30.00 |
+| SAM mask centroid + own calibration | 3.39 | 17.80 |
+| SAM mask centroid + khoai-lang | 26.82 | 36.70 |
+
+`find_for_video` now picks the same session, else the same animal on the nearest
+date, else the nearest date. The calibration also joins the pair-sweep cache key,
+since `dist3d` is triangulated with it during the sweep.
+
+### `epi_px` had been measured on a stand-in — twice
+
+`Left-Paw` gave 20 px (a decoy, §3). The digit-joint centroid gave 15 px:
+anatomically corresponding, but a SAM mask includes the forearm and each view
+sees a different amount of it, worth about 2x. The real quantity — SAM mask
+centroids on 55 frames where both views verifiably picked the correct paw, under
+that session's own calibration — is p95 **17.80**, so the default is **20**
+(keeps 98.2 %).
+
+The lesson is not "pick a better percentile". It is that a stand-in for the
+measured quantity has to be justified as a stand-in, and neither of the first
+two was.
+
+### `ref_3d` could not survive the calibration change
+
+A 3D coordinate only means something in the frame of the calibration that
+produced it. Moving Jul 7 onto its own calibration pushed the triangulated pellet
+from 0.48 to **29.30** away from the stored project-level reference — every
+pellet would have failed the 2.0 gate.
+
+The reference is now derived per pair by triangulating the human's **placed
+box**, which is already required before sweeping and is by definition the
+stationary pellet in both views. It is therefore always in the same frame as the
+calibration, and cannot go stale. Verified on Jul 7: frames with a pellet land
+0.20-1.02 from it, frames without 2.31-9.81.
