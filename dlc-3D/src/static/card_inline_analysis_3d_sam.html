@@ -961,7 +961,12 @@
         <!-- ══ SAM PANEL ═══════════════════════════════════════════════════════
              Hand-written; the clone script refuses to overwrite a file containing
              "SAM PANEL", so re-running it preserves this block.
-             Everything above is generated from card_inline_analysis_3d.html. -->
+             Generated markup surrounds this block on both sides — it is not just
+             "everything above": this panel is the last child of
+             #ia3ds-player-section, placed here right after #ia3ds-clip-panel-wrap
+             closes, so it takes part in the drag-reorder stack. If this file is
+             ever regenerated from scratch, this block must be re-added in THIS
+             position, not appended at the end. -->
         <div class="ia3ds-sam-panel" id="ia3ds-sam-panel">
           <div style="display:flex;align-items:center;gap:.6rem;flex-wrap:wrap">
             <label style="display:flex;align-items:center;gap:.45rem;font-size:.8rem;font-weight:500;cursor:pointer;user-select:none">

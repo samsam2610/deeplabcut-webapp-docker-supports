@@ -7,8 +7,12 @@
 # working output at risk for no gain. Two small scripts beat one clever one.
 #
 # Re-running OVERWRITES the three generated files, so hand edits to the clone
-# must live in the appended SAM PANEL block, which this script refuses to
-# clobber (same guard as the reprojection script).
+# must live in the SAM PANEL block, which this script refuses to clobber (same
+# guard as the reprojection script). That block is NOT appended at the end —
+# it lives inside #ia3ds-player-section, as the last child, right after
+# #ia3ds-clip-panel-wrap — so it takes part in the drag-reorder stack. Putting
+# it back outside the section after a regeneration would silently drop it out
+# of that stack.
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
@@ -51,4 +55,7 @@ echo "generated:"
 wc -c "$OUT_CARD" "$OUT_JS" "$OUT_CSS"
 echo
 echo "NOTE: the SAM PANEL block and the SAM BOOTSTRAP block must now be"
-echo "re-appended by hand — see git history for the versions this replaced."
+echo "re-added by hand — see git history for the versions this replaced."
+echo "They do NOT go at the end: the SAM PANEL block belongs inside"
+echo "#ia3ds-player-section, as its last child, right after"
+echo "#ia3ds-clip-panel-wrap, so it stays part of the drag-reorder stack."

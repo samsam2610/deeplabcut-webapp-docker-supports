@@ -316,8 +316,13 @@
    the one stylesheet the page always loads. The drop markers are inset shadows
    rather than borders: a border would change the panel's height mid-drag and
    make the stack twitch under the cursor. */
-.ia3d-panel-grab { cursor: grab; }
-.ia3d-panel-grab:active { cursor: grabbing; }
+/* !important is load-bearing: every panel head is a <label> (or, for Create
+   Clip, IS the bare <label>) carrying an inline style="…cursor:pointer…".
+   An inline style beats any author rule regardless of specificity, so without
+   !important here the grab cursor — the feature's only discoverability cue —
+   never shows. Do not "clean this up" without keeping the override. */
+.ia3d-panel-grab, .ia3d-panel-grab label { cursor: grab !important; }
+.ia3d-panel-grab:active, .ia3d-panel-grab:active label { cursor: grabbing !important; }
 .ia3d-panel-dragging { opacity: .55; }
 .ia3d-panel-drop-before { box-shadow: inset 0 2px 0 0 var(--accent); }
 .ia3d-panel-drop-after { box-shadow: inset 0 -2px 0 0 var(--accent); }

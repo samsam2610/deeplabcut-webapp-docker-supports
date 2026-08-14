@@ -167,6 +167,11 @@ Two visible consequences, both intended:
   state is not persisted (fact 6).
 - It hides when no video is open, where today it stays on screen with stale
   contents. That is the same failure the video-switch reset fixed in `eca8164`.
+- `#ia3ds-sam-progress` and `#ia3ds-batch-status` move into the collapsible
+  body along with the rest of the panel, so a Batch 2D/3D run — tens of
+  minutes — shows no progress while the panel is collapsed. This is not
+  silent, though: `_samSay` still writes to `#ia3ds-sam-status`, which stays
+  in the head, outside the collapsible body.
 
 Wiring follows fact 6's pattern exactly. The existing `_samWirePanel`,
 `_samWatchVideo` and `_samResetPanel` continue to run regardless of the
@@ -273,7 +278,7 @@ or reorder a card into nonsense — the fallback is always the shipped order.
 | `test_pellet_box_placement.mjs` (extend) | `camCardHead` emits a clear button carrying its own camera name; show-box reflects visibility |
 | `test_sam_panel_ids.mjs` (update) | `ia3ds-pellet-replace{,-cam}` gone; `ia3ds-sam-toggle` and `ia3ds-sam-controls` present |
 | `test_sam_card_loads.mjs` (extend) | under jsdom, `ia3ds-sam-panel` is a child of `ia3ds-player-section` and its controls start hidden |
-| Python | `card-layout` GET/PUT round-trip; PUT of one card preserves the others; no active project → 409; unknown card → 400; malformed stored JSON reads as `{}` rather than raising |
+| Python | `card-layout` GET/PUT round-trip; PUT of one card preserves the others; no active project → 400; unknown card → 400; malformed stored JSON reads as `{}` rather than raising |
 
 A DOM-level check that reordering preserves element identity — the same node
 object, with whatever was attached to it still attached — belongs with the drag

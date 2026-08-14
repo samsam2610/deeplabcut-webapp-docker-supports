@@ -5106,6 +5106,11 @@ function _samWirePanel() {
   on("ia3ds-sam-toggle", "onchange", () => {
     const open = !!_samEl("ia3ds-sam-toggle")?.checked;
     _samEl("ia3ds-sam-controls")?.classList.toggle("hidden", !open);
+    // The strip/tags canvases size themselves from clientWidth, which reads 0
+    // while #ia3ds-sam-controls is display:none — so the reset-on-video-open
+    // repaint that ran while collapsed pinned width to the 800px fallback.
+    // Repaint for real now that the body has a measurable width.
+    if (open) { _samDrawStrip(); _samDrawTags(); }
   });
   on("ia3ds-batch-2d", "onclick", () => _samBatch("2d"));
   on("ia3ds-batch-3d", "onclick", () => _samBatch("3d"));

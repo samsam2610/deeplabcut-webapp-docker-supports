@@ -89,13 +89,25 @@ function wirePanel(container, panel, card, ids) {
     // Disarm on release. Left armed after a click that never became a drag, the
     // WHOLE panel stays draggable — and then a drag inside a number input or
     // across the viewer would pick the panel up instead.
+    // The mouseup can also never arrive: releasing outside the browser window
+    // (over another app, a devtools panel, off-screen) fires neither mouseup
+    // nor click on `document`. Without the blur fallback the panel stays armed
+    // and the mouseup listener leaks — one per aborted press — since nothing
+    // ever removes it. Whichever fires first must remove both.
     const off = () => {
       panel.draggable = false;
       document.removeEventListener("mouseup", off);
+      window.removeEventListener("blur", off);
     };
     document.addEventListener("mouseup", off);
+    window.addEventListener("blur", off, { once: true });
   });
   panel.addEventListener("dragstart", (ev) => {
+    // Dragstart bubbles, and the browser fires one when a text selection
+    // inside the panel is dragged — not just from the head. Left unfiltered,
+    // that would overwrite the drop payload with this panel's id and reorder
+    // the stack as a side effect of selecting text.
+    if (ev.target !== panel) return;
     ev.dataTransfer.setData("text/plain", panel.id);
     ev.dataTransfer.effectAllowed = "move";
     panel.classList.add(DRAGGING);
@@ -156,11 +168,15 @@ export function initPanelLayout({ card, containerId, ids }) {
     if (el) wirePanel(container, el, card, ids);
   });
 
+  // loadLayout() itself cannot reject, but a throw inside this callback (e.g.
+  // applyOrder/applyToDom hitting an unexpected DOM shape) would otherwise
+  // surface as an unhandled rejection — initPanelLayout already returned
+  // synchronously above, so no caller's try/catch is still around to see it.
   loadLayout().then((layout) => {
     const wanted = applyOrder(present, (layout || {})[card] || []);
     if (!sameOrder(wanted, domOrder(container, ids))) {
       applyToDom(container, ids, wanted);
     }
-  });
+  }).catch(() => {});
   return true;
 }

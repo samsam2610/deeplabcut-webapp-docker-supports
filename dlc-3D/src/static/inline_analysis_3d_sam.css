@@ -317,7 +317,7 @@
    "SAM PANEL". Everything above is generated from inline_analysis_3d.css. */
 
 .ia3ds-sam-panel {
-  margin-top: .8rem; padding: .6rem .7rem;
+  margin-top: .65rem; padding: .6rem .7rem;
   border: 1px solid var(--border); border-radius: 7px; background: var(--surface-2);
 }
 .ia3ds-sam-head { display: flex; align-items: center; gap: .5rem; margin-bottom: .55rem; }
@@ -405,7 +405,7 @@
 }
 .ia3ds-cam-card h4 {
   margin: 0 0 .3rem; font-size: .72rem; color: var(--text-dim);
-  display: flex; align-items: center; gap: .4rem;
+  display: flex; align-items: center; gap: .35rem; flex-wrap: wrap;
 }
 .ia3ds-cam-card h4 img {
   width: 34px; height: 34px; image-rendering: pixelated;
