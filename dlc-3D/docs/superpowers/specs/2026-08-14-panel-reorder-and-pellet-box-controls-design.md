@@ -80,8 +80,8 @@ Checked in the working tree, not assumed.
    (`inline_analysis_3d_sam.js:1427-1432`). None of the five persists its
    checked state — every page load starts collapsed.
 
-7. **dlc-3D can host a project-scoped store.** `_active_project()`
-   (`src/dlc_3d_bp/routes.py:96-121`) resolves the active project per user from
+7. **dlc-3D can host a project-scoped store.** `_active_project_for_user()`
+   (`src/dlc_3d_bp/routes.py:81-121`) resolves the active project per user from
    Redis and returns `None` on every failure. No `Thread(` exists anywhere in
    `src/dlc_3d_bp/*.py`, so restarting the `dlc-3d` container kills no work —
    LP jobs run in `dlc-3d-worker`, triangulate/analyze on the main `worker`.
@@ -228,7 +228,8 @@ export function sameOrder(a, b)                     // skip a pointless PUT
 ### 3.5 Persistence — `GET/PUT /dlc-3d/card-layout`
 
 New routes on the existing blueprint (`url_prefix="/dlc-3d"`,
-`src/dlc_3d_bp/routes.py:23`), resolving the project with `_active_project()`.
+`src/dlc_3d_bp/routes.py:23`), resolving the project with
+`_active_project_for_user()`.
 
 ```
 GET  /dlc-3d/card-layout
@@ -239,7 +240,9 @@ PUT  /dlc-3d/card-layout
      <- {"card": "ia3ds", "order": ["ia3ds-sam-panel", ...]}
      -> 200 {"ok": true}
      -> 400 unknown card key, or order not a list of strings
-     -> 409 no active project
+     -> 400 {"error": "no active project"}   — the wording and status every
+        other project-scoped route on this blueprint already uses
+        (`rescan_project`, `routes.py:452-453`)
 ```
 
 Stored as `dlc3d_card_layout.json` in the project directory, one key per card,
@@ -272,9 +275,11 @@ or reorder a card into nonsense — the fallback is always the shipped order.
 | `test_sam_card_loads.mjs` (extend) | under jsdom, `ia3ds-sam-panel` is a child of `ia3ds-player-section` and its controls start hidden |
 | Python | `card-layout` GET/PUT round-trip; PUT of one card preserves the others; no active project → 409; unknown card → 400; malformed stored JSON reads as `{}` rather than raising |
 
-A DOM-level check that reordering preserves element identity (same node object,
-same listener) belongs with the drag glue and is written against jsdom in
-`test_sam_card_loads.mjs`.
+A DOM-level check that reordering preserves element identity — the same node
+object, with whatever was attached to it still attached — belongs with the drag
+glue, in a jsdom test of its own (`test_panel_layout.mjs`). It is the one
+assertion that separates "moved" from "re-rendered"; an order-only assertion
+passes either way.
 
 ## Deployment
 
