@@ -13,7 +13,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { applyOrder, reorder, sameOrder } from
+import { applyOrder, reorder, sameOrder, dropTarget } from
   "../../src/static/internal/panel_order.mjs";
 
 const DOM = ["a", "b", "c"];
@@ -79,4 +79,39 @@ test("sameOrder compares by sequence", () => {
   assert.equal(sameOrder(["a", "b"], ["b", "a"]), false);
   assert.equal(sameOrder(["a"], ["a", "b"]), false);
   assert.equal(sameOrder(null, []), true);
+});
+
+// dropTarget — the decision made when a drag ends: which id (if any) to
+// insert the moved panel before. `low` is whether the pointer was in the
+// lower half of the drop target when the drop happened.
+const FOUR = ["a", "b", "c", "d"];
+
+test("upper half of a target inserts before it", () => {
+  assert.equal(dropTarget(FOUR, "a", "c", false), "c");
+});
+
+test("lower half of a target inserts before the next panel", () => {
+  assert.equal(dropTarget(FOUR, "a", "c", true), "d");
+});
+
+test("lower half of the last panel appends to the end", () => {
+  // The only gesture that reaches the end of the list — a regression here
+  // silently removes it.
+  assert.equal(dropTarget(FOUR, "a", "d", true), null);
+});
+
+test("dropping a panel where it already sits, upper half, is a no-op", () => {
+  // "a" already sits immediately before "b" — this would otherwise still
+  // "succeed" and trigger a pointless save.
+  assert.equal(dropTarget(FOUR, "a", "b", false), undefined);
+});
+
+test("dropping a panel where it already sits, lower half, is a no-op", () => {
+  // The case the old `target === moved` guard existed for: "b" already sits
+  // immediately after "a".
+  assert.equal(dropTarget(FOUR, "b", "a", true), undefined);
+});
+
+test("a movedId that is not in ids is a no-op, not a crash", () => {
+  assert.equal(dropTarget(FOUR, "zz", "b", false), undefined);
 });

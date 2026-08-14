@@ -46,3 +46,30 @@ export function sameOrder(a, b) {
   const y = b || [];
   return x.length === y.length && x.every((v, i) => v === y[i]);
 }
+
+/**
+ * Where a drop lands: the id to insert before, or null for the end.
+ *
+ * `low` is true when the pointer was in the lower half of the target, which is
+ * the only gesture that reaches the end of the list. Returns:
+ *   - a string id — insert the moved panel immediately before that id;
+ *   - null — append the moved panel to the end;
+ *   - undefined — a no-op: the drop would leave the panel exactly where it
+ *     already sits (including when `movedId` is not present in `ids`), so the
+ *     caller can skip the move. Without this, `reorder` would either take the
+ *     moved id as its own target and send it to the bottom, or perform a save
+ *     that changes nothing.
+ * A two-way `null` overload (end-of-list vs. no-op) would be ambiguous, which
+ * is why "no-op" is `undefined` rather than `null`.
+ */
+export function dropTarget(ids, movedId, targetId, low) {
+  const all = (ids || []).slice();
+  if (!all.includes(movedId)) return undefined;
+  const at = all.indexOf(targetId);
+  if (at < 0) return undefined;
+  const before = low ? (all[at + 1] ?? null) : targetId;
+  if (before === movedId) return undefined;
+  const next = reorder(all, movedId, before);
+  if (sameOrder(next, all)) return undefined;
+  return before;
+}

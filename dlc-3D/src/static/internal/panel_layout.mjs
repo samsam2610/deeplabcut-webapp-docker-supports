@@ -9,7 +9,7 @@
 //   2. Only the ids passed in are movable, and they only ever occupy the
 //      positions they already hold — the viewer above them, and the
 //      reprojection panel below them in that card, must not be walked over.
-import { applyOrder, reorder, sameOrder } from "./panel_order.mjs";
+import { applyOrder, reorder, sameOrder, dropTarget } from "./panel_order.mjs";
 
 const ENDPOINT = "/dlc-3d/card-layout";
 const DRAGGING = "ia3d-panel-dragging";
@@ -116,19 +116,23 @@ function wirePanel(container, panel, card, ids) {
   panel.addEventListener("dragleave", () => panel.classList.remove(BEFORE, AFTER));
   panel.addEventListener("drop", (ev) => {
     ev.preventDefault();
-    const low = panel.classList.contains(AFTER);
+    // Recomputed from the event geometry, exactly as `dragover` does — never
+    // read off the CSS marker classes. Per the HTML drag-and-drop processing
+    // model, an iteration where the immediate user selection changes fires
+    // dragenter/dragleave and NOT dragover, and `dragleave` here is
+    // unfiltered, so a bubbled dragleave from any child can clear both marker
+    // classes right before drop fires. Trusting the class would then insert
+    // the panel above the target instead of below.
+    const rect = panel.getBoundingClientRect();
+    const low = ev.clientY - rect.top > rect.height / 2;
     clearMarkers(container);
     const moved = ev.dataTransfer.getData("text/plain");
     if (!moved || moved === panel.id) return;
     const here = domOrder(container, ids);
-    // Dropping on the lower half means "after this one" — without it there is
-    // no gesture that reaches the end of the list.
-    const at = here.indexOf(panel.id);
-    const target = low ? (here[at + 1] ?? null) : panel.id;
-    // Already in that slot. Falling through would pass `moved` as its own
-    // target, and reorder would then send it to the end — a panel jumping to
-    // the bottom when the user dropped it exactly where it already was.
-    if (target === moved) return;
+    const target = dropTarget(here, moved, panel.id, low);
+    // dropTarget returns undefined for a no-op — the panel would land exactly
+    // where it already sits.
+    if (target === undefined) return;
     const next = reorder(here, moved, target);
     applyToDom(container, ids, next);
     saveOrder(card, next);
