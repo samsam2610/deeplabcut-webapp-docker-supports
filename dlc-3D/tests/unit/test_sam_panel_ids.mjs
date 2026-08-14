@@ -100,3 +100,9 @@ test("no id is declared twice in the card", () => {
   const dupes = all.filter((id, i) => all.indexOf(id) !== i);
   assert.deepEqual([...new Set(dupes)], []);
 });
+
+test("the SAM panel is gated like the other five", () => {
+  assert.ok(declared.has("ia3ds-sam-toggle"), "card is missing #ia3ds-sam-toggle");
+  assert.ok(declared.has("ia3ds-sam-controls"), "card is missing #ia3ds-sam-controls");
+  assert.match(js, /ia3ds-sam-toggle/, "the toggle must be wired, not just declared");
+});

@@ -958,237 +958,242 @@
           </div>
         </div>
 
-      </div>
+        <!-- ══ SAM PANEL ═══════════════════════════════════════════════════════
+             Hand-written; the clone script refuses to overwrite a file containing
+             "SAM PANEL", so re-running it preserves this block.
+             Everything above is generated from card_inline_analysis_3d.html. -->
+        <div class="ia3ds-sam-panel" id="ia3ds-sam-panel">
+          <div style="display:flex;align-items:center;gap:.6rem;flex-wrap:wrap">
+            <label style="display:flex;align-items:center;gap:.45rem;font-size:.8rem;font-weight:500;cursor:pointer;user-select:none">
+              <input type="checkbox" id="ia3ds-sam-toggle"
+                     style="accent-color:var(--accent);width:14px;height:14px"/>
+              SAM 3 + DINOv3
+            </label>
+            <span class="ia3ds-sam-sub">candidate frames for one trial</span>
+            <span class="ia3ds-sam-status" id="ia3ds-sam-status">pick a trial</span>
+          </div>
+          <div id="ia3ds-sam-controls" class="hidden" style="margin-top:.5rem">
 
-      <!-- ══ SAM PANEL ═══════════════════════════════════════════════════════
-           Hand-written; the clone script refuses to overwrite a file containing
-           "SAM PANEL", so re-running it preserves this block.
-           Everything above is generated from card_inline_analysis_3d.html. -->
-      <div class="ia3ds-sam-panel" id="ia3ds-sam-panel">
-        <div class="ia3ds-sam-head">
-          <span class="ia3ds-sam-badge">SAM 3 + DINOv3</span>
-          <span class="ia3ds-sam-sub">candidate frames for one trial</span>
-          <span class="ia3ds-sam-status" id="ia3ds-sam-status">pick a trial</span>
-        </div>
+          <!-- trial picker: windows come from stage 1, anchored on the s/f marker -->
+          <!-- pipeline actions: both are minutes of work, so both are explicit
+               buttons rather than anything that fires on selection -->
+          <!-- ── pellet model: geometry, click-to-label, retrain ───────────── -->
+          <details class="ia3ds-pellet" id="ia3ds-pellet">
+            <summary>Pellet template &amp; box</summary>
 
-        <!-- trial picker: windows come from stage 1, anchored on the s/f marker -->
-        <!-- pipeline actions: both are minutes of work, so both are explicit
-             buttons rather than anything that fires on selection -->
-        <!-- ── pellet model: geometry, click-to-label, retrain ───────────── -->
-        <details class="ia3ds-pellet" id="ia3ds-pellet">
-          <summary>Pellet template &amp; box</summary>
+            <div class="ia3ds-sam-toggles" style="margin-top:.45rem">
+              <span style="font-size:.7rem;color:var(--text-dim)">click a tile to place the pellet · WASD nudges (shift ×10)</span>
+            </div>
 
-          <div class="ia3ds-sam-toggles" style="margin-top:.45rem">
-            <span style="font-size:.7rem;color:var(--text-dim)">click a tile to place the pellet · WASD nudges (shift ×10)</span>
+            <div class="ia3ds-cam-grid" id="ia3ds-cam-grid"><!-- one field set per camera --></div>
+
+            <div class="ia3ds-confirm" id="ia3ds-confirm">
+              <span id="ia3ds-confirm-state">box not confirmed for this pair</span>
+              <button class="btn-sm" id="ia3ds-confirm-btn">Confirm box for this pair</button>
+            </div>
+            <p class="ia3ds-sam-note">
+              Click the stationary pellet in <b>each</b> camera, then confirm.
+              Sweeping is blocked until you do — a wrong box does not fail loudly,
+              it fills the mask with paws.
+            </p>
+
+            <div class="ia3ds-sam-row" style="margin-top:.45rem">
+              <button class="btn-sm" id="ia3ds-pellet-save">Save box</button>
+              <span style="font-size:.7rem;color:var(--text-dim)">
+                match threshold and the 3D gate now live in <b>Candidate judging</b> —
+                they decide candidates, not geometry, and having them in two places
+                meant the sweep and the panel could disagree.
+              </span>
+            </div>
+
+            <div class="ia3ds-sam-row">
+              <span class="ia3ds-sam-status" id="ia3ds-bind-status" title="Which cameras are clickable, and the size of their click overlay"></span>
+            </div>
+
+            <div class="ia3ds-sam-row">
+              <button class="btn-sm" id="ia3ds-pellet-retrain">Re-aim box from clicks + rerun</button>
+              <span class="ia3ds-sam-status" id="ia3ds-pellet-status"></span>
+            </div>
+            <p class="ia3ds-sam-note">
+              <b>Re-aim</b> rebuilds each camera's <b>template pool</b> from the DLC
+              seed plus every pellet click on this pair, recentres that camera's
+              search box on the <b>median click</b>, re-derives the fallback 3D
+              <b>reference</b> from frames clicked in <b>both</b> cameras, saves all
+              of it to the project model, then reruns this pair. Deleting a click
+              removes its influence — the pool is re-cut from scratch every time.
+              <b>Adding or removing a click invalidates cached sweeps for every video in the project</b>, because the pool is part of the sweep's
+              cache key. Pressing it again without changing the clicks
+              <b>costs nothing</b>.
+            </p>
+
+            <div class="ia3ds-label-list" id="ia3ds-label-list"></div>
+          </details>
+
+          <div class="ia3ds-sam-row">
+            <button class="btn-sm" id="ia3ds-sam-sweep">Pellet sweep</button>
+            <label class="ia3ds-overwrite" title="Recompute even if a cached sweep exists">
+              <input type="checkbox" id="ia3ds-sam-overwrite"/> overwrite
+            </label>
+            <button class="btn-sm" id="ia3ds-sam-build-csv">Build onset CSV</button>
+            <span class="ia3ds-sam-status" id="ia3ds-sam-csv-status"></span>
           </div>
 
-          <div class="ia3ds-cam-grid" id="ia3ds-cam-grid"><!-- one field set per camera --></div>
+          <!-- ── what counts as a candidate ─────────────────────────────────
+               Applied to the sweep's raw NCC trace, so changing them re-judges
+               instantly and never triggers a re-sweep. -->
+          <details class="ia3ds-pellet" id="ia3ds-judge">
+            <summary>Candidate judging</summary>
+            <div class="ia3ds-sam-row" style="margin-top:.45rem;flex-wrap:wrap">
+              <label for="ia3ds-judge-threshold" title="NCC above which the pellet counts as present">pellet thr</label>
+              <input type="number" id="ia3ds-judge-threshold" step="0.01" min="0" max="1" style="width:5rem"/>
+              <label for="ia3ds-judge-minrun" title="Samples a state flip must persist (debounce), at the sweep stride">debounce</label>
+              <input type="number" id="ia3ds-judge-minrun" step="1" min="1" style="width:4.5rem"/>
+              <label for="ia3ds-judge-lookback" title="How far a window reaches back from its outcome marker">lookback</label>
+              <input type="number" id="ia3ds-judge-lookback" step="50" min="1" style="width:5.5rem"/>
+            </div>
+            <div class="ia3ds-sam-row" style="flex-wrap:wrap">
+              <label for="ia3ds-judge-mincand" title="Armed frames below which a trial is skipped entirely">min cand</label>
+              <input type="number" id="ia3ds-judge-mincand" step="1" min="0" style="width:4.5rem"/>
+              <label for="ia3ds-judge-guard" title="Frames a window may reach back PAST the previous s/f marker. 0 keeps every candidate's outcome unambiguous.">past prev marker</label>
+              <input type="number" id="ia3ds-judge-guard" step="50" min="0" style="width:5.5rem"/>
+              <label for="ia3ds-judge-3d" title="How far the triangulated match may sit from the project's reference pellet point. Real pellets measure under ~1.0.">3D gate</label>
+              <input type="number" id="ia3ds-judge-3d" step="0.1" min="0" style="width:5rem"/>
+              <label for="ia3ds-judge-epi" title="How far off cam0's epipolar line the cam1 paw may sit before the two views are judged to be looking at different paws.">epipolar tol</label>
+              <input type="number" id="ia3ds-judge-epi" step="1" min="0" style="width:5rem"/>
+              <button class="btn-sm" id="ia3ds-judge-apply">Apply &amp; re-judge</button>
+              <button class="btn-sm" id="ia3ds-judge-reset" title="Back to the tuned defaults">Defaults</button>
+              <span class="ia3ds-sam-status" id="ia3ds-judge-status"></span>
+            </div>
+            <p class="ia3ds-sam-note">
+              <b>pellet thr</b> — the NCC each camera must reach for the pellet to
+              count as present.<br/>
+              <b>debounce</b> — how many consecutive samples a change must persist;
+              stops the reload vane and passing paws flicking the mask on and off.<br/>
+              <b>lookback</b> — how far a window reaches back from its outcome
+              marker.<br/>
+              <b>min cand</b> — armed frames below which a trial is skipped as
+              unsearchable.<br/>
+              <b>past prev marker</b> — why trial #11 of banh-mi-1 Jul 7 read as a
+              success: its window reached back over the <code>f</code> at 27536 and
+              took its label from the <code>s</code> 1379 frames later. At 0 a
+              window opens after the previous marker, so the marker that closes it
+              is the next one after every candidate in it. Raising it recovers the
+              ~1.2 % of onsets the human marked late, at the cost of that guarantee
+              — ambiguous trials are flagged ⚠ in the trial list.<br/>
+              <b>3D gate</b> — how far the triangulated <i>pellet</i> may sit from
+              the project's reference point. Frame 27591 passed both cameras at
+              0.55/0.67 and was rejected at 8.29.<br/>
+              <b>epipolar tol</b> — how far off cam0's epipolar line the cam1
+              <i>paw</i> may sit before the two views are judged to be looking at
+              different paws. Used by <b>Run SAM + DINO 3D</b>. 15 px keeps 97.1 %
+              of the project's 15 770 labelled paw pairs and rejects 84.4 % of
+              wrong-structure matches.
+            </p>
+          </details>
 
-          <div class="ia3ds-confirm" id="ia3ds-confirm">
-            <span id="ia3ds-confirm-state">box not confirmed for this pair</span>
-            <button class="btn-sm" id="ia3ds-confirm-btn">Confirm box for this pair</button>
-          </div>
-          <p class="ia3ds-sam-note">
-            Click the stationary pellet in <b>each</b> camera, then confirm.
-            Sweeping is blocked until you do — a wrong box does not fail loudly,
-            it fills the mask with paws.
-          </p>
-
-          <div class="ia3ds-sam-row" style="margin-top:.45rem">
-            <button class="btn-sm" id="ia3ds-pellet-save">Save box</button>
-            <span style="font-size:.7rem;color:var(--text-dim)">
-              match threshold and the 3D gate now live in <b>Candidate judging</b> —
-              they decide candidates, not geometry, and having them in two places
-              meant the sweep and the panel could disagree.
-            </span>
+          <div class="ia3ds-sam-row">
+            <label for="ia3ds-sam-trial">Trial</label>
+            <select id="ia3ds-sam-trial" style="flex:1;min-width:0"></select>
+            <label class="ia3ds-overwrite" title="Follow the playhead: whenever the cursor moves into another trial, select it and show its stored candidates. Off by default, so nothing moves on its own.">
+              <input type="checkbox" id="ia3ds-trial-lock"/> lock to playhead
+            </label>
+            <button class="btn-sm" id="ia3ds-sam-reload" title="Reload windows">↺</button>
           </div>
 
           <div class="ia3ds-sam-row">
-            <span class="ia3ds-sam-status" id="ia3ds-bind-status" title="Which cameras are clickable, and the size of their click overlay"></span>
+            <label for="ia3ds-sam-prompt">SAM text prompt</label>
+            <input type="text" id="ia3ds-sam-prompt" value="right paw" spellcheck="false"
+                   title="SAM 3 text prompt. &quot;right paw&quot; segments the reaching paw on 5/5 top candidates against 3/5 for &quot;paw&quot;, which over-detects and lets a small blob at the pellet win. Change it per project — the reaching paw is not the right paw for every animal."/>
+            <label for="ia3ds-sam-topk" title="Exemplars averaged per candidate">top-k</label>
+            <input type="number" id="ia3ds-sam-topk" value="5" min="1" max="50" style="width:4.5rem"/>
+            <button class="btn-sm" id="ia3ds-sam-run">Run SAM + DINO</button>
+            <button class="btn-sm" id="ia3ds-sam-run3d" title="Segment both cameras, cross-check the two paws geometrically, triangulate, and score on both views">Run SAM + DINO 3D</button>
           </div>
 
+          <!-- ── batch scoring: stores one result per trial, resumable ──────── -->
           <div class="ia3ds-sam-row">
-            <button class="btn-sm" id="ia3ds-pellet-retrain">Re-aim box from clicks + rerun</button>
-            <span class="ia3ds-sam-status" id="ia3ds-pellet-status"></span>
+            <button class="btn-sm" id="ia3ds-batch-2d" title="Score every trial with the single-camera scorer (~32 min for 129 trials)">Batch 2D</button>
+            <button class="btn-sm" id="ia3ds-batch-3d" title="Score every trial with both cameras and write a 3D paw track for each (~75 min for 129 trials)">Batch 3D</button>
+            <label class="ia3ds-overwrite" title="Re-score trials that already have a stored result">
+              <input type="checkbox" id="ia3ds-batch-recompute"/> recompute
+            </label>
+            <span class="ia3ds-sam-status" id="ia3ds-batch-status"></span>
           </div>
-          <p class="ia3ds-sam-note">
-            <b>Re-aim</b> rebuilds each camera's <b>template pool</b> from the DLC
-            seed plus every pellet click on this pair, recentres that camera's
-            search box on the <b>median click</b>, re-derives the fallback 3D
-            <b>reference</b> from frames clicked in <b>both</b> cameras, saves all
-            of it to the project model, then reruns this pair. Deleting a click
-            removes its influence — the pool is re-cut from scratch every time.
-            <b>Adding or removing a click invalidates cached sweeps for every video in the project</b>, because the pool is part of the sweep's
-            cache key. Pressing it again without changing the clicks
-            <b>costs nothing</b>.
+
+          <!-- ── writing into the companion CSV ─────────────────────────────── -->
+          <div class="ia3ds-sam-row">
+            <label for="ia3ds-tag-outcome" title="Read from this trial's s/f marker. Flip it if you disagree.">tag as</label>
+            <select id="ia3ds-tag-outcome">
+              <option value="s">start-success</option>
+              <option value="f">start-failure</option>
+            </select>
+            <button class="btn-sm" id="ia3ds-tag-add" title="Write this trial's proposed frame into the companion CSV as a real onset tag">Add tag</button>
+            <button class="btn-sm" id="ia3ds-tag-batch" title="Write every stored result as start-*-candidate">Add all as candidates</button>
+            <label class="ia3ds-overwrite" title="Also write beside trials that already carry a human tag — how you measure ±5 agreement">
+              <input type="checkbox" id="ia3ds-tag-include"/> include tagged
+            </label>
+            <button class="btn-sm" id="ia3ds-tag-undo" title="Revert the last batch of writes, restoring what each cell held before">Undo last write</button>
+          </div>
+          <p class="ia3ds-sam-note" id="ia3ds-tag-note">
+            <b>Add tag</b> writes a real <code>start-success</code>/<code>start-failure</code>
+            — you are looking at the frame, so it counts as yours, and it will be
+            used as a training exemplar. <b>Add all as candidates</b> writes
+            <code>start-*-candidate</code>, which the exemplar builder ignores by
+            exact match, so unreviewed proposals never become training data.
+            A tag never displaces an existing note: it shifts to the nearest free
+            frame within ±5, or refuses and tells you what is in the way.
           </p>
 
-          <div class="ia3ds-label-list" id="ia3ds-label-list"></div>
-        </details>
-
-        <div class="ia3ds-sam-row">
-          <button class="btn-sm" id="ia3ds-sam-sweep">Pellet sweep</button>
-          <label class="ia3ds-overwrite" title="Recompute even if a cached sweep exists">
-            <input type="checkbox" id="ia3ds-sam-overwrite"/> overwrite
-          </label>
-          <button class="btn-sm" id="ia3ds-sam-build-csv">Build onset CSV</button>
-          <span class="ia3ds-sam-status" id="ia3ds-sam-csv-status"></span>
-        </div>
-
-        <!-- ── what counts as a candidate ─────────────────────────────────
-             Applied to the sweep's raw NCC trace, so changing them re-judges
-             instantly and never triggers a re-sweep. -->
-        <details class="ia3ds-pellet" id="ia3ds-judge">
-          <summary>Candidate judging</summary>
-          <div class="ia3ds-sam-row" style="margin-top:.45rem;flex-wrap:wrap">
-            <label for="ia3ds-judge-threshold" title="NCC above which the pellet counts as present">pellet thr</label>
-            <input type="number" id="ia3ds-judge-threshold" step="0.01" min="0" max="1" style="width:5rem"/>
-            <label for="ia3ds-judge-minrun" title="Samples a state flip must persist (debounce), at the sweep stride">debounce</label>
-            <input type="number" id="ia3ds-judge-minrun" step="1" min="1" style="width:4.5rem"/>
-            <label for="ia3ds-judge-lookback" title="How far a window reaches back from its outcome marker">lookback</label>
-            <input type="number" id="ia3ds-judge-lookback" step="50" min="1" style="width:5.5rem"/>
+          <div class="ia3ds-sam-toggles">
+            <label><input type="checkbox" id="ia3ds-sam-show-mask" checked/> SAM mask</label>
+            <label><input type="checkbox" id="ia3ds-sam-show-box" checked/> mask bbox</label>
+            <label><input type="checkbox" id="ia3ds-sam-show-pellet" checked/> pellet NCC</label>
+            <label><input type="checkbox" id="ia3ds-sam-show-armed" checked/> armed mask</label>
+            <label><input type="checkbox" id="ia3ds-sam-only-cands"/> candidates only</label>
           </div>
-          <div class="ia3ds-sam-row" style="flex-wrap:wrap">
-            <label for="ia3ds-judge-mincand" title="Armed frames below which a trial is skipped entirely">min cand</label>
-            <input type="number" id="ia3ds-judge-mincand" step="1" min="0" style="width:4.5rem"/>
-            <label for="ia3ds-judge-guard" title="Frames a window may reach back PAST the previous s/f marker. 0 keeps every candidate's outcome unambiguous.">past prev marker</label>
-            <input type="number" id="ia3ds-judge-guard" step="50" min="0" style="width:5.5rem"/>
-            <label for="ia3ds-judge-3d" title="How far the triangulated match may sit from the project's reference pellet point. Real pellets measure under ~1.0.">3D gate</label>
-            <input type="number" id="ia3ds-judge-3d" step="0.1" min="0" style="width:5rem"/>
-            <label for="ia3ds-judge-epi" title="How far off cam0's epipolar line the cam1 paw may sit before the two views are judged to be looking at different paws.">epipolar tol</label>
-            <input type="number" id="ia3ds-judge-epi" step="1" min="0" style="width:5rem"/>
-            <button class="btn-sm" id="ia3ds-judge-apply">Apply &amp; re-judge</button>
-            <button class="btn-sm" id="ia3ds-judge-reset" title="Back to the tuned defaults">Defaults</button>
-            <span class="ia3ds-sam-status" id="ia3ds-judge-status"></span>
+
+          <div class="ia3ds-sam-progress hidden" id="ia3ds-sam-progress"><div></div></div>
+
+          <!-- similarity strip: DINO score per candidate frame across the window -->
+          <div class="ia3ds-sam-strip-wrap">
+            <canvas id="ia3ds-sam-strip" height="120"></canvas>
+            <div class="ia3ds-sam-legend">
+              <span><i class="ia3ds-sw sim"></i>DINO similarity</span>
+              <span><i class="ia3ds-sw armed"></i>pellet stationary</span>
+              <span><i class="ia3ds-sw pick"></i>proposed onset</span>
+              <span><i class="ia3ds-sw truth"></i>human tag (if any)</span>
+              <span><i class="ia3ds-sw mark-s"></i>human <code>s</code></span>
+              <span><i class="ia3ds-sw mark-f"></i>human <code>f</code></span>
+              <span><i class="ia3ds-sw cursor"></i>current frame</span>
+            </div>
           </div>
-          <p class="ia3ds-sam-note">
-            <b>pellet thr</b> — the NCC each camera must reach for the pellet to
-            count as present.<br/>
-            <b>debounce</b> — how many consecutive samples a change must persist;
-            stops the reload vane and passing paws flicking the mask on and off.<br/>
-            <b>lookback</b> — how far a window reaches back from its outcome
-            marker.<br/>
-            <b>min cand</b> — armed frames below which a trial is skipped as
-            unsearchable.<br/>
-            <b>past prev marker</b> — why trial #11 of banh-mi-1 Jul 7 read as a
-            success: its window reached back over the <code>f</code> at 27536 and
-            took its label from the <code>s</code> 1379 frames later. At 0 a
-            window opens after the previous marker, so the marker that closes it
-            is the next one after every candidate in it. Raising it recovers the
-            ~1.2 % of onsets the human marked late, at the cost of that guarantee
-            — ambiguous trials are flagged ⚠ in the trial list.<br/>
-            <b>3D gate</b> — how far the triangulated <i>pellet</i> may sit from
-            the project's reference point. Frame 27591 passed both cameras at
-            0.55/0.67 and was rejected at 8.29.<br/>
-            <b>epipolar tol</b> — how far off cam0's epipolar line the cam1
-            <i>paw</i> may sit before the two views are judged to be looking at
-            different paws. Used by <b>Run SAM + DINO 3D</b>. 15 px keeps 97.1 %
-            of the project's 15 770 labelled paw pairs and rejects 84.4 % of
-            wrong-structure matches.
-          </p>
-        </details>
 
-        <div class="ia3ds-sam-row">
-          <label for="ia3ds-sam-trial">Trial</label>
-          <select id="ia3ds-sam-trial" style="flex:1;min-width:0"></select>
-          <label class="ia3ds-overwrite" title="Follow the playhead: whenever the cursor moves into another trial, select it and show its stored candidates. Off by default, so nothing moves on its own.">
-            <input type="checkbox" id="ia3ds-trial-lock"/> lock to playhead
-          </label>
-          <button class="btn-sm" id="ia3ds-sam-reload" title="Reload windows">↺</button>
-        </div>
+          <!-- whole-video tag timeline, read from <video>_onset.csv -->
+          <div class="ia3ds-sam-strip-wrap" style="margin-top:.5rem">
+            <canvas id="ia3ds-sam-tags" height="86"></canvas>
+            <div class="ia3ds-sam-legend">
+              <span><i class="ia3ds-sw sim"></i>pellet NCC</span>
+              <span><i class="ia3ds-sw armed"></i>armed</span>
+              <span><i class="ia3ds-sw sensor"></i>sensor edge</span>
+              <span><i class="ia3ds-sw truth"></i>human tag / s-f marker</span>
+              <span><i class="ia3ds-sw pick"></i>candidate</span>
+            </div>
+          </div>
 
-        <div class="ia3ds-sam-row">
-          <label for="ia3ds-sam-prompt">SAM text prompt</label>
-          <input type="text" id="ia3ds-sam-prompt" value="right paw" spellcheck="false"
-                 title="SAM 3 text prompt. &quot;right paw&quot; segments the reaching paw on 5/5 top candidates against 3/5 for &quot;paw&quot;, which over-detects and lets a small blob at the pellet win. Change it per project — the reaching paw is not the right paw for every animal."/>
-          <label for="ia3ds-sam-topk" title="Exemplars averaged per candidate">top-k</label>
-          <input type="number" id="ia3ds-sam-topk" value="5" min="1" max="50" style="width:4.5rem"/>
-          <button class="btn-sm" id="ia3ds-sam-run">Run SAM + DINO</button>
-          <button class="btn-sm" id="ia3ds-sam-run3d" title="Segment both cameras, cross-check the two paws geometrically, triangulate, and score on both views">Run SAM + DINO 3D</button>
-        </div>
+          <!-- top candidates, click to jump the viewer to that frame -->
+          <div class="ia3ds-sam-cands" id="ia3ds-sam-cands"></div>
 
-        <!-- ── batch scoring: stores one result per trial, resumable ──────── -->
-        <div class="ia3ds-sam-row">
-          <button class="btn-sm" id="ia3ds-batch-2d" title="Score every trial with the single-camera scorer (~32 min for 129 trials)">Batch 2D</button>
-          <button class="btn-sm" id="ia3ds-batch-3d" title="Score every trial with both cameras and write a 3D paw track for each (~75 min for 129 trials)">Batch 3D</button>
-          <label class="ia3ds-overwrite" title="Re-score trials that already have a stored result">
-            <input type="checkbox" id="ia3ds-batch-recompute"/> recompute
-          </label>
-          <span class="ia3ds-sam-status" id="ia3ds-batch-status"></span>
-        </div>
+          <!-- 3D mode: the same five frames from both cameras, column-aligned so
+               column i is one frame seen twice -->
+          <div class="ia3ds-sam-pairs hidden" id="ia3ds-sam-pairs">
+            <div class="ia3ds-sam-cands" id="ia3ds-sam-cands-cam0"></div>
+            <div class="ia3ds-sam-pairgap"></div>
+            <div class="ia3ds-sam-cands" id="ia3ds-sam-cands-cam1"></div>
+          </div>
 
-        <!-- ── writing into the companion CSV ─────────────────────────────── -->
-        <div class="ia3ds-sam-row">
-          <label for="ia3ds-tag-outcome" title="Read from this trial's s/f marker. Flip it if you disagree.">tag as</label>
-          <select id="ia3ds-tag-outcome">
-            <option value="s">start-success</option>
-            <option value="f">start-failure</option>
-          </select>
-          <button class="btn-sm" id="ia3ds-tag-add" title="Write this trial's proposed frame into the companion CSV as a real onset tag">Add tag</button>
-          <button class="btn-sm" id="ia3ds-tag-batch" title="Write every stored result as start-*-candidate">Add all as candidates</button>
-          <label class="ia3ds-overwrite" title="Also write beside trials that already carry a human tag — how you measure ±5 agreement">
-            <input type="checkbox" id="ia3ds-tag-include"/> include tagged
-          </label>
-          <button class="btn-sm" id="ia3ds-tag-undo" title="Revert the last batch of writes, restoring what each cell held before">Undo last write</button>
-        </div>
-        <p class="ia3ds-sam-note" id="ia3ds-tag-note">
-          <b>Add tag</b> writes a real <code>start-success</code>/<code>start-failure</code>
-          — you are looking at the frame, so it counts as yours, and it will be
-          used as a training exemplar. <b>Add all as candidates</b> writes
-          <code>start-*-candidate</code>, which the exemplar builder ignores by
-          exact match, so unreviewed proposals never become training data.
-          A tag never displaces an existing note: it shifts to the nearest free
-          frame within ±5, or refuses and tells you what is in the way.
-        </p>
-
-        <div class="ia3ds-sam-toggles">
-          <label><input type="checkbox" id="ia3ds-sam-show-mask" checked/> SAM mask</label>
-          <label><input type="checkbox" id="ia3ds-sam-show-box" checked/> mask bbox</label>
-          <label><input type="checkbox" id="ia3ds-sam-show-pellet" checked/> pellet NCC</label>
-          <label><input type="checkbox" id="ia3ds-sam-show-armed" checked/> armed mask</label>
-          <label><input type="checkbox" id="ia3ds-sam-only-cands"/> candidates only</label>
-        </div>
-
-        <div class="ia3ds-sam-progress hidden" id="ia3ds-sam-progress"><div></div></div>
-
-        <!-- similarity strip: DINO score per candidate frame across the window -->
-        <div class="ia3ds-sam-strip-wrap">
-          <canvas id="ia3ds-sam-strip" height="120"></canvas>
-          <div class="ia3ds-sam-legend">
-            <span><i class="ia3ds-sw sim"></i>DINO similarity</span>
-            <span><i class="ia3ds-sw armed"></i>pellet stationary</span>
-            <span><i class="ia3ds-sw pick"></i>proposed onset</span>
-            <span><i class="ia3ds-sw truth"></i>human tag (if any)</span>
-            <span><i class="ia3ds-sw mark-s"></i>human <code>s</code></span>
-            <span><i class="ia3ds-sw mark-f"></i>human <code>f</code></span>
-            <span><i class="ia3ds-sw cursor"></i>current frame</span>
+          <p class="ia3ds-sam-note" id="ia3ds-sam-note"></p>
           </div>
         </div>
-
-        <!-- whole-video tag timeline, read from <video>_onset.csv -->
-        <div class="ia3ds-sam-strip-wrap" style="margin-top:.5rem">
-          <canvas id="ia3ds-sam-tags" height="86"></canvas>
-          <div class="ia3ds-sam-legend">
-            <span><i class="ia3ds-sw sim"></i>pellet NCC</span>
-            <span><i class="ia3ds-sw armed"></i>armed</span>
-            <span><i class="ia3ds-sw sensor"></i>sensor edge</span>
-            <span><i class="ia3ds-sw truth"></i>human tag / s-f marker</span>
-            <span><i class="ia3ds-sw pick"></i>candidate</span>
-          </div>
-        </div>
-
-        <!-- top candidates, click to jump the viewer to that frame -->
-        <div class="ia3ds-sam-cands" id="ia3ds-sam-cands"></div>
-
-        <!-- 3D mode: the same five frames from both cameras, column-aligned so
-             column i is one frame seen twice -->
-        <div class="ia3ds-sam-pairs hidden" id="ia3ds-sam-pairs">
-          <div class="ia3ds-sam-cands" id="ia3ds-sam-cands-cam0"></div>
-          <div class="ia3ds-sam-pairgap"></div>
-          <div class="ia3ds-sam-cands" id="ia3ds-sam-cands-cam1"></div>
-        </div>
-
-        <p class="ia3ds-sam-note" id="ia3ds-sam-note"></p>
       </div>
 
     </section>

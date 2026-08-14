@@ -5098,6 +5098,14 @@ function _samWirePanel() {
   reload.onclick = _samLoadWindows;
   _samEl("ia3ds-sam-run").onclick = _samRun;
   on("ia3ds-sam-run3d", "onclick", _samRun3d);
+  // Same shape as the five panels above it (see the triangulate toggle): the
+  // checkbox controls VISIBILITY ONLY. Data flow — the video watcher, the
+  // window loader, the reset on video change — must keep running while
+  // collapsed, or expanding it later would show a stale panel.
+  on("ia3ds-sam-toggle", "onchange", () => {
+    const open = !!_samEl("ia3ds-sam-toggle")?.checked;
+    _samEl("ia3ds-sam-controls")?.classList.toggle("hidden", !open);
+  });
   on("ia3ds-batch-2d", "onclick", () => _samBatch("2d"));
   on("ia3ds-batch-3d", "onclick", () => _samBatch("3d"));
   on("ia3ds-tag-add", "onclick", _samAddTag);

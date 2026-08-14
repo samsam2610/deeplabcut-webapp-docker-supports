@@ -13,7 +13,7 @@
 //
 // Added 2026-08-12 after a substantial rewrite of this file — new imports, a
 // restructured runner, a new render path — with nothing executing it.
-import test from "node:test";
+import test, { after } from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
@@ -114,8 +114,13 @@ try {
 } finally {
   restoreTimers();
   fs.rmSync(TMP, { force: true });
-  dom.window.close();
 }
+// Deferred via after() rather than closed inline above: node:test runs test()
+// bodies only once the module's top-level (async) execution has fully settled,
+// so an inline dom.window.close() here would blank the document — every
+// dom.window.document access below would see an empty page — before any test
+// gets to look at it. after() runs once all tests in this file have finished.
+after(() => { dom.window.close(); });
 
 test("the card's markup provides what the panel wires against", () => {
   // Guard the guard: without these the wiring exits early and the load test
@@ -137,4 +142,33 @@ test("loading it wires the panel all the way through", () => {
   // half-wired panel would slip past a load-only check.
   assert.ok(installed.length >= 2,
     `expected the panel's pollers to be installed, saw ${installed.length}`);
+});
+
+test("the SAM panel is one of the player section's panels", () => {
+  // It has to share a parent with the other five to take part in the reorder,
+  // and sharing that parent is also what makes it hide with the player instead
+  // of lingering with a closed video's contents on screen.
+  const section = dom.window.document.getElementById("ia3ds-player-section");
+  const panel = dom.window.document.getElementById("ia3ds-sam-panel");
+  assert.ok(section, "card must have #ia3ds-player-section");
+  assert.ok(panel, "card must have #ia3ds-sam-panel");
+  assert.equal(panel.parentElement, section);
+});
+
+test("the SAM panel starts collapsed, like its five neighbours", () => {
+  const controls = dom.window.document.getElementById("ia3ds-sam-controls");
+  const toggle = dom.window.document.getElementById("ia3ds-sam-toggle");
+  assert.ok(controls, "card must have #ia3ds-sam-controls");
+  assert.ok(controls.className.split(/\s+/).includes("hidden"));
+  assert.equal(toggle.checked, false);
+});
+
+test("the trial picker lives inside the collapsible body", () => {
+  // A control left outside the wrapper would still be on screen when the panel
+  // is collapsed -- which is how a "collapsed" panel keeps acting.
+  const controls = dom.window.document.getElementById("ia3ds-sam-controls");
+  assert.ok(controls.querySelector("#ia3ds-sam-trial"),
+    "the trial dropdown must be inside #ia3ds-sam-controls");
+  assert.ok(controls.querySelector("#ia3ds-pellet"),
+    "the pellet section must be inside #ia3ds-sam-controls");
 });
