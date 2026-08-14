@@ -398,3 +398,59 @@ def test_exactly_at_the_tolerance_is_accepted():
 def test_none_centroids_are_skipped_not_fatal():
     # mask_centroid returns None for an empty mask.
     assert pm.pick_nearest([None, (401.0, 385.0)], (400.0, 385.0), 20.0) == 1
+
+
+# ── which store holds "the clicks" ──────────────────────────────────────────
+#
+# Re-aim read model.corrections, a legacy store that the panel stopped writing
+# to when placement moved into the onset sidecar. So "Re-aim box from clicks"
+# could not see the clicks. Worse, it built a CameraModel for whatever `cam`
+# string it found, and one legacy row carried the literal "undefined" — which
+# was saved into the project model and rendered as a third camera panel.
+
+def test_clicks_come_from_the_sidecar_marks():
+    marks = [{"frame": 100, "kind": "pellet", "cam": "cam0", "x": 410.0, "y": 390.0},
+             {"frame": 200, "kind": "pellet", "cam": "cam0", "x": 412.0, "y": 392.0},
+             {"frame": 100, "kind": "box", "cam": "cam0", "x": 999.0, "y": 999.0}]
+    got = pm.clicks_by_camera(marks, known=("cam0", "cam1"))
+    assert list(got) == ["cam0"]
+    assert [(c["x"], c["y"]) for c in got["cam0"]] == [(410.0, 390.0), (412.0, 392.0)]
+
+
+def test_a_box_mark_is_not_a_click():
+    """The box says where to search; only pellet labels teach the template."""
+    marks = [{"frame": 1, "kind": "box", "cam": "cam0", "x": 1.0, "y": 2.0}]
+    assert pm.clicks_by_camera(marks, known=("cam0", "cam1")) == {}
+
+
+def test_an_unknown_camera_is_dropped_not_invented():
+    """This is what produced a third camera panel called `undefined`."""
+    marks = [{"frame": 1, "kind": "pellet", "cam": "undefined", "x": 1.0, "y": 2.0},
+             {"frame": 1, "kind": "pellet", "cam": "cam1", "x": 3.0, "y": 4.0}]
+    got = pm.clicks_by_camera(marks, known=("cam0", "cam1"))
+    assert list(got) == ["cam1"]
+
+
+def test_a_missing_camera_is_dropped_too():
+    marks = [{"frame": 1, "kind": "pellet", "x": 1.0, "y": 2.0}]
+    assert pm.clicks_by_camera(marks, known=("cam0", "cam1")) == {}
+
+
+def test_clicks_keep_their_frame_for_recutting_the_patch():
+    marks = [{"frame": 77, "kind": "pellet", "cam": "cam0", "x": 1.0, "y": 2.0}]
+    assert pm.clicks_by_camera(marks, known=("cam0",))["cam0"][0]["frame"] == 77
+
+
+def test_dropping_an_unknown_camera_from_a_model():
+    m = pm.PelletModel()
+    m.cameras["cam0"] = pm.CameraModel(cx=1, cy=2)
+    m.cameras["undefined"] = pm.CameraModel(cx=0, cy=0)
+    removed = pm.drop_unknown_cameras(m, known=("cam0", "cam1"))
+    assert removed == ["undefined"]
+    assert list(m.cameras) == ["cam0"]
+
+
+def test_dropping_leaves_a_clean_model_alone():
+    m = pm.PelletModel()
+    m.cameras["cam0"] = pm.CameraModel(cx=1, cy=2)
+    assert pm.drop_unknown_cameras(m, known=("cam0", "cam1")) == []

@@ -358,6 +358,43 @@ def placement_verdict(score: float, threshold: float) -> dict:
                         "Click the stationary pellet itself.")}
 
 
+KNOWN_CAMERAS = ("cam0", "cam1")
+
+
+def clicks_by_camera(marks, known=KNOWN_CAMERAS) -> dict:
+    """``{cam: [pellet marks]}`` — the clicks that teach the template.
+
+    The sidecar is where placement lives, so this is what "re-aim from clicks"
+    must read. It used to read ``model.corrections``, a legacy store the panel
+    stopped writing to, so the button could not see any click ever made.
+
+    Box marks are excluded: a box says where to search, only a pellet label says
+    what the pellet looks like. Unknown cameras are dropped rather than accepted
+    — a legacy row carrying the literal string "undefined" was enough to add a
+    third camera to the project model and render a third panel for it.
+    """
+    out = {}
+    for m in marks or []:
+        if str(m.get("kind")) != MARK_PELLET_KIND:
+            continue
+        cam = str(m.get("cam") or "")
+        if cam not in known:
+            continue
+        out.setdefault(cam, []).append(m)
+    return out
+
+
+def drop_unknown_cameras(model, known=KNOWN_CAMERAS) -> list:
+    """Remove cameras that are not real. Returns the names removed."""
+    gone = [c for c in list(model.cameras) if c not in known]
+    for c in gone:
+        del model.cameras[c]
+    return gone
+
+
+MARK_PELLET_KIND = "pellet"
+
+
 def centres_from_marks(marks) -> dict:
     """``{cam: (x, y)}`` for the BOX marks in the onset sidecar.
 

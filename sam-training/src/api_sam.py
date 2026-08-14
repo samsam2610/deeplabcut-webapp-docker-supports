@@ -982,7 +982,9 @@ def api_pellet_label():
         frame = int(body["frame"]); x = float(body["x"]); y = float(body["y"])
     except (KeyError, TypeError, ValueError):
         return jsonify({"error": "frame, x and y required"}), 400
-    cam = body.get("cam") or "cam0"
+    cam = str(body.get("cam") or "cam0")
+    if cam not in pm.KNOWN_CAMERAS:
+        return jsonify({"error": f"unknown camera {cam!r}"}), 400
     if not video:
         return jsonify({"error": "video not found"}), 404
     m = _model()
@@ -1025,26 +1027,45 @@ def api_pellet_retrain():
     and threw the appearance information away.
     """
     body = request.get_json(force=True) or {}
+    video = _resolve(body.get("video"))
+    if not video:
+        return jsonify({"error": "video not found"}), 404
     m = _model()
-    by_cam: dict[str, list] = {}
-    for lab in m.corrections:
-        by_cam.setdefault(lab.get("cam") or "cam0", []).append(lab)
+    # Remove any camera a previous run invented from a bad `cam` string before
+    # doing anything else — one legacy row reading "undefined" persisted a third
+    # camera into the project model and rendered a third panel for it.
+    for gone in pm.drop_unknown_cameras(m):
+        pm.save(_project(), m)
+
+    # The clicks are the sidecar's pellet marks. This used to read
+    # m.corrections, which the panel stopped writing to when placement moved
+    # into the sidecar, so the button could not see any click ever made.
+    sibling = pm.sibling_video(video)
+    source = {"cam0": video, "cam1": str(sibling) if sibling else None}
+    by_cam = pm.clicks_by_camera(onset_csv.read_marks(video))
     if not by_cam:
-        return jsonify({"error": "no clicks yet"}), 400
+        return jsonify({"error": "no pellet clicks on this pair yet — click the "
+                                 "pellet on a frame where it is clearly visible"}), 400
 
     built = {}
     for cam_name, labels in by_cam.items():
         cam = m.cameras.get(cam_name)
         if cam is None:
+            # Only ever a real camera: clicks_by_camera has already dropped
+            # anything else, so reaching here means the project model is missing
+            # a camera it should have.
             cam = pm.CameraModel(cx=float(labels[0]["x"]), cy=float(labels[0]["y"]))
             m.cameras[cam_name] = cam
+        if source.get(cam_name) is None:
+            built[cam_name] = "no video for this camera; skipped"
+            continue
         # Re-cut every click's patch from scratch so the pool always reflects the
         # current list — removing a click actually removes its influence.
         cam.exemplars = []
         added = 0
         for lab in labels:
             key = int(lab["frame"]) - 1
-            frames = ncc.read_frames(lab["video"], [key])
+            frames = ncc.read_frames(source[cam_name], [key])
             if key not in frames:
                 continue
             gray = ncc.to_gray(frames[key])
@@ -1053,7 +1074,7 @@ def api_pellet_retrain():
                     or xi - h < 0 or xi + h > gray.shape[1]):
                 continue
             cam.add_exemplar(gray[yi - h:yi + h, xi - h:xi + h],
-                             video=lab["video"], frame=lab["frame"],
+                             video=source[cam_name], frame=lab["frame"],
                              x=lab["x"], y=lab["y"])
             added += 1
         # Re-aim on the clicks: on a new video they are the only evidence of
@@ -1068,20 +1089,27 @@ def api_pellet_retrain():
         # The calibration nearest the CLICKED video, not the project's last one:
         # a 3D reference is only meaningful in the frame that produced it, and
         # these clicks come from one specific recording.
-        clicked = (by_cam.get("cam0") or by_cam.get("cam1") or [{}])[0].get("video")
-        cal_path = stereo.find_for_video(_project(), clicked) if clicked else None
+        cal_path = stereo.find_for_video(_project(), video)
         if cal_path and "cam0" in by_cam and "cam1" in by_cam:
             cal = stereo.load(cal_path)
-            key = lambda l: (Path(l["video"]).stem.replace("_cam0_", "_camX_")
-                             .replace("_cam1_", "_camX_"), l["frame"])
-            c0 = {key(l): l for l in by_cam["cam0"]}
-            c1 = {key(l): l for l in by_cam["cam1"]}
+            # Paired by FRAME alone: the clicks all belong to this one pair, so
+            # the video no longer distinguishes them. Keying on a "video" field
+            # the sidecar marks do not carry is what made this report
+            # "not updated: 'video'".
+            c0 = {int(l["frame"]): l for l in by_cam["cam0"]}
+            c1 = {int(l["frame"]): l for l in by_cam["cam1"]}
             both = sorted(set(c0) & set(c1))
             if both:
                 X = cal.triangulate([(c0[k]["x"], c0[k]["y"]) for k in both],
                                     [(c1[k]["x"], c1[k]["y"]) for k in both])
                 m.ref_3d = [float(v) for v in np.median(X, axis=0)]
-                built["ref_3d"] = f"re-derived from {len(both)} paired click(s)"
+                # Only a FALLBACK now: the sweep locates the pellet in 3D from
+                # its own detections, which are more accurate than a click.
+                built["ref_3d"] = (f"fallback re-derived from {len(both)} "
+                                   f"paired click(s)")
+            else:
+                built["ref_3d"] = ("no frame has a click on BOTH cameras; "
+                                   "fallback reference unchanged")
     except Exception as exc:                    # noqa: BLE001 - surfaced to the UI
         built["ref_3d"] = f"not updated: {exc}"
 

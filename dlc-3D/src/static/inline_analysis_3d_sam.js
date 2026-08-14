@@ -4763,7 +4763,10 @@ function _pelletRenderLabels() {
   const box = _samEl("ia3ds-label-list");
   if (!box || !_pellet.model) return;
   const labels = _pellet.model.labels || [];
-  box.innerHTML = labels.length ? "" : `<div class="ia3ds-label-row">no labels yet — tick “click to place pellet label”</div>`;
+  // There is no checkbox to tick: clicking a tile IS how a label is made. The
+  // old wording pointed at a control that no longer exists.
+  box.innerHTML = labels.length ? ""
+    : `<div class="ia3ds-label-row">no pellet clicks yet — click the pellet on a tile</div>`;
   labels.forEach((l, i) => {
     const row = document.createElement("div");
     row.className = "ia3ds-label-row";
@@ -4781,12 +4784,16 @@ function _pelletRenderLabels() {
 
 async function _pelletRetrain() {
   const btn = _samEl("ia3ds-pellet-retrain");
+  const video = _samCurrentVideo();
+  if (!video) { _samSay("open a video pair first", true); return; }
   btn.disabled = true;
   _samEl("ia3ds-pellet-status").textContent = "retraining…";
   try {
+    // The clicks live in THIS pair's sidecar, so the video is what identifies
+    // them. Sending nothing is why the button used to read a legacy store.
     const d = await _samJSON(`${SAMAPI}/pellet/retrain`, {
       method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({}),
+      body: JSON.stringify({ video }),
     });
     await _pelletLoad();
     _samEl("ia3ds-pellet-status").textContent =
@@ -5020,7 +5027,11 @@ function _pelletRenderConfirm() {
   if (sweep) sweep.disabled = !(ready && _pellet.confirmed);
   const n = (_pellet.state.marks || []).filter((m) => m.kind === "pellet").length;
   const st = _samEl("ia3ds-pellet-status");
-  if (st && _pellet.model) st.textContent = `${n} pellet label(s) on this pair`;
+  if (st && _pellet.model) {
+    st.textContent = n
+      ? `${n} pellet click(s) on this pair — Re-aim folds them into the template`
+      : "no pellet clicks yet — click the pellet on a frame where it is clear";
+  }
 }
 
 // ── wiring ──────────────────────────────────────────────────────────────────
