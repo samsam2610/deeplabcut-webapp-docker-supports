@@ -464,6 +464,80 @@ def get_sessions():
     return jsonify({"sessions": data.get("sessions", {})})
 
 
+# ── Card layout (per project) ─────────────────────────────────────────────────
+#
+# Which order the inline-analysis cards' panels sit in. Per PROJECT rather than
+# per browser, because that is how the user asked for it: the order follows the
+# work, not the machine.
+#
+# Every failure path resolves to "no opinion" and lets the shipped markup order
+# stand. A preferences file must never be able to break the card it decorates.
+
+CARD_KEYS = ("ia3d", "ia3dr", "ia3ds")
+LAYOUT_FILENAME = "dlc3d_card_layout.json"
+
+
+def _layout_path(project: str) -> Path:
+    return Path(project) / LAYOUT_FILENAME
+
+
+def _read_layout(project: str) -> dict:
+    """Every card's saved order. Anything unrecognised is dropped, not trusted."""
+    try:
+        with open(_layout_path(project)) as f:
+            data = json.load(f)
+    except (OSError, ValueError):
+        return {}
+    if not isinstance(data, dict):
+        return {}
+    return {
+        k: v for k, v in data.items()
+        if k in CARD_KEYS and isinstance(v, list)
+        and all(isinstance(i, str) for i in v)
+    }
+
+
+def _write_layout(project: str, data: dict) -> None:
+    """Atomic, for the same reason videos.json is: a concurrent reader must see
+    either the old file or the whole new one, never a truncated middle."""
+    target = _layout_path(project)
+    fd, tmp_name = tempfile.mkstemp(prefix=".dlc3d_card_layout.", suffix=".tmp",
+                                    dir=str(Path(project)))
+    try:
+        with os.fdopen(fd, "w") as f:
+            f.write(json.dumps(data, indent=2))
+        os.replace(tmp_name, target)
+    except Exception:
+        os.unlink(tmp_name)
+        raise
+
+
+@bp.route("/card-layout")
+def get_card_layout():
+    proj = _active_project_for_user()
+    return jsonify({"layout": _read_layout(proj) if proj else {}})
+
+
+@bp.route("/card-layout", methods=["PUT"])
+def put_card_layout():
+    proj = _active_project_for_user()
+    if not proj:
+        return jsonify({"error": "no active project"}), 400
+    body = request.get_json(silent=True) or {}
+    card = body.get("card")
+    order = body.get("order")
+    if card not in CARD_KEYS:
+        return jsonify({"error": f"unknown card {card!r}"}), 400
+    if not isinstance(order, list) or not all(isinstance(i, str) for i in order):
+        return jsonify({"error": "order must be a list of strings"}), 400
+    # Read-modify-write one key: two cards may be open in two tabs, and a whole
+    # -file overwrite would let the second save erase the first card's order.
+    data = _read_layout(proj)
+    data[card] = order
+    _write_layout(proj, data)
+    return jsonify({"ok": True})
+
+
 # ── Video / frame serving ─────────────────────────────────────────────────────
 
 @bp.route("/frame")
