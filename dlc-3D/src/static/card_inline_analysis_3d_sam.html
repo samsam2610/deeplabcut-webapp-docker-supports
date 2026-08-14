@@ -1008,9 +1008,20 @@
           </div>
 
           <div class="ia3ds-sam-row">
-            <span class="ia3ds-sam-status" id="ia3ds-pellet-status"></span>
             <button class="btn-sm" id="ia3ds-pellet-retrain">Re-aim box from clicks + rerun</button>
+            <span class="ia3ds-sam-status" id="ia3ds-pellet-status"></span>
           </div>
+          <p class="ia3ds-sam-note">
+            <b>Re-aim</b> rebuilds each camera's <b>template pool</b> from the DLC
+            seed plus every pellet click on this pair, recentres that camera's
+            search box on the <b>median click</b>, re-derives the fallback 3D
+            <b>reference</b> from frames clicked in <b>both</b> cameras, saves all
+            of it to the project model, then reruns this pair. Deleting a click
+            removes its influence — the pool is re-cut from scratch every time.
+            <b>Adding or removing a click invalidates cached sweeps for every video in the project</b>, because the pool is part of the sweep's
+            cache key. Pressing it again without changing the clicks
+            <b>costs nothing</b>.
+          </p>
 
           <div class="ia3ds-label-list" id="ia3ds-label-list"></div>
         </details>
