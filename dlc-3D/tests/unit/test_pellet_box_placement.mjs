@@ -26,6 +26,7 @@ import {
   toImage,
   toCanvas,
   scaleFor,
+  clearBox,
 } from "../../src/static/internal/pellet_box.mjs";
 
 // ── tile selection ──────────────────────────────────────────────────────────
@@ -320,4 +321,49 @@ test("lengths scale too, so the box is the right SIZE on screen", () => {
 
 test("scaleFor is 1 when the natural size is unknown", () => {
   assert.deepEqual(scaleFor(null, { width: 400, height: 300 }), { sx: 1, sy: 1 });
+});
+
+// ── re-placing a box ────────────────────────────────────────────────────────
+//
+// Reported: on cam0 "reclicks placed dots". That is the designed rule — the
+// first click on a camera sets its box, every later one adds a pellet label —
+// but it left NO way to move a box once placed. The box aims the search area,
+// so a badly placed one has to be correctable without clearing the pellet pool
+// that has been built up around it.
+
+test("clearing a camera's box lets the next click re-place it", () => {
+  let s = placeClick(EMPTY, { cam: "cam0", frame: 100, x: 410, y: 390 });
+  s = clearBox(s, "cam0");
+  assert.equal(s.marks.filter((m) => m.kind === "box").length, 0);
+  s = placeClick(s, { cam: "cam0", frame: 200, x: 415, y: 395 });
+  const box = s.marks.find((m) => m.kind === "box");
+  assert.deepEqual([box.x, box.y], [415, 395]);
+});
+
+test("clearing a box keeps the pellet labels", () => {
+  // Those are the template pool. Losing them to a box correction would throw
+  // away every click the user has made to teach the detector.
+  let s = placeClick(EMPTY, { cam: "cam0", frame: 100, x: 410, y: 390 });
+  s = placeClick(s, { cam: "cam0", frame: 200, x: 411, y: 391 });
+  s = clearBox(s, "cam0");
+  assert.equal(s.marks.filter((m) => m.kind === "pellet").length, 2);
+});
+
+test("clearing one camera's box leaves the other's alone", () => {
+  let s = placeClick(EMPTY, { cam: "cam0", frame: 1, x: 410, y: 390 });
+  s = placeClick(s, { cam: "cam1", frame: 1, x: 590, y: 450 });
+  s = clearBox(s, "cam0");
+  const boxes = s.marks.filter((m) => m.kind === "box");
+  assert.deepEqual(boxes.map((b) => b.cam), ["cam1"]);
+});
+
+test("clearing a box nobody placed is a no-op", () => {
+  assert.deepEqual(clearBox(EMPTY, "cam0").marks, []);
+});
+
+test("clearing forgets the last placement, so WASD cannot move a ghost", () => {
+  let s = placeClick(EMPTY, { cam: "cam0", frame: 1, x: 410, y: 390 });
+  s = clearBox(s, "cam0");
+  const after = nudge(s, "d", 1);
+  assert.deepEqual(after.marks.filter((m) => m.kind === "box"), []);
 });

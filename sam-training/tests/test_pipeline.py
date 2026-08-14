@@ -215,3 +215,58 @@ def test_deriving_the_reference_does_not_mutate_the_project_model(tmp_path, proj
              {"frame": 1, "kind": "box", "cam": "cam1", "x": 591.9, "y": 450.1}]
     pipeline.with_reference(base, _Cal(), marks)
     assert base.ref_3d == [1.68, 11.09, 278.81]
+
+
+# ── the reference comes from the DETECTED pellet, not the click ─────────────
+#
+# eggtart-2 Jul 10: 151 trials, one window. Detections were fine — 22% of
+# samples cleared both cameras, epipolar residual 0.29 px, so the calibration
+# described the pair almost perfectly — but every detection sat 2.93 from the
+# reference and the 2.0 gate rejected the lot.
+#
+# The reference was the triangulated CLICK. A click is accurate enough to aim a
+# search box with a 40 px margin; it is not accurate enough to be the origin
+# that a 2.0 gate measures from. Taking the median of the detections instead:
+# median distance 2.93 -> 0.52, and 0% -> 95% inside the gate.
+
+def test_the_reference_is_the_median_of_the_detections():
+    pts = [(1.0, 9.0, 249.0), (1.5, 10.0, 250.0), (1.2, 9.8, 249.9)]
+    got = pipeline.reference_from_points(pts, minimum=3)
+    assert [round(v, 2) for v in got] == [1.2, 9.8, 249.9]
+
+
+def test_a_few_wild_detections_do_not_move_it():
+    """Median, not mean: a paw or the vane triangulating somewhere absurd must
+    not drag the origin with it."""
+    pts = [(1.0, 9.0, 249.0)] * 9 + [(500.0, 500.0, 500.0)]
+    got = pipeline.reference_from_points(pts, minimum=3)
+    assert got[0] < 2.0 and got[2] < 260.0
+
+
+def test_too_few_detections_yields_none():
+    """None means "fall back to the click" — better an imperfect origin than one
+    derived from two frames that happened to match."""
+    assert pipeline.reference_from_points([(1.0, 2.0, 3.0)], minimum=5) is None
+    assert pipeline.reference_from_points([], minimum=5) is None
+
+
+def test_the_click_is_still_the_fallback(tmp_path, project, video):
+    """A session where nothing confident is found must still sweep, using the
+    box the human placed."""
+    m = pipeline.with_reference(pm.load(project), _Cal(),
+                                [{"frame": 1, "kind": "box", "cam": "cam0",
+                                  "x": 419.0, "y": 385.5},
+                                 {"frame": 1, "kind": "box", "cam": "cam1",
+                                  "x": 591.9, "y": 450.1}],
+                                detected=None)
+    assert [round(v, 1) for v in m.ref_3d] == [419.0, 385.5, 591.9]
+
+
+def test_a_detected_reference_wins_over_the_click(tmp_path, project, video):
+    m = pipeline.with_reference(pm.load(project), _Cal(),
+                                [{"frame": 1, "kind": "box", "cam": "cam0",
+                                  "x": 419.0, "y": 385.5},
+                                 {"frame": 1, "kind": "box", "cam": "cam1",
+                                  "x": 591.9, "y": 450.1}],
+                                detected=(1.24, 9.77, 249.89))
+    assert [round(v, 2) for v in m.ref_3d] == [1.24, 9.77, 249.89]

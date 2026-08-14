@@ -38,7 +38,7 @@ import { state } from "/static/js/state.js";
 import {
   OVERLAY_PREFIX, selectTiles, placeClick, nudge, centreFor,
   unplacedCameras, isNudgeKey, newVisibility, isVisible, setVisible,
-  toImage, scaleFor,
+  toImage, scaleFor, clearBox,
 } from "./internal/pellet_box.mjs";
 import {
   DEFAULT_JUDGE, clampJudge, markersInSpan, intervening, markerStyle,
@@ -4809,6 +4809,32 @@ async function _pelletRetrain() {
 // for each tile, since tiles appear only once the card opens a pair.
 function _pelletBindTiles() {
   _pelletTiles().forEach((canvas, i) => _overlayFor(canvas, _camNameFor(i)));
+  _pelletBindStatus();
+}
+
+/** Say which cameras are actually clickable, and how big their overlay is.
+ *
+ * "Clicking does nothing on cam1" is invisible from the panel: there is no
+ * error, the click simply lands on nothing. This turns that into a line you can
+ * read — a missing tile, a zero-sized overlay and a working one all look
+ * different. */
+function _pelletBindStatus() {
+  const el = _samEl("ia3ds-bind-status");
+  if (!el) return;
+  const tiles = _pelletTiles();
+  const bits = ["cam0", "cam1"].map((cam, i) => {
+    const canvas = tiles[i];
+    if (!canvas) return `${cam} ✗ no tile`;
+    const ov = document.getElementById(OVERLAY_PREFIX + cam);
+    if (!ov) return `${cam} ✗ no overlay`;
+    const w = Math.round(ov.getBoundingClientRect().width);
+    const h = Math.round(ov.getBoundingClientRect().height);
+    if (!w || !h) return `${cam} ✗ overlay 0×0`;
+    const nat = _pelletNatural(canvas);
+    return `${cam} ✓ ${w}×${h}${nat ? "" : " (no img — coords unscaled)"}`;
+  });
+  if (tiles.length > 2) bits.push(`⚠ ${tiles.length} tiles`);
+  el.textContent = bits.join("  ·  ");
 }
 
 // ── overlay canvases + click-to-place ──────────────────────────────────────
@@ -5027,6 +5053,13 @@ function _samWirePanel() {
   _samEl("ia3ds-sam-build-csv").onclick = _samBuildCsv;
   _samEl("ia3ds-pellet-save").onclick = _pelletSave;
   _samEl("ia3ds-pellet-retrain").onclick = _pelletRetrain;
+  on("ia3ds-pellet-replace", "onclick", async () => {
+    const cam = _samEl("ia3ds-pellet-replace-cam")?.value || "cam0";
+    _pellet.state = clearBox(_pellet.state, cam);
+    _pelletDrawBox();
+    await _pelletPersist();
+    _samSay(`${cam} box cleared — click the pellet on ${cam} to place it again`);
+  });
   _samEl("ia3ds-confirm-btn").onclick = async () => {
     const video = _samCurrentVideo();
     if (!video) return;

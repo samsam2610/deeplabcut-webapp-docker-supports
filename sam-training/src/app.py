@@ -168,10 +168,22 @@ def api_sweep():
             raise RuntimeError("the project has no reference 3D pellet point, "
                                "so the 3D gate cannot run")
         calib = stereo.load(stereo.find_for_video(PROJECT_PATH, video))
-        # The reference pellet point must live in THIS calibration's frame, so
-        # it is derived from the placed box rather than read from the project.
+        # The reference must live in THIS calibration's frame, and it comes from
+        # the DETECTOR rather than the click: a click aims a search box well
+        # enough, but is not accurate enough to be the origin a 2.0 gate
+        # measures from. The placed box is the fallback when too few confident
+        # detections are found.
         from . import onset_csv as _oc
-        resolved = pipeline.with_reference(resolved, calib, _oc.read_marks(video))
+        job.message = "locating the pellet in 3D…"
+        found = pipeline.detect_reference(video, str(sibling), resolved, calib)
+        resolved = pipeline.with_reference(resolved, calib, _oc.read_marks(video),
+                                           detected=found)
+        # Clear it: a stage message left standing reads as "still doing that"
+        # for the six minutes of sweeping that follow.
+        job.message = ("reference from %d-detection median" % 0) if found is None \
+            else "reference located; sweeping"
+        if found is None:
+            job.message = "too few detections — using the placed box; sweeping"
 
         def progress(idx, last):
             job.progress = min(0.99, idx / max(1, last))

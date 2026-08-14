@@ -205,3 +205,24 @@ export function toCanvas(point, natural, displayed) {
   const { sx, sy } = scaleFor(natural, displayed);
   return { x: point.x * sx, y: point.y * sy };
 }
+
+/**
+ * Forget a camera's box so the next click on it places a new one.
+ *
+ * The first click on a camera sets its box and every later one adds a pellet
+ * label. That is the right default — a click always means "the pellet is here"
+ * — but it left no way to MOVE a box once placed, and the box aims the search
+ * area, so a bad one has to be correctable.
+ *
+ * Pellet labels survive: they are the template pool, and throwing away every
+ * click the user made to teach the detector would be a steep price for moving
+ * a rectangle. `last` is cleared too, so a WASD nudge cannot drag a box that no
+ * longer exists.
+ */
+export function clearBox(state, cam) {
+  const marks = (state.marks || []).filter(
+    (m) => !(m.kind === "box" && m.cam === cam));
+  const last = state.last && state.last.kind === "box" && state.last.cam === cam
+    ? null : state.last;
+  return { ...state, marks, last };
+}

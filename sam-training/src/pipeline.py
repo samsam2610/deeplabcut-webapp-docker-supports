@@ -17,7 +17,7 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from . import (config, judging, notes, onset_csv, pellet_model as pm,
+from . import (config, judging, ncc, notes, onset_csv, pellet_model as pm,
                sweep_cache)
 
 
@@ -47,7 +47,66 @@ def model_for(project_path, video):
     return pm.with_centres(model, pm.centres_from_marks(onset_csv.read_marks(video)))
 
 
-def with_reference(model, calibration, marks):
+def reference_from_points(points, minimum: int = 5):
+    """Median of triangulated pellet detections, or None if too few.
+
+    Median, not mean: a paw or the reload vane occasionally triangulates
+    somewhere absurd, and one such point would drag the origin with it.
+
+    None means "not enough evidence, use the click" — an imperfect origin beats
+    one derived from two frames that happened to match.
+    """
+    pts = [p for p in (points or []) if p is not None]
+    if len(pts) < int(minimum):
+        return None
+    a = np.asarray(pts, dtype=float).reshape(-1, 3)
+    return tuple(float(v) for v in np.median(a, axis=0))
+
+
+def detect_reference(video, sibling, model, calibration, samples: int = 80,
+                     thr0: float = 0.75, thr1: float = 0.72):
+    """Locate the pellet in 3D by matching, before the sweep needs a reference.
+
+    The click aims the search box; it is not accurate enough to BE the origin a
+    2.0 gate measures from. On eggtart-2 Jul 10 the click sat 2.83 away from
+    where the pellet actually triangulates, so 0 % of confident detections fell
+    inside the gate — 151 trials produced one window. Measured from the
+    detections instead: 95 % inside, median 0.52.
+
+    ~80 frames, two decodes each: about fifteen seconds against a sweep of six
+    minutes.
+    """
+    import cv2
+    cam0, cam1 = model.cameras.get("cam0"), model.cameras.get("cam1")
+    if cam0 is None or cam1 is None or calibration is None:
+        return None
+    c0, c1 = cv2.VideoCapture(str(video)), cv2.VideoCapture(str(sibling))
+    try:
+        total = min(int(c0.get(cv2.CAP_PROP_FRAME_COUNT) or 0),
+                    int(c1.get(cv2.CAP_PROP_FRAME_COUNT) or 0))
+        if total <= 0:
+            return None
+        found = []
+        for i in range(int(samples)):
+            at = int(total * (i + 0.5) / samples)
+            pair = []
+            for cap, cam in ((c0, cam0), (c1, cam1)):
+                cap.set(cv2.CAP_PROP_POS_FRAMES, at)
+                ok, img = cap.read()
+                if not ok:
+                    break
+                pair.append(pm.match(ncc.to_gray(img), cam))
+            if len(pair) < 2:
+                continue
+            (s0, p0), (s1, p1) = pair
+            if s0 >= thr0 and s1 >= thr1:
+                found.append(calibration.triangulate([p0], [p1])[0])
+    finally:
+        c0.release(); c1.release()
+    return reference_from_points(found)
+
+
+def with_reference(model, calibration, marks, detected=None):
     """A copy of ``model`` whose ``ref_3d`` is THIS pair's placed pellet.
 
     A 3D coordinate only means something in the frame of the calibration that
@@ -62,6 +121,10 @@ def with_reference(model, calibration, marks):
     from dataclasses import replace
     if model is None or calibration is None:
         return model
+    if detected is not None:
+        # The detector's own answer, which is better than the click by
+        # construction: it is where the template actually matched.
+        return replace(model, ref_3d=[float(v) for v in detected])
     centres = pm.centres_from_marks(marks)
     p0, p1 = centres.get("cam0"), centres.get("cam1")
     if p0 is None or p1 is None:

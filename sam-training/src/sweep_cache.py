@@ -27,7 +27,12 @@ import numpy as np
 from . import config, store
 
 SINGLE = "s1"
-PAIR = "p2"
+# p3: the 3D reference moved from the clicked box to the detected pellet, which
+# changes every stored dist3d without changing anything else in the key. A cache
+# that looks fresh and holds distances measured from a different origin is the
+# exact failure this project keeps hitting, so the format marker is bumped and
+# the old entries simply miss.
+PAIR = "p3"
 
 
 def signature(model, video, marks=None, kind: str = SINGLE) -> str:
