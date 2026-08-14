@@ -4916,7 +4916,6 @@ function _pelletDrawBox() {
     if (!ov) return;
     const g = ov.getContext("2d");
     g.clearRect(0, 0, ov.width, ov.height);       // no after-images, ever
-    if (!isVisible(_pellet.vis, camName)) return; // per camera, independent
     const def = (_pellet.model?.cameras || {})[camName];
     const centre = centreFor(_pellet.state, camName, def || null);
     if (!centre) return;
@@ -4929,19 +4928,26 @@ function _pelletDrawBox() {
     const { sx, sy } = scaleFor(_pelletNatural(canvas),
                                 { width: ov.width, height: ov.height });
     const X = (v) => v * sx, Y = (v) => v * sy;
-    g.strokeStyle = "#3ba7ff"; g.lineWidth = 1;
-    g.strokeRect(X(centre.cx - half - margin), Y(centre.cy - half - margin),
-                 X(2 * (half + margin)), Y(2 * (half + margin)));
-    g.strokeStyle = "#ffd23b"; g.lineWidth = 2;
-    g.strokeRect(X(centre.cx - half), Y(centre.cy - half), X(2 * half), Y(2 * half));
-    g.beginPath(); g.arc(X(centre.cx), Y(centre.cy), 2.5, 0, 6.283); g.fill();
-    // pellet labels on this frame, so repeated clicks are visible
+
+    // The pellet labels on this frame are drawn ALWAYS. They are feedback for
+    // what the user just did, and hiding them behind the box checkbox made a
+    // click look like it had done nothing at all — reported as "can no longer
+    // place pellet". The checkbox controls the BOX, which is what it says.
     g.fillStyle = "#8ef58e";
     (_pellet.state.marks || []).forEach((m) => {
       if (m.kind !== "pellet" || m.cam !== camName) return;
       if (m.frame !== _samState.frame + 1) return;
       g.beginPath(); g.arc(X(m.x), Y(m.y), 3, 0, 6.283); g.fill();
     });
+
+    if (!isVisible(_pellet.vis, camName)) return; // per camera, independent
+    g.strokeStyle = "#3ba7ff"; g.lineWidth = 1;
+    g.strokeRect(X(centre.cx - half - margin), Y(centre.cy - half - margin),
+                 X(2 * (half + margin)), Y(2 * (half + margin)));
+    g.strokeStyle = "#ffd23b"; g.lineWidth = 2;
+    g.strokeRect(X(centre.cx - half), Y(centre.cy - half), X(2 * half), Y(2 * half));
+    g.fillStyle = "#ffd23b";
+    g.beginPath(); g.arc(X(centre.cx), Y(centre.cy), 2.5, 0, 6.283); g.fill();
   });
 }
 

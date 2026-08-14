@@ -367,3 +367,48 @@ test("clearing forgets the last placement, so WASD cannot move a ghost", () => {
   const after = nudge(s, "d", 1);
   assert.deepEqual(after.marks.filter((m) => m.kind === "box"), []);
 });
+
+// ── a box must not destroy a pellet label ───────────────────────────────────
+//
+// Reported: "placed pellet -> placing box replaces it". Placing a box wrote a
+// pellet at the same point, and pellets are unique per (frame, camera), so the
+// deliberate label was overwritten by a side effect of positioning a rectangle.
+//
+// The two are not the same claim. A pellet label says "the pellet is HERE, in
+// this frame" and feeds the template pool. A box says "search around here",
+// once per camera. On a frame with no label the first click can reasonably mean
+// both. On a frame that already has one, it must not.
+
+test("placing a box leaves an existing pellet on that frame alone", () => {
+  let s = placeClick(EMPTY, { cam: "cam0", frame: 100, x: 410, y: 390 });
+  s = clearBox(s, "cam0");                       // now re-place the box
+  s = placeClick(s, { cam: "cam0", frame: 100, x: 300, y: 300 });
+  const box = s.marks.find((m) => m.kind === "box");
+  const pellet = s.marks.find((m) => m.kind === "pellet" && m.frame === 100);
+  assert.deepEqual([box.x, box.y], [300, 300], "the box moves");
+  assert.deepEqual([pellet.x, pellet.y], [410, 390], "the label does not");
+});
+
+test("the first click on a bare frame still means both", () => {
+  const s = placeClick(EMPTY, { cam: "cam0", frame: 100, x: 410, y: 390 });
+  assert.deepEqual(s.marks.map((m) => m.kind).sort(), ["box", "pellet"]);
+});
+
+test("a pellet click still corrects the pellet on that frame", () => {
+  let s = placeClick(EMPTY, { cam: "cam0", frame: 100, x: 410, y: 390 });
+  s = placeClick(s, { cam: "cam0", frame: 100, x: 415, y: 395 });
+  const pellets = s.marks.filter((m) => m.kind === "pellet" && m.frame === 100);
+  assert.equal(pellets.length, 1);
+  assert.deepEqual([pellets[0].x, pellets[0].y], [415, 395]);
+});
+
+test("re-placing a box does not move the pellet with WASD afterwards", () => {
+  let s = placeClick(EMPTY, { cam: "cam0", frame: 100, x: 410, y: 390 });
+  s = clearBox(s, "cam0");
+  s = placeClick(s, { cam: "cam0", frame: 100, x: 300, y: 300 });
+  s = nudge(s, "d", 1);
+  const pellet = s.marks.find((m) => m.kind === "pellet");
+  const box = s.marks.find((m) => m.kind === "box");
+  assert.deepEqual([pellet.x, pellet.y], [410, 390], "only the box was placed");
+  assert.deepEqual([box.x, box.y], [301, 300]);
+});

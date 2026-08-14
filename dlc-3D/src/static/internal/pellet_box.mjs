@@ -71,10 +71,20 @@ export function placeClick(state, { cam, frame, x, y }) {
   }
   const dup = marks.findIndex(
     (m) => m.kind === "pellet" && m.cam === cam && m.frame === frame);
-  const pellet = { kind: "pellet", cam, frame, x, y };
-  if (dup >= 0) marks[dup] = pellet;
-  else marks.push(pellet);
-  ids.push(pellet);
+
+  // A box being placed must not overwrite a pellet label already on this frame.
+  // The two are different claims: a label says "the pellet is HERE" and feeds
+  // the template pool; a box says "search around here", once per camera. On a
+  // bare frame one click can mean both. On a frame that already carries a
+  // label, positioning the box must leave it alone — otherwise a deliberate
+  // label is destroyed by a side effect of moving a rectangle.
+  const placingBoxOverExistingLabel = !hasBox && dup >= 0;
+  if (!placingBoxOverExistingLabel) {
+    const pellet = { kind: "pellet", cam, frame, x, y };
+    if (dup >= 0) marks[dup] = pellet;
+    else marks.push(pellet);
+    ids.push(pellet);
+  }
 
   return {
     ...state,
