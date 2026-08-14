@@ -44,6 +44,7 @@ import {
   DEFAULT_JUDGE, clampJudge, markersInSpan, intervening, markerStyle,
 } from "./internal/trial_judge.mjs";
 import { pairCandidates } from "./internal/candidate_pairs.mjs";
+import { emptyPanelState } from "./internal/panel_state.mjs";
 import { tryAcquire, release } from "./internal/run_lock.mjs";
 import {
   trialLabel, defaultOutcome, writableTrials, candidateStrips, followTarget,
@@ -3890,11 +3891,37 @@ function _samWatchVideo() {
     const v = _samCurrentVideo();
     if (v && v !== _samState.seen) {
       _samState.seen = v;
+      // Clear FIRST. A fresh pair usually has no box and no sweep, so the load
+      // below errors — and without this the previous video's trials, strips and
+      // thumbnails stayed on screen looking like they belonged to the new one.
+      _samResetPanel();
       _samLoadWindows();
       _samLoadTags();
       _pelletLoadVideoBox();
     }
   }, 1000);
+}
+
+/** Forget everything about the video that was open, on screen and in state. */
+function _samResetPanel() {
+  Object.assign(_samState, emptyPanelState());
+  const sel = _samEl("ia3ds-sam-trial");
+  if (sel) sel.innerHTML = "";
+  _samClearCandidates();
+  _samDrawStrip();                 // falls back to "Pick a trial…"
+  _samDrawTags();                  // falls back to "Build the onset CSV…"
+  [["ia3ds-sam-note", ""], ["ia3ds-batch-status", ""],
+   ["ia3ds-sam-csv-status", ""], ["ia3ds-bind-status", ""],
+   ["ia3ds-pellet-status", ""]].forEach(([id, text]) => {
+    const el = _samEl(id);
+    if (el) { el.textContent = text; el.classList.remove("err"); }
+  });
+  // The pellet box belongs to the pair; _pelletLoadVideoBox refills it.
+  _pellet.state = { marks: [], last: null };
+  _pellet.confirmed = false;
+  _pelletRenderConfirm();
+  _samTagRender();
+  _samSay("loading…");
 }
 
 async function _samJSON(url, opts) {
@@ -3944,6 +3971,14 @@ async function _samLoadWindows() {
             + (ambiguous ? ` · ${ambiguous} ambiguous (guard ${_samState.judge.guard})` : ""));
     if (_samState.windows.length) _samSelectTrial(0);
   } catch (e) {
+    // Leave nothing from the previous video behind: an error here is the normal
+    // state of a pair that has not been boxed or swept yet.
+    Object.assign(_samState, emptyPanelState());
+    const sel2 = _samEl("ia3ds-sam-trial");
+    if (sel2) sel2.innerHTML = "";
+    _samClearCandidates();
+    _samDrawStrip();
+    _samTagRender();
     if (/not swept/i.test(e.message)) {
       _samSay("this video has no pellet sweep yet", true);
       _samOfferSweep();
