@@ -38,7 +38,7 @@ import { state } from "/static/js/state.js";
 import {
   OVERLAY_PREFIX, selectTiles, placeClick, nudge, centreFor,
   unplacedCameras, isNudgeKey, newVisibility, isVisible, setVisible,
-  toImage, scaleFor, clearBox,
+  toImage, scaleFor, clearBox, camCardHead,
 } from "./internal/pellet_box.mjs";
 import {
   DEFAULT_JUDGE, clampJudge, markersInSpan, intervening, markerStyle,
@@ -4744,13 +4744,10 @@ function _pelletRenderCams() {
     const c = cams[name] || { cx: 0, cy: 0, half: 22, margin: 40, n_samples: 0 };
     const card = document.createElement("div");
     card.className = "ia3ds-cam-card";
-    card.innerHTML = `
-      <h4>${c.has_template ? `<img alt="" src="${SAMAPI}/pellet/template.png?cam=${name}&t=${Date.now()}"/>` : ""}
-        ${name}
-        <label class="ia3ds-cam-show" title="Draw this camera's box on its frame">
-          <input type="checkbox" data-showcam="${name}" ${isVisible(_pellet.vis, name) ? "checked" : ""}/> show box
-        </label>
-        <span style="margin-left:auto">${c.n_samples || 0} samples</span></h4>
+    card.innerHTML = camCardHead(
+      name, c, isVisible(_pellet.vis, name),
+      c.has_template ? `${SAMAPI}/pellet/template.png?cam=${name}&t=${Date.now()}` : "")
+      + `
       <div class="ia3ds-cam-fields">
         <label>cx<input type="number" step="1" data-cam="${name}" data-k="cx" value="${Math.round(c.cx)}"/></label>
         <label>cy<input type="number" step="1" data-cam="${name}" data-k="cy" value="${Math.round(c.cy)}"/></label>
@@ -4764,6 +4761,9 @@ function _pelletRenderCams() {
       _pellet.vis = setVisible(_pellet.vis, ev.target.dataset.showcam, ev.target.checked);
       _pelletDrawBox();
     };
+  });
+  grid.querySelectorAll("button[data-clearcam]").forEach((el) => {
+    el.onclick = () => _pelletClearBox(el.dataset.clearcam);
   });
   grid.querySelectorAll("input[data-k]").forEach((el) => {
     el.onchange = () => { _samDrawTags(); _pelletDrawBox(); };
@@ -4792,6 +4792,17 @@ async function _pelletSave() {
   } catch (e) {
     _samEl("ia3ds-pellet-status").textContent = `save: ${e.message}`;
   }
+}
+
+// The box lives per camera, so the control does too. It used to be one button
+// plus a `re-place` dropdown, which meant the camera being cleared and the
+// camera being looked at could disagree.
+async function _pelletClearBox(cam) {
+  if (!cam) return;
+  _pellet.state = clearBox(_pellet.state, cam);
+  _pelletDrawBox();
+  await _pelletPersist();
+  _samSay(`${cam} box cleared — click the pellet on ${cam} to place it again`);
 }
 
 function _pelletRenderLabels() {
@@ -5105,13 +5116,6 @@ function _samWirePanel() {
   _samEl("ia3ds-sam-build-csv").onclick = _samBuildCsv;
   _samEl("ia3ds-pellet-save").onclick = _pelletSave;
   _samEl("ia3ds-pellet-retrain").onclick = _pelletRetrain;
-  on("ia3ds-pellet-replace", "onclick", async () => {
-    const cam = _samEl("ia3ds-pellet-replace-cam")?.value || "cam0";
-    _pellet.state = clearBox(_pellet.state, cam);
-    _pelletDrawBox();
-    await _pelletPersist();
-    _samSay(`${cam} box cleared — click the pellet on ${cam} to place it again`);
-  });
   _samEl("ia3ds-confirm-btn").onclick = async () => {
     const video = _samCurrentVideo();
     if (!video) return;

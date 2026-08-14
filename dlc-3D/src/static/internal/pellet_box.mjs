@@ -236,3 +236,27 @@ export function clearBox(state, cam) {
     ? null : state.last;
   return { ...state, marks, last };
 }
+
+// ── camera card header ──────────────────────────────────────────────────────
+//
+// Here rather than in the panel because the clear-box control is per camera and
+// used to be one button plus a dropdown. That indirection is exactly what a
+// unit test cannot see: a button that clears "whatever the dropdown says" looks
+// identical, in source, to one that clears the camera it sits on.
+//
+// `templateSrc` is passed in rather than built here so this module stays free of
+// the API's URL shape.
+
+export function camCardHead(name, cam, visible, templateSrc = "") {
+  const c = cam || {};
+  const img = c.has_template && templateSrc
+    ? `<img alt="" src="${templateSrc}"/>` : "";
+  return `<h4>${img}
+        ${name}
+        <label class="ia3ds-cam-show" title="Draw this camera's box on its frame">
+          <input type="checkbox" data-showcam="${name}"${visible ? " checked" : ""}/> show box
+        </label>
+        <button class="btn-sm ia3ds-cam-clear" data-clearcam="${name}"
+                title="Forget this camera's box so the next click places a new one. Pellet labels are kept.">clear box</button>
+        <span style="margin-left:auto">${c.n_samples || 0} samples</span></h4>`;
+}

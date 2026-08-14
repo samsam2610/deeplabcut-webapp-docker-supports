@@ -27,6 +27,7 @@ import {
   toCanvas,
   scaleFor,
   clearBox,
+  camCardHead,
 } from "../../src/static/internal/pellet_box.mjs";
 
 // ── tile selection ──────────────────────────────────────────────────────────
@@ -411,4 +412,39 @@ test("re-placing a box does not move the pellet with WASD afterwards", () => {
   const box = s.marks.find((m) => m.kind === "box");
   assert.deepEqual([pellet.x, pellet.y], [410, 390], "only the box was placed");
   assert.deepEqual([box.x, box.y], [301, 300]);
+});
+
+// ── camera card header ──────────────────────────────────────────────────────
+//
+// The header was built by string concatenation inside a 5000-line DOM-bound
+// function, which is why the control it carries had no test. The clear button
+// must name ITS OWN camera: the old single button read the camera from a
+// dropdown, so a mis-wired per-camera button would clear the other camera's box
+// and look like it worked.
+
+test("the header carries a clear button for its own camera", () => {
+  const html = camCardHead("cam1", { n_samples: 3, has_template: false }, false);
+  assert.match(html, /data-clearcam="cam1"/);
+  assert.equal(html.includes('data-clearcam="cam0"'), false);
+});
+
+test("each camera gets a show-box checkbox for its own camera", () => {
+  const html = camCardHead("cam0", { n_samples: 0, has_template: false }, false);
+  assert.match(html, /data-showcam="cam0"/);
+});
+
+test("show box reflects the visibility it was given", () => {
+  const on = camCardHead("cam0", { n_samples: 0, has_template: false }, true);
+  const off = camCardHead("cam0", { n_samples: 0, has_template: false }, false);
+  assert.match(on, /data-showcam="cam0"[^>]*checked/);
+  assert.equal(/data-showcam="cam0"[^>]*checked/.test(off), false);
+});
+
+test("the sample count is shown", () => {
+  assert.match(camCardHead("cam0", { n_samples: 12 }, false), /12 samples/);
+});
+
+test("a camera with no template gets no <img>", () => {
+  assert.equal(camCardHead("cam0", { has_template: false }, false).includes("<img"),
+               false);
 });

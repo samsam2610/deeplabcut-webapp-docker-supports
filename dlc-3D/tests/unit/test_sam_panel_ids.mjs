@@ -82,9 +82,17 @@ test("the batch and tag controls exist", () => {
   ["ia3ds-batch-2d", "ia3ds-batch-3d", "ia3ds-batch-recompute",
    "ia3ds-batch-status", "ia3ds-tag-outcome", "ia3ds-tag-add",
    "ia3ds-tag-batch", "ia3ds-tag-include", "ia3ds-tag-undo",
-   "ia3ds-trial-lock", "ia3ds-pellet-replace", "ia3ds-pellet-replace-cam",
+   "ia3ds-trial-lock",
    "ia3ds-bind-status",
   ].forEach((id) => assert.ok(declared.has(id), `card is missing #${id}`));
+});
+
+test("the box is cleared per camera, not through a dropdown", () => {
+  // The dropdown made the cleared camera and the looked-at camera two separate
+  // facts. Re-adding it would restore that.
+  assert.equal(declared.has("ia3ds-pellet-replace"), false);
+  assert.equal(declared.has("ia3ds-pellet-replace-cam"), false);
+  assert.match(js, /data-clearcam/, "the per-camera clear button must be rendered");
 });
 
 test("no id is declared twice in the card", () => {
