@@ -46,6 +46,7 @@ import {
 import { pairCandidates } from "./internal/candidate_pairs.mjs";
 import { emptyPanelState } from "./internal/panel_state.mjs";
 import { tryAcquire, release } from "./internal/run_lock.mjs";
+import { initPanelLayout } from "./internal/panel_layout.mjs";
 import {
   trialLabel, defaultOutcome, writableTrials, candidateStrips, followTarget,
 } from "./internal/trial_labels.mjs";
@@ -5279,6 +5280,14 @@ function _samWireAfterInject() {
   try { _wireLauncher(); } catch (e) { console.warn("[sam] wireLauncher", e); }
   try { _wireStereoDispatch(); } catch (e) { console.warn("[sam] wireStereo", e); }
   try { _samWirePanel(); } catch (e) { console.warn("[sam] wirePanel", e); }
+  try {
+    initPanelLayout({
+      card: "ia3ds",
+      containerId: "ia3ds-player-section",
+      ids: ["ia3ds-triangulate-panel", "ia3ds-params-panel", "ia3ds-pose3d-panel",
+            "ia3ds-curation-panel", "ia3ds-clip-panel-wrap", "ia3ds-sam-panel"],
+    });
+  } catch (e) { console.warn("[sam] panel layout", e); }
 }
 
 if (document.readyState === "loading") {

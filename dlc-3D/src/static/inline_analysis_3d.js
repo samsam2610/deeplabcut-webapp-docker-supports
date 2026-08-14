@@ -33,6 +33,7 @@ import { makePose3dViewer } from "./pose3d_viewer.js";
 import { makeTrackedFiles } from "/static/js/components/tracked_files_tab.js";
 import { clampToBounds } from "./internal/clamp_bounds.mjs";
 import { addTag, removeTag } from "./internal/tag_list.mjs";
+import { initPanelLayout } from "./internal/panel_layout.mjs";
 import { tagKeyframes, mergeWindows } from "./components/viewer/internal/tag_batch.mjs";
 import { state } from "/static/js/state.js";
 
@@ -3797,15 +3798,28 @@ function _ia3dPlaceNavButton() {
 
 // ── Init ──────────────────────────────────────────────────────────────────────
 
+function _ia3dInitPanelLayout() {
+  try {
+    initPanelLayout({
+      card: "ia3d",
+      containerId: "ia3d-player-section",
+      ids: ["ia3d-triangulate-panel", "ia3d-params-panel", "ia3d-pose3d-panel",
+            "ia3d-curation-panel", "ia3d-clip-panel-wrap"],
+    });
+  } catch (e) { console.warn("[ia3d] panel layout", e); }
+}
+
 document.addEventListener("DOMContentLoaded", () => {
   _wireLauncher();
   _wireStereoDispatch();
   _ia3dPlaceNavButton();
+  _ia3dInitPanelLayout();
 });
 if (document.readyState !== "loading") {
   // Module evaluated after DOMContentLoaded — run the nav placement now too
   // (the DOMContentLoaded listener above won't fire). Idempotent.
   _ia3dPlaceNavButton();
+  _ia3dInitPanelLayout();
 }
 
 // Expose the VideoViewer instance for the co-evolved static/E2E tests (replaces

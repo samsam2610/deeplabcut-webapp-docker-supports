@@ -38,6 +38,7 @@ import { makeKeyframeWindow } from "./keyframe_window_ui.js";
 import { makePose3dViewer } from "./pose3d_viewer.js";
 import { clampToBounds } from "./internal/clamp_bounds.mjs";
 import { addTag, removeTag } from "./internal/tag_list.mjs";
+import { initPanelLayout } from "./internal/panel_layout.mjs";
 import { tagKeyframes, mergeWindows } from "./components/viewer/internal/tag_batch.mjs";
 import { state } from "/static/js/state.js";
 
@@ -4591,6 +4592,14 @@ function _reprojWireAfterInject() {
   try { _wireLauncher(); } catch (e) { console.warn("[reproj] wireLauncher", e); }
   try { _wireStereoDispatch(); } catch (e) { console.warn("[reproj] wireStereo", e); }
   try { _reprojWirePanel(); } catch (e) { console.warn("[reproj] wirePanel", e); }
+  try {
+    initPanelLayout({
+      card: "ia3dr",
+      containerId: "ia3dr-player-section",
+      ids: ["ia3dr-triangulate-panel", "ia3dr-params-panel", "ia3dr-pose3d-panel",
+            "ia3dr-curation-panel", "ia3dr-clip-panel-wrap"],
+    });
+  } catch (e) { console.warn("[reproj] panel layout", e); }
 }
 
 if (document.readyState === "loading") {
