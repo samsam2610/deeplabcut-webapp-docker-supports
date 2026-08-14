@@ -22,6 +22,18 @@ def markup():
     return CARD.read_text(encoding="utf-8")
 
 
+def _note(markup):
+    """Just the Re-aim note.
+
+    Slicing to end-of-file instead made two assertions vacuous: 'reference' and
+    'both' occur elsewhere in the card, so they passed whether or not the note
+    contained them.
+    """
+    start = markup.index('id="ia3ds-pellet-retrain"')
+    end = markup.index("</p>", start)
+    return markup[start:end]
+
+
 def test_the_button_precedes_the_status_span(markup):
     """`margin-left:auto` on the status is what pushes everything after it
     right, so order in the markup IS the alignment."""
@@ -31,13 +43,13 @@ def test_the_button_precedes_the_status_span(markup):
 
 
 def test_the_note_warns_that_sweeps_are_invalidated(markup):
-    note = markup[markup.index('id="ia3ds-pellet-retrain"'):]
+    note = _note(markup)
     assert "invalidates cached sweeps" in note
     assert "every video in the project" in note
 
 
 def test_the_note_says_what_is_rebuilt(markup):
-    note = markup[markup.index('id="ia3ds-pellet-retrain"'):]
+    note = _note(markup)
     for phrase in ("template pool", "median click", "both", "reference"):
         assert phrase in note, f"the note must mention {phrase!r}"
 
@@ -45,5 +57,5 @@ def test_the_note_says_what_is_rebuilt(markup):
 def test_pressing_it_unchanged_is_described_as_free(markup):
     """Otherwise the warning reads as 'never press this', which is wrong -- the
     signature only moves when the number of clicks does."""
-    note = markup[markup.index('id="ia3ds-pellet-retrain"'):]
+    note = _note(markup)
     assert "costs nothing" in note
